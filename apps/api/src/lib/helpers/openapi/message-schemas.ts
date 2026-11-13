@@ -195,6 +195,11 @@ export const messageWithAuthorSchema = selectMessageSchema
       .object({
         startedAt: z.string().nullable(),
         finishedAt: z.string().nullable(),
+        // The model, effort and fast mode the run used; null model on runs
+        // from before LOR-160 that took the harness default.
+        model: z.string().nullable().optional(),
+        effort: z.string().nullable().optional(),
+        fast: z.boolean().optional(),
       })
       .nullable()
       .optional(),

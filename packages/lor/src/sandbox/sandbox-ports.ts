@@ -162,6 +162,51 @@ export async function ensureProcess(
   }
 }
 
+// Starts the named process again, whatever state the last run is in. The
+// caller has already ended its processes; the provider's record can lag a
+// moment behind, and refuses a name that still reads as running.
+export async function restartProcess(
+  owner: HarnessOwner,
+  input: {
+    name: string
+    command: string
+    cwd?: string
+    env?: Record<string, string>
+  }
+): Promise<"started" | null> {
+  const located = await existingSandbox(owner)
+  if (!located) return null
+  if (located.provider === "boat") {
+    await stopBoatProcess(located.sandbox, input.name)
+    await ensureBoatProcess(located.sandbox, input)
+    return "started"
+  }
+  const sandbox = located.sandbox
+  try {
+    await sandbox.process.kill(input.name).catch(() => {})
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await sandbox.process.exec({
+          name: input.name,
+          command: `bash -c ${shellQuote(input.command)}`,
+          workingDir: input.cwd ?? WORKSPACE_MOUNT,
+          env: { ...SANDBOX_PROCESS_ENV, ...input.env },
+          keepAlive: false,
+        })
+        return "started"
+      } catch (err) {
+        const stillRunning = /already exists/i.test(
+          err instanceof Error ? err.message : JSON.stringify(err)
+        )
+        if (!stillRunning || attempt >= 5) throw err
+        await new Promise((resolve) => setTimeout(resolve, 300))
+      }
+    }
+  } finally {
+    closeConnection(sandbox)
+  }
+}
+
 export async function stopProcess(
   owner: HarnessOwner,
   name: string

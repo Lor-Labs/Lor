@@ -160,6 +160,16 @@ export async function readCheckpointChanges(
 }
 
 const RESTORE_FAILED = 30
+const BACKUP_STUCK = 31
+
+// An interrupted rewind's live folder couldn't be moved back: the only copy
+// of uncheckpointed work. Callers must not clone or restore over it.
+export class WorkFolderBackupError extends Error {
+  constructor(detail: string) {
+    super(`couldn't move the work folder's backup back: ${detail}`)
+    this.name = "WorkFolderBackupError"
+  }
+}
 
 export type RestoreResult = "restored" | "present" | "none"
 
@@ -186,6 +196,32 @@ export async function restoreWorkFolder(
       { ...input, checkpoint, replace: false },
       abortSignal
     )
+  })
+}
+
+// Puts an interrupted rewind's .old-<pid> backup back as "$dir" when the
+// live folder is missing; exits BACKUP_STUCK when it can't be moved.
+const RECOVER_BACKUP = `if [ ! -e "$dir" ]; then for old in "$dir".old-*; do [ -d "$old" ] || continue; mv "$old" "$dir" || exit ${BACKUP_STUCK}; printf recovered; break; done; fi`
+
+// Before anything that needs Code Storage or GitHub: a failed remote step
+// must not fall back to a clone that hides the backup (and a later cleanup
+// deletes it). Under the checkpoint lock, so it never runs between a live
+// rewind's two renames. True when the backup was moved back.
+export async function recoverWorkFolderBackup(
+  session: SandboxSession,
+  input: { sessionId: string; workDir: string },
+  abortSignal?: AbortSignal
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    await lockSession(tx, input.sessionId)
+    const result = await session.run({
+      command: [`dir=${shellQuote(input.workDir)}`, RECOVER_BACKUP].join("\n"),
+      ...(abortSignal ? { abortSignal } : {}),
+    })
+    if (result.exitCode === BACKUP_STUCK) {
+      throw new WorkFolderBackupError(result.stderr.slice(-300))
+    }
+    return result.exitCode === 0 && result.stdout.includes("recovered")
   })
 }
 
@@ -220,6 +256,11 @@ async function runRestore(
   const result = await session.run({
     command: [
       `dir=${q(input.workDir)}`,
+      // A rewind killed between its two renames (its timeout, fencing, or a
+      // launch stopped once the sandbox answers) left the live folder only
+      // as .old-<pid>: put it back before anything here can delete it, or
+      // stop if it can't be moved.
+      `${RECOVER_BACKUP} >/dev/null`,
       ...(input.replace
         ? []
         : [
@@ -255,6 +296,8 @@ async function runRestore(
   })
   if (result.exitCode !== 0) {
     const detail = result.stderr.split(token).join("***").slice(-300)
+    if (result.exitCode === BACKUP_STUCK)
+      throw new WorkFolderBackupError(detail)
     throw new Error(`checkpoint restore failed: ${detail}`)
   }
   return result.stdout.trim() === "present" ? "present" : "restored"

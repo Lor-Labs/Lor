@@ -9,6 +9,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lt,
   or,
   schema,
   sql,
@@ -60,7 +61,11 @@ import {
   sessionSandboxExists,
 } from "@repo/lor/dev-env/environments"
 import { listOpenPorts, openPort } from "@repo/lor/dev-env/previews"
-import { repoSetupStatus, startService } from "@repo/lor/dev-env/repo-setup"
+import {
+  repoSetupStatus,
+  startService,
+  stopService,
+} from "@repo/lor/dev-env/repo-setup"
 import { openTerminal } from "@repo/lor/dev-env/terminal"
 import { sessionPullRequestReview } from "@repo/lor/pr-reviews"
 import {
@@ -83,6 +88,15 @@ import { logger } from "@/lib/logger"
 import { fetchSessionContext } from "@/lib/queries/session-context"
 import { fetchSessionTouches } from "@/lib/queries/session-touches"
 import { eventAuthor, postSessionEvent } from "@/lib/session-events"
+import {
+  confirmBrowserViewer,
+  endPreviewViewsSoon,
+  markBrowserSeen,
+  newPreviewToken,
+  previewExpiry,
+  storeAnnotations,
+  storedAnnotations,
+} from "@/lib/session-previews"
 import { recordSessionPullRequest } from "@/lib/session-reviews"
 import { enqueueSessionSandboxDelete } from "@/lib/session-sandbox-queue"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -95,6 +109,7 @@ import type {
   AnnotateSessionBrowserRoute,
   ApplySessionEnvironmentRoute,
   CommitSessionChangesRoute,
+  DeleteSessionBrowserShareRoute,
   DropActWaitingRoute,
   ForkAgentSessionRoute,
   GenerateSessionCommitMessageRoute,
@@ -103,6 +118,7 @@ import type {
   GetRepoFileRoute,
   GetRepoImageRoute,
   GetRepoTreeRoute,
+  GetSessionBrowserShareRoute,
   GetSessionChangeDiffRoute,
   GetSessionChangesRoute,
   GetSessionContextRoute,
@@ -112,16 +128,20 @@ import type {
   ListSessionFilesRoute,
   ListSessionPortsRoute,
   ListSessionTouchesRoute,
+  MarkSessionBrowserSeenRoute,
   OpenSessionBrowserPageRoute,
   OpenSessionBrowserRoute,
   OpenSessionPortRoute,
   OpenSessionTerminalRoute,
   PullSessionChangesRoute,
   PushSessionChangesRoute,
+  RestartSessionServiceRoute,
   RewindAgentSessionRoute,
   SetSessionBrowserControlRoute,
+  SetSessionBrowserShareRoute,
   StageSessionChangesRoute,
   StartSessionServiceRoute,
+  StopSessionServiceRoute,
   UpdateAgentSessionRoute,
   UpdateSessionSetupRoute,
 } from "@/routes/v1/sessions/routes"
@@ -646,7 +666,8 @@ export const rewindAgentSession: AppRouteHandler<
       : null
   if (code && checkpoint) startRewindFiles(code, checkpoint)
   const author = eventAuthor(user)
-  void postSessionEvent(
+  // Awaited: clients reload the thread on success and must find the event.
+  await postSessionEvent(
     session,
     author,
     {
@@ -1426,6 +1447,9 @@ export const dropActWaiting: AppRouteHandler<DropActWaitingRoute> = async (
   return c.json({ dropped }, HttpStatusCodes.OK)
 }
 
+const NO_SANDBOX_MESSAGE =
+  "This session has no sandbox yet. Send Lor a message to set one up."
+
 // The Browser tab (reference/dev-environment-runbook.md §3): code sessions
 // only. Listing needs channel access; opening a port needs write access, like
 // everything else that changes the sandbox (it may start a relay).
@@ -1514,35 +1538,102 @@ export const getSessionSetup: AppRouteHandler<GetSessionSetupRoute> = async (
   )
 }
 
-export const startSessionService: AppRouteHandler<
-  StartSessionServiceRoute
-> = async (c) => {
-  const { sessionId, name } = c.req.valid("param")
-  const row = await findAccessibleSession(sessionId, c.var.user.id)
+// Write access in a code session, for everything that starts or stops a
+// service.
+async function serviceSession(sessionId: string, userId: string) {
+  const row = await findAccessibleSession(sessionId, userId)
   if (!row || row.session.mode !== "code") {
-    return c.json(
-      { success: false as const, message: "Session not found" },
-      HttpStatusCodes.NOT_FOUND
-    )
+    return {
+      ok: false,
+      status: HttpStatusCodes.NOT_FOUND,
+      message: "Session not found",
+    } as const
   }
   if (!row.canWrite) {
+    return {
+      ok: false,
+      status: HttpStatusCodes.FORBIDDEN,
+      message: "Forbidden",
+    } as const
+  }
+  return { ok: true } as const
+}
+
+const startSessionServiceWith =
+  (
+    restart: boolean
+  ): AppRouteHandler<StartSessionServiceRoute | RestartSessionServiceRoute> =>
+  async (c) => {
+    const { sessionId, name } = c.req.valid("param")
+    const access = await serviceSession(sessionId, c.var.user.id)
+    if (!access.ok) {
+      return c.json(
+        { success: false as const, message: access.message },
+        access.status
+      )
+    }
+    const result = await startService(sessionId, name, { restart })
+    switch (result.status) {
+      case "started":
+      case "running":
+        return c.json({ status: result.status }, HttpStatusCodes.OK)
+      case "no_sandbox":
+        return c.json(
+          { success: false as const, message: NO_SANDBOX_MESSAGE },
+          HttpStatusCodes.CONFLICT
+        )
+      case "unknown_service":
+        return c.json(
+          {
+            success: false as const,
+            message: `.lor/environment.json has no service named ${name}.`,
+          },
+          HttpStatusCodes.NOT_FOUND
+        )
+      case "missing":
+        return c.json(
+          {
+            success: false as const,
+            message: "This repo has no .lor/environment.json yet.",
+          },
+          HttpStatusCodes.BAD_REQUEST
+        )
+      case "invalid":
+        return c.json(
+          {
+            success: false as const,
+            message: `.lor/environment.json is invalid: ${result.error}`,
+          },
+          HttpStatusCodes.BAD_REQUEST
+        )
+    }
+  }
+
+export const startSessionService: AppRouteHandler<StartSessionServiceRoute> =
+  startSessionServiceWith(false)
+
+export const restartSessionService: AppRouteHandler<RestartSessionServiceRoute> =
+  startSessionServiceWith(true)
+
+export const stopSessionService: AppRouteHandler<
+  StopSessionServiceRoute
+> = async (c) => {
+  const { sessionId, name } = c.req.valid("param")
+  const access = await serviceSession(sessionId, c.var.user.id)
+  if (!access.ok) {
     return c.json(
-      { success: false as const, message: "Forbidden" },
-      HttpStatusCodes.FORBIDDEN
+      { success: false as const, message: access.message },
+      access.status
     )
   }
-  const result = await startService(sessionId, name)
+  const result = await stopService(sessionId, name)
   switch (result.status) {
-    case "started":
-    case "running":
+    case "stopped":
+    case "not_running":
       return c.json({ status: result.status }, HttpStatusCodes.OK)
     case "no_sandbox":
       return c.json(
-        {
-          success: false as const,
-          message:
-            "This session has no sandbox yet. Send Lor a message to set one up.",
-        },
+        { success: false as const, message: NO_SANDBOX_MESSAGE },
         HttpStatusCodes.CONFLICT
       )
     case "unknown_service":
@@ -1552,22 +1643,6 @@ export const startSessionService: AppRouteHandler<
           message: `.lor/environment.json has no service named ${name}.`,
         },
         HttpStatusCodes.NOT_FOUND
-      )
-    case "missing":
-      return c.json(
-        {
-          success: false as const,
-          message: "This repo has no .lor/environment.json yet.",
-        },
-        HttpStatusCodes.BAD_REQUEST
-      )
-    case "invalid":
-      return c.json(
-        {
-          success: false as const,
-          message: `.lor/environment.json is invalid: ${result.error}`,
-        },
-        HttpStatusCodes.BAD_REQUEST
       )
   }
 }
@@ -1649,8 +1724,6 @@ async function browserSession(sessionId: string, userId: string) {
   return { ok: true, session: row.session } as const
 }
 
-const NO_SANDBOX_MESSAGE =
-  "This session has no sandbox yet. Send Lor a message to set one up."
 const OLD_SANDBOX_MESSAGE =
   "This session's sandbox predates the browser. Start a new session to use it."
 
@@ -1665,9 +1738,31 @@ export const openSessionBrowser: AppRouteHandler<
       access.status
     )
   }
-  const result = await openBrowserView(sessionId, c.var.user.id)
+  // Anyone here can write in the channel, so they annotate and send.
+  const result = await openBrowserView(
+    sessionId,
+    {
+      userId: c.var.user.id,
+      name: c.var.user.name,
+      annotate: true,
+      send: true,
+    },
+    { stored: () => storedAnnotations(sessionId) }
+  )
   switch (result.status) {
-    case "ready":
+    case "ready": {
+      await markBrowserSeen(sessionId)
+      const kept = await confirmBrowserViewer(
+        sessionId,
+        c.var.user.id,
+        async () => (await browserSession(sessionId, c.var.user.id)).ok
+      )
+      if (!kept) {
+        return c.json(
+          { success: false as const, message: "Forbidden" },
+          HttpStatusCodes.FORBIDDEN
+        )
+      }
       return c.json(
         {
           status: "ready" as const,
@@ -1677,7 +1772,9 @@ export const openSessionBrowser: AppRouteHandler<
         },
         HttpStatusCodes.OK
       )
+    }
     case "unavailable":
+    case "outdated":
       return c.json({ status: "unavailable" as const }, HttpStatusCodes.OK)
     case "no_sandbox":
       return c.json(
@@ -1690,6 +1787,149 @@ export const openSessionBrowser: AppRouteHandler<
         HttpStatusCodes.BAD_REQUEST
       )
   }
+}
+
+// Preview links (reference/planned/sandbox-browser-runbook.md §8).
+const shareBody = (
+  link: { token: string; access: "private" | "public"; expiresAt: Date } | null
+) => ({
+  link:
+    link && link.expiresAt.getTime() > Date.now()
+      ? {
+          token: link.token,
+          access: link.access,
+          expiresAt: link.expiresAt.toISOString(),
+        }
+      : null,
+})
+
+export const getSessionBrowserShare: AppRouteHandler<
+  GetSessionBrowserShareRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const access = await browserSession(sessionId, c.var.user.id)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: access.message },
+      access.status
+    )
+  }
+  const link = await db
+    .select()
+    .from(schema.sessionPreviewLink)
+    .where(eq(schema.sessionPreviewLink.sessionId, sessionId))
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
+  return c.json(shareBody(link), HttpStatusCodes.OK)
+}
+
+export const setSessionBrowserShare: AppRouteHandler<
+  SetSessionBrowserShareRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const body = c.req.valid("json")
+  const access = await browserSession(sessionId, c.var.user.id)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: access.message },
+      access.status
+    )
+  }
+  // Serialized per session (the session row's lock), so the revocation
+  // below sees the access this write actually replaced.
+  const { before, link } = await db.transaction(async (tx) => {
+    await tx
+      .select({ id: schema.agentSession.id })
+      .from(schema.agentSession)
+      .where(eq(schema.agentSession.id, sessionId))
+      .for("update")
+    const before = await tx
+      .select({ access: schema.sessionPreviewLink.access })
+      .from(schema.sessionPreviewLink)
+      .where(eq(schema.sessionPreviewLink.sessionId, sessionId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null)
+    // A lapsed link's row is replaced, so its old URL stays dead.
+    await tx
+      .delete(schema.sessionPreviewLink)
+      .where(
+        and(
+          eq(schema.sessionPreviewLink.sessionId, sessionId),
+          lt(schema.sessionPreviewLink.expiresAt, new Date())
+        )
+      )
+    const link = await tx
+      .insert(schema.sessionPreviewLink)
+      .values({
+        sessionId,
+        token: newPreviewToken(),
+        access: body.access,
+        expiresAt: previewExpiry(),
+        createdById: c.var.user.id,
+      })
+      .onConflictDoUpdate({
+        target: schema.sessionPreviewLink.sessionId,
+        set: { access: body.access, expiresAt: previewExpiry() },
+      })
+      .returning()
+      .then((rows) => rows[0] ?? null)
+    return { before, link }
+  })
+  // Made private: people the link no longer lets in leave.
+  if (before?.access === "public" && body.access === "private") {
+    endPreviewViewsSoon(sessionId)
+  }
+  return c.json(shareBody(link), HttpStatusCodes.OK)
+}
+
+export const deleteSessionBrowserShare: AppRouteHandler<
+  DeleteSessionBrowserShareRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const access = await browserSession(sessionId, c.var.user.id)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: access.message },
+      access.status
+    )
+  }
+  const removed = await db
+    .delete(schema.sessionPreviewLink)
+    .where(eq(schema.sessionPreviewLink.sessionId, sessionId))
+    .returning({ id: schema.sessionPreviewLink.id })
+  if (removed.length > 0) endPreviewViewsSoon(sessionId)
+  return c.json(shareBody(null), HttpStatusCodes.OK)
+}
+
+export const markSessionBrowserSeen: AppRouteHandler<
+  MarkSessionBrowserSeenRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const body = c.req.valid("json")
+  const access = await browserSession(sessionId, c.var.user.id)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: access.message },
+      access.status
+    )
+  }
+  await markBrowserSeen(sessionId)
+  // Awaited, so a failed copy fails the request and the page asks again.
+  if (body.annotations) {
+    try {
+      await storeAnnotations(sessionId)
+    } catch (err) {
+      logger.warn(
+        { err, sessionId: sessionId },
+        "Couldn't store the annotations"
+      )
+      return c.json(
+        { success: false as const, message: "Couldn't store the annotations" },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  }
+  return c.json({ ok: true as const }, HttpStatusCodes.OK)
 }
 
 export const setSessionBrowserControl: AppRouteHandler<
@@ -2107,7 +2347,11 @@ export const updateSessionSetup: AppRouteHandler<
     after,
   } = outcome
 
-  if (replaced) await startRestore(session)
+  if (replaced) {
+    await startRestore(session)
+    // Open sessions show the replacement now, not only when it ends.
+    broadcastChangesUpdated(session, "", { filesChanged: true })
+  }
   // Null: the manifest cleanup deletes the old environment's files.
   if (environmentChanged || (resized && environmentId)) {
     queueEnvironmentWrite(session, environmentId)

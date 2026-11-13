@@ -28,8 +28,10 @@ export function usePinnedMessages({
   })
   const { refetch } = query
 
+  // Resolves false when the request failed (cached pins stay shown).
   const reload = useCallback(async () => {
-    await refetch()
+    const result = await refetch()
+    return !result.isError
   }, [refetch])
 
   const remove = useCallback(

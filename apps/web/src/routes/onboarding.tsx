@@ -25,6 +25,7 @@ import { WebsiteInput } from "@/components/onboarding/website-input"
 import { MorphText } from "@/components/ui/morph-text"
 import { SETTINGS_SURFACE } from "@/components/workspace/settings-group"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
+import { clearSessionPicks } from "@/hooks/use-agent-models"
 import { apiClient } from "@/lib/api-client"
 import { acceptInvitation } from "@/lib/invitations"
 import { formatWorkspaceRole } from "@/lib/permissions"
@@ -268,6 +269,7 @@ function OnboardingFlow({ email }: { email: string }) {
       return
     }
     clearSessionPanels(session?.user.id)
+    clearSessionPicks()
     queryClient.clear()
     await navigate({ to: "/login", replace: true })
   }

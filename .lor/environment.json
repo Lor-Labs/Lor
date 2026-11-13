@@ -1,0 +1,26 @@
+{
+  "install": "[ -e .env ] || [ ! -e .env.local ] || ln -s .env.local .env; pnpm install --frozen-lockfile && pnpm turbo run build --filter=@repo/api-client",
+  "services": [
+    {
+      "name": "web",
+      "command": "NEXT_PUBLIC_API_URL=http://localhost:8787 pnpm --filter web dev",
+      "port": 3000
+    },
+    {
+      "name": "api",
+      "command": "NEXT_PUBLIC_API_URL=http://localhost:8787 pnpm --filter @repo/api dev",
+      "port": 8787
+    },
+    {
+      "name": "realtime",
+      "command": "pnpm --filter @repo/realtime dev",
+      "port": 8000
+    },
+    {
+      "name": "www",
+      "command": "pnpm --filter www dev",
+      "port": 3001,
+      "default": false
+    }
+  ]
+}

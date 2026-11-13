@@ -183,6 +183,32 @@ export const browserControlRequestSchema = z.object({
   take: z.boolean(),
 })
 
+// A preview link (reference/planned/sandbox-browser-runbook.md §8): the URL
+// outside the app that opens this session's browser. `private`: people in the
+// workspace. `public`: anyone watches.
+export const previewAccessSchema = z.enum(["private", "public"])
+
+export const browserShareResponseSchema = z.object({
+  link: z
+    .object({
+      token: z.string(),
+      access: previewAccessSchema,
+      expiresAt: z.string(),
+    })
+    .nullable(),
+})
+
+export const browserShareRequestSchema = z.object({
+  access: previewAccessSchema,
+})
+
+// `annotations`: the notes on the page changed, so store them again.
+export const browserSeenRequestSchema = z.object({
+  annotations: z.boolean().default(false),
+})
+
+export const browserSeenResponseSchema = z.object({ ok: z.literal(true) })
+
 export const browserControlResponseSchema = z.object({
   controller: browserControllerSchema,
 })
@@ -255,14 +281,27 @@ export const sessionSetupResponseSchema = z.object({
       // Part of "the app" that Start app runs (`default` is not false).
       default: z.boolean(),
       state: z.enum(["stopped", "starting", "running", "exited"]),
-      // The end of its log while starting or after it exited.
+      // The end of the log of the process the Start button started.
       log: z.string().nullable(),
+      // While starting: since the start, and since the log's last output. A
+      // dev server in watch mode stays "starting" after it crashed.
+      installing: z.boolean(),
+      upMs: z.number().nullable(),
+      quietMs: z.number().nullable(),
+      // Ports its process listens on instead of `port`.
+      otherPorts: z.array(z.number().int()),
+      // The sandbox still holds its port from an earlier server.
+      portHeld: z.boolean(),
     })
   ),
 })
 
 export const startServiceResponseSchema = z.object({
   status: z.enum(["started", "running"]),
+})
+
+export const stopServiceResponseSchema = z.object({
+  status: z.enum(["stopped", "not_running"]),
 })
 
 export const serviceParamsSchema = sessionParamsSchema.extend({

@@ -42,6 +42,7 @@ import {
 } from "@/lib/permissions"
 import { getAvatarColorsByUserId } from "@/lib/queries/messages"
 import { getRedisClient } from "@/lib/redis"
+import { endInaccessibleBrowserViewsSoon } from "@/lib/session-previews"
 import { fetchSiteIcon, storeWorkspaceIcon } from "@/lib/site-icon"
 import { disconnectUserSockets } from "@/lib/socket-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -267,6 +268,8 @@ export const updateWorkspaceMemberRole: AppRouteHandler<
     )
   }
 
+  endInaccessibleBrowserViewsSoon(userId)
+
   const updatedMember = await getWorkspaceMemberRow(workspace.id, userId)
 
   if (!updatedMember) {
@@ -378,6 +381,9 @@ export const deleteWorkspaceRole: AppRouteHandler<
       { success: false, message: "Role not found in this workspace" },
       HttpStatusCodes.NOT_FOUND
     )
+  }
+  for (const memberId of reassignedMemberIds) {
+    endInaccessibleBrowserViewsSoon(memberId)
   }
 
   return c.json(

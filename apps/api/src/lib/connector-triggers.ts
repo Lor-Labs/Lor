@@ -1,8 +1,13 @@
+import { randomUUID } from "node:crypto"
 import { recordUsage } from "@repo/billing"
 import type { ConnectorEventKey } from "@repo/connectors"
 import { APP_USER_ID, and, db, eq, schema } from "@repo/db"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
-import type { Embed, IntegrationProvider } from "@repo/db/schema"
+import type {
+  Embed,
+  IntegrationProvider,
+  TriggerSourceMessage,
+} from "@repo/db/schema"
 import { ACT_DELIVERY_PAYLOAD_MAX } from "@repo/lor/act-runs"
 import { enrichMeetingEmbed } from "@repo/lor/meeting-insights"
 import { channelRoom, threadRoom } from "@repo/realtime-types"
@@ -22,6 +27,24 @@ export type EventItem = {
 // Raw payloads logged on trigger_delivery are capped — Lor stores the whole
 // payload only for BYO webhooks, and only up to this.
 const DELIVERY_PAYLOAD_MAX = 64 * 1024
+// The trigger card's copy of the posted message, shown in the session. The
+// Act turn reads actPayload, so this one is only for display.
+const SOURCE_MESSAGE_CONTENT_MAX = 16 * 1024
+const SOURCE_MESSAGE_MAX = 64 * 1024
+
+function capSourceMessage(
+  source: TriggerSourceMessage
+): TriggerSourceMessage | null {
+  const capped = {
+    ...source,
+    content: source.content?.slice(0, SOURCE_MESSAGE_CONTENT_MAX) ?? null,
+  }
+  const size = (value: TriggerSourceMessage) =>
+    Buffer.byteLength(JSON.stringify(value))
+  if (size(capped) <= SOURCE_MESSAGE_MAX) return capped
+  const plain = { ...capped, embeds: [], attachments: [] }
+  return size(plain) <= SOURCE_MESSAGE_MAX ? plain : null
+}
 
 export type DispatchOutcome = {
   // The posted channel message id, when the POST effect ran.
@@ -130,6 +153,17 @@ export async function dispatchConnectorEvent(input: {
     return null
 
   let postedMessageId: string | null = null
+  let sourceMessage: TriggerSourceMessage = {
+    id: randomUUID(),
+    content: input.text,
+    createdAt: new Date().toISOString(),
+    author: { id: APP_USER_ID, name: input.label, image: null },
+    overrideName: input.label,
+    overrideAvatarUrl: input.avatarUrl ?? null,
+    mentions: [],
+    attachments: [],
+    embeds: input.embeds ?? [],
+  }
   if (target.trigger.post) {
     // A POST failure must not take the delivery log or Act with it.
     try {
@@ -143,6 +177,17 @@ export async function dispatchConnectorEvent(input: {
         excludedFromMemory: input.ingested ?? false,
       })
       postedMessageId = message.id
+      sourceMessage = {
+        id: message.id,
+        content: message.content,
+        createdAt: message.createdAt,
+        author: message.author,
+        overrideName: message.overrideName ?? null,
+        overrideAvatarUrl: message.overrideAvatarUrl ?? null,
+        mentions: message.mentions,
+        attachments: message.attachments,
+        embeds: message.embeds,
+      }
       // Meeting insights are a model call — too slow to hold the webhook ack
       // open. Post the base card first, then patch the embeds in place.
       if (
@@ -182,6 +227,7 @@ export async function dispatchConnectorEvent(input: {
         : null,
       actPayload: actText ? actText.slice(0, ACT_DELIVERY_PAYLOAD_MAX) : null,
       actLabel: actOn ? input.label : null,
+      sourceMessage: actOn ? capSourceMessage(sourceMessage) : null,
       subject: input.subject ?? input.item?.url ?? null,
       posted: postedMessageId !== null,
     })

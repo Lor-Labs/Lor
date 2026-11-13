@@ -53,7 +53,7 @@ function fetchWorkspaceActivity(socket: AppSocket, workspaceId: string) {
 export function useWorkspaceActivity(workspaceId?: string) {
   const socket = useSocket()
   const queryClient = useQueryClient()
-  const { data } = useQuery({
+  const { data, isError, refetch } = useQuery({
     queryKey: workspaceActivityKey(workspaceId ?? ""),
     queryFn: () => {
       if (!socket || !workspaceId) throw new Error("No workspace")
@@ -117,7 +117,7 @@ export function useWorkspaceActivity(workspaceId?: string) {
     }
   }, [socket, workspaceId, queryClient])
 
-  return data
+  return { data, isError, refetch }
 }
 
 // Only a row the snapshot lists; never adds one. Mirrors web.

@@ -10,6 +10,7 @@ import Cursor01Icon from "@hugeicons/core-free-icons/Cursor01Icon"
 import GitForkIcon from "@hugeicons/core-free-icons/GitForkIcon"
 import HashtagIcon from "@hugeicons/core-free-icons/HashtagIcon"
 import PencilEdit02Icon from "@hugeicons/core-free-icons/PencilEdit02Icon"
+import Settings02Icon from "@hugeicons/core-free-icons/Settings02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { useQuery } from "@tanstack/react-query"
 import { router } from "expo-router"
@@ -128,6 +129,7 @@ export function SessionSheet({
   isOpen,
   onOpenChange,
   lorRunning,
+  onOpenSetup,
 }: {
   session: AgentSession
   // The loaded transcript, for the files Lor made and people attached.
@@ -135,6 +137,8 @@ export function SessionSheet({
   isOpen: boolean
   onOpenChange: (isOpen: boolean) => void
   lorRunning: boolean
+  // A code session: opens its Environment & sandbox sheet.
+  onOpenSetup?: () => void
 }) {
   const placeholder = useThemeColor("field-placeholder")
   const { workspace } = useWorkspace()
@@ -321,6 +325,19 @@ export function SessionSheet({
                       }}
                     />
                   </View>
+                </Section>
+              ) : null}
+              {code && !archived && onOpenSetup ? (
+                <Section title="Sandbox">
+                  <ActionRow
+                    detail="The env files and memory this session runs with"
+                    icon={Settings02Icon}
+                    label="Environment & sandbox"
+                    onPress={() => {
+                      close(false)
+                      onOpenSetup()
+                    }}
+                  />
                 </Section>
               ) : null}
               {code ? null : (

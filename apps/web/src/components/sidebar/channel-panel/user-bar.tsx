@@ -34,6 +34,7 @@ import {
   sidebarMenuSurface,
 } from "@/components/sidebar/sidebar-menu-styles"
 import { UserAvatar } from "@/components/ui/user-avatar"
+import { clearSessionPicks } from "@/hooks/use-agent-models"
 import { useSettings } from "@/hooks/use-settings"
 import {
   canDownloadDesktopApp,
@@ -70,6 +71,7 @@ export function UserBar() {
       return
     }
     clearSessionPanels(session?.user.id)
+    clearSessionPicks()
     queryClient.clear()
     await navigate({ to: "/login", replace: true })
   }

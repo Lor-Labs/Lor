@@ -41,6 +41,7 @@ import { ActWaitingNote } from "@/components/session/act-waiting-note"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
 import { HarnessLogo } from "@/components/session/harness-logo"
 import { HARNESS_LABELS } from "@/components/session/harness-picker"
+import { SandboxStatusNote } from "@/components/session/sandbox-status-note"
 import { SessionContextFold } from "@/components/session/session-context-fold"
 import { SessionDocument } from "@/components/session/session-document"
 import { SessionSetupDialog } from "@/components/session/session-setup-dialog"
@@ -91,11 +92,13 @@ export function SessionView({
   sessionId,
   targetMessageId,
   targetFolder,
+  targetPanel,
 }: {
   workspaceSlug: string
   sessionId: string
   targetMessageId?: string
   targetFolder?: string
+  targetPanel?: "browser"
 }) {
   const { data, isPending, isError } = useAgentSession(sessionId)
   // Opened without a row hover (⌘K, a link, a notification): the sidebar row
@@ -132,6 +135,7 @@ export function SessionView({
       detail={data}
       targetMessageId={targetMessageId}
       targetFolder={targetFolder}
+      targetPanel={targetPanel}
     />
   )
 }
@@ -141,11 +145,13 @@ function SessionConversation({
   detail: { session, channel, source },
   targetMessageId,
   targetFolder,
+  targetPanel,
 }: {
   workspaceSlug: string
   detail: AgentSessionDetail
   targetMessageId?: string
   targetFolder?: string
+  targetPanel?: "browser"
 }) {
   // Approval and proposal cards render inline in the session; keep them live.
   useChannelApprovals(session.channelId, session.threadRootId)
@@ -312,6 +318,17 @@ function SessionConversation({
       replace: true,
     })
   }, [targetFolder, code, isHydrated, isMobile, workView, openView, navigate])
+  // A link a teammate shared from the Browser tab (?side=browser).
+  useEffect(() => {
+    if (targetPanel !== "browser" || !code || !isHydrated) return
+    if (isMobile !== false) return
+    openView({ ...workView, type: "session-browser" })
+    void navigate({
+      to: ".",
+      search: (prev) => ({ ...prev, side: undefined }),
+      replace: true,
+    })
+  }, [targetPanel, code, isHydrated, isMobile, workView, openView, navigate])
   const change = {
     workspaceId: session.workspaceId,
     channelId: session.channelId,
@@ -396,12 +413,19 @@ function SessionConversation({
               />
             )}
           </>
-        ) : session.origin === "trigger" ? (
-          <ActWaitingNote
-            sessionId={session.id}
-            threadRootId={session.threadRootId}
-          />
-        ) : undefined
+        ) : (
+          <>
+            {session.origin === "trigger" ? (
+              <ActWaitingNote
+                sessionId={session.id}
+                threadRootId={session.threadRootId}
+              />
+            ) : null}
+            {code && !session.archivedAt ? (
+              <SandboxStatusNote sessionId={session.id} />
+            ) : null}
+          </>
+        )
       }
       workspaceSlug={workspaceSlug}
       channelId={session.channelId}

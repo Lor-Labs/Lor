@@ -28,6 +28,7 @@ import { triggerHaptic } from "@/components/ui/haptics"
 import { Screen } from "@/components/ui/screen"
 import { WebsiteInput } from "@/components/website-input"
 import { useWorkspace } from "@/context/workspace-context"
+import { clearSessionPicks } from "@/hooks/use-agent-models"
 import { useCompanySite } from "@/hooks/use-company-site"
 import { useTheme } from "@/hooks/use-theme"
 import { api, responseMessage } from "@/lib/api"
@@ -245,6 +246,9 @@ export default function OnboardingScreen() {
     void unregisterPushToken()
       .catch(() => {})
       .then(() => authClient.signOut())
+      .then(({ error }) => {
+        if (!error) clearSessionPicks()
+      })
   }
 
   const entering = (direction === 1 ? FadeInRight : FadeInLeft).duration(220)

@@ -1,7 +1,10 @@
 import {
+  ArrowRight01Icon,
   ArrowUp02Icon,
   GitCommitIcon,
   GitForkIcon,
+  GitMergeIcon,
+  GitPullRequestIcon,
   HashtagIcon,
   Infinity01Icon,
   Settings02Icon,
@@ -10,6 +13,9 @@ import {
   ZapIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
+import { authClient } from "@repo/auth/client"
+import { APP_USER_ID } from "@repo/db/constants"
+import type { TriggerRunPayload } from "@repo/db/schema"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { HeightTransition } from "@repo/ui/components/height-transition"
@@ -22,9 +28,14 @@ import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatDateTime, formatTime, timeAgo } from "@repo/utils/date"
+import {
+  restoreTriggerMessage,
+  triggerMessageContent,
+} from "@repo/utils/trigger-message"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import { type ReactNode, useState } from "react"
+import { MessageItem } from "@/components/chat/message-item"
 import { isReviewedEvent, ReviewCard } from "@/components/session/review-card"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
@@ -53,7 +64,6 @@ type LoopPayload = {
   reason?: "failures" | "out_of_credits"
   via?: "proposal"
 }
-type TriggerRunPayload = { triggerId: string; label: string }
 type SessionContinuedPayload = {
   sessionId: string
   repoFullName: string | null
@@ -71,6 +81,14 @@ type SessionPushedPayload = {
   headSha: string
 }
 type SessionForkedPayload = { sessionId: string; fromMessageId: string }
+type SessionPullRequestPayload = {
+  pullRequestNumber: number
+  pullRequestUrl: string
+  title: string
+  headBranch: string
+  baseBranch: string
+  githubLogin: string
+}
 type SessionSetupChangedPayload = {
   environmentName?: string | null
   sandboxMemoryMb?: number
@@ -541,6 +559,32 @@ function eventText(
         </>
       )
     }
+    // Someone without a linked GitHub account reads as their GitHub login.
+    case "session_pr_opened":
+    case "session_pr_merged": {
+      if (!payload) break
+      const p = payload as SessionPullRequestPayload
+      const merged = message.eventType === "session_pr_merged"
+      return (
+        <>
+          {message.authorId === APP_USER_ID ? (
+            <Name>{p.githubLogin}</Name>
+          ) : (
+            actor
+          )}{" "}
+          {merged ? "merged" : "opened"}{" "}
+          <a
+            href={p.pullRequestUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={HOVER_NAME_CLASS}
+          >
+            #{p.pullRequestNumber} {p.title}
+          </a>{" "}
+          into <Name>{p.baseBranch}</Name>
+        </>
+      )
+    }
     // The fork's heading links back to the reply it was forked at.
     case "session_forked": {
       if (!payload) break
@@ -582,7 +626,7 @@ function eventText(
     // turns after it (rewound-turns.tsx).
     case "session_rewound":
       return <>{actor} rewound to here</>
-    // Content is the event payload Lor reads, never shown as the line.
+    // The triggering message is rendered below this attribution line.
     case "trigger_run": {
       const p = payload as TriggerRunPayload | null
       return (
@@ -685,6 +729,8 @@ const SESSION_EVENT_ICONS: Partial<
   session_pushed: ArrowUp02Icon,
   session_forked: GitForkIcon,
   session_rewound: Undo02Icon,
+  session_pr_opened: GitPullRequestIcon,
+  session_pr_merged: GitMergeIcon,
   session_setup_changed: Settings02Icon,
   loop_run: Infinity01Icon,
   trigger_run: ZapIcon,
@@ -698,6 +744,12 @@ const ACTOR_EVENTS: ReadonlySet<string> = new Set([
   "session_forked",
   "session_rewound",
   "session_setup_changed",
+])
+
+// Actor rows when the person's linked GitHub account did it.
+const PULL_REQUEST_EVENTS: ReadonlySet<string> = new Set([
+  "session_pr_opened",
+  "session_pr_merged",
 ])
 
 export function SessionEventRow({
@@ -714,7 +766,10 @@ export function SessionEventRow({
 }) {
   const { author } = message
   const byPerson = Boolean(
-    message.eventType && ACTOR_EVENTS.has(message.eventType)
+    message.eventType &&
+      (ACTOR_EVENTS.has(message.eventType) ||
+        (PULL_REQUEST_EVENTS.has(message.eventType) &&
+          message.authorId !== APP_USER_ID))
   )
   // After a name the sentence's own space follows; leading, it needs one.
   const inlineIcon = icon ? (
@@ -767,6 +822,10 @@ export function ChannelEventRow({
   const [expanded, setExpanded] = useState(false)
   const first = events[0]
   if (!first) return null
+
+  if (first.eventType === "trigger_run" && events.length === 1) {
+    return <TriggerMessage message={first} />
+  }
 
   if (layout === "document" && events.length === 1 && isReviewedEvent(first)) {
     return <ReviewCard message={first} />
@@ -830,5 +889,79 @@ export function ChannelEventRow({
         )
       })}
     </HeightTransition>
+  )
+}
+
+function TriggerMessage({ message }: { message: Message }) {
+  const [expanded, setExpanded] = useState(true)
+  const { data: auth } = authClient.useSession()
+  const payload = message.eventPayload as TriggerRunPayload | null
+  const label = payload?.label ?? "An automation"
+  const sources = payload?.sourceMessages ?? []
+  const originals = sources.length
+    ? sources.map((source) => restoreTriggerMessage(message, source))
+    : [
+        restoreTriggerMessage(message, {
+          content: triggerMessageContent(message.content),
+          author: { id: APP_USER_ID, name: label, image: null },
+          overrideName: label,
+        }),
+      ]
+  if (
+    !originals.some((original) =>
+      Boolean(
+        original.content?.trim() ||
+          original.embeds.length ||
+          original.attachments?.length
+      )
+    )
+  ) {
+    return <SessionEventRow message={message} />
+  }
+  return (
+    <div className="my-4 rounded-xl border border-border/70 bg-muted/35">
+      <div className="relative flex items-center justify-between gap-2 py-2 pr-4">
+        <div className="min-w-0">
+          <SessionEventRow message={message} />
+        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          aria-expanded={expanded}
+          className="flex shrink-0 cursor-pointer items-center gap-1 rounded-md text-muted-foreground text-xs outline-none transition-colors after:absolute after:inset-0 after:rounded-xl hover:text-foreground focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+        >
+          {expanded ? "Hide" : "View"}
+          <HugeiconsIcon
+            icon={ArrowRight01Icon}
+            className={cn(
+              "size-3.5 transition-transform duration-200 ease-out motion-reduce:transition-none",
+              expanded && "rotate-90"
+            )}
+            strokeWidth={2}
+            aria-hidden="true"
+          />
+        </button>
+      </div>
+      {expanded && (
+        <div className="fade-in-0 animate-in border-border/70 border-t pt-1 pb-3 duration-200 ease-out motion-reduce:animate-none">
+          {originals.map((original) => (
+            <MessageItem
+              key={original.id}
+              message={original}
+              showHeader
+              wrapContentAroundAvatar
+              layout="chat"
+              currentUserId={auth?.user.id}
+              readOnly
+            />
+          ))}
+          {(payload?.omittedMessages ?? 0) > 0 && (
+            <p className="px-4 pt-2 text-muted-foreground text-xs">
+              {payload?.omittedMessages} additional messages not shown
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

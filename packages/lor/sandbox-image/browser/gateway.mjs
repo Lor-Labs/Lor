@@ -8,12 +8,19 @@
 // client. When control changes, the page's bridge script reloads it in its
 // new role, and Selkies connections still in the old role are closed. Control
 // goes back to Lor after the controller has had no connection for a while.
+// Each page's events socket also carries who is here, everyone's pointer and
+// the shared annotations (gateway-collab.mjs). A grant says what its viewer
+// may do beyond watching (§8, preview links): `can` lists "annotate" (point
+// and leave notes) and "send" (read and clear everyone's notes); an
+// `anonymous` grant only watches, and is dropped once no signed-in viewer has
+// been here for a while, so a public link alone never keeps the sandbox awake.
 import { execFile } from "node:child_process"
-import { watch } from "node:fs"
+import { readFileSync, watch } from "node:fs"
 import { readFile, stat, unlink, utimes } from "node:fs/promises"
 import { createServer, request } from "node:http"
 import { promisify } from "node:util"
 import WebSocket, { WebSocketServer } from "ws"
+import { COLORS, colorFor, createCollab } from "./gateway-collab.mjs"
 
 const DIR = process.env.LOR_BROWSER_DIR ?? "/workspace/.cache/lor-browser"
 const VIEW_PORT = Number(process.env.LOR_BROWSER_VIEW_PORT ?? 6080)
@@ -28,7 +35,12 @@ const TOKENS = {
 const GRANT_IDLE_MS = 10 * 60_000
 const GRANT_MAX_MS = 12 * 60 * 60_000
 const RELEASE_AFTER_MS = 2 * 60_000
-const MAX_CONNECTIONS = 40
+const MAX_CONNECTIONS = 60
+// Signed-out viewers of a public link never crowd out the people working.
+const MAX_ANONYMOUS_CONNECTIONS = 24
+const ANONYMOUS_ALONE_MS = 2 * 60_000
+// Close code for an anonymous viewer dropped because nobody signed in is here.
+const ASLEEP = 4005
 const MAX_BUFFERED = 8 * 1024 * 1024
 // Selkies' own "permissions changed" close: its page reloads in the new role.
 const ROLE_CHANGED = 4002
@@ -47,6 +59,7 @@ const VIEW_PATH = /^\/v\/([^/]+)(\/.*)?$/
 const run = promisify(execFile)
 const streams = new Set()
 const listeners = new Set()
+const connections = () => [...streams, ...listeners]
 let controllerId = ""
 let controllerName = ""
 let controllerSeenAt = Date.now()
@@ -71,23 +84,111 @@ async function readGrant(id) {
     const now = Date.now()
     const inUse = [...streams, ...listeners].some((c) => c.grant === id)
     if (now - grant.at > GRANT_MAX_MS) return null
+    // A preview link's expiry, on the sandbox's clock.
+    if (typeof grant.until === "number" && now > grant.until) return null
     if (!inUse && now - info.mtimeMs > GRANT_IDLE_MS) return null
-    return { id, userId: grant.userId }
+    const name =
+      typeof grant.name === "string" ? grant.name.trim().slice(0, 80) : ""
+    const anonymous = grant.anonymous === true
+    // No list: a grant from an API before roles, which made them only for
+    // people who can write in the channel.
+    const can = Array.isArray(grant.can) ? grant.can : ["annotate", "send"]
+    return {
+      id,
+      userId: grant.userId,
+      name: name || "Someone",
+      anonymous,
+      // `control: false`: a preview viewer who can't write in the channel
+      // never drives, even with a stale controller id.
+      control: !anonymous && grant.control !== false,
+      annotate: !anonymous && can.includes("annotate"),
+      send: !anonymous && can.includes("send"),
+    }
   } catch {
     return null
   }
 }
 
-const roleFor = (userId) =>
-  controllerId && userId === controllerId ? "control" : "watch"
+const roleFor = (viewer) =>
+  controllerId && viewer.control && viewer.userId === controllerId
+    ? "control"
+    : "watch"
 
-const controlMessage = (userId) =>
+// A person's pointer and annotation color: theirs by id, or the next one
+// nobody here has yet, and the same for as long as the browser runs.
+const colors = new Map()
+const colorOf = (userId) => {
+  let color = colors.get(userId)
+  if (!color) {
+    const taken = new Set(colors.values())
+    const own = colorFor(userId)
+    color = taken.has(own) ? (COLORS.find((c) => !taken.has(c)) ?? own) : own
+    colors.set(userId, color)
+  }
+  return color
+}
+
+const controlMessage = (viewer) =>
   JSON.stringify({
-    role: roleFor(userId),
+    type: "control",
+    role: roleFor(viewer),
     controller: controllerId
       ? { userId: controllerId, name: controllerName || "Someone" }
       : null,
+    you: {
+      userId: viewer.userId,
+      name: viewer.name,
+      color: viewer.color,
+      annotate: viewer.annotate,
+    },
   })
+
+const sendTo = (viewer, data) => {
+  if (viewer.ws.readyState === WebSocket.OPEN) {
+    viewer.ws.send(JSON.stringify(data))
+  }
+}
+// To every page but `except`'s own (a person may have several open).
+const broadcast = (data, except) => {
+  const text = JSON.stringify(data)
+  for (const l of listeners) {
+    if (except && l.userId === except.userId) continue
+    if (l.ws.readyState === WebSocket.OPEN) l.ws.send(text)
+  }
+}
+// Who is here, once each, the person in control first; signed-out viewers
+// are only counted.
+const presence = () => {
+  const people = new Map()
+  const watching = new Set()
+  for (const l of listeners) {
+    if (l.anonymous) {
+      watching.add(l.userId)
+      continue
+    }
+    people.set(l.userId, {
+      userId: l.userId,
+      name: l.name,
+      color: l.color,
+      role: roleFor(l),
+    })
+  }
+  broadcast({
+    type: "presence",
+    people: [...people.values()].sort(
+      (a, b) => Number(b.role === "control") - Number(a.role === "control")
+    ),
+    watching: watching.size,
+  })
+}
+
+const collab = createCollab({
+  cdpPort: CDP_PORT,
+  dir: DIR,
+  controller: () => controllerId,
+  broadcast,
+  send: sendTo,
+})
 
 async function syncControl() {
   const [next, name] = await Promise.all([
@@ -99,12 +200,13 @@ async function syncControl() {
     controllerId = next
     controllerName = name
     if (changed) controllerSeenAt = Date.now()
-    const stale = [...streams].filter((c) => roleFor(c.userId) !== c.role)
-    for (const l of listeners) l.ws.send(controlMessage(l.userId))
+    const stale = [...streams].filter((c) => roleFor(c) !== c.role)
+    for (const l of listeners) l.ws.send(controlMessage(l))
+    presence()
     if (stale.length > 0) {
       setTimeout(() => {
         for (const c of stale) {
-          if (streams.has(c) && roleFor(c.userId) !== c.role) {
+          if (streams.has(c) && roleFor(c) !== c.role) {
             c.ws.close(ROLE_CHANGED, "role changed")
           }
         }
@@ -225,85 +327,11 @@ function fitSoon() {
   fitBurst = [100, 300, 700, 1500].map((ms) => setTimeout(fitTick, ms))
 }
 
-// Injected into Selkies' page: tells the Lor panel who has control and when
-// the person in it uses the view (Lor's idle hand-back), and reloads the page
-// when this viewer's role changes. Before that reload it hands the panel the
-// picture on screen ("freeze"), which the panel shows until the reloaded page
-// draws its first frame ("picture"), so switching control never goes dark.
-const BRIDGE = `(() => {
-  const base = location.pathname.slice(0, location.pathname.lastIndexOf("/") + 1)
-  const post = (msg) => parent !== window && parent.postMessage({ source: "lor-browser", ...msg }, "*")
-  let role = null
-  let leaving = false
-  addEventListener("pagehide", () => { leaving = true })
-  // Selkies draws into a <video> or one of its canvases, whichever shows.
-  const shown = () => ["videoStream", "videoWorkerCanvas", "videoCanvas"]
-    .map((id) => document.getElementById(id))
-    .find((el) => el && el.style.display !== "none" && el.getBoundingClientRect().width > 0
-      && (el.tagName !== "VIDEO" || (el.readyState >= 2 && el.videoWidth > 0)))
-  const snapshot = () => {
-    try {
-      const el = shown()
-      if (!el) return null
-      const scale = Math.min(devicePixelRatio || 1, 2)
-      const canvas = document.createElement("canvas")
-      canvas.width = Math.round(innerWidth * scale)
-      canvas.height = Math.round(innerHeight * scale)
-      const ctx = canvas.getContext("2d")
-      ctx.fillStyle = "#000"
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-      const r = el.getBoundingClientRect()
-      ctx.drawImage(el, r.left * scale, r.top * scale, r.width * scale, r.height * scale)
-      return canvas.toDataURL("image/jpeg", 0.85)
-    } catch {
-      return null
-    }
-  }
-  const reload = () => {
-    leaving = true
-    post({ type: "freeze", image: snapshot() })
-    location.reload()
-  }
-  // Selkies hides its status bar once the stream draws.
-  const waitForPicture = () => {
-    const status = document.getElementById("status-display")
-    if (status && status.classList.contains("hidden") && shown()) {
-      requestAnimationFrame(() => post({ type: "picture" }))
-      return
-    }
-    setTimeout(waitForPicture, 50)
-  }
-  waitForPicture()
-  const listen = () => {
-    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + base + "__lor/events")
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data)
-      if (role && msg.role !== role) return reload()
-      role = msg.role
-      post({ type: "control", role: msg.role, controller: msg.controller })
-    }
-    ws.onclose = (event) => {
-      if (leaving) return
-      if (event.code === 4004) return post({ type: "expired" })
-      post({ type: "disconnected" })
-      setTimeout(listen, 2000)
-    }
-  }
-  listen()
-  let last = 0
-  const onInput = () => {
-    const now = Date.now()
-    if (now - last < 1000) return
-    last = now
-    post({ type: "input" })
-  }
-  for (const name of ["pointerdown", "keydown", "wheel"]) {
-    addEventListener(name, onInput, { capture: true, passive: true })
-  }
-})()`
+// Injected into Selkies' page (bridge.js).
+const BRIDGE = readFileSync(new URL("./bridge.js", import.meta.url), "utf8")
 
 function proxyHttp(req, res, grant, path) {
-  const role = roleFor(grant.userId)
+  const role = roleFor(grant)
   const isPage = path === "/" || path === "/index.html"
   const headers = { ...req.headers, authorization: `Bearer ${TOKENS[role]}` }
   delete headers.cookie
@@ -371,8 +399,18 @@ const wss = new WebSocketServer({
   handleProtocols: (_offered, req) => req.upstreamProtocol || false,
 })
 
+// The events socket takes small JSON from viewers' pages.
+const events = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
+
 function relay(client, upstream, grant, role) {
-  const stream = { ws: client, grant: grant.id, userId: grant.userId, role }
+  const stream = {
+    ws: client,
+    grant: grant.id,
+    userId: grant.userId,
+    control: grant.control,
+    role,
+    anonymous: grant.anonymous,
+  }
   streams.add(stream)
   upstream.on("message", (data, isBinary) => {
     if (client.readyState !== client.OPEN) return
@@ -393,7 +431,7 @@ function relay(client, upstream, grant, role) {
     if (upstream.readyState !== upstream.OPEN) return
     // Lost control: nothing more reaches Selkies while the page reloads
     // before the delayed close.
-    if (role === "control" && roleFor(stream.userId) !== "control") return
+    if (role === "control" && roleFor(stream) !== "control") return
     if (!isBinary) {
       const text = data.toString()
       if (CONTROLLER_ONLY.some((prefix) => text.startsWith(prefix))) {
@@ -415,34 +453,89 @@ function relay(client, upstream, grant, role) {
   client.on("close", close)
   client.on("error", close)
   // Control changed while Selkies was answering: that sync missed this stream.
-  if (roleFor(stream.userId) !== role) close(ROLE_CHANGED)
+  if (roleFor(stream) !== role) close(ROLE_CHANGED)
 }
+
+// Slots taken by upgrades still being set up, so concurrent upgrades can't
+// all pass the connection caps before any of them registers.
+let reserved = 0
+let reservedAnonymous = 0
 
 server.on("upgrade", async (req, socket, head) => {
   // A client gone mid-upgrade must not throw from the raw socket.
   socket.on("error", () => socket.destroy())
-  const url = new URL(req.url ?? "/", "http://gateway")
-  const match = url.pathname.match(VIEW_PATH)
-  const grant =
-    match && streams.size + listeners.size < MAX_CONNECTIONS
-      ? await readGrant(match[1])
-      : null
-  if (!grant || !match[2]) {
+  if (streams.size + listeners.size + reserved >= MAX_CONNECTIONS) {
     socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n")
     return
   }
+  reserved++
+  let held = true
+  let anonymousSlot = false
+  const release = () => {
+    if (!held) return
+    held = false
+    reserved--
+    if (anonymousSlot) reservedAnonymous--
+  }
+  socket.once("close", release)
+  const url = new URL(req.url ?? "/", "http://gateway")
+  const match = url.pathname.match(VIEW_PATH)
+  const grant = match ? await readGrant(match[1]) : null
+  if (!held) return
+  if (!grant || !match[2]) {
+    release()
+    socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n")
+    return
+  }
+  if (grant.anonymous) {
+    const anonymous = connections().filter((c) => c.anonymous).length
+    if (anonymous + reservedAnonymous >= MAX_ANONYMOUS_CONNECTIONS) {
+      release()
+      socket.end("HTTP/1.1 503 Service Unavailable\r\n\r\n")
+      return
+    }
+    anonymousSlot = true
+    reservedAnonymous++
+  }
   await queueSync()
+  if (!held) return
   if (match[2] === "/__lor/events") {
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      const listener = { ws, grant: grant.id, userId: grant.userId }
+    events.handleUpgrade(req, socket, head, (ws) => {
+      const listener = {
+        ws,
+        grant: grant.id,
+        userId: grant.userId,
+        control: grant.control,
+        name: grant.name,
+        // Signed-out viewers have no pointer or notes to color.
+        color: grant.anonymous ? "" : colorOf(grant.userId),
+        anonymous: grant.anonymous,
+        annotate: grant.annotate,
+        send: grant.send,
+      }
       listeners.add(listener)
-      ws.send(controlMessage(grant.userId))
-      ws.on("close", () => listeners.delete(listener))
-      ws.on("error", () => listeners.delete(listener))
+      release()
+      ws.send(controlMessage(listener))
+      collab.welcome(listener)
+      presence()
+      ws.on("message", (data, isBinary) => {
+        if (isBinary) return
+        try {
+          const msg = JSON.parse(data.toString())
+          if (msg && typeof msg.t === "string") collab.onMessage(listener, msg)
+        } catch {}
+      })
+      const gone = () => {
+        if (!listeners.delete(listener)) return
+        collab.left(listener)
+        presence()
+      }
+      ws.on("close", gone)
+      ws.on("error", gone)
     })
     return
   }
-  const role = roleFor(grant.userId)
+  const role = roleFor(grant)
   url.searchParams.set("token", TOKENS[role])
   const protocols = (req.headers["sec-websocket-protocol"] ?? "")
     .split(",")
@@ -457,9 +550,10 @@ server.on("upgrade", async (req, socket, head) => {
   socket.once("close", () => upstream.terminate())
   upstream.once("open", () => {
     req.upstreamProtocol = upstream.protocol
-    wss.handleUpgrade(req, socket, head, (client) =>
+    wss.handleUpgrade(req, socket, head, (client) => {
       relay(client, upstream, grant, role)
-    )
+      release()
+    })
   })
   upstream.once("unexpected-response", (_req, res) => {
     socket.end(`HTTP/1.1 ${res.statusCode ?? 502} Upstream\r\n\r\n`)
@@ -478,10 +572,23 @@ setInterval(async () => {
   }
 }, 60_000)
 setInterval(queueSync, 1000)
+// A public link's signed-out viewers watch while someone signed in is here.
+let signedInSeenAt = Date.now()
+setInterval(() => {
+  const all = connections()
+  if (all.some((c) => !c.anonymous)) {
+    signedInSeenAt = Date.now()
+    return
+  }
+  if (Date.now() - signedInSeenAt < ANONYMOUS_ALONE_MS) return
+  for (const c of all) c.ws.close(ASLEEP, "asleep")
+}, 5000)
 // The API writes the control files; react at once rather than on the tick.
 let syncSoon = null
 try {
   const watcher = watch(DIR, (_event, file) => {
+    // The API put stored annotations back into a new sandbox.
+    if (file === "annotations.json") return collab.stored()
     if (file !== "controller-id" && file !== "controller") return
     clearTimeout(syncSoon)
     syncSoon = setTimeout(queueSync, 30)

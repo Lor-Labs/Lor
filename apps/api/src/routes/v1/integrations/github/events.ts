@@ -14,6 +14,7 @@ import {
 import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 import { logger } from "@/lib/logger"
 import {
+  announcePullRequest,
   announceReview,
   broadcastReviewUpdated,
   type PullRequestRef,
@@ -302,14 +303,13 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
     }
   })
 
-  // A pull request from a code session's branch joins its touched items.
+  // A pull request from a code session's branch joins its touched items and
+  // posts a line in the session; so does its merge.
   webhooks.on("pull_request.opened", async ({ payload }) => {
     const session = await sessionForPullRequest(pullRequestRef(payload))
     if (!session) return
-    const key = githubItemKey(
-      payload.repository.full_name,
-      payload.pull_request.number
-    )
+    const pr = payload.pull_request
+    const key = githubItemKey(payload.repository.full_name, pr.number)
     // Best-effort: a failed touch must not fail the webhook delivery.
     await recordSessionPullRequest(session, key).catch((err) =>
       logger.warn(
@@ -322,6 +322,39 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
         "Recording a code session's pull request failed"
       )
     )
+    await announcePullRequest({
+      session,
+      eventType: "session_pr_opened",
+      pullRequest: {
+        number: pr.number,
+        url: pr.html_url,
+        title: pr.title,
+        headRef: pr.head.ref,
+        baseRef: pr.base.ref,
+      },
+      actor: pr.user ? { id: pr.user.id, login: pr.user.login } : null,
+    })
+  })
+
+  webhooks.on("pull_request.closed", async ({ payload }) => {
+    const pr = payload.pull_request
+    if (!pr.merged) return
+    const session = await sessionForPullRequest(pullRequestRef(payload))
+    if (!session) return
+    await announcePullRequest({
+      session,
+      eventType: "session_pr_merged",
+      pullRequest: {
+        number: pr.number,
+        url: pr.html_url,
+        title: pr.title,
+        headRef: pr.head.ref,
+        baseRef: pr.base.ref,
+      },
+      actor: pr.merged_by
+        ? { id: pr.merged_by.id, login: pr.merged_by.login }
+        : null,
+    })
   })
 
   // Code session reviews (reference/planned/pr-reviews.md): a submitted

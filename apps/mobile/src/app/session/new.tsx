@@ -1,8 +1,9 @@
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet"
-import ArrowDown01Icon from "@hugeicons/core-free-icons/ArrowDown01Icon"
 import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon"
 import GitBranchIcon from "@hugeicons/core-free-icons/GitBranchIcon"
 import GithubIcon from "@hugeicons/core-free-icons/GithubIcon"
+import HashtagIcon from "@hugeicons/core-free-icons/HashtagIcon"
+import Settings02Icon from "@hugeicons/core-free-icons/Settings02Icon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { isValidNewBranchName } from "@repo/utils/github"
@@ -14,12 +15,17 @@ import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useEffect, useState } from "react"
-import { Pressable, Text, View } from "react-native"
+import { Pressable, ScrollView, Text, View } from "react-native"
 import { KeyboardController } from "react-native-keyboard-controller"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
+import {
+  ClaudeCodeModePicker,
+  useClaudeCodeMode,
+} from "@/components/claude-code-mode-picker"
+import { ConnectOnWebNotice } from "@/components/connect-on-web-notice"
 import { MessageComposer } from "@/components/message-composer"
 import { messageDisplayName } from "@/components/message-row"
-import { ModelChips } from "@/components/model-chips"
+import { ModelPicker } from "@/components/model-picker"
 import { PickerSheet } from "@/components/picker-sheet"
 import { TargetChip } from "@/components/target-chip"
 import { IconButton } from "@/components/ui/icon-button"
@@ -33,17 +39,18 @@ import { useModelChoice } from "@/hooks/use-agent-models"
 import {
   branchesQueryOptions,
   codeTargetNote,
+  type SessionMode,
   useCodeTarget,
   useHarnessOptions,
   useSessionHarness,
   useSessionMode,
 } from "@/hooks/use-code-target"
+import { useCodeEnvironment } from "@/hooks/use-environments"
 import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useSendNewSession } from "@/hooks/use-session-start"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
-import { HARNESS_LABELS } from "@/lib/harness"
 import { toSearchPreviewText } from "@/lib/message-markdown"
 import {
   openTextChannels,
@@ -52,6 +59,8 @@ import {
 
 type ChannelOption = { id: string; name: string | null }
 
+// The environment sheet's value for "no environment".
+const NO_ENVIRONMENT = "none"
 const EXAMPLES_DISMISSED_KEY = "lor.new-session-examples-dismissed"
 
 function sessionExamples(channelName: string) {
@@ -73,6 +82,7 @@ export default function NewSessionScreen() {
   }>()
   const { workspace } = useWorkspace()
   const foreground = useThemeColor("foreground")
+  const [mode, setMode] = useSessionMode()
   const { data: channels, isPending } = useQuery(
     workspaceChannelsQueryOptions(workspace?.slug ?? "")
   )
@@ -109,15 +119,32 @@ export default function NewSessionScreen() {
             tintColor={foreground}
           />
         </IconButton>
-        <Text className="text-[17px] font-bold tracking-[-0.2px] text-foreground">
+        <Text className="min-w-0 flex-1 text-[17px] font-bold tracking-[-0.2px] text-foreground">
           New session
         </Text>
+        {/* The session's kind sits with the title; what it runs in and on is
+            picked above the composer. */}
+        <Tabs
+          onValueChange={(value) => setMode(value === "code" ? "code" : "chat")}
+          value={mode}
+        >
+          <Tabs.List>
+            <Tabs.Indicator />
+            <Tabs.Trigger value="chat">
+              <Tabs.Label>Chat</Tabs.Label>
+            </Tabs.Trigger>
+            <Tabs.Trigger value="code">
+              <Tabs.Label>Code</Tabs.Label>
+            </Tabs.Trigger>
+          </Tabs.List>
+        </Tabs>
       </View>
       {channel ? (
         <NewSessionComposer
           aboutMessageId={params.aboutMessageId}
           channel={channel}
           draft={params.draft}
+          mode={mode}
           onPickChannel={setPickedChannelId}
           options={options}
         />
@@ -142,12 +169,14 @@ function NewSessionComposer({
   onPickChannel,
   aboutMessageId,
   draft,
+  mode,
 }: {
   channel: ChannelOption
   options: ChannelOption[]
   onPickChannel: (channelId: string) => void
   aboutMessageId?: string
   draft?: string
+  mode: SessionMode
 }) {
   const muted = useThemeColor("muted")
   const queryClient = useQueryClient()
@@ -155,28 +184,36 @@ function NewSessionComposer({
   const { workspace } = useWorkspace()
   const { data: auth } = authClient.useSession()
   const [sheet, setSheet] = useState<
-    "channel" | "repo" | "branch" | "base" | "harness" | null
+    "channel" | "repo" | "branch" | "base" | "environment" | null
   >(null)
   const [isSending, setIsSending] = useState(false)
   const workspaceSlug = workspace?.slug ?? ""
-  const [mode, setMode] = useSessionMode()
   const code = useCodeTarget({
     workspaceSlug,
     channelId: channel.id,
     enabled: mode === "code",
   })
+  // Which environment's env files the session writes, per repo.
+  const environment = useCodeEnvironment(
+    workspaceSlug,
+    code.repo,
+    mode === "code"
+  )
   // Claude Code and Codex run on the starter's own Claude subscription or
   // ChatGPT plan; connecting them is on web for now.
   const [harness, setHarness] = useSessionHarness()
   const harnessOptions = useHarnessOptions()
   const claudeCode = mode === "code" && harness === "claude_code"
   // A chat session always runs on Lor's own agent.
-  const modelChoice = useModelChoice(mode === "code" ? harness : "pi")
+  const modelChoice = useModelChoice(mode === "code" ? harness : "pi", {
+    workspaceSlug,
+  })
   const codex = mode === "code" && harness === "codex"
   const { data: accounts } = usePersonalAccounts(claudeCode || codex)
   // Unknown while the accounts load.
   const needsClaude = claudeCode && accounts?.claude.account === null
   const needsChatgpt = codex && accounts?.chatgpt.account === null
+  const claudeCodeMode = useClaudeCodeMode()
   const [branchQuery, setBranchQuery] = useState("")
   const [debouncedBranchQuery, setDebouncedBranchQuery] = useState("")
   useEffect(() => {
@@ -228,38 +265,19 @@ function NewSessionComposer({
 
   const accessory = (
     <View className="mb-two gap-two">
-      <Tabs
-        className="self-start"
-        onValueChange={(value) => setMode(value === "code" ? "code" : "chat")}
-        value={mode}
-      >
-        <Tabs.List>
-          <Tabs.Indicator />
-          <Tabs.Trigger value="chat">
-            <Tabs.Label>Chat</Tabs.Label>
-          </Tabs.Trigger>
-          <Tabs.Trigger value="code">
-            <Tabs.Label>Code</Tabs.Label>
-          </Tabs.Trigger>
-        </Tabs.List>
-      </Tabs>
       {needsClaude ? (
-        <View className="rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
-          <Text className="text-[13px] text-muted">
-            Claude Code runs on your own Claude subscription. Connect it in Lor
-            on the web or desktop, or pick another agent.
-          </Text>
-        </View>
+        <ConnectOnWebNotice workspaceSlug={workspaceSlug}>
+          Claude Code runs on your own Claude subscription. Connect it on the
+          web, or pick another agent.
+        </ConnectOnWebNotice>
       ) : needsChatgpt ? (
-        <View className="rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
-          <Text className="text-[13px] text-muted">
-            Codex runs on your own ChatGPT plan. Connect it in Lor on the web or
-            desktop, or pick another agent.
-          </Text>
-        </View>
+        <ConnectOnWebNotice workspaceSlug={workspaceSlug}>
+          Codex runs on your own ChatGPT plan. Connect it on the web, or pick
+          another agent.
+        </ConnectOnWebNotice>
       ) : null}
       {aboutMessageId ? (
-        <View className="min-h-11 flex-row items-center gap-two rounded-lor-sm border border-border px-three">
+        <View className="min-h-11 flex-row items-center gap-two rounded-lor-md border border-border px-three">
           <Text className="text-sm text-muted">About</Text>
           <Text className="min-w-0 flex-1 text-sm" numberOfLines={1}>
             {aboutMessage ? (
@@ -288,33 +306,19 @@ function NewSessionComposer({
           </IconButton>
         </View>
       ) : null}
-      <View className="flex-row items-center gap-one">
-        <LorMark size={14} />
-        <Text className="text-[13px] text-muted">New session in</Text>
-        {aboutMessageId ? (
-          <Text className="text-[13px] font-semibold text-accent">
-            #{channelName}
-          </Text>
-        ) : (
-          <Pressable
-            accessibilityHint="Chooses the channel the session lives in"
-            accessibilityRole="button"
-            className="min-h-8 flex-row items-center gap-one rounded-lor-sm px-one active:bg-accent-soft"
-            hitSlop={6}
-            onPress={() => setSheet("channel")}
-          >
-            <Text className="text-[13px] font-semibold text-accent">
-              #{channelName}
-            </Text>
-            <HugeiconsIcon color={muted} icon={ArrowDown01Icon} size={12} />
-          </Pressable>
-        )}
-      </View>
-      {mode === "code" ? (
-        <View className="flex-row flex-wrap items-center gap-one">
-          {code.status === "ready" && code.repo ? (
+      {/* Where the session lives and works: its channel, then a code
+          session's repo and branch. Asking about a message fixes the
+          channel to that message's. */}
+      <View className="flex-row flex-wrap items-center gap-two">
+        <TargetChip
+          hint="Chooses the channel the session lives in"
+          icon={HashtagIcon}
+          label={channelName}
+          onPress={aboutMessageId ? undefined : () => setSheet("channel")}
+        />
+        {mode === "code" ? (
+          code.status === "ready" && code.repo ? (
             <>
-              <Text className="text-[13px] text-muted">on</Text>
               <TargetChip
                 hint="Chooses the repository the session works in"
                 icon={GithubIcon}
@@ -333,7 +337,7 @@ function NewSessionComposer({
                     pull request count from it. */}
                   {code.newBranch ? (
                     <>
-                      <Text className="text-[13px] text-muted">new from</Text>
+                      <Text className="text-[13px] text-muted">from</Text>
                       <TargetChip
                         hint="Chooses the branch the new one is made from"
                         icon={GitBranchIcon}
@@ -348,23 +352,51 @@ function NewSessionComposer({
               )}
             </>
           ) : (
-            <Text className="text-[13px] text-muted">
+            <Text className="min-w-0 shrink text-[13px] text-muted">
               {codeTargetNote(code.status)}
             </Text>
-          )}
-          {harnessOptions.length > 1 && (
-            <>
-              <Text className="text-[13px] text-muted">with</Text>
-              <TargetChip
-                hint="Chooses the agent that runs the session"
-                label={HARNESS_LABELS[harness]}
-                onPress={() => setSheet("harness")}
-              />
-            </>
-          )}
-        </View>
-      ) : null}
-      <ModelChips choice={modelChoice} lead="using" />
+          )
+        ) : null}
+      </View>
+      {/* What it runs with: the model (and, in a code session, its agent,
+          picked in the same sheet), Claude Code's mode, then the repo's
+          environment. */}
+      <ScrollView
+        contentContainerClassName="items-center gap-two"
+        horizontal
+        keyboardShouldPersistTaps="handled"
+        showsHorizontalScrollIndicator={false}
+      >
+        <ModelPicker
+          choice={modelChoice}
+          harnesses={mode === "code" ? harnessOptions : undefined}
+          onHarness={setHarness}
+        />
+        {claudeCode ? <ClaudeCodeModePicker /> : null}
+        {/* Only for a repo that has environments; they are made on the
+            web. */}
+        {mode === "code" && code.status === "ready" && environment.loading ? (
+          <Spinner accessibilityLabel="Loading environments" size="sm" />
+        ) : mode === "code" && code.status === "ready" && environment.failed ? (
+          // Without the list the remembered environment can't apply: the
+          // session would start without one unless this is retried.
+          <TargetChip
+            hint="Loads the repo's environments again"
+            icon={Settings02Icon}
+            label="Environments didn't load · Retry"
+            onPress={environment.retry}
+          />
+        ) : mode === "code" &&
+          code.status === "ready" &&
+          environment.environments.length > 0 ? (
+          <TargetChip
+            hint="Chooses the environment whose env files the session uses"
+            icon={Settings02Icon}
+            label={environment.selected?.name ?? "No environment"}
+            onPress={() => setSheet("environment")}
+          />
+        ) : null}
+      </ScrollView>
     </View>
   )
 
@@ -393,9 +425,18 @@ function NewSessionComposer({
                   attachments,
                   aboutMessageId,
                   mode === "code" && code.target
-                    ? { ...code.target, harness }
+                    ? {
+                        ...code.target,
+                        harness,
+                        ...(environment.selected
+                          ? { environmentId: environment.selected.id }
+                          : {}),
+                      }
                     : undefined,
-                  modelChoice.turn
+                  {
+                    ...modelChoice.turn,
+                    ...(claudeCode ? { claudeCodeMode } : {}),
+                  }
                 )
               } finally {
                 setIsSending(false)
@@ -405,7 +446,14 @@ function NewSessionComposer({
               mode === "code" ? "Ask Lor to work on the code…" : "Ask Lor…"
             }
             sendBlocked={
-              (mode === "code" && !code.target) || needsClaude || needsChatgpt
+              // A failed environment list must not start the session without
+              // the remembered environment's env files: retry first.
+              (mode === "code" &&
+                (!code.target ||
+                  environment.loading ||
+                  (environment.failed && !environment.selected))) ||
+              needsClaude ||
+              needsChatgpt
             }
             topAccessory={accessory}
           />
@@ -494,16 +542,28 @@ function NewSessionComposer({
         title="New branch from"
       />
       <PickerSheet
-        isOpen={sheet === "harness"}
-        onOpenChange={(open) => setSheet(open ? "harness" : null)}
+        isOpen={sheet === "environment"}
+        onOpenChange={(open) => setSheet(open ? "environment" : null)}
         onPick={(value) => {
-          const next = harnessOptions.find((option) => option.value === value)
-          if (next) setHarness(next.value)
+          environment.select(value === NO_ENVIRONMENT ? null : value)
           setSheet(null)
         }}
-        options={harnessOptions}
-        selected={harness}
-        title="Agent"
+        options={[
+          {
+            value: NO_ENVIRONMENT,
+            label: "None",
+            detail: "The session starts without env files.",
+          },
+          ...environment.environments.map((env) => ({
+            value: env.id,
+            label: env.name,
+            detail: env.sandboxMemoryMb
+              ? `${env.sandboxMemoryMb / 1024} GB sandbox`
+              : undefined,
+          })),
+        ]}
+        selected={environment.selected?.id ?? NO_ENVIRONMENT}
+        title="Environment"
       />
     </>
   )

@@ -1,17 +1,23 @@
 import { toast } from "@repo/ui/components/toast"
-import { useEffect, useRef, useState } from "react"
-import type { SessionBrowserLive } from "@/components/sidebar/right-panel/session-browser-live-view"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import type {
+  BrowserCommentExport,
+  SessionBrowserLive,
+} from "@/components/sidebar/right-panel/session-browser-live-view"
 import { useSocket } from "@/context/socket-context"
 import { uploadAttachment } from "@/hooks/use-file-upload"
 import { apiClient } from "@/lib/api-client"
 
-// Page annotations (reference/planned/sandbox-browser-runbook.md §5): the
-// person in control clicks elements with Chromium's own picker, and each gets
-// a numbered pin and a note box drawn on the page itself, so everyone watching
-// and Lor see them. Picking starts again after each note until Done. Send to
-// Lor posts one message (each element's role, name, selector, page, HTML
-// snippet and note, with a cropped screenshot of each attached in order),
-// clears the pins and hands control back so Lor can make and check the fix.
+// Page annotations (reference/planned/sandbox-browser-runbook.md §5 and §7):
+// notes pinned to elements or highlighted text, drawn on the page itself so
+// everyone watching and Lor see them. Send to Lor posts one message (each
+// element's role, name, selector, page, HTML snippet and note, with a cropped
+// screenshot of each attached in order) and clears the pins.
+// Shared (the collab gateway): anyone annotates without control, everyone
+// sees notes as they are typed, and one Send takes all of them.
+// Before it: the person in control picks elements with Chromium's own picker,
+// picking starts again after each note until Done, and Send hands control
+// back so Lor can make and check the fix.
 
 type AnnotatedElement = {
   selector: string
@@ -37,6 +43,21 @@ type AnnotateRequest =
   | { mode: "stop" | "clear" }
 
 export type AnnotatePhase = "off" | "starting" | "picking" | "writing"
+
+export type SessionBrowserAnnotations = {
+  // Everyone's notes, made without control.
+  shared: boolean
+  count: number
+  // This person's, which Discard removes.
+  mine: number
+  phase: AnnotatePhase
+  sending: boolean
+  start: () => void
+  done: () => void
+  discard: () => void
+  // Null outside the app: a preview link's page never sends to Lor.
+  send: (() => void) | null
+}
 
 // Drafts outlive the panel (switching sessions or tabs): their pins stay on
 // the sandbox page until sent or discarded.
@@ -83,15 +104,30 @@ function elementLabel(element: AnnotatedElement) {
   return text ? `<${element.tag}> "${text}"` : `<${element.tag}>`
 }
 
-function annotationsMessage(annotations: Annotation[], withImages: boolean) {
+type SentAnnotation = {
+  element: AnnotatedElement
+  note: string
+  // Named when several people annotated.
+  author?: string
+  quote?: string | null
+}
+
+function annotationsMessage(
+  annotations: SentAnnotation[],
+  withImages: boolean
+) {
   const page = annotations[0]?.element.url ?? ""
   const lines = [`Annotations on ${shortUrl(page)} in the session browser:`]
   annotations.forEach((annotation, i) => {
     const { element } = annotation
     const where = element.url === page ? "" : ` on ${shortUrl(element.url)}`
+    const by = annotation.author ? ` (${annotation.author})` : ""
     lines.push(
       "",
-      `**${i + 1}. ${elementLabel(element)}**: ${annotation.note.trim() || "(no note)"}`,
+      `**${i + 1}. ${elementLabel(element)}**${by}: ${annotation.note.trim() || "(no note)"}`,
+      ...(annotation.quote
+        ? [`On the text: "${annotation.quote.replace(/\s+/g, " ")}"`]
+        : []),
       `\`${element.selector}\`${where}`,
       "```html",
       // A fence inside the snippet would end the code block early.
@@ -105,6 +141,9 @@ function annotationsMessage(annotations: Annotation[], withImages: boolean) {
   return lines.join("\n")
 }
 
+// How long Send waits for the gateway to say the sent notes are gone.
+const CLEAR_WAIT_MS = 5_000
+
 function jpegFile(base64: string, name: string) {
   const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
   return new File([bytes], name, { type: "image/jpeg" })
@@ -115,7 +154,7 @@ export function useSessionBrowserAnnotations(
   channelId: string,
   threadRootId: string,
   live: SessionBrowserLive
-) {
+): SessionBrowserAnnotations {
   const socket = useSocket()
   const [annotations, setAnnotations] = useState<Annotation[]>(
     () => drafts.get(sessionId) ?? []
@@ -329,7 +368,9 @@ export function useSessionBrowserAnnotations(
   }, [sessionId])
 
   return {
-    annotations,
+    shared: false,
+    count: annotations.length,
+    mine: annotations.length,
     phase,
     sending,
     start: () => void start(),
@@ -339,6 +380,133 @@ export function useSessionBrowserAnnotations(
   }
 }
 
-export type SessionBrowserAnnotations = ReturnType<
-  typeof useSessionBrowserAnnotations
->
+// With the collab gateway the notes live in the sandbox and the page's bridge
+// script does the picking and the note box, so this only switches the mode
+// and sends.
+export function useSessionBrowserSharedAnnotations(
+  channelId: string,
+  threadRootId: string,
+  live: SessionBrowserLive,
+  { canSend = true }: { canSend?: boolean } = {}
+): SessionBrowserAnnotations {
+  const socket = useSocket()
+  const [sending, setSending] = useState(false)
+  const { comments, annotating, myId } = live
+  // The gateway's latest list, read during a send that outlives this render.
+  const latest = useRef(comments)
+  useLayoutEffect(() => {
+    latest.current = comments
+  }, [comments])
+
+  // The gateway broadcasts its list after it wrote it to the browser's
+  // folder, so a list without these ids means they are gone and stored.
+  const cleared = (ids: string[]) =>
+    new Promise<boolean>((resolve) => {
+      const start = Date.now()
+      const check = () => {
+        if (!latest.current.some((comment) => ids.includes(comment.id))) {
+          resolve(true)
+        } else if (Date.now() - start > CLEAR_WAIT_MS) {
+          resolve(false)
+        } else {
+          setTimeout(check, 150)
+        }
+      }
+      check()
+    })
+
+  const send = async () => {
+    if (sending) return
+    if (!socket?.connected) {
+      toast.error("Connection lost. Try again")
+      return
+    }
+    setSending(true)
+    try {
+      // Saves this person's open note first.
+      live.post({ type: "annotate", on: false })
+      const exported = await live.exportComments()
+      // A note someone else is still writing stays on the page.
+      const items = exported
+        .filter((item) => !item.open)
+        .sort((a, b) => a.number - b.number)
+      if (items.length === 0) return
+      const several = new Set(items.map((item) => item.by.userId)).size > 1
+      const uploads = await Promise.all(
+        items.map((item: BrowserCommentExport, i) =>
+          item.image
+            ? uploadAttachment(
+                channelId,
+                jpegFile(item.image, `element-${i + 1}.jpg`)
+              )
+            : Promise.resolve(null)
+        )
+      )
+      // A note discarded, reopened or edited while the screenshots uploaded
+      // stays on the page for a later send.
+      const now = new Map(
+        latest.current.map((comment) => [comment.id, comment])
+      )
+      const kept = items.flatMap((item, i) => {
+        const current = now.get(item.id)
+        return current && !current.open && current.note === item.note
+          ? [{ item, upload: uploads[i] ?? null }]
+          : []
+      })
+      if (kept.length === 0) return
+      const sent = kept.map((entry) => entry.item)
+      const attachments = kept.flatMap((entry) =>
+        entry.upload ? [entry.upload] : []
+      )
+      const result = await socket.timeout(15_000).emitWithAck("message:send", {
+        channelId,
+        threadRootId,
+        content: annotationsMessage(
+          sent.map((item) => ({
+            element: item.element,
+            note: item.note,
+            quote: item.element.quote,
+            author:
+              several || item.by.userId !== myId ? item.by.name : undefined,
+          })),
+          attachments.length > 0
+        ),
+        attachments,
+        nonce: crypto.randomUUID(),
+      })
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      const ids = sent.map((item) => item.id)
+      if (live.post({ type: "clear", ids }) && (await cleared(ids))) {
+        live.store()
+      } else {
+        toast.error(
+          "Sent to Lor, but the notes are still on the page. Don't send them again"
+        )
+      }
+      // Lor needs the browser to make and check the fix.
+      if (live.youControl) live.handBack()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't send")
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return {
+    shared: true,
+    count: comments.length,
+    mine: comments.filter((comment) => comment.by.userId === myId).length,
+    phase: annotating.on ? (annotating.writing ? "writing" : "picking") : "off",
+    sending,
+    start: () => live.post({ type: "annotate", on: true }),
+    done: () => live.post({ type: "annotate", on: false }),
+    discard: () => {
+      live.post({ type: "annotate", on: false })
+      live.post({ type: "clear" })
+    },
+    send: canSend ? () => void send() : null,
+  }
+}

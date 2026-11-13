@@ -40,7 +40,13 @@ type StreamMessage = {
   mentions?: RealtimeMessageMention[]
   steeringBy?: string
   routedOutcome?: "steered" | "queued"
-  lorRun?: { startedAt: string | null; finishedAt: string | null } | null
+  lorRun?: {
+    startedAt: string | null
+    finishedAt: string | null
+    model?: string | null
+    effort?: string | null
+    fast?: boolean
+  } | null
 }
 interface MessagePage {
   data: StreamMessage[]
@@ -56,6 +62,9 @@ type StreamPayload = {
   status?: "complete" | "failed"
   replace?: boolean
   mentions?: RealtimeMessageMention[]
+  model?: string
+  effort?: string
+  fast?: boolean
   runId?: string
   seq?: number
 }
@@ -257,9 +266,17 @@ function applyStreamFrame(queryClient: QueryClient, payload: StreamPayload) {
             ...(payload.done
               ? {
                   lorRun: {
+                    ...m.lorRun,
                     startedAt: m.lorRun?.startedAt ?? null,
                     finishedAt:
                       m.lorRun?.finishedAt ?? new Date().toISOString(),
+                    ...(payload.model
+                      ? {
+                          model: payload.model,
+                          effort: payload.effort ?? null,
+                          fast: payload.fast ?? false,
+                        }
+                      : {}),
                   },
                 }
               : {}),

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { setTimeout as sleep } from "node:timers/promises"
 import type { SandboxInstance } from "@blaxel/core"
 import { env } from "@repo/env/server"
 
@@ -88,21 +89,95 @@ export function hasWorkspaceDisk(
 
 const SANDBOX_HEALTH_TIMEOUT_SEC = 10
 
+function statusOf(err: unknown): unknown {
+  return typeof err === "object" && err !== null && "status" in err
+    ? err.status
+    : undefined
+}
+
+// A sandbox that is booting or waking from standby (slower for a large one):
+// Blaxel answers 404 WORKLOAD_UNAVAILABLE without dispatching the request, so
+// any request is safe to replay, and asks for retries with backoff for about
+// a minute. Not a missing file or a deleted sandbox.
+export function isWorkloadUnavailable(err: unknown): boolean {
+  if (statusOf(err) !== 404 || !(err instanceof Error)) return false
+  // The SDK's ResponseError keeps the parsed body in `error`; its message
+  // quotes it only when the body has the shape it expects.
+  const body = "error" in err ? JSON.stringify(err.error ?? "") : ""
+  return `${err.message} ${body}`.includes("WORKLOAD_UNAVAILABLE")
+}
+
+// Blaxel's edge could not reach the sandbox (502/503/504): the same boot or
+// wake, but the request may have been dispatched.
+export function isSandboxGatewayError(err: unknown): boolean {
+  return [502, 503, 504].includes(statusOf(err) as number)
+}
+
+// The sandbox never became reachable within the wait.
+export class SandboxStartingError extends Error {
+  constructor(cause: unknown) {
+    super("The sandbox did not start in time", { cause })
+    this.name = "SandboxStartingError"
+  }
+}
+
+const SANDBOX_START_WAIT_MS = 90_000
+const START_RETRY_MIN_MS = 500
+const START_RETRY_MAX_MS = 5_000
+
+// Runs `fn` again while the sandbox boots or wakes, instead of failing the
+// turn or panel action on the first answer. `retry` says which errors mean
+// that: by default only the one Blaxel never dispatched.
+export async function whileSandboxStarts<T>(
+  fn: () => Promise<T>,
+  options: {
+    retry?: (err: unknown) => boolean
+    abortSignal?: AbortSignal
+  } = {}
+): Promise<T> {
+  const retry = options.retry ?? isWorkloadUnavailable
+  const deadline = Date.now() + SANDBOX_START_WAIT_MS
+  let delay = START_RETRY_MIN_MS
+  for (;;) {
+    options.abortSignal?.throwIfAborted()
+    try {
+      return await fn()
+    } catch (err) {
+      if (!retry(err)) throw err
+      if (Date.now() + delay > deadline) throw new SandboxStartingError(err)
+      await sleep(delay, undefined, { signal: options.abortSignal }).catch(
+        () => {}
+      )
+      delay = Math.min(delay * 2, START_RETRY_MAX_MS)
+    }
+  }
+}
+
 type SandboxHealth = {
   healthy: boolean
   status: string
   exitCode: number
 }
 
+// Waits for a sandbox that is still starting. `true` changes nothing, so a
+// gateway error is replayed too (each try gets its own process name).
 export async function probeSandbox(
-  sandbox: SandboxInstance
+  sandbox: SandboxInstance,
+  abortSignal?: AbortSignal
 ): Promise<SandboxHealth> {
-  const result = await sandbox.process.exec({
-    name: `health-${randomUUID().slice(0, 8)}`,
-    command: "true",
-    waitForCompletion: true,
-    timeout: SANDBOX_HEALTH_TIMEOUT_SEC,
-  })
+  const result = await whileSandboxStarts(
+    () =>
+      sandbox.process.exec({
+        name: `health-${randomUUID().slice(0, 8)}`,
+        command: "true",
+        waitForCompletion: true,
+        timeout: SANDBOX_HEALTH_TIMEOUT_SEC,
+      }),
+    {
+      retry: (err) => isWorkloadUnavailable(err) || isSandboxGatewayError(err),
+      ...(abortSignal ? { abortSignal } : {}),
+    }
+  )
   return {
     healthy: result.status === "completed" && result.exitCode === 0,
     status: result.status ?? "unknown",

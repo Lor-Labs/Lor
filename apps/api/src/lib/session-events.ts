@@ -3,6 +3,7 @@ import type {
   AgentSession,
   SessionCommittedPayload,
   SessionForkedPayload,
+  SessionPullRequestPayload,
   SessionPushedPayload,
   SessionReviewedPayload,
   SessionRewoundPayload,
@@ -33,10 +34,17 @@ export async function postSessionEvent(
     | { eventType: "session_rewound"; eventPayload: SessionRewoundPayload }
     | { eventType: "session_reviewed"; eventPayload: SessionReviewedPayload }
     | {
+        eventType: "session_pr_opened" | "session_pr_merged"
+        eventPayload: SessionPullRequestPayload
+      }
+    | {
         eventType: "session_setup_changed"
         eventPayload: SessionSetupChangedPayload
       },
-  content: string
+  content: string,
+  // A deterministic key makes the line once-only: a second insert with it
+  // conflicts on the message clientKey index and posts nothing.
+  clientKey?: string
 ) {
   const [row] = await db
     .insert(schema.message)
@@ -48,7 +56,9 @@ export async function postSessionEvent(
       content,
       threadRootId: session.threadRootId,
       excludedFromMemory: true,
+      clientKey: clientKey ?? null,
     })
+    .onConflictDoNothing()
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
   if (!row) return
   const message: RealtimeMessage = {

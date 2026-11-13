@@ -27,6 +27,10 @@ import {
   type EnvironmentSummary,
   environmentsQueryOptions,
 } from "@/hooks/use-environments"
+import {
+  type SessionChanges,
+  sessionChangesKey,
+} from "@/hooks/use-session-changes"
 import { apiClient } from "@/lib/api-client"
 
 // A code session's environment and sandbox size, changed while it runs
@@ -141,6 +145,13 @@ export function SessionSetupDialog({
         agentSessionQueryOptions(session.id).queryKey,
         (detail) => (detail ? { ...detail, session: updated } : detail)
       )
+      // The composer's note shows the replacement until the restore ends.
+      if (replaced) {
+        queryClient.setQueryData<SessionChanges>(
+          sessionChangesKey(session.id),
+          { state: "restoring" }
+        )
+      }
       toast.success(
         replaced
           ? `Replacing the sandbox with a ${(sizeMb ?? 0) / 1024} GB one`

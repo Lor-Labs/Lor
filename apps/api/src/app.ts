@@ -30,6 +30,7 @@ import notificationSettingsRouter from "@/routes/v1/notification-settings/index"
 import onboardingRouter from "@/routes/v1/onboarding/index"
 import personalAccountsRouter from "@/routes/v1/personal-accounts/index"
 import plansRouter from "@/routes/v1/plans/index"
+import previewsRouter from "@/routes/v1/previews/index"
 import projectsRouter from "@/routes/v1/projects/index"
 import proposalsRouter from "@/routes/v1/proposals/index"
 import pushTokensRouter from "@/routes/v1/push-tokens/index"
@@ -143,6 +144,7 @@ const routes = app
   .route("/v1", artifactsRouter)
   .route("/v1", plansRouter)
   .route("/v1", sessionsRouter)
+  .route("/v1", previewsRouter)
   .route("/v1", threadSubscriptionsRouter)
   .route("/v1", approvalsRouter)
   .route("/v1", approvalPoliciesRouter)

@@ -1,8 +1,23 @@
 import { randomUUID } from "node:crypto"
-import { and, db, desc, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
+import {
+  and,
+  asc,
+  db,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  LOR_USER_ID,
+  schema,
+  sql,
+} from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
-import type { ActSessionMode, AgentSession } from "@repo/db/schema"
+import type {
+  ActSessionMode,
+  AgentSession,
+  TriggerSourceMessage,
+} from "@repo/db/schema"
 import type { RunTriggerContext } from "@repo/lor"
 import {
   actRunBriefing,
@@ -51,6 +66,9 @@ type ActSessionInput = {
 
 // A waiting event looks again after at least this long.
 const SESSION_BUSY_RETRY_SECONDS = 30
+const TRIGGER_SOURCE_MESSAGES_MAX = 150
+// The trigger_run event's snapshots together; the rest count as omitted.
+const TRIGGER_SOURCE_MESSAGES_BYTES = 1024 * 1024
 
 // An Act event becomes a session turn (reference/act-sessions-runbook.md):
 // a new session in per_event mode, else the subject's or the trigger's
@@ -153,13 +171,47 @@ async function runEventInSession(
   input: ActSessionInput,
   session: AgentSession
 ): Promise<"started" | "waiting" | "failed"> {
+  const [deliveries, total] = await Promise.all([
+    db
+      .select({ sourceMessage: schema.triggerDelivery.sourceMessage })
+      .from(schema.triggerDelivery)
+      .where(
+        and(
+          eq(schema.triggerDelivery.runId, input.runId),
+          isNotNull(schema.triggerDelivery.sourceMessage)
+        )
+      )
+      .orderBy(
+        asc(schema.triggerDelivery.createdAt),
+        asc(schema.triggerDelivery.id)
+      )
+      .limit(TRIGGER_SOURCE_MESSAGES_MAX),
+    db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(schema.triggerDelivery)
+      .where(eq(schema.triggerDelivery.runId, input.runId))
+      .then((rows) => rows[0]?.total ?? 0),
+  ])
+  const sourceMessages: TriggerSourceMessage[] = []
+  let bytes = 0
+  for (const { sourceMessage } of deliveries) {
+    if (!sourceMessage) continue
+    bytes += Buffer.byteLength(JSON.stringify(sourceMessage))
+    if (bytes > TRIGGER_SOURCE_MESSAGES_BYTES) break
+    sourceMessages.push(sourceMessage)
+  }
   const { messageId: eventId } = await postLorMessage(deps, {
     channelId: input.channelId,
     threadRootId: session.threadRootId,
     content: input.payload,
     type: "event",
     eventType: "trigger_run",
-    eventPayload: { triggerId: input.triggerId, label: input.label },
+    eventPayload: {
+      triggerId: input.triggerId,
+      label: input.label,
+      sourceMessages,
+      omittedMessages: Math.max(0, total - sourceMessages.length),
+    },
     silent: true,
   })
   const started = await startScopeRun(

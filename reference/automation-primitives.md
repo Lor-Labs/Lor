@@ -118,6 +118,16 @@ LOR-49: index data silently, notify no one.
 > See `reference/workspace-model.md` (decision 1) and `apps/worker/src/lib/trigger-session.ts`.
 > Since 2026-10-28 a trigger can also continue one session per subject or one
 > ongoing session, and start code sessions (`reference/act-sessions-runbook.md`).
+> LOR-165: each Act-on delivery also saves `trigger_delivery.source_message`,
+> the original message's presentation (identity, text, embeds, attachments and
+> mentions). The worker carries these snapshots into the `trigger_run` event,
+> so web and mobile use their full message renderer, as with "Ask Lor about this".
+> Batches show up to 150 source messages in delivery order and count any omitted.
+> Older single webhook runs reconstruct cards from complete saved raw requests
+> with the ingestion normalizers; other historical runs retain their saved text.
+> Deploy the additive column first using
+> `packages/db/scripts/add-trigger-source-message.sql` (or `pnpm db:push`), then
+> deploy API and worker together, followed by the clients.
 > The text below is the original design.
 
 An **agent run** composed as: the channel's normal toolset (connectors granted by the

@@ -50,6 +50,7 @@ import { ProposalCard } from "@/components/chat/proposal-card"
 import { RewindDivider } from "@/components/chat/rewind-divider"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
+import type { RunModelLabel } from "@/hooks/use-agent-models"
 import { useEditableRow } from "@/hooks/use-message-editing"
 import type { Message } from "@/lib/api-types"
 import { connectorMessageEmbed } from "@/lib/connector-message-embed"
@@ -87,6 +88,8 @@ interface MessageItemProps {
   onRewind?: (message: Message) => Promise<unknown>
   canRewind?: boolean
   rewindRestoresFiles?: boolean
+  // Session: names the model a Lor reply ran on, shown beside its time.
+  modelLabel?: (model: string) => RunModelLabel
   onOpenThread?: (rootMessageId: string) => void
   onDelete?: (messageId: string) => void
   onEdit?: (messageId: string, content: string) => void
@@ -336,6 +339,7 @@ export const MessageItem = memo(function MessageItem({
   onRewind,
   canRewind = false,
   rewindRestoresFiles = false,
+  modelLabel,
   onOpenThread,
   onDelete,
   onEdit,
@@ -975,6 +979,11 @@ export const MessageItem = memo(function MessageItem({
             <LorReplyActions
               timeAlwaysVisible={isLatestLorReply}
               time={formatTime(message.createdAt)}
+              model={
+                message.lorRun?.model && modelLabel
+                  ? modelLabel(message.lorRun.model)
+                  : null
+              }
               onCopyText={message.content ? handleCopyText : undefined}
               onReact={handleReact}
               onReply={handleReply}
