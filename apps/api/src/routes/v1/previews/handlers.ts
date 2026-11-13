@@ -116,7 +116,10 @@ export const openPreviewView: AppRouteHandler<OpenPreviewViewRoute> = async (
     await markBrowserSeen(sessionId)
     const issuedControl = access.control
     const kept = await confirmBrowserViewer(sessionId, user.id, async () => {
-      const now = await previewAccess(preview, user.id)
+      // Read again: the link may have been turned off or made private since.
+      const link = await findPreviewLink(token)
+      if (!link) return false
+      const now = await previewAccess(link, user.id)
       return now.status === "ready" && (now.control || !issuedControl)
     })
     // The page asks again and gets what the link allows now.
