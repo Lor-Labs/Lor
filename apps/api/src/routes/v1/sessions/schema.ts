@@ -7,6 +7,7 @@ import {
   TOUCH_KINDS,
 } from "@repo/db/schema"
 import { CODE_SANDBOX_MEMORY_OPTIONS_MB } from "@repo/lor/dev-env/environments"
+import { MAX_TERMINAL_TABS } from "@repo/lor/dev-env/terminal"
 import { messageWithAuthorSchema } from "@/lib/helpers/openapi/message-schemas"
 
 export const sessionParamsSchema = z.object({
@@ -157,6 +158,29 @@ export const openPortResponseSchema = z.object({
 export const openTerminalResponseSchema = z.object({
   url: z.string(),
   expiresAt: z.string(),
+})
+
+// Terminal tabs (LOR-150): each of a person's tabs is its own shell, numbered
+// from 1.
+const terminalTabSchema = z.coerce.number().int().min(1).max(MAX_TERMINAL_TABS)
+
+export const openTerminalQuerySchema = z.object({
+  tab: terminalTabSchema.optional(),
+})
+
+export const terminalTabParamsSchema = sessionParamsSchema.extend({
+  tab: terminalTabSchema.openapi({
+    param: { name: "tab", in: "path", required: true },
+  }),
+})
+
+// The caller's tabs whose shells still run, with what runs in each now.
+export const sessionTerminalsResponseSchema = z.object({
+  terminals: z.array(z.object({ tab: z.number().int(), command: z.string() })),
+})
+
+export const closeTerminalResponseSchema = z.object({
+  closed: z.literal(true),
 })
 
 // The session browser (reference/planned/sandbox-browser-runbook.md §4).

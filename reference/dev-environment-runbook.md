@@ -370,6 +370,23 @@ first load). The client behavior is the same.
 
 ## Deviations log
 
+- 2026-11-13 (LOR-150): terminal tabs, and Lor reads people's terminals.
+  Each tab is its own tmux session: `main-<userId>` for tab 1 (the name
+  from before tabs) and `main-<userId>_<n>` up to 8. ttyd's launcher is now
+  `lor-terminal-attach`, with URL args for the person's key, the tab number
+  and their name (kept on the session as `@lor_person`). The process is named
+  `terminal-2` and stops a ttyd left by the old `terminal` process, so
+  sandboxes from before pick up the new launcher; their shells stay.
+  API: `POST /sessions/{id}/terminal?tab=`, `GET /sessions/{id}/terminals`
+  (the caller's tabs whose shells still run), `DELETE
+  /sessions/{id}/terminals/{tab}` (ends the shell). Web: a tab strip in the
+  Terminal panel; visited tabs stay connected behind the front one.
+  `lor-terminal list` and `lor-terminal read [name] [-n N]` (written beside
+  the launcher when the terminal first opens) print the open terminals and
+  one's recent output from tmux's scrollback; the code session prompt tells
+  every harness to use it and only read. Lor's own commands still run
+  through the process API, not in a terminal tab. Not run live.
+
 - 2026-11-10: messages sent while a session's sandbox was being replaced
   (a new size) or waking from standby failed with the generic error, on
   Blaxel's `WORKLOAD_UNAVAILABLE`. Turns now wait for the sandbox

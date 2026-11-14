@@ -844,6 +844,14 @@ export const MessageItem = memo(function MessageItem({
               </span>
             </div>
           )}
+          {/* The empty in-flight reply already shows ThinkingIndicator. */}
+          {message.authorId === LOR_USER_ID &&
+            (message.streaming || message.status === "pending") &&
+            !isEditing &&
+            (message.content ||
+              message.lorReasoning ||
+              hasReasoningSegments ||
+              hasToolCalls) && <LorWorkingFor since={lorWorkStart(message)} />}
           {message.lorReasoning && !hasReasoningSegments && !hasToolCalls ? (
             <LorReasoning
               text={message.lorReasoning}
@@ -906,14 +914,6 @@ export const MessageItem = memo(function MessageItem({
               onCitationJump={onJumpToMessage}
             />
           )}
-          {/* The empty in-flight reply already shows ThinkingIndicator. */}
-          {message.authorId === LOR_USER_ID &&
-            (message.streaming || message.status === "pending") &&
-            !isEditing &&
-            (message.content ||
-              message.lorReasoning ||
-              hasReasoningSegments ||
-              hasToolCalls) && <LorWorkingFor since={lorWorkStart(message)} />}
           {message.type === "forward" && message.forwarded && (
             <ForwardedMessageCard forwarded={message.forwarded} />
           )}

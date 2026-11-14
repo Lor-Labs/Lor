@@ -66,7 +66,11 @@ import {
   startService,
   stopService,
 } from "@repo/lor/dev-env/repo-setup"
-import { openTerminal } from "@repo/lor/dev-env/terminal"
+import {
+  closeTerminal,
+  listTerminals,
+  openTerminal,
+} from "@repo/lor/dev-env/terminal"
 import { sessionPullRequestReview } from "@repo/lor/pr-reviews"
 import {
   BranchRefusedError,
@@ -108,6 +112,7 @@ import { requestRunStop } from "@/routes/v1/runs/handlers"
 import type {
   AnnotateSessionBrowserRoute,
   ApplySessionEnvironmentRoute,
+  CloseSessionTerminalRoute,
   CommitSessionChangesRoute,
   DeleteSessionBrowserShareRoute,
   DropActWaitingRoute,
@@ -127,6 +132,7 @@ import type {
   ListChannelSessionsRoute,
   ListSessionFilesRoute,
   ListSessionPortsRoute,
+  ListSessionTerminalsRoute,
   ListSessionTouchesRoute,
   MarkSessionBrowserSeenRoute,
   OpenSessionBrowserPageRoute,
@@ -1672,7 +1678,11 @@ export const openSessionTerminal: AppRouteHandler<
       HttpStatusCodes.BAD_REQUEST
     )
   }
-  const result = await openTerminal(sessionId, c.var.user.id)
+  const result = await openTerminal(
+    sessionId,
+    { key: c.var.user.id, name: c.var.user.name },
+    c.req.valid("query").tab
+  )
   if (result.status === "no_sandbox") {
     return c.json(
       {
@@ -1693,6 +1703,60 @@ export const openSessionTerminal: AppRouteHandler<
     { url: result.url, expiresAt: result.expiresAt },
     HttpStatusCodes.OK
   )
+}
+
+// A person's terminal tabs (LOR-150). Each is a root shell, so listing and
+// closing them need the same write access as opening one.
+async function terminalSession(sessionId: string, userId: string) {
+  const row = await findAccessibleSession(sessionId, userId)
+  if (!row || row.session.mode !== "code") return "not_found" as const
+  return row.canWrite ? row : ("forbidden" as const)
+}
+
+export const listSessionTerminals: AppRouteHandler<
+  ListSessionTerminalsRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await terminalSession(sessionId, c.var.user.id)
+  if (row === "not_found") {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (row === "forbidden") {
+    return c.json(
+      { success: false as const, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  const terminals = row.session.archivedAt
+    ? null
+    : await listTerminals(sessionId, c.var.user.id)
+  return c.json({ terminals: terminals ?? [] }, HttpStatusCodes.OK)
+}
+
+export const closeSessionTerminal: AppRouteHandler<
+  CloseSessionTerminalRoute
+> = async (c) => {
+  const { sessionId, tab } = c.req.valid("param")
+  const row = await terminalSession(sessionId, c.var.user.id)
+  if (row === "not_found") {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (row === "forbidden") {
+    return c.json(
+      { success: false as const, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  if (!row.session.archivedAt) {
+    await closeTerminal(sessionId, c.var.user.id, tab)
+  }
+  return c.json({ closed: true as const }, HttpStatusCodes.OK)
 }
 
 // The session browser (reference/planned/sandbox-browser-runbook.md §4): a

@@ -3,6 +3,7 @@ import {
   type SendMessagePayload,
   sessionTitleFromPrompt,
 } from "@repo/realtime-types"
+import { lorBranchName } from "@repo/utils/github"
 import { useQueryClient } from "@tanstack/react-query"
 import { randomUUID } from "expo-crypto"
 import { router } from "expo-router"
@@ -43,11 +44,13 @@ export type SessionStart = {
   // The sender's message, the session's first turn.
   message: Message
   // A code session: its repo, base branch and agent.
-  // `newBranch`: made from `branch` at the start.
+  // `newBranch`: made from `branch` at the start; `autoBranch`: a new lor/
+  // branch named from the session's id.
   code?: {
     repo: string
     branch: string
     newBranch?: string
+    autoBranch?: boolean
     harness: SessionHarness
     // The environment whose env files the session writes.
     environmentId?: string
@@ -110,7 +113,9 @@ export function useSessionStart(
       harness: start.code?.harness ?? "pi",
       repoFullName: start.code?.repo ?? null,
       baseBranch: start.code?.branch ?? null,
-      newBranch: start.code?.newBranch ?? null,
+      newBranch:
+        start.code?.newBranch ??
+        (start.code?.autoBranch ? lorBranchName(start.id) : null),
       environmentId: start.code?.environmentId ?? null,
       sandboxMemoryMb: null,
       uncommittedAdditions: null,
@@ -310,7 +315,11 @@ export function useSendNewSession(channel: {
               code: {
                 repo: code.repo,
                 branch: code.branch,
-                ...(code.newBranch ? { newBranch: code.newBranch } : {}),
+                ...(code.newBranch
+                  ? { newBranch: code.newBranch }
+                  : code.autoBranch
+                    ? { autoBranch: true }
+                    : {}),
                 ...(code.environmentId
                   ? { environmentId: code.environmentId }
                   : {}),
