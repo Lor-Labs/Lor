@@ -13,7 +13,8 @@ export const TERMINAL_PORT = 7681
 export const MAX_TERMINAL_TABS = 8
 // Versioned: a sandbox whose ttyd predates terminal tabs runs the old
 // launcher, so the new name starts over (its command stops the old ttyd).
-const PROCESS = "terminal-2"
+// 3: installs the rewind shell hook.
+const PROCESS = "terminal-3"
 const PREVIEW = "terminal"
 const READY_WAIT_MS = 90_000
 const TOKEN_TTL_MS = 15 * 60_000
@@ -33,6 +34,21 @@ tmux has-session -t "=$name" 2>/dev/null || tmux new-session -d -s "$name"
 tmux set-option -t "=$name:" @lor_person "$(printf %s "$3" | tr -d ';')"
 exec tmux attach-session -t "=$name"
 `
+
+// A rewind swaps the work folder for a rebuilt one (LOR-135), leaving shells
+// in the old, deleted folder: no repo, so no branch in the prompt and git
+// fails. Before each prompt and command, a shell whose folder was replaced
+// goes back to the same path (or its nearest surviving parent).
+const SHELL_HOOK = `_lor_reenter_pwd() {
+  [[ . -ef $PWD ]] && return
+  local dir=$PWD
+  while [[ ! -d $dir && $dir != / ]]; do dir=\${dir:h}; done
+  builtin cd -q -- "$dir" 2>/dev/null
+}
+precmd_functions=(_lor_reenter_pwd \${precmd_functions:#_lor_reenter_pwd})
+preexec_functions=(_lor_reenter_pwd \${preexec_functions:#_lor_reenter_pwd})
+`
+const SHELL_HOOK_PATH = "/usr/local/share/lor-terminal.zsh"
 
 // Lor's read-only view of people's terminals (LOR-150): every harness runs it
 // from its own shell, so "why did that fail?" needs no pasted output.
@@ -113,6 +129,9 @@ function terminalCommand(): string {
     `printf %s ${shellQuote(LAUNCHER)} > /usr/local/bin/lor-terminal-attach`,
     `printf %s ${shellQuote(READER)} > /usr/local/bin/lor-terminal`,
     "chmod +x /usr/local/bin/lor-terminal-attach /usr/local/bin/lor-terminal",
+    `mkdir -p /usr/local/share && printf %s ${shellQuote(SHELL_HOOK)} > ${SHELL_HOOK_PATH}`,
+    // Images before the hook have a .zshrc that doesn't source it.
+    `grep -qs ${SHELL_HOOK_PATH} "$HOME/.zshrc" || printf '\\n[ -f %s ] && source %s\\n' ${SHELL_HOOK_PATH} ${SHELL_HOOK_PATH} >> "$HOME/.zshrc"`,
     // A ttyd from before terminal tabs still holds the port.
     "if pkill -x ttyd 2>/dev/null; then sleep 1; fi",
     // -W: writable; -a: the URL's ?arg= values reach the launcher.
