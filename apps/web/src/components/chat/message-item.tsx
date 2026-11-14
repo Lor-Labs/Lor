@@ -961,7 +961,8 @@ export const MessageItem = memo(function MessageItem({
               attachments={message.attachments}
             />
           )}
-          {message.embeds.length > 0 && (
+          {/* No link previews on session messages sent to Lor (LOR-167). */}
+          {message.embeds.length > 0 && message.routedToLor !== true && (
             <MessageEmbeds
               message={message}
               isOwnMessage={isOwnMessage}
