@@ -18,6 +18,7 @@ import { env } from "@repo/env/server"
 import { settleAbandonedRunPlan } from "@repo/lor/plans"
 import { AGENT_RUN_STOP_CHANNEL } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
+import { LOR_STOPPED_QUEUED_TEXT } from "@repo/utils/lor"
 import { stopPausedTurn } from "@/lib/approvals"
 import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
@@ -270,8 +271,6 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
   )
 }
 
-const STOPPED_MESSAGE = "Stopped."
-
 type StopTargetRun = {
   id: string
   messageId: string
@@ -323,7 +322,7 @@ export async function requestRunStop(
       notifyWorkspaceActivity(settled.workspaceId)
       await db
         .update(schema.message)
-        .set({ content: STOPPED_MESSAGE, status: "complete" })
+        .set({ content: LOR_STOPPED_QUEUED_TEXT, status: "complete" })
         .where(
           and(
             eq(schema.message.id, run.messageId),
@@ -350,7 +349,15 @@ export async function requestRunStop(
       // The stop is already durable — a failed broadcast must not turn it
       // into a 500 (clients would keep a spinning placeholder AND an error).
       try {
-        const emitter = await getEmitter()
+        const [emitter, stopper] = await Promise.all([
+          getEmitter(),
+          db
+            .select({ name: schema.user.name })
+            .from(schema.user)
+            .where(eq(schema.user.id, requestedBy))
+            .then((rows) => rows[0])
+            .catch(() => undefined),
+        ])
         emitter
           .to(
             run.threadRootId
@@ -361,11 +368,12 @@ export async function requestRunStop(
             channelId: run.channelId,
             threadRootId: run.threadRootId,
             messageId: run.messageId,
-            delta: STOPPED_MESSAGE,
+            delta: LOR_STOPPED_QUEUED_TEXT,
             done: true,
             status: "complete",
             replace: true,
             runId: run.id,
+            stopped: { by: stopper?.name ?? null },
           })
       } catch (err) {
         logger.warn({ err, runId: run.id }, "Stop broadcast failed")

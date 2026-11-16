@@ -57,7 +57,7 @@ const toolCallSchema = z.object({
       truncated: z.boolean().optional(),
     })
     .optional(),
-  status: z.enum(["ok", "error"]).optional(),
+  status: z.enum(["ok", "error", "stopped"]).optional(),
 })
 
 // Mirrors AgentRunEventPayload in @repo/db/schema (zod needed for OpenAPI).
