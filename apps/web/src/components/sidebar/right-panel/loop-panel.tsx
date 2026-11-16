@@ -958,12 +958,29 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
     : ""
   const isDraft = loop?.status === "draft"
 
+  // A real save drops the staged edits it carried, so a later change by
+  // someone else isn't shadowed by a stale staged value. Edits staged while
+  // the request ran differ from what it sent and stay; a failure keeps all.
+  const save = async (input: UpdateLoopInput) => {
+    const result = await updateLoop.updateAsync(input)
+    if (result.kind === "updated") {
+      setStaged((prev) => {
+        const next = { ...prev }
+        for (const key of Object.keys(prev) as (keyof StagedEdits)[]) {
+          if (key in input && prev[key] === input[key]) delete next[key]
+        }
+        return next
+      })
+    }
+    return result
+  }
+
   // Create Loop persists staged edits first — activation reads the server
   // snapshot, so anything unsaved would silently vanish.
   const createLoop = async () => {
     if (dirtyInput) {
       try {
-        const result = await updateLoop.updateAsync(dirtyInput)
+        const result = await save(dirtyInput)
         // Sub-hourly re-consent — the confirm dialog is up; activate after.
         if (result.kind === "needs_confirmation") return
       } catch {
@@ -1180,7 +1197,10 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                 size="sm"
                 variant={isDraft ? "outline" : "default"}
                 loading={updateLoop.isPending}
-                onClick={() => dirtyInput && updateLoop.update(dirtyInput)}
+                onClick={() => {
+                  // Failures are toasted by the hook; staged edits stay.
+                  if (dirtyInput) save(dirtyInput).catch(() => {})
+                }}
                 className="fade-in slide-in-from-bottom-1 animate-in duration-200"
               >
                 Save changes
@@ -1215,10 +1235,9 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
         firesPerDay={updateLoop.confirmState?.firesPerDay ?? null}
         onConfirm={() => {
           if (updateLoop.confirmState) {
-            updateLoop.update({
-              ...updateLoop.confirmState.input,
-              confirm: true,
-            })
+            save({ ...updateLoop.confirmState.input, confirm: true }).catch(
+              () => {}
+            )
           }
         }}
         onDismiss={updateLoop.dismissConfirm}

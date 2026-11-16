@@ -240,6 +240,7 @@ export function useUpdateLoop(loop: ChannelLoop | null) {
                   ...(input.endCondition !== undefined
                     ? { endCondition: input.endCondition }
                     : {}),
+                  ...(input.model !== undefined ? { model: input.model } : {}),
                 }
               : l
           )

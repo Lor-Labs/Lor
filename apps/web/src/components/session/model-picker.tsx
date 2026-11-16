@@ -69,6 +69,7 @@ type ModelGroup = {
 // The combobox holds string keys, unique across harnesses, so its value
 // stays the same between renders.
 const itemKey = (harness: SessionHarness, id: string) => `${harness}:${id}`
+const DEFAULT_KEY = "default"
 
 function modelDetail(model: AgentModelOption): ReactNode {
   const exact =
@@ -94,6 +95,7 @@ function ModelCombobox({
   harnesses,
   selectedId,
   onSelect,
+  defaultLabel,
   trigger,
   triggerTitle,
   triggerClassName,
@@ -103,7 +105,9 @@ function ModelCombobox({
   harness: SessionHarness
   harnesses: readonly SessionHarness[]
   selectedId: string | null
-  onSelect: (harness: SessionHarness, id: string) => void
+  // Set: a first row that picks null (the harness's default, kept current).
+  defaultLabel?: string
+  onSelect: (harness: SessionHarness, id: string | null) => void
   trigger: ReactNode
   triggerTitle: string
   triggerClassName: string
@@ -160,13 +164,35 @@ function ModelCombobox({
   })
   const sidebar = harnesses.length > 1
   const searching = query.trim() !== ""
-  const groups =
-    sidebar && !searching
+  const defaultGroup: ModelGroup[] = []
+  if (defaultLabel) {
+    byKey.set(DEFAULT_KEY, {
+      harness: current,
+      id: "",
+      name: defaultLabel,
+      detail: null,
+      search: `${defaultLabel} default`.toLowerCase(),
+    })
+    defaultGroup.push({
+      value: DEFAULT_KEY,
+      label: null,
+      keyProvider: null,
+      items: [DEFAULT_KEY],
+    })
+  }
+  const groups = [
+    ...defaultGroup,
+    ...(sidebar && !searching
       ? (groupsOf.get(harnesses.includes(shown) ? shown : current) ?? [])
       : [...harnesses]
           .sort((a, b) => Number(a === "pi") - Number(b === "pi"))
-          .flatMap((harness) => groupsOf.get(harness) ?? [])
-  const selected = selectedId ? itemKey(current, selectedId) : null
+          .flatMap((harness) => groupsOf.get(harness) ?? [])),
+  ]
+  const selected = selectedId
+    ? itemKey(current, selectedId)
+    : defaultLabel
+      ? DEFAULT_KEY
+      : null
   const showAgent = (harness: SessionHarness) => {
     setQuery("")
     setShown(harness)
@@ -180,7 +206,7 @@ function ModelCombobox({
       disabled={disabled}
       onValueChange={(key) => {
         const item = key ? byKey.get(key) : undefined
-        if (item) onSelect(item.harness, item.id)
+        if (item) onSelect(item.harness, key === DEFAULT_KEY ? null : item.id)
       }}
       itemToStringLabel={(key) => byKey.get(key)?.name ?? key}
       filter={(key: string, text) =>
@@ -333,6 +359,7 @@ export function ModelPicker({
       harnesses={harnesses}
       selectedId={choice.option?.id ?? null}
       onSelect={(harness, id) => {
+        if (!id) return
         if (harness !== choice.harness) onHarness?.(harness)
         // A session's first pick also keeps its other two as shown.
         pinSessionChoice(choice)
@@ -375,7 +402,8 @@ function KeyMark({ keyProvider }: { keyProvider: KeyProvider | null }) {
 }
 
 // A Loop's or Act trigger's saved model for Lor's agent (LOR-161). Null
-// follows Lor's default model; a key model runs on the workspace's key.
+// ("Default") follows Lor's default model as it changes; a key model runs on
+// the workspace's key.
 export function SavedModelPicker({
   workspaceSlug,
   value,
@@ -386,21 +414,26 @@ export function SavedModelPicker({
   workspaceSlug: string
   value: string | null
   disabled?: boolean
-  onChange: (model: string) => void
+  onChange: (model: string | null) => void
   className?: string
 }) {
   const { data: catalog } = useQuery(
     agentModelsQueryOptions("pi", workspaceSlug)
   )
-  const id = value ?? catalog?.defaultModel ?? null
-  const option = catalog?.models.find((model) => model.id === id)
+  const option = value
+    ? catalog?.models.find((model) => model.id === value)
+    : undefined
   const keyProvider = option?.keyProvider ?? null
+  const defaultName = catalog?.models.find(
+    (model) => model.id === catalog.defaultModel
+  )?.name
+  const defaultLabel = defaultName ? `Default (${defaultName})` : "Default"
   // A saved model the catalog no longer lists runs on Lor's default.
   const savedName = value?.split("/").at(-1)
   const name =
     option?.name ??
     (!savedName
-      ? "Default"
+      ? defaultLabel
       : catalog
         ? `${savedName} (unavailable)`
         : savedName)
@@ -410,6 +443,7 @@ export function SavedModelPicker({
       harness="pi"
       harnesses={["pi"]}
       selectedId={option?.id ?? null}
+      defaultLabel={defaultLabel}
       onSelect={(_, model) => {
         if (model !== value) onChange(model)
       }}
