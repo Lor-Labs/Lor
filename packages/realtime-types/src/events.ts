@@ -1225,6 +1225,9 @@ export type RealtimeLoop = {
   endCondition: string | null
   // Hard end date (sweep-enforced); null = no date end.
   endAt: string | null
+  // Lor's model for each run ("key:<provider>/…" runs on the workspace's
+  // key); null: Lor's default model.
+  model: string | null
   status: RealtimeLoopStatus
   pausedReason: "manual" | "failures" | "out_of_credits" | null
   nextRunAt: string | null

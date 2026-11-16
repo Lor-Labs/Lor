@@ -107,6 +107,7 @@ export function createTriggeredRunProcessor(
         windowSeconds: schema.connectorTrigger.actWindowSeconds,
         repoFullName: schema.connectorTrigger.actRepoFullName,
         baseBranch: schema.connectorTrigger.actBaseBranch,
+        model: schema.connectorTrigger.actModel,
         connectedById: schema.integrationConnection.createdBy,
         workspaceOwnerId: schema.workspace.ownerId,
       })
@@ -149,6 +150,7 @@ export function createTriggeredRunProcessor(
                 baseBranch: trigger.baseBranch,
               }
             : null,
+        model: trigger.model,
         // Older connections have no creator; channel access is still checked.
         connectedById:
           trigger.connectedById ?? trigger.workspaceOwnerId ?? null,

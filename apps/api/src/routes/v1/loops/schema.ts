@@ -52,6 +52,8 @@ export const updateLoopBodySchema = z
     // finish line, both explicitly null = runs forever.
     endAt: z.string().datetime().nullable().optional(),
     endCondition: z.string().min(1).max(500).nullable().optional(),
+    // Lor's model for each run, from its catalog; null: Lor's default.
+    model: z.string().min(1).max(200).nullable().optional(),
     confirmHighFrequency: z.boolean().optional(),
   })
   .refine(
@@ -61,7 +63,8 @@ export const updateLoopBodySchema = z
       body.instructions !== undefined ||
       body.name !== undefined ||
       body.endAt !== undefined ||
-      body.endCondition !== undefined,
+      body.endCondition !== undefined ||
+      body.model !== undefined,
     { message: "Nothing to update" }
   )
   .refine(
@@ -86,6 +89,7 @@ export const loopSchema = z.object({
   timezone: z.string().nullable(),
   endCondition: z.string().nullable(),
   endAt: z.string().nullable(),
+  model: z.string().nullable(),
   status: z.enum(loopStatusEnum.enumValues),
   pausedReason: z.enum(loopPausedReasonEnum.enumValues).nullable(),
   nextRunAt: z.string().nullable(),

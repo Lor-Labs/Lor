@@ -76,6 +76,7 @@ import {
   useRunLoopNow,
   useUpdateLoop,
 } from "@/components/loops/loop-actions"
+import { SavedModelPicker } from "@/components/session/model-picker"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { LoopSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -875,7 +876,7 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
   // autosave-on-change model made it unclear anything was saved at all.
   type StagedEdits = Pick<
     UpdateLoopInput,
-    "instructions" | "schedule" | "endAt" | "endCondition"
+    "instructions" | "schedule" | "endAt" | "endCondition" | "model"
   >
   const [staged, setStaged] = useState<StagedEdits>({})
   const stage = (input: StagedEdits) =>
@@ -897,6 +898,7 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
       ...(staged.endCondition !== undefined
         ? { endCondition: staged.endCondition }
         : {}),
+      ...(staged.model !== undefined ? { model: staged.model } : {}),
     }
   }, [loop, staged])
 
@@ -923,6 +925,9 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
       staged.endCondition !== loop.endCondition
     ) {
       diff.endCondition = staged.endCondition
+    }
+    if (staged.model !== undefined && staged.model !== loop.model) {
+      diff.model = staged.model
     }
     return Object.keys(diff).length > 0 ? diff : null
   }, [loop, staged])
@@ -1102,6 +1107,18 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                 />
               )}
               <EndRepeatRows loop={effective} onUpdate={stage} />
+              <DetailRow label="Model">
+                {loop.status === "completed" ? (
+                  <span className="truncate">{loop.model ?? "Default"}</span>
+                ) : (
+                  <SavedModelPicker
+                    workspaceSlug={view.workspaceSlug}
+                    value={effective.model}
+                    onChange={(model) => stage({ model })}
+                    className="w-48"
+                  />
+                )}
+              </DetailRow>
               {loop.status === "paused" && (
                 <DetailRow label="Paused">
                   {(loop.pausedReason &&

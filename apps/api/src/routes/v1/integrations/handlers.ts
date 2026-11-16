@@ -29,7 +29,12 @@ import {
   connectDatadog as verifyDatadogKeys,
 } from "@repo/lor/providers"
 import { and, eq, inArray, ne, sql } from "drizzle-orm"
-import { actCodeChanged, actCodeOf, checkActTarget } from "@/lib/act-target"
+import {
+  actCodeChanged,
+  actCodeOf,
+  checkActModel,
+  checkActTarget,
+} from "@/lib/act-target"
 import {
   githubAccountToken,
   githubAuthorizeUrl,
@@ -202,6 +207,7 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             actSessionMode: connectorTrigger.actSessionMode,
             actRepoFullName: connectorTrigger.actRepoFullName,
             actBaseBranch: connectorTrigger.actBaseBranch,
+            actModel: connectorTrigger.actModel,
             actWindowSeconds: connectorTrigger.actWindowSeconds,
             hourlyRunCap: connectorTrigger.hourlyRunCap,
             dailyRunCap: connectorTrigger.dailyRunCap,
@@ -305,6 +311,7 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             actInstructions: trigger?.actInstructions ?? null,
             actSessionMode: trigger?.actSessionMode ?? "per_event",
             actCode: trigger ? actCodeOf(trigger) : null,
+            actModel: trigger?.actModel ?? null,
             // Unconfigured events show the same defaults a new trigger gets.
             actWindowSeconds:
               trigger?.actWindowSeconds ?? ACT_DEFAULTS.windowSeconds,
@@ -938,6 +945,7 @@ export const updateIntegration: AppRouteHandler<
     actInstructions,
     actSessionMode,
     actCode,
+    actModel,
     actWindowSeconds,
     hourlyRunCap,
     dailyRunCap,
@@ -978,6 +986,7 @@ export const updateIntegration: AppRouteHandler<
       actSessionMode: connectorTrigger.actSessionMode,
       actRepoFullName: connectorTrigger.actRepoFullName,
       actBaseBranch: connectorTrigger.actBaseBranch,
+      actModel: connectorTrigger.actModel,
     })
     .from(connectorTrigger)
     .where(
@@ -1048,6 +1057,17 @@ export const updateIntegration: AppRouteHandler<
       HttpStatusCodes.BAD_REQUEST
     )
   }
+  const modelRefusal = await checkActModel(
+    workspace.id,
+    actModel,
+    saved?.actModel ?? null
+  )
+  if (modelRefusal) {
+    return c.json(
+      { success: false, message: modelRefusal },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
 
   await db
     .insert(connectorTrigger)
@@ -1059,6 +1079,7 @@ export const updateIntegration: AppRouteHandler<
       actInstructions,
       actSessionMode: sessionMode,
       ...actTarget.columns,
+      ...(actModel !== undefined ? { actModel } : {}),
       // Absent = keep the column default on create.
       ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
       ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),
@@ -1072,6 +1093,7 @@ export const updateIntegration: AppRouteHandler<
         actInstructions,
         actSessionMode: sessionMode,
         ...actTarget.columns,
+        ...(actModel !== undefined ? { actModel } : {}),
         // Absent = leave the configured limits alone.
         ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
         ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),

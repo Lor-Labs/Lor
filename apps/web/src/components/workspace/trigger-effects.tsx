@@ -19,6 +19,7 @@ import { Textarea } from "@repo/ui/components/textarea"
 import { cn } from "@repo/ui/lib/utils"
 import { type ReactNode, useState } from "react"
 import { SavedCodeTargetPicker } from "@/components/session/code-target-picker"
+import { SavedModelPicker } from "@/components/session/model-picker"
 
 // Shared effect rows for trigger config (BYO webhooks + connector events).
 // One trigger can fan out to either effect or both.
@@ -41,6 +42,8 @@ export type TriggerEffectsValue = {
   // (reference/act-sessions-runbook.md).
   actSessionMode: ActSessionMode
   actCode: { repo: string; branch: string } | null
+  // Lor's model for Act runs; null: Lor's default (LOR-161).
+  actModel: string | null
   // Act rate shape: 0 = one run per delivery, otherwise deliveries inside the
   // window coalesce into one run; caps are rolling-window run limits.
   actWindowSeconds: number
@@ -471,6 +474,20 @@ function ActSessionFields({
                   : {}),
               })
             }
+          />
+        </OptionRow>
+      )}
+      {codeScope && (
+        <OptionRow
+          label="Model"
+          hint="A key model runs on your team's own API key"
+        >
+          <SavedModelPicker
+            workspaceSlug={codeScope.workspaceSlug}
+            value={value.actModel}
+            disabled={disabled}
+            onChange={(actModel) => onPatch({ actModel })}
+            className="w-56 text-xs"
           />
         </OptionRow>
       )}
