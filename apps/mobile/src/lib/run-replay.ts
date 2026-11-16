@@ -95,6 +95,7 @@ export function applyLorFrame(message: Message, frame: LorFrame): Message {
                     fast: payload.fast ?? false,
                   }
                 : {}),
+              ...(payload.stopped ? { stopped: payload.stopped } : {}),
             },
           }
         : {}),
