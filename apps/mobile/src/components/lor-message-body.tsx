@@ -1,4 +1,4 @@
-import { splitFailedReply } from "@repo/utils/lor"
+import { isLorStoppedStockText, splitFailedReply } from "@repo/utils/lor"
 import { useMemo } from "react"
 import { View } from "react-native"
 import { FileChip } from "@/components/file-chip"
@@ -16,10 +16,14 @@ import { openFile } from "@/lib/open-file"
 export function LorMessageBody({
   message,
   streaming,
+  stopped = false,
   onCitationJump,
 }: {
   message: Message
   streaming: boolean
+  // Someone pressed Stop; the row shows "Stopped by …" in place of the
+  // stock stopped text.
+  stopped?: boolean
   onCitationJump?: (messageId: string) => void
 }) {
   const { segments, deliverables, setups } = useMemo(() => {
@@ -34,7 +38,9 @@ export function LorMessageBody({
     }
     return {
       segments: buildLorSegments(
-        message.content ?? "",
+        stopped && isLorStoppedStockText(message.content)
+          ? ""
+          : (message.content ?? ""),
         toolCalls,
         message.lorReasoningSegments ?? []
       ),
@@ -46,7 +52,7 @@ export function LorMessageBody({
           : []
       ),
     }
-  }, [message])
+  }, [message, stopped])
 
   // Work/answer split (mirrors web lor-message-body): the trailing text is
   // the answer; everything before it is the work log, collapsed behind the
@@ -121,6 +127,7 @@ export function LorMessageBody({
             toolCalls.filter((toolCall) => toolCall.status === "error").length
           }
           failed={failed}
+          stopped={stopped}
           toolCount={toolCalls.length}
           workedMs={lorWorkedMs(message)}
         >

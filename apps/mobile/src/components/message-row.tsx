@@ -5,6 +5,7 @@ import { HugeiconsIcon } from "@hugeicons/react-native"
 import { LOR_USER_ID } from "@repo/db/constants"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatDateDivider, formatDateTime, timeAgo } from "@repo/utils/date"
+import { isLorStoppedStockText } from "@repo/utils/lor"
 import { useThemeColor } from "heroui-native/hooks"
 import { type ReactNode, useMemo } from "react"
 import { Pressable, Text, View } from "react-native"
@@ -16,6 +17,7 @@ import { LoopCard } from "@/components/loop-card"
 import { LorFailureNotice } from "@/components/lor-failure-notice"
 import { LorMessageBody } from "@/components/lor-message-body"
 import { LorReasoning } from "@/components/lor-reasoning"
+import { LorStoppedNote } from "@/components/lor-stopped-note"
 import { LorWorkingFor, lorWorkStart } from "@/components/lor-work-time"
 import {
   isAttioRecording,
@@ -156,6 +158,15 @@ function MessageRowBody({
   const hasTimeline =
     (message.lorToolCalls?.length ?? 0) > 0 ||
     (message.lorReasoningSegments?.length ?? 0) > 0
+  // Someone pressed Stop: show who instead of the stock "Stopped." text.
+  const lorStopped =
+    isLor && message.status === "complete"
+      ? (message.lorRun?.stopped ?? null)
+      : null
+  const content =
+    lorStopped && isLorStoppedStockText(message.content)
+      ? null
+      : message.content
 
   return (
     <>
@@ -192,20 +203,22 @@ function MessageRowBody({
             <LorMessageBody
               message={message}
               onCitationJump={onJumpToMessage}
+              stopped={Boolean(lorStopped)}
               streaming={isStreaming}
             />
           ) : isLor && message.status === "failed" ? (
             <LorFailureNotice
               text={message.content || "Lor couldn't respond to that."}
             />
-          ) : message.content && !isMeetingPost ? (
+          ) : content && !isMeetingPost ? (
             <MessageContent
-              content={message.content}
+              content={content}
               mentions={message.mentions}
               onCitationJump={onJumpToMessage}
               streaming={isStreaming}
             />
           ) : null}
+          {lorStopped ? <LorStoppedNote by={lorStopped.by} /> : null}
           {message.type === "forward" && message.forwarded ? (
             <ForwardedMessageCard forwarded={message.forwarded} />
           ) : null}

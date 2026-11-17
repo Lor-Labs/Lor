@@ -265,6 +265,10 @@ function SandboxRow({
               Failed
             </Text>
           </View>
+        ) : toolCall.status === "stopped" ? (
+          <View className="rounded-lor-sm bg-surface-secondary px-one">
+            <Text className="text-[11px] text-muted">Stopped</Text>
+          </View>
         ) : null}
         {expandable ? (
           <HugeiconsIcon
@@ -406,6 +410,8 @@ export function LorToolTrail({
                   <Text className="text-xs font-semibold text-danger">
                     failed
                   </Text>
+                ) : toolCall.status === "stopped" ? (
+                  <Text className="text-xs text-muted">stopped</Text>
                 ) : null}
                 {drillable ? (
                   <HugeiconsIcon
@@ -446,7 +452,9 @@ export function LorToolTrail({
                     <BottomSheet.Description>
                       {selectedTool.status === "error"
                         ? "Tool call failed"
-                        : "Tool call result"}
+                        : selectedTool.status === "stopped"
+                          ? "Stopped before it finished"
+                          : "Tool call result"}
                     </BottomSheet.Description>
                   </View>
                   <BottomSheet.Close />

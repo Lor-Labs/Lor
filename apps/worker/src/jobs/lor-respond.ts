@@ -76,6 +76,7 @@ import {
   assertHarnessEnabled,
   HarnessDisabledError,
 } from "@repo/utils/features"
+import { LOR_STOPPED_EMPTY_TEXT } from "@repo/utils/lor"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
@@ -434,7 +435,8 @@ export function createLorRespondProcessor(
             done: boolean,
             status?: "complete" | "failed",
             replace?: boolean,
-            mentions?: RealtimeMessageMention[]
+            mentions?: RealtimeMessageMention[],
+            stopped?: { by: string | null }
           ) => {
             const streamState = updateStreamMentionState({
               content: streamedContent,
@@ -473,6 +475,7 @@ export function createLorRespondProcessor(
                     ...(runPicks.turnFast ? { fast: true } : {}),
                   }
                 : {}),
+              ...(done && stopped ? { stopped } : {}),
               ...runRef(seq),
             })
           }
@@ -603,14 +606,12 @@ export function createLorRespondProcessor(
             emit(pending, false)
             pending = ""
           }
-          const persistFailure = async (failureText: string) => {
-            flushPendingText()
-            closeReasoningSegment()
-            // A tool that started and never returned was interrupted; with no
-            // status the trail would show it completed once streaming stops.
+          // A tool that started and never returned was interrupted; with no
+          // status the trail would show it completed once streaming stops.
+          const settleInFlightTools = (status: "error" | "stopped") => {
             for (const [idx, call] of toolCalls.entries()) {
               if (call.status) continue
-              const interrupted: LorToolCall = { ...call, status: "error" }
+              const interrupted: LorToolCall = { ...call, status }
               toolCalls[idx] = interrupted
               const seq = runWriter.append({
                 kind: "tool",
@@ -624,6 +625,31 @@ export function createLorRespondProcessor(
                 ...runRef(seq),
               })
             }
+          }
+          // Who pressed Stop, for the reply's "Stopped by …" note. A person's
+          // Stop records stopRequestedBy; the heartbeat's automatic stops
+          // (credits, workspace, key checks) don't, so they return null.
+          const stopperOf = async (): Promise<{ by: string | null } | null> => {
+            if (!execution) return null
+            const row = await db
+              .select({
+                stoppedBy: schema.agentRun.stopRequestedBy,
+                name: schema.user.name,
+              })
+              .from(schema.agentRun)
+              .leftJoin(
+                schema.user,
+                eq(schema.user.id, schema.agentRun.stopRequestedBy)
+              )
+              .where(eq(schema.agentRun.id, execution.runId))
+              .then((rows) => rows[0])
+              .catch(() => undefined)
+            return row?.stoppedBy ? { by: row.name ?? null } : null
+          }
+          const persistFailure = async (failureText: string) => {
+            flushPendingText()
+            closeReasoningSegment()
+            settleInFlightTools("error")
             // One paragraph, so clients can split it from the kept output
             // (splitFailedReply).
             const failureDelta = `${streamedContent ? "\n\n" : ""}${failureText.replace(/\n{2,}/g, "\n").trim()}`
@@ -1340,9 +1366,14 @@ export function createLorRespondProcessor(
                       : undefined)
                   if (!base) return
                   if (!existing) closeReasoningSegment()
+                  // A tool the Stop cut short reports an error; it didn't fail.
+                  const stoppedTool =
+                    toolCall.status === "error" &&
+                    execution.handle.stopRequested?.() === true
                   const nextToolCall: LorToolCall = {
                     ...base,
                     ...toolCall,
+                    ...(stoppedTool ? { status: "stopped" as const } : {}),
                     ...(existing?.at !== undefined ? { at: existing.at } : {}),
                     order: existing?.order ?? eventOrder++,
                   }
@@ -1419,6 +1450,67 @@ export function createLorRespondProcessor(
               execution?.stop()
               return
             }
+            // Someone pressed Stop and the harness ended with an error (a
+            // killed Claude Code process, an aborted request): keep the
+            // partial reply and settle as stopped, not failed. Automatic
+            // stops stay on the failure path below.
+            const stopped =
+              execution?.handle.stopRequested?.() === true
+                ? await stopperOf()
+                : null
+            if (execution && stopped) {
+              logger.info(
+                { err, lorMessageId, runId: execution.runId },
+                "Lor turn ended with an error after Stop"
+              )
+              flushPendingText()
+              closeReasoningSegment()
+              settleInFlightTools("stopped")
+              const empty = !streamedContent.trim()
+              const content = empty ? LOR_STOPPED_EMPTY_TEXT : streamedContent
+              try {
+                await db
+                  .update(schema.message)
+                  .set({
+                    content,
+                    status: "complete",
+                    lorToolCalls: toolCalls,
+                    lorReasoning: reasoning || null,
+                    lorReasoningSegments: reasoningSegments,
+                    lorMemories: remembered,
+                  })
+                  .where(eq(schema.message.id, lorMessageId))
+              } catch (persistErr) {
+                // Same recovery as a failed save of a finished reply.
+                logger.error(
+                  { err: persistErr, lorMessageId },
+                  "Saving the stopped Lor reply failed"
+                )
+                await persistFailure(LOR_ERROR_FALLBACK)
+                await runWriter.transition("failed", { stopReason: "error" })
+                execution.stop()
+                await settlePlan("failed")
+                await emitThreadSummary()
+                drainQueue()
+                return
+              }
+              emit(
+                empty ? content : "",
+                true,
+                "complete",
+                false,
+                undefined,
+                stopped
+              )
+              await runWriter.transition("stopped", {
+                stopReason: "stopped_by_user",
+              })
+              execution.stop()
+              await settlePlan("stopped")
+              await emitThreadSummary()
+              drainQueue()
+              return
+            }
             logger.error({ err, lorMessageId }, "Lor response failed")
             // A harness switched off after this run was queued, or a beta refusal.
             const failureText =
@@ -1456,6 +1548,10 @@ export function createLorRespondProcessor(
           // Phase 2 — persist, then fan out. Persistence decides the terminal
           // status; fanout is best-effort and never downgrades a saved reply.
           await runWriter.transition("finalizing")
+          const stopped = stoppedByUser
+            ? ((await stopperOf()) ?? undefined)
+            : undefined
+          if (stoppedByUser) settleInFlightTools("stopped")
           let finalText = ""
           let replyPreview = ""
           let emptyFallback = false
@@ -1488,7 +1584,7 @@ export function createLorRespondProcessor(
             finalText = grounded.text
             if (!finalText.trim()) {
               finalText = stoppedByUser
-                ? "Stopped before I had an answer."
+                ? LOR_STOPPED_EMPTY_TEXT
                 : awaitingApproval
                   ? "Waiting for approval before I continue."
                   : "I couldn't pull together an answer for that — could you add a bit more detail or rephrase?"
@@ -1673,7 +1769,8 @@ export function createLorRespondProcessor(
             true,
             "complete",
             false,
-            messageMentions
+            messageMentions,
+            stopped
           )
           // The reply to an Act event briefs the trigger's next run.
           if (triggerRun?.isEvent && job.data.runId) {

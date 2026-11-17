@@ -708,7 +708,7 @@ export type RealtimeLorToolCall = {
     sandboxMemoryMb?: number
     reason: string
   }
-  status?: "ok" | "error"
+  status?: "ok" | "error" | "stopped"
 }
 
 // Payloads for the lor:* streaming events.
@@ -898,6 +898,9 @@ export interface ServerToClientEvents {
     model?: string
     effort?: string
     fast?: boolean
+    // On the terminal chunk of a run someone stopped: who pressed Stop (null
+    // when unknown), so the reply reads as stopped, not failed.
+    stopped?: { by: string | null }
   }) => void
   // Lor's summarized extended-thinking, streamed before/between the answer.
   // `at` and `order` place each segment among answer text and tool calls.
