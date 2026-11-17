@@ -59,6 +59,8 @@ type ActSessionInput = {
   windowSeconds: number
   // Code mode: new sessions are code sessions on this repo.
   code: { repoFullName: string; baseBranch: string } | null
+  // The trigger's model for the run; null: Lor's default.
+  model: string | null
   connectedById: string | null
   label: string
   payload: string
@@ -213,6 +215,7 @@ async function runEventInSession(
       omittedMessages: Math.max(0, total - sourceMessages.length),
     },
     silent: true,
+    turnModel: input.model,
   })
   const started = await startScopeRun(
     deps,

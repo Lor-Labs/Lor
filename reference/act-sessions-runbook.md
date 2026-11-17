@@ -4,7 +4,9 @@ Started 2026-10-28 with Jacob. Act (the unattended effect on connector
 triggers and channel webhooks, `automation-primitives.md` §2) can now route an
 event into an existing session instead of always starting a new one, and can
 start code sessions on a repo. Act runs stay on Pi with Lor's cloud models:
-nobody's subscription pays for an unattended run.
+nobody's subscription pays for an unattended run. A trigger may save a model
+(`connector_trigger.act_model`, LOR-161); a `key:` model runs on the
+workspace's own API key, as in the composer.
 
 ## Decisions (Jacob, 2026-10-28)
 

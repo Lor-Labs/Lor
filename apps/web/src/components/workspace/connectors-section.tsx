@@ -95,6 +95,7 @@ type TriggerConfig = {
   actInstructions: string | null
   actSessionMode: TriggerEffectsValue["actSessionMode"]
   actCode: TriggerEffectsValue["actCode"]
+  actModel: TriggerEffectsValue["actModel"]
   actWindowSeconds: number
   hourlyRunCap: number
   dailyRunCap: number
@@ -777,6 +778,7 @@ function EventRoutes({
               actInstructions: ev.actInstructions,
               actSessionMode: ev.actSessionMode,
               actCode: ev.actCode,
+              actModel: ev.actModel,
               actWindowSeconds: ev.actWindowSeconds,
               hourlyRunCap: ev.hourlyRunCap,
               dailyRunCap: ev.dailyRunCap,
@@ -823,6 +825,7 @@ function EventRoutes({
                       actInstructions: ev.actInstructions,
                       actSessionMode: ev.actSessionMode,
                       actCode: ev.actCode,
+                      actModel: ev.actModel,
                       actWindowSeconds: ev.actWindowSeconds,
                       hourlyRunCap: ev.hourlyRunCap,
                       dailyRunCap: ev.dailyRunCap,
