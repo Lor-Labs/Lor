@@ -626,20 +626,25 @@ export function createLorRespondProcessor(
               })
             }
           }
-          // Who pressed Stop, for the reply's "Stopped by …" note.
-          const stopperOf = async (): Promise<{ by: string | null }> => {
-            if (!execution) return { by: null }
+          // Who pressed Stop, for the reply's "Stopped by …" note. A person's
+          // Stop records stopRequestedBy; the heartbeat's automatic stops
+          // (credits, workspace, key checks) don't, so they return null.
+          const stopperOf = async (): Promise<{ by: string | null } | null> => {
+            if (!execution) return null
             const row = await db
-              .select({ name: schema.user.name })
+              .select({
+                stoppedBy: schema.agentRun.stopRequestedBy,
+                name: schema.user.name,
+              })
               .from(schema.agentRun)
-              .innerJoin(
+              .leftJoin(
                 schema.user,
                 eq(schema.user.id, schema.agentRun.stopRequestedBy)
               )
               .where(eq(schema.agentRun.id, execution.runId))
               .then((rows) => rows[0])
               .catch(() => undefined)
-            return { by: row?.name ?? null }
+            return row?.stoppedBy ? { by: row.name ?? null } : null
           }
           const persistFailure = async (failureText: string) => {
             flushPendingText()
@@ -1447,35 +1452,48 @@ export function createLorRespondProcessor(
             }
             // Someone pressed Stop and the harness ended with an error (a
             // killed Claude Code process, an aborted request): keep the
-            // partial reply and settle as stopped, not failed.
-            if (execution?.handle.stopRequested?.()) {
+            // partial reply and settle as stopped, not failed. Automatic
+            // stops stay on the failure path below.
+            const stopped =
+              execution?.handle.stopRequested?.() === true
+                ? await stopperOf()
+                : null
+            if (execution && stopped) {
               logger.info(
                 { err, lorMessageId, runId: execution.runId },
                 "Lor turn ended with an error after Stop"
               )
-              const stopped = await stopperOf()
               flushPendingText()
               closeReasoningSegment()
               settleInFlightTools("stopped")
               const empty = !streamedContent.trim()
               const content = empty ? LOR_STOPPED_EMPTY_TEXT : streamedContent
-              await db
-                .update(schema.message)
-                .set({
-                  content,
-                  status: "complete",
-                  lorToolCalls: toolCalls,
-                  lorReasoning: reasoning || null,
-                  lorReasoningSegments: reasoningSegments,
-                  lorMemories: remembered,
-                })
-                .where(eq(schema.message.id, lorMessageId))
-                .catch((persistErr) =>
-                  logger.error(
-                    { err: persistErr, lorMessageId },
-                    "Saving the stopped Lor reply failed"
-                  )
+              try {
+                await db
+                  .update(schema.message)
+                  .set({
+                    content,
+                    status: "complete",
+                    lorToolCalls: toolCalls,
+                    lorReasoning: reasoning || null,
+                    lorReasoningSegments: reasoningSegments,
+                    lorMemories: remembered,
+                  })
+                  .where(eq(schema.message.id, lorMessageId))
+              } catch (persistErr) {
+                // Same recovery as a failed save of a finished reply.
+                logger.error(
+                  { err: persistErr, lorMessageId },
+                  "Saving the stopped Lor reply failed"
                 )
+                await persistFailure(LOR_ERROR_FALLBACK)
+                await runWriter.transition("failed", { stopReason: "error" })
+                execution.stop()
+                await settlePlan("failed")
+                await emitThreadSummary()
+                drainQueue()
+                return
+              }
               emit(
                 empty ? content : "",
                 true,
@@ -1530,7 +1548,9 @@ export function createLorRespondProcessor(
           // Phase 2 — persist, then fan out. Persistence decides the terminal
           // status; fanout is best-effort and never downgrades a saved reply.
           await runWriter.transition("finalizing")
-          const stopped = stoppedByUser ? await stopperOf() : undefined
+          const stopped = stoppedByUser
+            ? ((await stopperOf()) ?? undefined)
+            : undefined
           if (stoppedByUser) settleInFlightTools("stopped")
           let finalText = ""
           let replyPreview = ""

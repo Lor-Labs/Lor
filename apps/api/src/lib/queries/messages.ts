@@ -468,6 +468,7 @@ export async function hydrateMessages(
             >`(${agentRun.context} ->> 'turnFast')::boolean`,
             state: agentRun.state,
             stopReason: agentRun.stopReason,
+            stoppedBy: agentRun.stopRequestedBy,
             stoppedByName: user.name,
           })
           .from(agentRun)
@@ -575,8 +576,11 @@ export async function hydrateMessages(
         effort: row.effort,
         fast: row.fast ?? false,
         // A run someone stopped reads as stopped, not failed (LOR-142).
+        // Automatic stops record no stopRequestedBy.
         stopped:
-          row.state === "stopped" && row.stopReason === "stopped_by_user"
+          row.state === "stopped" &&
+          row.stopReason === "stopped_by_user" &&
+          row.stoppedBy
             ? { by: row.stoppedByName ?? null }
             : null,
       },
