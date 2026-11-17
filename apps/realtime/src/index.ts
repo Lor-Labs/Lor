@@ -824,9 +824,12 @@ io.on("connection", (socket) => {
         session: realtimeSession ?? undefined,
       })
 
-      // Enqueue link unfurl job if the message contains a URL
+      // Link previews (unfurls) are skipped for session messages sent to Lor
+      // (LOR-167); messages addressed to teammates still get them.
       const rawUrlMatches =
-        parsed.content?.match(/https?:\/\/[^\s<>"[\]]+/g) ?? null
+        createdMessage.message.routedToLor === true
+          ? null
+          : (parsed.content?.match(/https?:\/\/[^\s<>"[\]]+/g) ?? null)
       const urlMatches = rawUrlMatches
         ? [
             ...new Set(
