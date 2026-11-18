@@ -1,0 +1,485 @@
+# Always-on agents: one agent and one chat per channel
+
+**Status:** Plan for LOR-169, decided with Jacob between 2026-11-16 and
+2026-11-18. Not started. It replaces the proposal in `team-agents.md`, which
+stays as the record of how the design was reached. Where the two differ, this
+doc wins.
+
+The mocks at `/prototype/agents` and `/prototype/orchestration` show an
+earlier shape, with threads and a page per agent. §9 says which parts of them
+still apply.
+
+## 1. The product
+
+Every assistant a team can use today is personal. **Lor is always-on agents
+for your team, with the team's context and memory in one place.**
+
+- **A channel is one agent and one chat.** People and the agent talk in it.
+- **The agent is a teammate for one area,** such as #eng, #gtm or #support.
+  It is wired to that area's tools, events and timers.
+- **It reasons over what arrives and has one way to speak:** a tool that
+  sends a message to the channel's chat.
+- **It does heavy work by starting code sessions,** which it uses like a
+  tool.
+- **Not only code.** The same loop serves every area. Code is how an agent
+  gets work done, not the market Lor is in.
+
+The whole mechanism:
+
+```
+ chat messages, webhooks, connector events, Loops,
+ finished sessions, wake-ups
+                  |
+                  v
+             [ inbox ]        one per channel
+                  |
+        wakes it now, or waits unread
+                  |
+                  v
+             [ a turn ]       the channel's agent, with memory and tools
+                  |
+    +-------------+--------------+----------------+
+    |             |              |                |
+  stays quiet  send_message  start a session  wake_up, remember
+```
+
+This unites what Lor already has. Loops, webhooks, connector triggers and
+`@Lor` stop being separate ways to start a session and become things that
+arrive in one inbox.
+
+## 2. Decisions
+
+"Jacob" means he decided or agreed it in the session. "Default" is my
+proposal that he has not objected to and should confirm.
+
+| # | Decision | Status |
+|---|---|---|
+| 1 | A channel is one agent and one chat. No chat per person, no threads of our own | Jacob, 11-18 |
+| 2 | One conversation, one queue, one turn at a time. A blocked chat is accepted | Jacob, 11-18 |
+| 3 | Not only code: every channel's agent is general for its area | Jacob, 11-17 |
+| 4 | The main chat replaces chat sessions. New session is code only. Existing chat sessions stay readable | Jacob, 11-18 |
+| 5 | Everything goes into the channel's inbox. Nothing calls the agent directly | Jacob, 11-18 |
+| 6 | Two lanes: some things wake the agent now, the rest wait unread until its next wake | Jacob, 11-18 |
+| 7 | A check-in bounds the wait. It is a Loop that comes with every channel: every 30 minutes in active hours, skipped when nothing is unread. It is not `wake_up`, which the agent sets itself | Default |
+| 8 | Per channel: wake on mentions (the default) or on every message | Jacob, 11-18 |
+| 9 | One tool to speak, `send_message`. A turn can end quietly | Jacob, 11-18 |
+| 10 | `wake_up`: the agent schedules its own wake, with instructions for its future self | Jacob, 11-18 |
+| 11 | `remember`: the agent writes memory with a tool. No pass after each turn. The fold is the backstop | Jacob, 11-18 |
+| 12 | Sessions are tools to the agent: start, check, message, stop. A finished session is an inbox event | Jacob, 11-18 |
+| 13 | A session the agent starts gets code tools and read access only. A session a person starts keeps what it has today | Jacob, 11-18 |
+| 14 | The agent's own turn starts no sandbox unless a tool needs one | Jacob, 11-18 |
+| 15 | One model per channel, chosen in setup, default Opus 5.5, used for every turn including wakes | Jacob, 11-18 |
+| 16 | The agent runs on the API. A code session uses a person's Claude or ChatGPT plan only when a known person asked and has connected one | Jacob, 11-18 |
+| 17 | A channel profile is always in the prompt. The agent may change its facts on its own; only people change the brief | Jacob, 11-18 |
+| 18 | The log is built from records, and what is open is computed at each wake | Jacob, 11-18 |
+| 19 | Profile and log are per channel. Brain pages stay shared across the workspace | Jacob, 11-18 |
+| 20 | Context rules: a fixed top, a fixed tool list, fold early, bulk stays out, a cache miss is a bug | Jacob, 11-18 |
+| 21 | Discord is the first chat app after Lor | Jacob, 11-18 |
+| 22 | A channel's chat lives in one place, Lor or Discord. When Discord is linked, Lor shows it read-only | Jacob, 11-18 |
+| 23 | When no person started the turn, an action that changes something outside Lor waits for a person, unless that trigger was set up to allow it (§5) | Default |
+| 24 | The sidebar has two tabs: what needs you with running sessions, and channels | Jacob, 11-18 |
+| 26 | No product limit on how many sessions a channel runs. A safety ceiling of 15 at once | Jacob, 11-18 |
+| 25 | Later: a persistent computer and its own repo per agent, agents talking to each other, custom apps | Jacob, 11-17 |
+
+Considered and dropped, so they are not added back by accident:
+
+- A thread object of our own, a chat per person, and a background context
+  per subject. All three made the product too complex.
+- Trust levels per watch, levels for how the agent behaves in a room, and
+  coded rules for when it may reach out. The model decides, guided by the
+  brief.
+- A separate cheap model for wakes.
+- Slack first. Jacob's team talks in Discord.
+
+## 3. The inbox
+
+A table of events per channel. Sources write to it; one worker per channel
+reads it.
+
+| What arrives | Lane |
+|---|---|
+| A message that mentions the agent, or replies to one of its messages | Wakes it now |
+| A session it started finishes, fails or asks a question | Wakes it now |
+| A `wake_up` comes due | Wakes it now |
+| An approval is answered | Wakes it now |
+| A webhook, connector event or Loop set to wake | Wakes it now |
+| Any other chat message | Waits unread |
+| A webhook or connector event set to wait | Waits unread |
+| The check-in Loop, when something is unread | Wakes it now |
+
+- **Unread items are read at the next wake,** ahead of the thing that woke
+  it. The agent sees them under "Since you last looked", then "What woke
+  you".
+- **Batching:** when a waking item arrives, the worker waits a few seconds
+  of quiet, takes everything pending and runs one turn. Three quick messages
+  get one reply.
+- **One turn at a time.** A mention that arrives mid-turn steers the running
+  turn, which Lor's agent already supports. Everything else waits for the
+  next turn.
+- **Duplicates are dropped** on the source's own id.
+- **A turn can run more than once** after a crash, so tools that act must
+  tolerate a repeat. An approval runs the arguments that were stored with
+  it.
+- **Timers are not inbox rows.** Wake-ups and Loops live in their own
+  tables, and a scheduler adds an inbox event when one is due.
+
+Each row holds: source, the source's id, channel, lane, a pointer to the
+message, trigger delivery or session it is about, status (pending or read),
+and when it arrived.
+
+How today's pieces map:
+
+| Today | Becomes |
+|---|---|
+| A trigger with only the post effect | A card in the chat, in the wait lane |
+| A trigger with the act effect | An inbox event in the wake lane, carrying the trigger's instructions |
+| A trigger's session mode (per event, per subject, ongoing) | Gone. There is one conversation |
+| A Loop | An inbox event in the wake lane, carrying the Loop's instructions. Its own recurring session goes away |
+| `@Lor` in channel chat starting a session | A wake. The agent answers in the chat |
+| "People go first" for trigger events | Kept: it is the one-turn-at-a-time rule |
+
+## 4. A turn
+
+The prompt is assembled in a fixed order, so the provider's cache holds:
+
+1. Tool names. Schemas load on demand.
+2. Lor's system prompt.
+3. Workspace instructions.
+4. The channel profile: the brief and the facts.
+5. The last fold: its summary and the recent log lines.
+6. Messages since the fold.
+7. The newest message: the time, what is open, the unread items, and what
+   woke it.
+
+Items 1 to 4 never change inside a conversation. Anything that changes is
+appended as a new message.
+
+A turn ends one of three ways: quietly, with a `send_message`, or waiting on
+an approval.
+
+## 5. The agent's tools
+
+| Tool | What it does |
+|---|---|
+| `send_message` | Posts to the channel's chat, in Lor or the linked Discord channel. Text, files, or a control that asks for a decision. The only output people see |
+| `wake_up` | Schedules a wake at a time, with a note to its future self |
+| `remember` | Writes a profile fact or a brain page |
+| `start_session`, `check_session`, `message_session`, `stop_session` | Runs code sessions as helpers |
+| Connector tools | Read and write, as the channel's tool profile allows. Writes follow the approval rules |
+| Memory read and search | As today |
+| Its computer | A sandbox that starts only when a tool needs it |
+
+- There is one place to send, so the model never chooses where.
+- **Two timers, two jobs.** `wake_up` is set by the agent for one moment,
+  with a note: "at 15:00, check the deploy". The check-in is a Loop every
+  channel starts with. It exists so unread items never wait forever, and a
+  person can change its cadence or turn it off like any Loop.
+- **When no person started the turn** (a webhook, a Loop, a check-in), the
+  text the agent is reading came from outside: an alert body, an issue
+  someone filed, an email. That text can be written to trick a model. So in
+  those turns, an action that changes something outside Lor (updating the
+  CRM, commenting on an issue, sending an email) pauses and asks a person.
+  Reading, starting a session and posting to the chat never pause. Whoever
+  sets up a trigger can allow specific actions for it, such as "this alert
+  may comment on Linear without asking".
+- A follow-up is a record: "I'll check in an hour" has to be a `wake_up`
+  call, or nothing wakes it.
+
+## 6. Sessions
+
+A session is one coding agent on one branch of one repo, with a dev box. It
+stays as built.
+
+| | A session the agent starts | A session a person starts |
+|---|---|---|
+| How | `start_session` from a turn | New session, as today |
+| Tools | Code tools, read-only connectors, memory search | Unchanged |
+| Writes to connectors, sending messages | No. It reports to the agent, which acts | Unchanged, with approvals |
+| Coding agent | The asker's Claude or ChatGPT plan when a known person asked and has connected one. Otherwise Lor's own, on the API | Unchanged |
+| When it ends | A short report arrives in the inbox and wakes the agent | Unchanged |
+
+- **Why reads stay:** a coding agent has to look things up mid-task, such as
+  the issue's comments, a stack trace, or logs that show the fix worked.
+- **Why writes move up:** a session the agent started has nobody watching,
+  and it reads untrusted text on a third-party coding agent.
+- **One voice:** several sessions report to the agent and it writes once.
+- **A piece of work that spans repos** is several sessions. A session stays
+  one repo.
+- People can open, watch and take over any session, as today.
+- Lor still never commits or opens pull requests. People do.
+
+There is no product limit on how many sessions a channel runs. A safety
+ceiling of 15 at once stops a runaway.
+
+## 7. Memory
+
+| Piece | Today | Change |
+|---|---|---|
+| Always in the prompt | Workspace instructions | Add a channel profile: the brief and up to about 100 facts, capped near 4,000 characters |
+| What happened recently | Only the chat itself | A log built from records: sessions started and finished, messages sent, approvals, wake-ups, events |
+| What is open right now | A plan per session | A block computed at each wake: running sessions, approvals waiting, wake-ups pending |
+| Everything else | Brain pages and search | Unchanged. The full chat stays stored, so a fold loses nothing |
+
+- **The brief gives instructions and only people change it.** Facts are
+  information. The agent changes them on its own with `remember`, each
+  change shows in the chat, and anyone can edit or delete one.
+- **The log and the open block come from data,** not from the model, so they
+  cannot drift.
+- **A fold** replaces older messages with a summary, the latest log lines,
+  the open block and the last few messages word for word. Before it runs,
+  the agent is asked what is worth keeping.
+- **Scope:** the profile and log belong to the channel. Brain pages are
+  shared across the workspace, with private channels scoped as today.
+- **Stored memory informs. It never instructs.** A note inferred from a
+  webhook or an issue body does not carry the weight of something a person
+  said.
+
+Reused as built: brain pages and their channel scope, search over messages,
+sources and attachments, and the divider Lor already shows where context was
+compacted.
+
+## 8. Context and caching
+
+An always-on agent often wakes after its cache has expired. On Opus 5.5 at
+Anthropic's list prices, input is $4 per million tokens and a cached read is
+$0.20. A 150,000-token chat costs about $0.60 to read cold and $0.03 cached.
+The cache lasts 5 minutes, or an hour at double the write price, and each
+read renews it.
+
+1. **A fixed top that is never edited** (§4, items 1 to 4).
+2. **A fixed tool list per conversation.** A change to the channel's tools
+   or model applies at the next fold.
+3. **Fold early, while the cache is warm.** When the chat passes about
+   100,000 tokens and has been idle about 10 minutes, fold it on the same
+   prefix. Today compaction runs only when the window is nearly full, which
+   leaves every cold wake paying for the whole chat.
+4. **Bulk stays out.** A session returns a short report. Long tool output
+   goes to a file.
+5. **Cache lifetime by gap:** 5 minutes while people are chatting, an hour
+   while the agent waits on a session, and nothing beyond that, which is why
+   rule 3 matters.
+6. **A cache miss is a bug.** Lor already counts cached tokens per run. Flag
+   a turn whose cached share drops.
+
+Lor already keeps instructions byte-stable per conversation, appends new
+turns only, and puts elapsed time in the newest message.
+
+These rules are Anthropic's. A channel on another provider's model caches
+differently, and the first build step checks what Lor's agent and the
+gateway send today.
+
+## 9. The app
+
+- **The channel page is the chat.** People and the agent write in it. A
+  session shows as a card and opens beside the chat.
+- **The composer says where a message goes:** to people, or to the agent
+  when it is mentioned. With "wake on every message" on, every message goes
+  to the agent.
+- **Setup** holds the brief, the model, the tools, the triggers and Loops,
+  and where the chat lives.
+- **Activity** is the log.
+- **The sidebar has two tabs:** what needs you with the sessions that are
+  running, and the channels.
+- **New session** starts a code session directly, as today.
+- **Needs you:** an approval or question the agent sent also shows in the
+  sidebar, because requests get lost in chat scroll.
+
+From the mocks, these still apply: the chat with cards for sessions, a
+session opening beside the chat, the two sidebar tabs, the direct code
+session screen, and the guide for linking a chat app. These do not: a page
+per agent with a list of threads, a thread per ask, and a separate Team chat
+tab.
+
+## 10. Discord
+
+A channel's chat lives in one place. Linking a Discord channel moves it
+there.
+
+- **People type in Discord.** The Lor channel shows the same conversation
+  read-only, with "Chat in Discord" where the composer was.
+- **Sync runs one way.** The agent stores every message it receives, so Lor
+  has the chat for reading and search. Nothing typed in Lor has to appear in
+  Discord.
+- **The agent speaks in Discord,** using Discord's reply.
+- **Sessions stay in Lor.** The agent posts a card with a link.
+- **Anyone in that Discord channel can talk to the agent.** Approving, or
+  anything billed to a person, needs their Discord account linked to their
+  Lor account. Approvals can be buttons on the agent's message.
+- **Unlinking** unlocks the Lor composer. The Discord-era messages stay.
+
+Left out at first: typing in Lor while Discord is linked, Discord threads,
+and direct messages to the bot.
+
+A Discord bot gets message text in direct messages and when mentioned with
+no special access. Hearing a whole channel, which the wait lane needs, takes
+the Message Content intent. That is a switch for a small app and needs
+Discord's approval once an app is in 100 or more servers.
+
+## 11. What exists and what changes
+
+| Piece | Today | Change |
+|---|---|---|
+| Channel chat | People only. Lor never posts in it | The agent posts in it with `send_message` |
+| Inbox | None. Triggers hold waiting events per session | New table, one worker per channel, two lanes |
+| Webhooks and connector triggers | Post a card, or start or continue a session | Write to the inbox. Session modes go away |
+| Loops | Start or continue their own session | Write to the inbox |
+| Steering a running turn | Built on Lor's agent | Reused for a mention that arrives mid-turn |
+| Chat sessions | A mode of New session | Removed from New session. Old ones stay readable |
+| Code sessions | Started by people only | Also started by the agent. A finished one writes to the inbox |
+| Tool access | One profile per channel, tools grouped as Read and Write | A narrower default for sessions the agent starts |
+| Sandbox | Every run gets one on its first turn | The agent's turn starts one only when a tool needs it |
+| Model | Picked in the composer, or the default | A model per channel |
+| Channel brief and profile | None. Instructions exist per workspace only | New |
+| Log and open block | None | New, derived from existing records |
+| Compaction | When the window is nearly full | Also by size and idle time |
+| Brain pages, search | Built | Unchanged. The pass after each turn is replaced by `remember` and the fold |
+| Approval rules | Per tool, per workspace | Add: writes on a wake nobody typed need approval unless pre-approved |
+| Discord | Only the webhook payload format | New: a bot, one-way sync, account linking |
+| A persistent computer and repo per agent | None | Later |
+
+## 12. Locked docs this changes
+
+| Doc | Now | Becomes |
+|---|---|---|
+| `workspace-model.md` items 1 and 7 | Lor never posts in channel chat. `@Lor` there starts a session | The agent answers in the chat |
+| `workspace-model.md` items 3 and 16 | Lor works in sessions next to the chat. New session has Chat and Code | Sessions are code only. The chat is where the agent works with people |
+| `workspace-model.md` item 12 | The sidebar is the attention surface, with no inbox view | Two tabs |
+| `act-sessions-runbook.md` | A session mode per trigger | Inbox lanes |
+| `loops.md` | A Loop owns a recurring session | A Loop writes to the inbox |
+| `lor-mvp-spec.md` | Write-back runs after each turn | `remember` and the fold |
+| `context-continuation.md` | Compaction at the window limit | Also by size and idle time |
+| `harness-sessions.md` | A sandbox for every agent run | On demand for the channel's agent |
+| `slack-connector-next.md` | Never a bot in a chat app | A Discord bot first. Slack later, same shape |
+| `positioning.md` | "The multiplayer runtime for your agents" | The thesis in §1 |
+
+The October redesign took Lor out of channel chat because people could not
+tell where to prompt it: a two-minute reply window and a model choosing
+between the channel and a thread. Neither comes back. There is one place,
+and a mention is explicit.
+
+## 13. Build steps
+
+Six slices. Each ends in something Jacob's team uses before the next starts.
+
+**Before starting**
+
+- [ ] 0.1 Record what Lor's agent and the gateway send for caching today:
+  where the breakpoints are, which lifetime, and the cached share per turn.
+- [ ] 0.2 Count how many inbox events a day Jacob's own channels would have
+  produced last week, by lane.
+
+**Slice 1: the agent answers in the channel chat**
+
+After it: mention Lor in #eng and it answers there, using the channel's
+tools.
+
+- [ ] 1.1 The inbox table and the worker: one per channel, batching, dedupe,
+  one turn at a time.
+- [ ] 1.2 The channel conversation: the agent's turns run in the channel's
+  chat, with the prompt order in §4.
+- [ ] 1.3 `send_message`, with the agent's other text kept private.
+- [ ] 1.4 Mentions and replies wake it. Other messages wait unread. The
+  per-channel switch.
+- [ ] 1.5 A model per channel, default Opus 5.5.
+- [ ] 1.6 No sandbox for the agent's turn until a tool needs one.
+
+**Slice 2: it runs coding agents**
+
+After it: "look at my Linear issues and get started" starts sessions and
+reports back in the chat.
+
+- [ ] 2.1 `start_session`, `check_session`, `message_session`,
+  `stop_session`, with the ceiling of 15.
+- [ ] 2.2 A finished, failed or asking session writes to the inbox.
+- [ ] 2.3 The narrower tool profile for sessions the agent starts.
+- [ ] 2.4 A session shows as a card in the chat and opens beside it.
+
+**Slice 3: events and timers arrive**
+
+After it: an alert at 02:00 is handled and reported in the chat, and Loops
+run through the agent.
+
+- [ ] 3.1 Webhooks and connector triggers write to the inbox, in the wake or
+  the wait lane. Migrate existing ones.
+- [ ] 3.2 Loops write to the inbox. Migrate existing ones.
+- [ ] 3.3 Actions that change something outside Lor wait for a person when
+  no person started the turn, with a per-trigger allowance.
+- [ ] 3.4 New session is code only. Chat sessions become read-only history.
+
+**Slice 4: it remembers and stays cheap**
+
+After it: the chat can run for weeks without growing, and the agent knows
+the channel.
+
+- [ ] 4.1 The channel profile: brief and facts, in Setup and in the prompt.
+- [ ] 4.2 `remember`, with each change shown in the chat.
+- [ ] 4.3 The log and the open block, derived from records.
+- [ ] 4.4 Fold by size and idle time, on the same prefix.
+- [ ] 4.5 A standing check on the cached share per turn.
+
+**Slice 5: it follows up by itself**
+
+After it: "I'll check in an hour" happens, and nothing unread waits more
+than half an hour.
+
+- [ ] 5.1 `wake_up` and its scheduler.
+- [ ] 5.2 The check-in Loop on every channel, with active hours.
+- [ ] 5.3 Needs you in the sidebar, and the two tabs.
+
+**Slice 6: Discord**
+
+After it: the team talks to the agent in its Discord channel.
+
+- [ ] 6.1 The bot, linking a channel, and one-way sync.
+- [ ] 6.2 `send_message` to the linked channel. The Lor composer locks.
+- [ ] 6.3 Account linking, and approvals as buttons.
+
+**Later**
+
+- A persistent computer and its own repo per agent.
+- Agents messaging each other.
+- Slack, in the same shape as Discord.
+
+## 14. Risks, and how we will know it works
+
+| Risk | What the sources reported | What we do |
+|---|---|---|
+| Quiet wakes cost money | One reviewer's bots spent $100 in a weekend deciding there was nothing to say | The wait lane, batching, the check-in skipped when nothing is unread |
+| Forgotten follow-ups | "I'll get back to you", then nothing woke the bot | `wake_up` is the only way to promise |
+| One context for everyone | Each bot's single conversation became a bottleneck | Accepted. Folding and memory carry it, and code goes to sessions |
+| When to speak is unsolved | Grok Bot's own team says they do not have it right yet | Start quiet. Tune the brief, not code |
+| Untrusted input meets write tools | Webhook bodies and issue text reach the agent | Approval on writes for a wake nobody typed |
+| Hidden memory | Memory rewritten where the reviewer could not see it | Every change shows in the chat and can be edited |
+
+Numbers to watch:
+
+- Wakes per channel per day, and the share that end quietly (from slice 1).
+- Cost per wake, and the cached share of each turn.
+- Follow-ups that came due against those the agent promised.
+- Changes that reached main that were started by someone other than the
+  engineer who merged them, or by an event.
+
+## Sources
+
+Read 2026-11-18. The Grok Bot material is third-party; xAI has published no
+harness documentation that I found.
+
+- Anthropic: [Building always-on agents](https://claude.com/resources/articles/building-always-on-agents),
+  [Effective harnesses for long-running agents](https://anthropic.com/engineering/effective-harnesses-for-long-running-agents)
+- OpenClaw: [heartbeat](https://docs.openclaw.ai/heartbeat),
+  [group messages](https://docs.openclaw.ai/channels/group-messages),
+  [system events](https://docs.openclaw.ai/cli/system)
+- Lee Robinson's Stanford CS146S talk, through write-ups:
+  [Franklin Javier](https://franklinjavier.com/blog/how-always-on-agents-work/),
+  [Reducer notes](https://reducer.xgoose.org/items/4705),
+  [Peter P](https://www.peterp.me/articles/what-actually-happens-when-you-message-grok-bot/).
+  The video's transcript could not be read.
+- [Builder.io's review of Grok Bot](https://www.builder.io/blog/grokbot-review)
+- LangChain: [ambient agents](https://www.langchain.com/blog/introducing-ambient-agents)
+- [Navan](https://navan.com/blog/build-proactive-ai-agents) on deciding when
+  to interrupt, and Tian Pan on
+  [always-on architecture](https://tianpan.co/blog/2026/04/17/ambient-ai-architecture-always-on-agents)
+- Inngest: [background agents](https://www.inngest.com/blog/background-agents-are-here-your-orchestration-isnt-ready)
+- Discord: [gateway intents](https://docs.discord.com/developers/events/gateway)
+- Not read: the agento.host heartbeat deep dive, whose server returned
+  errors.
