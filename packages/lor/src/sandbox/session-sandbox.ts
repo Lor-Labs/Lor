@@ -377,6 +377,21 @@ export async function moveHarnessBridge(
         (HARNESS_BRIDGE_PORTS.indexOf(from) + 1) % HARNESS_BRIDGE_PORTS.length
       ] ?? HARNESS_BRIDGE_PORT
     const preview = await openBridgePreview(sandbox, next)
+    // Old previews stay until the new one has an endpoint: a failed move
+    // drops the provisional preview and leaves the bridge where it was.
+    const moved = await bridgeThroughPreview(preview, next).catch(
+      async (err: unknown) => {
+        await sandbox.previews
+          .delete(preview.name)
+          .catch((deleteErr: unknown) => {
+            logger.warn(
+              { err: deleteErr, sandbox: name, preview: preview.name },
+              "Sandbox: deleting the provisional bridge preview failed"
+            )
+          })
+        throw err
+      }
+    )
     for (const old of await sandbox.previews.list()) {
       if (!isBridgePreview(old) || old.name === preview.name) continue
       await sandbox.previews.delete(old.name).catch((err: unknown) => {
@@ -386,7 +401,7 @@ export async function moveHarnessBridge(
         )
       })
     }
-    return await bridgeThroughPreview(preview, next)
+    return moved
   } finally {
     closeConnection(sandbox)
   }
