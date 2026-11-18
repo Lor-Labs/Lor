@@ -19,9 +19,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
+import { selectTriggerVariants } from "@repo/ui/components/select"
 import { cn } from "@repo/ui/lib/utils"
 import { KEY_PROVIDER_NAMES, type KeyProvider } from "@repo/utils/inference"
-import { useQueries } from "@tanstack/react-query"
+import { useQueries, useQuery } from "@tanstack/react-query"
 import { type ReactNode, useRef, useState } from "react"
 import { HarnessLogo } from "@/components/session/harness-logo"
 import {
@@ -68,6 +69,7 @@ type ModelGroup = {
 // The combobox holds string keys, unique across harnesses, so its value
 // stays the same between renders.
 const itemKey = (harness: SessionHarness, id: string) => `${harness}:${id}`
+const DEFAULT_KEY = "default"
 
 function modelDetail(model: AgentModelOption): ReactNode {
   const exact =
@@ -87,21 +89,36 @@ function modelDetail(model: AgentModelOption): ReactNode {
 // session) their logos run down the left and the list shows one agent's
 // models; a search covers them all, Lor's long list last. Picking a model
 // also picks its agent.
-export function ModelPicker({
-  choice,
-  harnesses = [choice.harness],
-  onHarness,
+function ModelCombobox({
+  workspaceSlug,
+  harness: current,
+  harnesses,
+  selectedId,
+  onSelect,
+  defaultLabel,
+  trigger,
+  triggerTitle,
+  triggerClassName,
+  disabled,
 }: {
-  choice: ModelChoice
-  harnesses?: readonly SessionHarness[]
-  onHarness?: (harness: SessionHarness) => void
+  workspaceSlug: string
+  harness: SessionHarness
+  harnesses: readonly SessionHarness[]
+  selectedId: string | null
+  // Set: a first row that picks null (the harness's default, kept current).
+  defaultLabel?: string
+  onSelect: (harness: SessionHarness, id: string | null) => void
+  trigger: ReactNode
+  triggerTitle: string
+  triggerClassName: string
+  disabled?: boolean
 }) {
   const [query, setQuery] = useState("")
-  const [shown, setShown] = useState(choice.harness)
+  const [shown, setShown] = useState(current)
   const inputRef = useRef<HTMLInputElement>(null)
   const catalogs = useQueries({
     queries: harnesses.map((harness) =>
-      agentModelsQueryOptions(harness, choice.workspaceSlug)
+      agentModelsQueryOptions(harness, workspaceSlug)
     ),
   })
   const byKey = new Map<string, ModelItem>()
@@ -147,16 +164,35 @@ export function ModelPicker({
   })
   const sidebar = harnesses.length > 1
   const searching = query.trim() !== ""
-  const groups =
-    sidebar && !searching
-      ? (groupsOf.get(harnesses.includes(shown) ? shown : choice.harness) ?? [])
+  const defaultGroup: ModelGroup[] = []
+  if (defaultLabel) {
+    byKey.set(DEFAULT_KEY, {
+      harness: current,
+      id: "",
+      name: defaultLabel,
+      detail: null,
+      search: `${defaultLabel} default`.toLowerCase(),
+    })
+    defaultGroup.push({
+      value: DEFAULT_KEY,
+      label: null,
+      keyProvider: null,
+      items: [DEFAULT_KEY],
+    })
+  }
+  const groups = [
+    ...defaultGroup,
+    ...(sidebar && !searching
+      ? (groupsOf.get(harnesses.includes(shown) ? shown : current) ?? [])
       : [...harnesses]
           .sort((a, b) => Number(a === "pi") - Number(b === "pi"))
-          .flatMap((harness) => groupsOf.get(harness) ?? [])
-  const keyProvider = choice.option?.keyProvider ?? null
-  const selected = choice.option
-    ? itemKey(choice.harness, choice.option.id)
-    : null
+          .flatMap((harness) => groupsOf.get(harness) ?? [])),
+  ]
+  const selected = selectedId
+    ? itemKey(current, selectedId)
+    : defaultLabel
+      ? DEFAULT_KEY
+      : null
   const showAgent = (harness: SessionHarness) => {
     setQuery("")
     setShown(harness)
@@ -167,13 +203,10 @@ export function ModelPicker({
     <Combobox<string>
       items={groups}
       value={selected}
+      disabled={disabled}
       onValueChange={(key) => {
         const item = key ? byKey.get(key) : undefined
-        if (!item) return
-        if (item.harness !== choice.harness) onHarness?.(item.harness)
-        // A session's first pick also keeps its other two as shown.
-        pinSessionChoice(choice)
-        rememberModel(item.harness, item.id, choice.sessionScope)
+        if (item) onSelect(item.harness, key === DEFAULT_KEY ? null : item.id)
       }}
       itemToStringLabel={(key) => byKey.get(key)?.name ?? key}
       filter={(key: string, text) =>
@@ -182,35 +215,15 @@ export function ModelPicker({
       inputValue={query}
       onInputValueChange={setQuery}
       onOpenChange={(open) => {
-        if (open) setShown(choice.harness)
+        if (open) setShown(current)
         else setQuery("")
       }}
     >
       <ComboboxPrimitive.Trigger
-        title={
-          keyProvider
-            ? `Runs on your team's ${KEY_PROVIDER_NAMES[keyProvider]} key`
-            : `${HARNESS_LABELS[choice.harness]} model`
-        }
-        className={TRIGGER_CLASS}
+        title={triggerTitle}
+        className={triggerClassName}
       >
-        <HarnessLogo harness={choice.harness} className="size-3.5" />
-        <span className="max-w-40 truncate">
-          {choice.option?.name ?? "Model"}
-        </span>
-        {keyProvider && (
-          <HugeiconsIcon
-            icon={Key01Icon}
-            aria-label={`${KEY_PROVIDER_NAMES[keyProvider]} key`}
-            className="size-3.5 shrink-0"
-            strokeWidth={2}
-          />
-        )}
-        <HugeiconsIcon
-          icon={ArrowDown01Icon}
-          className="size-3 shrink-0"
-          strokeWidth={2}
-        />
+        {trigger}
       </ComboboxPrimitive.Trigger>
       <ComboboxPrimitive.Portal>
         <ComboboxPrimitive.Positioner
@@ -325,6 +338,134 @@ export function ModelPicker({
         </ComboboxPrimitive.Positioner>
       </ComboboxPrimitive.Portal>
     </Combobox>
+  )
+}
+
+// The composer's picker for the turn a message starts.
+export function ModelPicker({
+  choice,
+  harnesses = [choice.harness],
+  onHarness,
+}: {
+  choice: ModelChoice
+  harnesses?: readonly SessionHarness[]
+  onHarness?: (harness: SessionHarness) => void
+}) {
+  const keyProvider = choice.option?.keyProvider ?? null
+  return (
+    <ModelCombobox
+      workspaceSlug={choice.workspaceSlug}
+      harness={choice.harness}
+      harnesses={harnesses}
+      selectedId={choice.option?.id ?? null}
+      onSelect={(harness, id) => {
+        if (!id) return
+        if (harness !== choice.harness) onHarness?.(harness)
+        // A session's first pick also keeps its other two as shown.
+        pinSessionChoice(choice)
+        rememberModel(harness, id, choice.sessionScope)
+      }}
+      triggerTitle={
+        keyProvider
+          ? `Runs on your team's ${KEY_PROVIDER_NAMES[keyProvider]} key`
+          : `${HARNESS_LABELS[choice.harness]} model`
+      }
+      triggerClassName={TRIGGER_CLASS}
+      trigger={
+        <>
+          <HarnessLogo harness={choice.harness} className="size-3.5" />
+          <span className="max-w-40 truncate">
+            {choice.option?.name ?? "Model"}
+          </span>
+          <KeyMark keyProvider={keyProvider} />
+          <HugeiconsIcon
+            icon={ArrowDown01Icon}
+            className="size-3 shrink-0"
+            strokeWidth={2}
+          />
+        </>
+      }
+    />
+  )
+}
+
+function KeyMark({ keyProvider }: { keyProvider: KeyProvider | null }) {
+  if (!keyProvider) return null
+  return (
+    <HugeiconsIcon
+      icon={Key01Icon}
+      aria-label={`${KEY_PROVIDER_NAMES[keyProvider]} key`}
+      className="size-3.5 shrink-0"
+      strokeWidth={2}
+    />
+  )
+}
+
+// A Loop's or Act trigger's saved model for Lor's agent (LOR-161). Null
+// ("Default") follows Lor's default model as it changes; a key model runs on
+// the workspace's key.
+export function SavedModelPicker({
+  workspaceSlug,
+  value,
+  disabled,
+  onChange,
+  className,
+}: {
+  workspaceSlug: string
+  value: string | null
+  disabled?: boolean
+  onChange: (model: string | null) => void
+  className?: string
+}) {
+  const { data: catalog } = useQuery(
+    agentModelsQueryOptions("pi", workspaceSlug)
+  )
+  const option = value
+    ? catalog?.models.find((model) => model.id === value)
+    : undefined
+  const keyProvider = option?.keyProvider ?? null
+  const defaultName = catalog?.models.find(
+    (model) => model.id === catalog.defaultModel
+  )?.name
+  const defaultLabel = defaultName ? `Default (${defaultName})` : "Default"
+  // A saved model the catalog no longer lists runs on Lor's default.
+  const savedName = value?.split("/").at(-1)
+  const name =
+    option?.name ??
+    (!savedName
+      ? defaultLabel
+      : catalog
+        ? `${savedName} (unavailable)`
+        : savedName)
+  return (
+    <ModelCombobox
+      workspaceSlug={workspaceSlug}
+      harness="pi"
+      harnesses={["pi"]}
+      selectedId={option?.id ?? null}
+      defaultLabel={defaultLabel}
+      onSelect={(_, model) => {
+        if (model !== value) onChange(model)
+      }}
+      disabled={disabled}
+      triggerTitle={
+        keyProvider
+          ? `Runs on your team's ${KEY_PROVIDER_NAMES[keyProvider]} key`
+          : "Runs on Lor credits"
+      }
+      triggerClassName={cn(selectTriggerVariants({ size: "sm" }), className)}
+      trigger={
+        <>
+          <span className="min-w-0 flex-1 truncate">{name}</span>
+          <KeyMark keyProvider={keyProvider} />
+          <HugeiconsIcon
+            icon={ArrowDown01Icon}
+            className="size-3.5 shrink-0 opacity-80"
+            strokeWidth={2}
+          />
+        </>
+      }
+    />
   )
 }
 

@@ -2,6 +2,7 @@ import { z } from "@hono/zod-openapi"
 import type { ActSessionMode } from "@repo/db/schema"
 import { actSessionModeEnum } from "@repo/db/schema"
 import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
+import { isLorModelAvailable } from "@repo/lor/model-catalog"
 
 // Where an Act run goes and whether it starts code sessions
 // (reference/act-sessions-runbook.md). Shared by webhooks and connector
@@ -15,6 +16,23 @@ export const actCodeSchema = z
   .nullable()
 
 export type ActCode = z.infer<typeof actCodeSchema>
+
+// Lor's model for Act runs, from its catalog ("key:<provider>/…" runs on the
+// workspace's key). Null: Lor's default model on credits (LOR-161).
+export const actModelSchema = z.string().trim().min(1).max(200).nullable()
+
+// Refusal message for a newly picked model the workspace can't run, or null.
+// An unchanged saved model passes, so a removed key never blocks other edits.
+export async function checkActModel(
+  workspaceId: string,
+  next: string | null | undefined,
+  saved: string | null
+): Promise<string | null> {
+  if (next == null || next === saved) return null
+  return (await isLorModelAvailable(workspaceId, next))
+    ? null
+    : "That model isn't available to this workspace"
+}
 
 export function actCodeOf(row: {
   actRepoFullName: string | null

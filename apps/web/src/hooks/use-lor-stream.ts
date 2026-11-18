@@ -25,7 +25,7 @@ type ToolCall = {
     patch?: string
     truncated?: boolean
   }
-  status?: "ok" | "error"
+  status?: "ok" | "error" | "stopped"
 }
 
 type StreamMessage = {
@@ -46,6 +46,7 @@ type StreamMessage = {
     model?: string | null
     effort?: string | null
     fast?: boolean
+    stopped?: { by: string | null } | null
   } | null
 }
 interface MessagePage {
@@ -65,6 +66,7 @@ type StreamPayload = {
   model?: string
   effort?: string
   fast?: boolean
+  stopped?: { by: string | null }
   runId?: string
   seq?: number
 }
@@ -277,6 +279,7 @@ function applyStreamFrame(queryClient: QueryClient, payload: StreamPayload) {
                           fast: payload.fast ?? false,
                         }
                       : {}),
+                    ...(payload.stopped ? { stopped: payload.stopped } : {}),
                   },
                 }
               : {}),

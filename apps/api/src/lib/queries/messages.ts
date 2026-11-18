@@ -466,8 +466,13 @@ export async function hydrateMessages(
             fast: sql<
               boolean | null
             >`(${agentRun.context} ->> 'turnFast')::boolean`,
+            state: agentRun.state,
+            stopReason: agentRun.stopReason,
+            stoppedBy: agentRun.stopRequestedBy,
+            stoppedByName: user.name,
           })
           .from(agentRun)
+          .leftJoin(user, eq(user.id, agentRun.stopRequestedBy))
           .where(inArray(agentRun.messageId, messageIds))
       : Promise.resolve([]),
     // Thread summaries only when fetching channel messages, not thread replies.
@@ -570,6 +575,14 @@ export async function hydrateMessages(
         model: row.model,
         effort: row.effort,
         fast: row.fast ?? false,
+        // A run someone stopped reads as stopped, not failed (LOR-142).
+        // Automatic stops record no stopRequestedBy.
+        stopped:
+          row.state === "stopped" &&
+          row.stopReason === "stopped_by_user" &&
+          row.stoppedBy
+            ? { by: row.stoppedByName ?? null }
+            : null,
       },
     ])
   )

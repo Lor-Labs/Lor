@@ -95,6 +95,7 @@ type TriggerConfig = {
   actInstructions: string | null
   actSessionMode: TriggerEffectsValue["actSessionMode"]
   actCode: TriggerEffectsValue["actCode"]
+  actModel: TriggerEffectsValue["actModel"]
   actWindowSeconds: number
   hourlyRunCap: number
   dailyRunCap: number
@@ -701,6 +702,17 @@ function EventRoutes({
   canManage: boolean
 }) {
   const queryClient = useQueryClient()
+  // In-flight saves per event key: concurrent saves to different events each
+  // keep their own controls locked until their refetch lands.
+  const [pendingEvents, setPendingEvents] = useState<Record<string, number>>({})
+  const trackPending = (event: string, delta: 1 | -1) =>
+    setPendingEvents((prev) => {
+      const next = { ...prev }
+      const count = (prev[event] ?? 0) + delta
+      if (count > 0) next[event] = count
+      else delete next[event]
+      return next
+    })
 
   const { data: channelsData } = useQuery({
     queryKey: ["channels", workspaceSlug],
@@ -737,19 +749,23 @@ function EventRoutes({
         throw new Error(body?.message ?? "Failed to update event")
       }
     },
-    onSuccess: () =>
-      // Returned so the mutation stays pending until the refetch lands — `send`
-      // composes the full trigger config from cached row data, so editing again
-      // before the refetch would overwrite the previous change with stale
-      // sibling fields.
-      queryClient.invalidateQueries({
-        queryKey: ["integrations", workspaceSlug],
-      }),
+    onMutate: (input) => trackPending(input.event, 1),
+    // Awaited so the event stays locked until the refetch lands — `send`
+    // composes the full trigger config from cached row data, so editing again
+    // before the refetch would overwrite the previous change with stale
+    // sibling fields.
+    onSuccess: async () => {
+      const queryKey = ["integrations", workspaceSlug]
+      await queryClient.invalidateQueries({ queryKey })
+      // Another event's save cancels this refetch for its own, which also
+      // carries this change: wait for that one.
+      if (queryClient.isFetching({ queryKey }) > 0) {
+        await queryClient.refetchQueries({ queryKey }, { cancelRefetch: false })
+      }
+    },
     onError: (err) => toast.error(err.message),
+    onSettled: (_data, _err, input) => trackPending(input.event, -1),
   })
-  const pendingEvent = updateTrigger.isPending
-    ? updateTrigger.variables.event
-    : null
   const activeEvents = events.filter((ev) => ev.channelId).length
 
   return (
@@ -766,7 +782,7 @@ function EventRoutes({
     >
       <SettingsGroup>
         {events.map((ev) => {
-          const busy = pendingEvent === ev.key
+          const busy = ev.key in pendingEvents
           // Each change re-sends the full trigger config so one PATCH shape
           // covers channel moves and effect toggles alike.
           const send = (patch: Partial<TriggerConfig>) => {
@@ -777,6 +793,7 @@ function EventRoutes({
               actInstructions: ev.actInstructions,
               actSessionMode: ev.actSessionMode,
               actCode: ev.actCode,
+              actModel: ev.actModel,
               actWindowSeconds: ev.actWindowSeconds,
               hourlyRunCap: ev.hourlyRunCap,
               dailyRunCap: ev.dailyRunCap,
@@ -823,6 +840,7 @@ function EventRoutes({
                       actInstructions: ev.actInstructions,
                       actSessionMode: ev.actSessionMode,
                       actCode: ev.actCode,
+                      actModel: ev.actModel,
                       actWindowSeconds: ev.actWindowSeconds,
                       hourlyRunCap: ev.hourlyRunCap,
                       dailyRunCap: ev.dailyRunCap,

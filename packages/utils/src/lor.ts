@@ -54,3 +54,16 @@ export function splitFailedReply(text: string): {
     failure: failure || "Lor couldn't finish this response.",
   }
 }
+
+// Stock text saved as a stopped reply's content when Lor had no answer yet:
+// previews and the next turn's context read it; the UI shows its own
+// "Stopped by …" note instead.
+export const LOR_STOPPED_QUEUED_TEXT = "Stopped."
+export const LOR_STOPPED_EMPTY_TEXT = "Stopped before I had an answer."
+
+export function isLorStoppedStockText(text: string | null | undefined) {
+  const trimmed = text?.trim()
+  return (
+    trimmed === LOR_STOPPED_QUEUED_TEXT || trimmed === LOR_STOPPED_EMPTY_TEXT
+  )
+}

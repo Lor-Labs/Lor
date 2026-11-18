@@ -25,6 +25,7 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime, timeAgo } from "@repo/utils/date"
+import { isLorStoppedStockText } from "@repo/utils/lor"
 import { memo, useCallback, useEffect, useRef, useState } from "react"
 import { MessageApprovalCard } from "@/components/chat/approval-card"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
@@ -35,6 +36,7 @@ import { LorFailureNotice } from "@/components/chat/lor-failure-notice"
 import { LorMessageBody } from "@/components/chat/lor-message-body"
 import { LorReasoning } from "@/components/chat/lor-reasoning"
 import { LorReplyActions } from "@/components/chat/lor-reply-actions"
+import { LorStoppedNote } from "@/components/chat/lor-stopped-note"
 import {
   LorWorkingFor,
   lorWorkedMs,
@@ -386,6 +388,15 @@ export const MessageItem = memo(function MessageItem({
   const isReply = message.type === "reply"
   const hasToolCalls = (message.lorToolCalls?.length ?? 0) > 0
   const hasReasoningSegments = (message.lorReasoningSegments?.length ?? 0) > 0
+  // Someone pressed Stop: show who instead of the stock "Stopped." text.
+  const lorStopped =
+    message.authorId === LOR_USER_ID &&
+    !message.streaming &&
+    message.status === "complete"
+      ? (message.lorRun?.stopped ?? null)
+      : null
+  const lorContent =
+    lorStopped && isLorStoppedStockText(message.content) ? "" : message.content
 
   const handleCopyText = useCallback(() => {
     if (!message.content) return
@@ -885,11 +896,12 @@ export const MessageItem = memo(function MessageItem({
             />
           ) : hasToolCalls || hasReasoningSegments ? (
             <LorMessageBody
-              content={message.content}
+              content={lorContent}
               toolCalls={message.lorToolCalls ?? []}
               reasoningSegments={message.lorReasoningSegments ?? []}
               streaming={message.streaming || message.status === "pending"}
               failed={message.status === "failed"}
+              stopped={Boolean(lorStopped)}
               workedMs={lorWorkedMs(message)}
               legacyReasoning={
                 !hasReasoningSegments ? message.lorReasoning : null
@@ -906,13 +918,16 @@ export const MessageItem = memo(function MessageItem({
                 displayName
               )}
             />
-          ) : (
+          ) : lorStopped && !lorContent ? null : (
             <MessageMarkdown
-              content={message.content}
+              content={lorContent}
               mentions={message.mentions}
               editedAt={message.editedAt}
               onCitationJump={onJumpToMessage}
             />
+          )}
+          {lorStopped && !isEditing && (
+            <LorStoppedNote by={lorStopped.by} arrived={wasInFlight.current} />
           )}
           {message.type === "forward" && message.forwarded && (
             <ForwardedMessageCard forwarded={message.forwarded} />
@@ -961,7 +976,8 @@ export const MessageItem = memo(function MessageItem({
               attachments={message.attachments}
             />
           )}
-          {message.embeds.length > 0 && (
+          {/* No link previews on session messages sent to Lor (LOR-167). */}
+          {message.embeds.length > 0 && message.routedToLor !== true && (
             <MessageEmbeds
               message={message}
               isOwnMessage={isOwnMessage}
