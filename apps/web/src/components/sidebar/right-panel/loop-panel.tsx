@@ -1210,6 +1210,9 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
               <Button
                 size="sm"
                 loading={isPending}
+                // The save writes the cache optimistically, so dirtyInput is
+                // empty while it runs; activating then reads the old snapshot.
+                disabled={updateLoop.isPending}
                 onClick={() => void createLoop()}
               >
                 Create Loop

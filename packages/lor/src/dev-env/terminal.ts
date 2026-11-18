@@ -19,19 +19,31 @@ const PREVIEW = "terminal"
 const READY_WAIT_MS = 90_000
 const TOKEN_TTL_MS = 15 * 60_000
 const TTYD_VERSION = "1.7.7"
+const SHELL_HOOK_PATH = "/usr/local/share/lor-terminal.zsh"
 
 // Newer images ship ttyd, tmux and zsh; older sandboxes get them on first
 // open.
 // ttyd's URL args: the person's key, the tab number and the person's name
 // (shown to Lor by `lor-terminal list`). Tab 1 keeps the name older sandboxes
 // used, so a shell from before tabs stays the person's first tab.
+// @lor_hook marks sessions whose shells sourced SHELL_HOOK_PATH. A running
+// shell can't be made to source it without typing into the pane (which would
+// land in a running job or a half-typed line), so a session from before the
+// hook gets a one-time notice on attach instead.
 const LAUNCHER = `#!/bin/sh
 cd "$LOR_TERMINAL_DIR" 2>/dev/null || cd /workspace
 name="main-$(printf %s "$1" | tr -cd 'a-zA-Z0-9-' | cut -c1-40)"
 tab="$(printf %s "$2" | tr -cd '0-9' | cut -c1-2)"
 [ "\${tab:-1}" -gt 1 ] && name="\${name}_$tab"
-tmux has-session -t "=$name" 2>/dev/null || tmux new-session -d -s "$name"
+if ! tmux has-session -t "=$name" 2>/dev/null; then
+  tmux new-session -d -s "$name"
+  tmux set-option -t "=$name:" @lor_hook 1
+fi
 tmux set-option -t "=$name:" @lor_person "$(printf %s "$3" | tr -d ';')"
+if [ -z "$(tmux show-options -qv -t "=$name:" @lor_hook)" ]; then
+  tmux set-option -t "=$name:" @lor_hook 1
+  exec tmux attach-session -t "=$name" \\; display-message -d 15000 "Run  source ${SHELL_HOOK_PATH}  so this shell follows rewinds"
+fi
 exec tmux attach-session -t "=$name"
 `
 
@@ -48,7 +60,6 @@ const SHELL_HOOK = `_lor_reenter_pwd() {
 precmd_functions=(_lor_reenter_pwd \${precmd_functions:#_lor_reenter_pwd})
 preexec_functions=(_lor_reenter_pwd \${preexec_functions:#_lor_reenter_pwd})
 `
-const SHELL_HOOK_PATH = "/usr/local/share/lor-terminal.zsh"
 
 // Lor's read-only view of people's terminals (LOR-150): every harness runs it
 // from its own shell, so "why did that fail?" needs no pasted output.

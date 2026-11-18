@@ -608,9 +608,15 @@ export function createLorRespondProcessor(
           }
           // A tool that started and never returned was interrupted; with no
           // status the trail would show it completed once streaming stops.
+          // Settling as "error" (no person's Stop) also takes back the
+          // provisional "stopped" onToolEvent gave tools a stop cut short.
           const settleInFlightTools = (status: "error" | "stopped") => {
             for (const [idx, call] of toolCalls.entries()) {
-              if (call.status) continue
+              if (
+                call.status &&
+                !(status === "error" && call.status === "stopped")
+              )
+                continue
               const interrupted: LorToolCall = { ...call, status }
               toolCalls[idx] = interrupted
               const seq = runWriter.append({
@@ -1367,6 +1373,9 @@ export function createLorRespondProcessor(
                   if (!base) return
                   if (!existing) closeReasoningSegment()
                   // A tool the Stop cut short reports an error; it didn't fail.
+                  // Provisional: stopRequested() also covers the heartbeat's
+                  // automatic stops, so settlement turns these back into
+                  // errors unless stopperOf() finds a person.
                   const stoppedTool =
                     toolCall.status === "error" &&
                     execution.handle.stopRequested?.() === true
@@ -1551,7 +1560,7 @@ export function createLorRespondProcessor(
           const stopped = stoppedByUser
             ? ((await stopperOf()) ?? undefined)
             : undefined
-          if (stoppedByUser) settleInFlightTools("stopped")
+          if (stoppedByUser) settleInFlightTools(stopped ? "stopped" : "error")
           let finalText = ""
           let replyPreview = ""
           let emptyFallback = false

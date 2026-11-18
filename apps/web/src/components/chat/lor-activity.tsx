@@ -112,6 +112,10 @@ export function LorActivity({
           )}
         </span>
       </CollapsibleTrigger>
+      {/* Only for runs seen live, so loading history announces nothing. */}
+      <span aria-live="polite" className="sr-only">
+        {live && stopped ? label : ""}
+      </span>
       <CollapsibleContent>
         <div className="relative mt-3 mb-5 min-w-0 pl-5">
           <span
