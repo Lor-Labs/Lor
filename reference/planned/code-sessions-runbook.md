@@ -539,6 +539,17 @@ may lag web), a Lor-offered "Continue in Code" card.
       `BRIDGE_CHANNEL_TOKEN`; nothing left running after the session
       ended. Not yet checked: a bridge parked on an approval across real
       standby (needs 7d's approvals).
+    - Bridge reachability (2026-11-18, uncommitted, not checked live): in
+      production a turn's bridge socket dropped about 15 minutes in (Blaxel
+      closes idle preview sockets), the 30 s reconnect failed, and every
+      later turn in that session timed out its handshake (12 × 10 s opens
+      with no answer), on 2026-11-11 and 2026-11-18. Both adapter patches
+      now ping the socket every 20 s; the Codex patch also bounds each open
+      (10 s, retried to the startup timeout, which it lacked). On a failed
+      handshake `withHarnessBridge` moves the bridge to the next port in
+      8790–8799 with a new preview (`harness-bridge-<port>`; the newest
+      bridge preview names the port later turns use) and retries the turn
+      once, except a turn continuing in a parked bridge.
   - [x] **7c-1** Claude subscription in Linked accounts, built 2026-10-25:
     - `personal_account_provider` gains `claude` (additive `db:push`).
       `POST /personal-accounts/claude` takes the pasted token (spaces and

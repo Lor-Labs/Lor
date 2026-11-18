@@ -196,7 +196,7 @@ index 7b51073322bc0603d266716cea7d6803a4356cea..9ca26e9f8d0fe3091a3a82d8b78d634a
     * When `true`, allow the underlying runtime to use live web search.
     */
 diff --git a/dist/index.js b/dist/index.js
-index 1a64f760f9d04e77593ea3aad2f6f6db9c5eeec5..f178ce73e64ce4d5c3879aa45eeb29f6be208073 100644
+index 1a64f760f9d04e77593ea3aad2f6f6db9c5eeec5..38f3160781973c4065428a4bb440055013c57279 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -394,7 +394,11 @@ const startMessageSchema = harnessV1BridgeStartBaseSchema.extend({
@@ -212,7 +212,15 @@ index 1a64f760f9d04e77593ea3aad2f6f6db9c5eeec5..f178ce73e64ce4d5c3879aa45eeb29f6
  });
  z.discriminatedUnion("type", [startMessageSchema, ...harnessV1BridgeInboundCommandSchemas]);
  //#endregion
-@@ -578,6 +582,7 @@ function createCodex(settings = {}) {
+@@ -563,6 +567,7 @@ function createCodex(settings = {}) {
+ 				const attachChannel = new SandboxChannel({
+ 					connect: ({ abortSignal }) => openWebSocket({
+ 						...attachEndpoint,
++						timeoutMs,
+ 						abortSignal
+ 					}),
+ 					outboundSchema: outboundMessageSchema,
+@@ -578,6 +583,7 @@ function createCodex(settings = {}) {
  					proc: void 0,
  					model,
  					reasoningEffort: settings.reasoningEffort,
@@ -220,7 +228,15 @@ index 1a64f760f9d04e77593ea3aad2f6f6db9c5eeec5..f178ce73e64ce4d5c3879aa45eeb29f6
  					webSearch: settings.webSearch,
  					builtinToolFiltering: startOpts.builtinToolFiltering,
  					codexConfig: settings.codexConfig,
-@@ -700,6 +705,7 @@ function createCodex(settings = {}) {
+@@ -685,6 +691,7 @@ function createCodex(settings = {}) {
+ 			const channel = new SandboxChannel({
+ 				connect: ({ abortSignal }) => openWebSocket({
+ 					...bridgeEndpoint,
++					timeoutMs,
+ 					abortSignal
+ 				}),
+ 				outboundSchema: outboundMessageSchema,
+@@ -700,6 +707,7 @@ function createCodex(settings = {}) {
  				proc,
  				model,
  				reasoningEffort: settings.reasoningEffort,
@@ -228,7 +244,75 @@ index 1a64f760f9d04e77593ea3aad2f6f6db9c5eeec5..f178ce73e64ce4d5c3879aa45eeb29f6
  				webSearch: settings.webSearch,
  				builtinToolFiltering: startOpts.builtinToolFiltering,
  				codexConfig: settings.codexConfig,
-@@ -794,7 +800,7 @@ function openWebSocket({ url, headers, abortSignal }) {
+@@ -752,7 +760,55 @@ async function resolveBridgeEndpoint({ sandboxSession, override, port }) {
+ 		message: "The codex harness requires an explicit `portEndpoint` when using a basic sandbox session."
+ 	});
+ }
+-function openWebSocket({ url, headers, abortSignal }) {
++// Lor patch: a bridge socket with no traffic counts as idle at Blaxel, which
++// closes it and puts the sandbox on standby mid-turn. Pings keep data flowing
++// while the socket is open.
++const BRIDGE_HEARTBEAT_MS = 2e4;
++function startBridgeHeartbeat(ws) {
++	if (typeof ws.ping !== "function") return;
++	const timer = setInterval(() => {
++		if (ws.readyState !== WebSocket.OPEN) {
++			clearInterval(timer);
++			return;
++		}
++		try {
++			ws.ping();
++		} catch {}
++	}, BRIDGE_HEARTBEAT_MS);
++	timer.unref?.();
++	ws.once("close", () => clearInterval(timer));
++}
++// Lor patch: a preview that accepts the connection and never answers left the
++// open waiting for good. Each attempt now times out and retries until the
++// startup deadline, as the Claude Code adapter does, with the same message.
++const BRIDGE_OPEN_ATTEMPT_MS = 1e4;
++async function openWebSocket({ url, headers, abortSignal, timeoutMs = 12e4 }) {
++	const deadline = Date.now() + timeoutMs;
++	let attempt = 0;
++	let lastError;
++	while (!abortSignal.aborted && Date.now() < deadline) {
++		attempt++;
++		try {
++			const ws = await openWebSocketOnce({
++				url,
++				headers,
++				abortSignal,
++				openTimeoutMs: Math.min(BRIDGE_OPEN_ATTEMPT_MS, Math.max(1, deadline - Date.now()))
++			});
++			startBridgeHeartbeat(ws);
++			return ws;
++		} catch (err) {
++			if (abortSignal.aborted) break;
++			lastError = err;
++			const remaining = deadline - Date.now();
++			if (remaining <= 0) break;
++			await new Promise((resolve) => setTimeout(resolve, Math.min(250 * attempt, 1e3, remaining)));
++		}
++	}
++	if (abortSignal.aborted) throw abortSignal.reason ?? /* @__PURE__ */ new Error("WebSocket connection aborted");
++	throw new Error(`codex bridge did not complete WebSocket handshake within ${timeoutMs}ms after ${attempt} attempt(s). Last error: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
++}
++function openWebSocketOnce({ url, headers, abortSignal, openTimeoutMs }) {
+ 	return new Promise((resolve, reject) => {
+ 		if (abortSignal.aborted) {
+ 			reject(abortSignal.reason ?? /* @__PURE__ */ new Error("WebSocket connection aborted"));
+@@ -760,7 +816,10 @@ function openWebSocket({ url, headers, abortSignal }) {
+ 		}
+ 		const ws = new WebSocket(url, { headers: headers == null ? void 0 : { ...headers } });
+ 		let settled = false;
++		const openTimer = setTimeout(() => rejectWithCleanup(/* @__PURE__ */ new Error(`WebSocket open timed out after ${openTimeoutMs}ms`)), openTimeoutMs);
++		openTimer.unref?.();
+ 		const cleanup = () => {
++			clearTimeout(openTimer);
+ 			abortSignal.removeEventListener("abort", onAbort);
+ 			ws.off("open", onOpen);
+ 			ws.off("error", onError);
+@@ -794,7 +853,7 @@ function openWebSocket({ url, headers, abortSignal }) {
  		abortSignal.addEventListener("abort", onAbort, { once: true });
  	});
  }
@@ -237,7 +321,7 @@ index 1a64f760f9d04e77593ea3aad2f6f6db9c5eeec5..f178ce73e64ce4d5c3879aa45eeb29f6
  	let stopped = false;
  	let stopPromise;
  	let pendingResumeThreadId = seedResumeThreadOnFirstPrompt ? resumeThreadId : void 0;
-@@ -817,7 +823,10 @@ function createSession({ sessionId, channel, proc, model, reasoningEffort, webSe
+@@ -817,7 +876,10 @@ function createSession({ sessionId, channel, proc, model, reasoningEffort, webSe
  			instructions,
  			tools
  		});
@@ -249,7 +333,7 @@ index 1a64f760f9d04e77593ea3aad2f6f6db9c5eeec5..f178ce73e64ce4d5c3879aa45eeb29f6
  		latestTurnConfigurationFingerprint = nextFingerprint;
  		if (restartThread) pendingResumeThreadId = void 0;
  		return { restartThread };
-@@ -968,6 +977,7 @@ function createSession({ sessionId, channel, proc, model, reasoningEffort, webSe
+@@ -968,6 +1030,7 @@ function createSession({ sessionId, channel, proc, model, reasoningEffort, webSe
  				...promptOpts.instructions ? { instructions: promptOpts.instructions } : {},
  				model: promptOpts.model ?? model,
  				reasoningEffort,
