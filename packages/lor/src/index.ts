@@ -226,12 +226,12 @@ import {
   CHATGPT_TOKEN_PLACEHOLDER,
   CLAUDE_TOKEN_PLACEHOLDER,
   grantHarnessAccess,
-  HARNESS_BRIDGE_PORT,
-  harnessBridgeEndpoint,
+  harnessBridge,
   openSessionSandbox,
   probeClaudeCredential,
   revokeHarnessAccess,
   SESSION_WORK_DIR,
+  withHarnessBridge,
 } from "./sandbox/session-sandbox"
 import {
   checkCompatibility,
@@ -242,11 +242,13 @@ import {
   CLAUDE_CODE_BINDING,
   CLAUDE_CODE_DEFAULT_MODEL,
   ClaudeCodeTurnError,
+  type ClaudeCodeTurnInput,
   runClaudeCodeTurn,
 } from "./session-core/claude-runtime"
 import {
   CODEX_BINDING,
   CODEX_DEFAULT_MODEL,
+  type CodexTurnInput,
   runCodexTurn,
 } from "./session-core/codex-runtime"
 import {
@@ -3372,10 +3374,8 @@ async function respondImpl(
     try {
       // The bridge's preview link is made while the work folder is prepared;
       // the Claude Code or Codex turn awaits it.
-      const bridgeEndpoint = agentHarness
-        ? harnessBridgeEndpoint(harness.owner)
-        : null
-      bridgeEndpoint?.catch(() => {})
+      const bridgeLink = agentHarness ? harnessBridge(harness.owner) : null
+      bridgeLink?.catch(() => {})
       const bridgeTurnLost = bridgePaused && !sandbox.bridgeRunning
       const pausedDropped: PausedTurnDrop | null =
         harness.pausedDropped ?? (bridgeTurnLost ? { reason: "lost" } : null)
@@ -4018,6 +4018,11 @@ async function respondImpl(
           throw part.error
         }
       }
+      // A turn continuing in its parked bridge cannot move to a new port.
+      const bridgeRetry = {
+        retry: !(bridgePaused && !pausedDropped),
+        abortSignal,
+      }
       // The proxy adds the turn starter's Claude token to Anthropic requests
       // for this turn only (code-sessions-runbook.md chunk 7).
       const claudeCodeTurn = async (claude: {
@@ -4037,19 +4042,18 @@ async function respondImpl(
         // started, which is itself not a credential failure.
         let credentialProbe: Promise<string> | null = null
         try {
-          const [, endpoint] = await Promise.all([
+          const [, bridge] = await Promise.all([
             access,
-            bridgeEndpoint ?? harnessBridgeEndpoint(harness.owner),
+            bridgeLink ?? harnessBridge(harness.owner),
           ])
           credentialProbe =
             sandbox.provider === "boat"
               ? Promise.resolve("not applicable: Boat uses the token directly")
               : probeClaudeCredential(sandbox.session, abortSignal)
-          return await runClaudeCodeTurn({
+          const input = {
             sessionId: conversationId,
             saved: harness.saved,
             sandbox: sandbox.session,
-            bridge: { port: HARNESS_BRIDGE_PORT, endpoint },
             // Boat has no proxy to fill it in, so the token itself goes.
             tokenPlaceholder:
               sandbox.provider === "boat"
@@ -4082,7 +4086,13 @@ async function respondImpl(
             toolApproval: limitedToolApproval,
             abortSignal,
             onPart,
-          })
+          } satisfies Omit<ClaudeCodeTurnInput, "bridge">
+          return await withHarnessBridge(
+            harness.owner,
+            bridge,
+            bridgeRetry,
+            (bridge) => runClaudeCodeTurn({ ...input, bridge })
+          )
         } catch (err) {
           // A stopped or superseded turn is not a failure to report.
           if (!abortSignal?.aborted) {
@@ -4149,15 +4159,14 @@ async function respondImpl(
             )
         }, CHATGPT_TOKEN_CHECK_MS)
         try {
-          const [, endpoint] = await Promise.all([
+          const [, bridge] = await Promise.all([
             access,
-            bridgeEndpoint ?? harnessBridgeEndpoint(harness.owner),
+            bridgeLink ?? harnessBridge(harness.owner),
           ])
-          return await runCodexTurn({
+          const input = {
             sessionId: conversationId,
             saved: harness.saved,
             sandbox: sandbox.session,
-            bridge: { port: HARNESS_BRIDGE_PORT, endpoint },
             // Boat has no proxy to fill it in, so the token itself goes.
             tokenPlaceholder:
               sandbox.provider === "boat" ? token : CHATGPT_TOKEN_PLACEHOLDER,
@@ -4198,7 +4207,13 @@ async function respondImpl(
                 )
               )
             },
-          })
+          } satisfies Omit<CodexTurnInput, "bridge">
+          return await withHarnessBridge(
+            harness.owner,
+            bridge,
+            bridgeRetry,
+            (bridge) => runCodexTurn({ ...input, bridge })
+          )
         } finally {
           clearInterval(refresher)
           await regrant

@@ -250,21 +250,80 @@ export async function revokeHarnessAccess(owner: HarnessOwner): Promise<void> {
   })
 }
 
-// The worker reaches a sandbox's harness bridge through a private preview on
-// this port (8080 is Blaxel's sandbox API), with a token per turn.
+// The worker reaches a sandbox's harness bridge through a private preview
+// (8080 is Blaxel's sandbox API), with a token per turn. The bridge listens on
+// HARNESS_BRIDGE_PORT until moveHarnessBridge moves it within this range; the
+// sandbox's bridge preview names the current port.
 export const HARNESS_BRIDGE_PORT = 8790
+export const HARNESS_BRIDGE_PORTS = Array.from(
+  { length: 10 },
+  (_, i) => HARNESS_BRIDGE_PORT + i
+)
 const BRIDGE_PREVIEW_TOKEN_TTL_MS = 60 * 60 * 1000
+// Chunk 7's name stays for the first port: existing sandboxes have it.
+const FIRST_BRIDGE_PREVIEW = "claude-code-bridge"
+const MOVED_BRIDGE_PREVIEW = "harness-bridge-"
 
-export async function harnessBridgeEndpoint(
-  owner: HarnessOwner
-): Promise<{ url: string; headers: Record<string, string> }> {
-  await guardSandbox(sessionSandboxName(owner))
-  const sandbox = await SandboxInstance.get(sessionSandboxName(owner)).catch(
-    (err: unknown) => {
-      if (isNotFound(err)) return null
-      throw err
-    }
+export type HarnessBridge = {
+  port: number
+  endpoint: { url: string; headers: Record<string, string> }
+}
+
+type SandboxPreview = Awaited<
+  ReturnType<SandboxInstance["previews"]["list"]>
+>[number]
+
+function isBridgePreview(preview: SandboxPreview): boolean {
+  return (
+    preview.name === FIRST_BRIDGE_PREVIEW ||
+    preview.name.startsWith(MOVED_BRIDGE_PREVIEW)
   )
+}
+
+function openBridgePreview(sandbox: SandboxInstance, port: number) {
+  return sandbox.previews.createIfNotExists({
+    metadata: {
+      name:
+        port === HARNESS_BRIDGE_PORT
+          ? FIRST_BRIDGE_PREVIEW
+          : `${MOVED_BRIDGE_PREVIEW}${port}`,
+    },
+    spec: { port, public: false },
+  })
+}
+
+async function bridgeThroughPreview(
+  preview: SandboxPreview,
+  port: number
+): Promise<HarnessBridge> {
+  const url = (preview.spec as { url?: string }).url
+  if (!url) throw new Error("The harness bridge preview has no URL")
+  const token = await preview.tokens.create(
+    new Date(Date.now() + BRIDGE_PREVIEW_TOKEN_TTL_MS)
+  )
+  return {
+    port,
+    endpoint: {
+      url: url.replace(/^http/, "ws"),
+      headers: { "X-Blaxel-Preview-Token": token.value },
+    },
+  }
+}
+
+async function blaxelSandboxOrNull(
+  name: string
+): Promise<SandboxInstance | null> {
+  return SandboxInstance.get(name).catch((err: unknown) => {
+    if (isNotFound(err)) return null
+    throw err
+  })
+}
+
+export async function harnessBridge(
+  owner: HarnessOwner
+): Promise<HarnessBridge> {
+  await guardSandbox(sessionSandboxName(owner))
+  const sandbox = await blaxelSandboxOrNull(sessionSandboxName(owner))
   if (!sandbox) {
     const boat = await findBoatSandbox(sessionSandboxName(owner))
     if (!boat) throw new Error("The session's sandbox is gone")
@@ -273,29 +332,110 @@ export async function harnessBridgeEndpoint(
     // Boat's query token sets a cookie via redirect; the bridge WebSocket
     // client does not follow redirects. Authenticate the upgrade directly.
     return {
-      url: url.toString(),
-      headers: hosted.token
-        ? { Cookie: `_port_auth=${hosted.token.value}` }
-        : {},
+      port: HARNESS_BRIDGE_PORT,
+      endpoint: {
+        url: url.toString(),
+        headers: hosted.token
+          ? { Cookie: `_port_auth=${hosted.token.value}` }
+          : {},
+      },
     }
   }
   try {
-    // Named in chunk 7; existing sandboxes already have it on this port.
-    const preview = await sandbox.previews.createIfNotExists({
-      metadata: { name: "claude-code-bridge" },
-      spec: { port: HARNESS_BRIDGE_PORT, public: false },
-    })
-    const url = (preview.spec as { url?: string }).url
-    if (!url) throw new Error("The harness bridge preview has no URL")
-    const token = await preview.tokens.create(
-      new Date(Date.now() + BRIDGE_PREVIEW_TOKEN_TTL_MS)
+    // The newest, should a move have failed to delete the one before it.
+    const [current] = (await sandbox.previews.list())
+      .filter(isBridgePreview)
+      .sort((a, b) =>
+        (b.metadata.createdAt ?? "").localeCompare(a.metadata.createdAt ?? "")
+      )
+    const port = current?.spec.port ?? HARNESS_BRIDGE_PORT
+    return await bridgeThroughPreview(
+      await openBridgePreview(sandbox, port),
+      port
     )
-    return {
-      url: url.replace(/^http/, "ws"),
-      headers: { "X-Blaxel-Preview-Token": token.value },
-    }
   } finally {
     closeConnection(sandbox)
+  }
+}
+
+// A bridge preview that accepts connections and never upgrades them stayed
+// that way for hours, across turns and standby (after a turn's socket dropped
+// at Blaxel's 15-minute limit, 2026-11-11 and 2026-11-18): every later turn
+// failed its WebSocket handshake. Moves the bridge to the next port with a
+// new preview, which later turns use. Blaxel only; null for Boat.
+export async function moveHarnessBridge(
+  owner: HarnessOwner,
+  from: number
+): Promise<HarnessBridge | null> {
+  const name = sessionSandboxName(owner)
+  await guardSandbox(name)
+  const sandbox = await blaxelSandboxOrNull(name)
+  if (!sandbox) return null
+  try {
+    const next =
+      HARNESS_BRIDGE_PORTS[
+        (HARNESS_BRIDGE_PORTS.indexOf(from) + 1) % HARNESS_BRIDGE_PORTS.length
+      ] ?? HARNESS_BRIDGE_PORT
+    const preview = await openBridgePreview(sandbox, next)
+    for (const old of await sandbox.previews.list()) {
+      if (!isBridgePreview(old) || old.name === preview.name) continue
+      await sandbox.previews.delete(old.name).catch((err: unknown) => {
+        logger.warn(
+          { err, sandbox: name, preview: old.name },
+          "Sandbox: deleting the old bridge preview failed"
+        )
+      })
+    }
+    return await bridgeThroughPreview(preview, next)
+  } finally {
+    closeConnection(sandbox)
+  }
+}
+
+// The adapters' error when the bridge never answered its WebSocket upgrade
+// (patches/@ai-sdk__harness-*): thrown before the turn's session opened.
+const BRIDGE_UNREACHABLE = /bridge did not complete WebSocket handshake/
+
+// Runs a Claude Code or Codex turn. When its bridge is unreachable through the
+// preview, the bridge moves (moveHarnessBridge) and, with `retry`, the turn
+// starts once more: nothing ran in it. A turn continuing in a parked bridge
+// is not retried; its bridge is stopped, and the next run drops it (7d-4a).
+export async function withHarnessBridge<T>(
+  owner: HarnessOwner,
+  bridge: HarnessBridge,
+  options: { retry: boolean; abortSignal?: AbortSignal },
+  run: (bridge: HarnessBridge) => Promise<T>
+): Promise<T> {
+  try {
+    return await run(bridge)
+  } catch (err) {
+    if (
+      options.abortSignal?.aborted ||
+      !(err instanceof Error) ||
+      !BRIDGE_UNREACHABLE.test(err.message)
+    ) {
+      throw err
+    }
+    const name = sessionSandboxName(owner)
+    const moved = await moveHarnessBridge(owner, bridge.port).catch(
+      (moveError: unknown) => {
+        logger.error(
+          { err: moveError, sandbox: name },
+          "Sandbox: moving the unreachable harness bridge failed"
+        )
+        return null
+      }
+    )
+    if (!moved) throw err
+    logger.warn(
+      { err, sandbox: name, from: bridge.port, to: moved.port },
+      "Sandbox: harness bridge unreachable through its preview; moved it"
+    )
+    // No bridge stays on the old port: neither the failed attempt's nor a
+    // parked one, so the next run drops a paused turn as lost.
+    await stopParkedBridges(owner).catch(() => 0)
+    if (!options.retry || options.abortSignal?.aborted) throw err
+    return await run(moved)
   }
 }
 

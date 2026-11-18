@@ -3,7 +3,10 @@ import { env } from "@repo/env/server"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
 import { logger } from "../logger"
 import { ensureProcess, exposePort, portReady } from "../sandbox/sandbox-ports"
-import { attachSessionSandbox } from "../sandbox/session-sandbox"
+import {
+  attachSessionSandbox,
+  HARNESS_BRIDGE_PORTS,
+} from "../sandbox/session-sandbox"
 import { BROWSER_PORTS } from "./browser"
 import { TERMINAL_PORT } from "./terminal"
 
@@ -21,9 +24,14 @@ const RELAY_MARKER = "lor-relay"
 // On a preview proxy's command line with its app's port, so a later open
 // finds and reuses it.
 const PROXY_FOR = "lor-proxy-for"
-// Blaxel's sandbox API, the harness bridge, the terminal and the session
-// browser.
-export const HIDDEN_PORTS = [8080, 8790, TERMINAL_PORT, ...BROWSER_PORTS]
+// Blaxel's sandbox API, the harness bridge (any port it may move to), the
+// terminal and the session browser.
+export const HIDDEN_PORTS = [
+  8080,
+  ...HARNESS_BRIDGE_PORTS,
+  TERMINAL_PORT,
+  ...BROWSER_PORTS,
+]
 // The provider's own services: Blaxel's sandbox API (also on 49152, which
 // kept the port list from ever being empty), and on a Boat VM its system
 // daemons and desktop streamer (sunshine); and agent-browser's daemon behind
