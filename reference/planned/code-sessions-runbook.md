@@ -549,7 +549,8 @@ may lag web), a Lor-offered "Continue in Code" card.
       handshake `withHarnessBridge` moves the bridge to the next port in
       8790–8799 with a new preview (`harness-bridge-<port>`; the newest
       bridge preview names the port later turns use) and retries the turn
-      once, except a turn continuing in a parked bridge.
+      once. A turn continuing in a parked bridge is not retried: the
+      bridges are stopped, so the next run drops it as lost.
   - [x] **7c-1** Claude subscription in Linked accounts, built 2026-10-25:
     - `personal_account_provider` gains `claude` (additive `db:push`).
       `POST /personal-accounts/claude` takes the pasted token (spaces and

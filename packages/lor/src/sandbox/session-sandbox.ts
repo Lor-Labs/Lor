@@ -398,8 +398,8 @@ const BRIDGE_UNREACHABLE = /bridge did not complete WebSocket handshake/
 
 // Runs a Claude Code or Codex turn. When its bridge is unreachable through the
 // preview, the bridge moves (moveHarnessBridge) and, with `retry`, the turn
-// starts once more: nothing ran in it. No retry for a turn continuing in a
-// parked bridge, which stays on the old port.
+// starts once more: nothing ran in it. A turn continuing in a parked bridge
+// is not retried; its bridge is stopped, and the next run drops it (7d-4a).
 export async function withHarnessBridge<T>(
   owner: HarnessOwner,
   bridge: HarnessBridge,
@@ -431,9 +431,10 @@ export async function withHarnessBridge<T>(
       { err, sandbox: name, from: bridge.port, to: moved.port },
       "Sandbox: harness bridge unreachable through its preview; moved it"
     )
-    if (!options.retry || options.abortSignal?.aborted) throw err
-    // The failed attempt's bridge still runs on the old port.
+    // No bridge stays on the old port: neither the failed attempt's nor a
+    // parked one, so the next run drops a paused turn as lost.
     await stopParkedBridges(owner).catch(() => 0)
+    if (!options.retry || options.abortSignal?.aborted) throw err
     return await run(moved)
   }
 }
