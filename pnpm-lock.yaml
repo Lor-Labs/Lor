@@ -12,10 +12,10 @@ overrides:
 
 patchedDependencies:
   '@ai-sdk/harness-claude-code@1.0.162':
-    hash: eagqcrgwd272yh3svslglkfjsa
+    hash: bmgabeehabk5vk7uxmgfsy7yxu
     path: patches/@ai-sdk__harness-claude-code@1.0.162.patch
   '@ai-sdk/harness-codex@1.0.160':
-    hash: blwxyowo2abbosjs3athqvyumu
+    hash: d77uowsnqxuh5wcqbpatzoagtm
     path: patches/@ai-sdk__harness-codex@1.0.160.patch
   '@ai-sdk/harness-pi@1.0.160':
     hash: es2its76q4nhloooxh5kuns3s4
@@ -1046,10 +1046,10 @@ importers:
         version: 1.0.158(ws@8.22.0)(zod@4.3.6)
       '@ai-sdk/harness-claude-code':
         specifier: 1.0.162
-        version: 1.0.162(patch_hash=eagqcrgwd272yh3svslglkfjsa)(zod@4.3.6)
+        version: 1.0.162(patch_hash=bmgabeehabk5vk7uxmgfsy7yxu)(zod@4.3.6)
       '@ai-sdk/harness-codex':
         specifier: 1.0.160
-        version: 1.0.160(patch_hash=blwxyowo2abbosjs3athqvyumu)(zod@4.3.6)
+        version: 1.0.160(patch_hash=d77uowsnqxuh5wcqbpatzoagtm)(zod@4.3.6)
       '@ai-sdk/harness-pi':
         specifier: 1.0.160
         version: 1.0.160(patch_hash=es2its76q4nhloooxh5kuns3s4)(@aws-sdk/credential-provider-node@3.972.87)(@modelcontextprotocol/sdk@1.26.0(zod@4.3.6))(@smithy/hash-node@4.2.11)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.3.6)
@@ -13731,7 +13731,7 @@ snapshots:
       '@vercel/oidc': 3.2.0
       zod: 4.3.6
 
-  '@ai-sdk/harness-claude-code@1.0.162(patch_hash=eagqcrgwd272yh3svslglkfjsa)(zod@4.3.6)':
+  '@ai-sdk/harness-claude-code@1.0.162(patch_hash=bmgabeehabk5vk7uxmgfsy7yxu)(zod@4.3.6)':
     dependencies:
       '@ai-sdk/harness': 1.0.158(ws@8.22.0)(zod@4.3.6)
       '@ai-sdk/provider': 4.0.31
@@ -13742,7 +13742,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@ai-sdk/harness-codex@1.0.160(patch_hash=blwxyowo2abbosjs3athqvyumu)(zod@4.3.6)':
+  '@ai-sdk/harness-codex@1.0.160(patch_hash=d77uowsnqxuh5wcqbpatzoagtm)(zod@4.3.6)':
     dependencies:
       '@ai-sdk/harness': 1.0.158(ws@8.22.0)(zod@4.3.6)
       '@ai-sdk/provider': 4.0.31
