@@ -567,6 +567,7 @@ export function createLorRespondProcessor(
                   session: helperSession,
                   outcome,
                   reply,
+                  replyMessageId: lorMessageId,
                 }).catch((err) =>
                   logger.error(
                     { err, lorMessageId },

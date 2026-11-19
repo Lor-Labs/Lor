@@ -632,12 +632,14 @@ follow-up, failure reports waking the agent, `check_session` and
 `message_session` from the chat, and the agent staying quiet about a
 session it had not started.
 
-A session's turn could not run from Lor's own dev sandbox: that sandbox is
-itself a Blaxel VM, and from inside it Blaxel rejects requests that carry
-the SDK's `x-blaxel-authorization` header (401), while the same key in an
-`Authorization` header works. Workers running anywhere else are not
-affected. A full code session turn is still to be watched once, from a
-machine outside Blaxel.
+A full code session ran on 2026-11-20 from inside a Lor session: the agent
+started it on `ivyoak`, the session cloned and read the repository without
+changing it, its report woke the agent, and the agent posted the summary,
+then read the rest of a long reply and posted that too. Running there
+needed one fix (`sendAuthorizationInsideBlaxel` in
+`packages/lor/src/sandbox/blaxel.ts`, see `local-development.md`). A report
+cut short now names the reply's message, so the agent reads it with
+`read_thread` instead of asking the session again.
 
 **Slice 3: events and timers arrive**
 

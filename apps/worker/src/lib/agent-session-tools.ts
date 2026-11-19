@@ -394,10 +394,13 @@ export async function reportHelperTurn(
     session: { id: string; title: string; newBranch: string | null }
     outcome: HelperOutcome
     reply: string
+    // The session's reply message, which read_thread reads in full.
+    replyMessageId: string
   }
 ): Promise<void> {
   const reply = args.reply.trim()
-  const note = `Session "${args.session.title}" (session ${args.session.id}${args.session.newBranch ? `, branch ${args.session.newBranch}` : ""}) ${OUTCOME_TEXT[args.outcome]}.${reply ? `\nIts reply:\n${clip(reply, REPORT_REPLY_CHARS)}` : ""}`
+  const cut = reply.length > REPORT_REPLY_CHARS
+  const note = `Session "${args.session.title}" (session ${args.session.id}${args.session.newBranch ? `, branch ${args.session.newBranch}` : ""}) ${OUTCOME_TEXT[args.outcome]}.${reply ? `\nIts reply${cut ? ` (cut short here; read_thread with message ${args.replyMessageId} reads it in full)` : ""}:\n${clip(reply, REPORT_REPLY_CHARS)}` : ""}`
   const added = await addInboxNote({
     workspaceId: args.workspaceId,
     channelId: args.channelId,
