@@ -16,7 +16,6 @@ import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { AgentSession, Loop } from "@repo/db/schema"
 import type { RealtimeAgentSession } from "@repo/realtime-types/events"
 import { assertHarnessEnabled } from "@repo/utils/features"
-import { AGENT_SESSION_TITLE } from "./channel-agent"
 import type { Exact, SerializedDates } from "./wire-guard"
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -188,50 +187,6 @@ async function findLoopSession(loopId: string) {
     .where(eq(schema.agentSession.loopId, loopId))
     .limit(1)
   return row ?? null
-}
-
-async function findAgentSession(channelId: string) {
-  const [row] = await db
-    .select()
-    .from(schema.agentSession)
-    .where(
-      and(
-        eq(schema.agentSession.channelId, channelId),
-        eq(schema.agentSession.origin, "agent")
-      )
-    )
-    .limit(1)
-  return row ?? null
-}
-
-// The channel agent's one conversation, created on its first wake
-// (reference/always-on-agents.md). It is storage for the agent's
-// private working transcript and saved state, never listed as a session:
-// people talk to the agent in the channel chat.
-export async function ensureAgentSession(channel: {
-  id: string
-  workspaceId: string
-}): Promise<AgentSession> {
-  const existing = await findAgentSession(channel.id)
-  if (existing) return existing
-  try {
-    return await db.transaction((tx) =>
-      createSession(tx, {
-        workspaceId: channel.workspaceId,
-        channelId: channel.id,
-        authorId: LOR_USER_ID,
-        creatorId: null,
-        origin: "agent",
-        title: AGENT_SESSION_TITLE,
-      })
-    )
-  } catch (err) {
-    // A concurrent wake created it first (agent_session_channel_agent_uidx).
-    if (!isUniqueViolation(err)) throw err
-    const winner = await findAgentSession(channel.id)
-    if (!winner) throw err
-    return winner
-  }
 }
 
 // A loop's one recurring session, created on its first fire. Archive only

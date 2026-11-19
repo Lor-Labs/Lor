@@ -8,6 +8,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { agentRun } from "./agent-runs"
 import { channel } from "./channels"
 import { message } from "./messages"
 import { workspace } from "./workspaces"
@@ -50,8 +51,8 @@ export const agentInbox = pgTable(
     }),
     status: agentInboxStatusEnum("status").notNull().default("pending"),
     readAt: timestamp("read_at"),
-    // The wake line in the agent's conversation that carried this item.
-    wakeMessageId: uuid("wake_message_id").references(() => message.id, {
+    // The agent turn that read this item.
+    runId: uuid("run_id").references(() => agentRun.id, {
       onDelete: "set null",
     }),
   },

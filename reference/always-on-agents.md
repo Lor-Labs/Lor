@@ -458,92 +458,119 @@ tools.
 - [x] 1.1 The inbox and its worker. Built 2026-11-18: `agent_inbox`
   (`packages/db/src/schemas/agent-inbox.ts`), the `agent-inbox` queue and
   `flushAgentInbox` (`apps/worker/src/lib/agent-inbox.ts`). One turn at a
-  time, duplicates dropped on the message id, a 3-second batch delay.
-- [ ] 1.2 The agent's conversation. Built 2026-11-18 as a hidden session,
-  and being replaced: see "How it is stored" and "The agent's own loop"
-  below.
+  time, duplicates dropped on the message id, a 3-second batch delay. An
+  item records the run that read it (`agent_inbox.run_id`).
+- [x] 1.2 The agent's conversation, on its own loop (1.7 to 1.11). Built
+  2026-11-19.
 - [x] 1.3 `send_message` (`packages/lor/src/channel-agent.ts`), bound only on
   the agent's runs. Its posts are messages of type `agent_post`, the one
-  kind of Lor message the chat feed shows.
+  kind of Lor message the chat feed shows. A retried step does not post
+  twice (`SIDE_EFFECT_TOOLS`).
 - [x] 1.4 Mentions and replies wake it, other messages wait unread
   (`apps/realtime/src/services/agent-inbox.ts`). The per-channel switch is
   the column `channel.agent_wake_mode`. No setting for it in the app yet.
 - [ ] 1.5 A model per channel. The column `channel.agent_model` exists and
-  the agent's runs use it. Owed: the setting in the app, and Opus 5.5 as the
-  default, which needs its gateway id. Until then a channel with no model
-  runs on Lor's main model.
-- [ ] 1.6 No sandbox until a tool needs one. Not possible on Pi, which
-  keeps its session file inside the sandbox and reads the home folder at the
-  start of every turn (`session-core/pi-runtime.ts`). The agent's own loop
-  below has no sandbox at all. The agent's computer comes later (decision
-  29), started by the first tool that needs it.
+  the agent's turns use it, defaulting to Opus 5.5
+  (`AGENT_DEFAULT_MODEL = "anthropic/claude-opus-5.5"`). Owed: the setting
+  in the app.
+- [x] 1.6 No sandbox. The agent's turn never opens one. Its computer comes
+  later (decision 29), started by the first tool that needs it.
 
-**How it is stored**
+**The agent's own loop** (built 2026-11-19)
 
-Being replaced (decided 2026-11-18, decisions 27 and 28). As built, the
-agent's working conversation is one hidden session per channel
-(`agent_session.origin = "agent"`, one per channel by a unique index), so
-that the session run engine could be reused. That engine is Pi: it owns the
-context and compacts only near the window limit, and it needs a sandbox for
-every turn. Neither fits the agent. The inbox, the lanes, `send_message` and
-the composer change stay. The hidden session and the edits to the session
-run job come out, before any `db:push`.
+`packages/lor/src/agent-loop.ts`, entered from `respond()` right after it
+assembles the channel's tools, so the agent keeps the same tools, approval
+rules, funding, billing and limits as any Lor turn, and skips Pi and the
+sandbox. The worker side is `apps/worker/src/lib/agent-inbox.ts`: one queue
+with three jobs, `flush`, `turn` and `compact`.
 
-- It is storage, not product shape. It is never listed as a session (the
-  channel session list, search and the sidebar leave it out), it has no repo
-  and its harness is always Lor's own.
-- A wake is a line in that conversation (`agent_wake`) carrying the inbox
-  batch, answered through the same path as a Loop's fire.
-- The agent's own text streams into that conversation and stays there. Only
-  `send_message` reaches the chat. Opening the conversation shows what the
-  agent did, which is what Activity needs later.
+- [x] 1.7 Steps: `agent_step`, one AI SDK model message per row (the inbox
+  text, each model reply, each set of tool results), append-only, never
+  pruned, numbered per channel. `agent_context` holds the epoch, the frozen
+  system prompt, and the last call's prompt size.
+- [x] 1.8 The loop: one `generateText` call per step on the gateway, the
+  system prompt frozen per epoch, the epoch's steps in order, the newest
+  message last. Each call's reply and tool results are saved before the
+  next call. A turn is an `agent_run` scoped to the channel, so one active
+  run per scope gives one turn at a time, and the run's lease, spend limit,
+  stop and billing work as for any run. The prompt has no sandbox lines and
+  no session framing, and says plainly that the agent has no computer.
+- [x] 1.9 Compaction as in §8: a turn that ends above 100,000 tokens
+  schedules a `compact` job 10 minutes out; it runs only if no turn came
+  after, nothing waits to wake the agent and no approval is open. The
+  summary call reuses the epoch's prompt and tools (with nothing executable)
+  and Anthropic's retention prompt. The new epoch opens with the summary and
+  the last 30 chat messages word for word. A turn that fills 80% of the
+  model's window compacts in place. `read_agent_history` reads any earlier
+  turn by id, or finds turns by text.
+- [x] 1.10 Approvals: gated calls come back from the AI SDK as approval
+  requests. The turn ends, the rows are filed under a message in the chat
+  ("I need an approval before I go on.") whose run shows the card, and
+  approvers get the usual notice. A decided set flushes the inbox, which
+  starts a run that answers the requests and goes on
+  (`apps/api/src/routes/v1/approvals/handlers.ts`, `isChannelAgentRun`).
+  Approved inputs are hashed in canonical form, since `jsonb` reorders
+  keys. A crashed attempt is retried by the job and continues from the
+  last saved step.
+- [x] 1.11 The hidden session is gone: no `agent` session origin, no
+  `agent_wake` line, and `lor-respond.ts`, `run-continuation.ts`,
+  `lor-conversation.ts` and the session listings are back as they were.
 
-**The agent's own loop** (not built, design owed)
+Checked live on the dev database, 2026-11-19, in a test workspace: a
+mention, plain messages waiting unread and read at the next wake, a turn
+that searched and answered, a failed turn retried and then reported in the
+chat, a turn interrupted by a worker restart, four approval pauses and
+resumes in one request, a compaction, and a read-back of turns from before
+it. The cached share per call was 0 at first, then 85 to 99%, see below.
 
-- [ ] 1.7 A store for the agent's steps: every model call, tool call and
-  result, append-only and never pruned. `agent_run_event` is pruned after a
-  run ends, so it cannot be this.
-- [ ] 1.8 The loop: build the prompt in the order of §4, call the model,
-  run its tools, repeat. No sandbox. Reused, checked in code 2026-11-18:
-  run records scoped to the channel (`agent_run.scope_key` is the channel
-  when there is no thread, with one active run per scope), the stored
-  results that stop a retried step repeating an action
-  (`agent_run_tool_result`), and `export_tool_result`, which saves a large
-  result as a workspace file on the server.
-- [ ] 1.9 Compaction (§8) and the tool to read the agent's history from
-  before it.
-- [ ] 1.10 Pause and resume on an approval, and resume after a crash.
-- [ ] 1.11 Take out the hidden session and the edits to the session run
-  job.
+**Found while building**
 
-Lor ran a loop of its own with stored steps until 2026-10-22
-(`context-continuation.md`). That code is not in this checkout's history
-and is to be read before 1.8 is designed.
+- **Anthropic rejected every Lor request.** `export_tool_result` was
+  `strict` with a free-form `args`, which Anthropic's API refuses, so the
+  gateway quietly fell back to other providers for all Lor runs, sessions
+  included. Now `strict: false`. Direct Anthropic accepts the request since.
+- **Cache misses came from provider routing.** The gateway caches per
+  provider, and calls of one turn landed on different ones. The agent now
+  asks for Anthropic first (`order: ["anthropic"]`) and logs each call's
+  provider, input and cached tokens ("Agent model call"). In practice the
+  gateway kept the test conversation on Vertex's Anthropic, with hits.
+- **Reasoning is bound to the prompt.** Opus 5.5 signs its reasoning against
+  the system prompt and tool list, and may refuse a replay after either
+  changes. A tool set or model that changes inside an epoch moves
+  `agent_context.reasoning_cut_seq`, and reasoning up to it is left out of
+  the prompt (removing it from the front is allowed). If routing switches
+  providers mid-conversation, replayed reasoning may also be refused; not
+  seen yet.
+- **The approval card needed a live listener in the chat.** The channel
+  page now keeps approvals live (`useChannelApprovals`).
 
 **Deviations and gaps in slice 1**
 
 - A mention that arrives mid-turn waits for the next turn. It does not steer
   the running one.
 - A mention of Lor inside a human thread still starts a session.
-- While a turn waits on an approval, the conversation is held: new wakes
-  stay pending until the decision's run ends. The approval card is in the
-  agent's conversation, and approvers get the usual notice.
-- `propose_loop` and workspace change proposals are off for the agent: their
-  cards would land in its conversation, not the chat.
+- While a turn waits on an approval, new wakes wait too.
+- Every pause posts its own line in the chat ("One more approval before I go
+  on." after the first). A turn with many gated calls is noisy.
+- `propose_loop` and workspace change proposals are off for the agent.
 - A run swept as dead does not flush the inbox. The next wake does.
-- No "working" indicator in the chat while the agent runs.
+- No "working" indicator in the chat while the agent runs, and nowhere yet
+  to see a turn's steps (Activity, slice 5).
 - Today's write-back pass still runs for the agent. Slice 4 replaces it
   with the memory pass.
+- The one-hour cache lifetime on large conversations is sent as an Anthropic
+  provider option through the gateway; whether it applies was not checked.
 - A failed turn, or a workspace out of credits, says so in the chat.
 
 **Owed before the batch ships**
 
-- `db:push`: the new table, the two channel columns and three enum values.
-  The code selects the new channel columns, so it must run before deploy.
-- A live run of a mention, a reply, two quick messages, a wake during a
-  turn, and a failure.
+- `db:push` on each environment. The dev database got this work's tables,
+  enums and columns by hand on 2026-11-19 (the full push stopped at an
+  unrelated prompt to truncate `brain_node`).
 - The "How Lor works" onboarding scenes, on web and mobile, still show
   `@Lor` in chat starting a session.
+- `.lor/environment.json` has no worker service, so the Browser tab's Start
+  buttons run the app without agents. The worker has no port to list.
 
 Done 2026-11-19 with the flag's removal: on web and mobile, `@Lor` in the
 channel composer shows "To Lor" instead of "New session in #channel", the

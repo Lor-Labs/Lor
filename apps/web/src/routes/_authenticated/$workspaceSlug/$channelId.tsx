@@ -21,6 +21,7 @@ import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { VoiceChannelView } from "@/components/voice/voice-channel-view"
 import { useSocket } from "@/context/socket-context"
+import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelEntry } from "@/hooks/use-channel-entry"
 import { useChannelFilesRealtime } from "@/hooks/use-channel-files"
@@ -212,6 +213,8 @@ function ChannelView() {
     [workspaceSlug, channelId]
   )
 
+  // Keeps the channel agent's approval cards live in the chat.
+  useChannelApprovals(channelId)
   // `@Lor` here wakes the channel agent, which answers in the chat. Sessions
   // start from New session.
   const { handleSend, pendingNonces } = useMessageSending({

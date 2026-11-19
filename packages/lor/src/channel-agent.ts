@@ -2,14 +2,13 @@ import { and, asc, db, eq, inArray, schema } from "@repo/db"
 import type { AgentInboxLane } from "@repo/db/schema"
 import { tool } from "ai"
 import { z } from "zod"
+import type { ApprovalDecision, RunCounters, RunStepRecord } from "./run"
 import { formatSpeakerLine, sanitizeInlineLabel } from "./transcript"
 
 // The channel's always-on agent (reference/always-on-agents.md): one
 // agent and one chat per channel. Its turns start from the channel's inbox,
-// its own text stays private, and it speaks in the channel chat only through
-// send_message.
-
-export const AGENT_SESSION_TITLE = "Channel agent"
+// run on its own loop (agent-loop.ts), keep its own text private, and reach
+// the channel chat only through send_message.
 
 // A runaway guard on one batch, not a window: the agent can read the chat
 // itself for anything older.
@@ -21,10 +20,20 @@ export type SendMessageExecutor = (input: {
   content: string
 }) => Promise<{ messageId: string }>
 
-// Set on every run in a channel agent's conversation.
+// Set on every run of a channel's agent. The worker binds the hooks, since
+// it owns the run's lease and billing.
 export type RunAgentContext = {
   channelName: string | null
   sendMessage: SendMessageExecutor
+  // "compact" summarizes the conversation instead of running a turn.
+  mode: "turn" | "compact"
+  // Adds one model call to the run's counters and spend, under its lease.
+  recordUsage: (
+    usage: RunStepRecord,
+    kind: "step" | "compaction"
+  ) => Promise<RunCounters & { costUsd?: number }>
+  // The decisions on a paused turn's approvals, claimed for this run.
+  loadDecisions?: (pausedRunId: string) => Promise<ApprovalDecision[]>
 }
 
 const sendMessageContext = z.object({
@@ -57,11 +66,14 @@ export function channelAgentPromptSection(agent: RunAgentContext): string {
 
 You are the always-on agent for ${channel}: one teammate the whole channel shares. People and you talk in the channel's chat.
 
-- Each turn starts from your inbox. "Since you last looked" lists what people said in the chat that was not for you: read it as context and do not answer it line by line. "What woke you" is what you are asked to handle now.
+- Each turn starts from your inbox, after the time. "Since you last looked" lists what people said in the chat that was not for you: read it as context and do not answer it line by line. "What woke you" is what you are asked to handle now.
 - Nothing you write here reaches anyone. This conversation is your private working notes. To speak, call send_message: it posts in the channel's chat for everyone.
 - Answer the person who addressed you with one send_message. Mention them as <@id> only when the message needs their attention.
 - You may stay quiet. When nothing needs saying, end the turn without send_message.
-- Never promise to come back later unless a tool schedules it for you.`
+- Never promise to come back later unless a tool schedules it for you.
+- You have no computer of your own yet: you can't run code, use a shell or make files. Your tools are the ones listed above. When someone asks for that kind of work, say so plainly.
+- When you are done, end the turn. Any closing note to yourself is one short line.
+- Your conversation is kept across turns, and summarized when it grows long. read_agent_history reads your earlier turns word for word, and read_thread reads the chat. Use them before guessing at something you no longer see.`
 }
 
 export async function addInboxMessage(input: {
@@ -90,6 +102,8 @@ export type InboxBatch = {
   woke: number
   unread: number
   text: string
+  // The first message that woke the agent.
+  triggerMessageId: string
 }
 
 // Everything pending for the channel, as the text of one wake line. Null when
@@ -119,7 +133,8 @@ export async function loadInboxBatch(
       )
     )
     .orderBy(asc(schema.agentInbox.createdAt))
-  if (!rows.some((row) => row.lane === "wake")) return null
+  const firstWake = rows.find((row) => row.lane === "wake")
+  if (!firstWake) return null
 
   // Over the guard, the oldest unread items are left out and said so. What
   // woke the agent is never cut.
@@ -157,17 +172,21 @@ export async function loadInboxBatch(
     woke: woke.length,
     unread: unread.length + omitted,
     text: sections.join("\n\n"),
+    triggerMessageId: firstWake.messageId,
   }
 }
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
 export async function markInboxRead(
+  tx: Tx | typeof db,
   itemIds: string[],
-  wakeMessageId: string
+  runId: string
 ): Promise<void> {
   if (itemIds.length === 0) return
-  await db
+  await tx
     .update(schema.agentInbox)
-    .set({ status: "read", readAt: new Date(), wakeMessageId })
+    .set({ status: "read", readAt: new Date(), runId })
     .where(
       and(
         inArray(schema.agentInbox.id, itemIds),

@@ -66,7 +66,6 @@ import type {
   RealtimeMessageMention,
 } from "@repo/realtime-types"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
-import type { AgentInboxFlushJobData } from "@repo/realtime-types/queues"
 import {
   channelRoom,
   threadRoom,
@@ -80,7 +79,6 @@ import {
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
-import { flushAfterAgentRun } from "@/lib/agent-inbox"
 import { claimAgentRun, delayJobUntil, LeaseLostError } from "@/lib/agent-run"
 import {
   notifyApprovalParked,
@@ -98,7 +96,6 @@ import {
 } from "@/lib/loop-session"
 import { loadConversation } from "@/lib/lor-conversation"
 import { createLoopCard } from "@/lib/lor-loop"
-import { postLorMessage } from "@/lib/lor-messages"
 import { overlapNoticeClaim } from "@/lib/overlap"
 import { loadPausedDecisions } from "@/lib/paused-turn"
 import { buildTurnDelta } from "@/lib/run-continuation"
@@ -138,8 +135,7 @@ const SANDBOX_STARTING_MESSAGE =
 export function createLorRespondProcessor(
   emitter: Emitter<ServerToClientEvents>,
   redis: RedisClient,
-  respondQueue: Queue<LorRespondJobData>,
-  agentInboxQueue: Queue<AgentInboxFlushJobData>
+  respondQueue: Queue<LorRespondJobData>
 ) {
   return (job: Job<LorRespondJobData>, token?: string) =>
     withContext(
@@ -168,13 +164,6 @@ export function createLorRespondProcessor(
           if (!runId) return
           void drainScopeQueue({ runId, emitter, respondQueue }).catch((err) =>
             logger.error({ err, runId }, "Scope queue drain failed")
-          )
-          // A channel agent's run: what woke it meanwhile gets the next turn.
-          void flushAfterAgentRun(agentInboxQueue, {
-            channelId,
-            threadRootId,
-          }).catch((err) =>
-            logger.error({ err, runId }, "Agent inbox flush after run failed")
           )
         }
 
@@ -551,10 +540,6 @@ export function createLorRespondProcessor(
             activeReasoningSegment = null
           }
 
-          // A channel agent's run: whether it spoke in the channel chat, and
-          // whether its conversation is one (set once the session is read).
-          let sentToChat = false
-          let agentRun = false
           // Phase 1 — generate + stream. Failures retain the work so far.
           let answer: Awaited<ReturnType<typeof respond>>
           let workspaceId: string
@@ -672,7 +657,6 @@ export function createLorRespondProcessor(
                       schema.agentSession.forkedFromMessageId,
                     harness: schema.agentSession.harness,
                     harnessCommands: schema.agentSession.harnessCommands,
-                    origin: schema.agentSession.origin,
                   })
                   .from(schema.agentSession)
                   .where(eq(schema.agentSession.threadRootId, threadRootId))
@@ -681,11 +665,6 @@ export function createLorRespondProcessor(
             if (!session) throw new Error("This Lor run has no session")
             assertHostedHarness(session.harness)
             assertHarnessEnabled(session.harness)
-            // The channel's always-on agent: this session is its private
-            // conversation, and it speaks in the channel chat with
-            // send_message (reference/always-on-agents.md).
-            const channelAgent = session.origin === "agent"
-            agentRun = channelAgent
             const owner = { sessionId: session.id }
             const harnessState = await loadHarnessState(
               owner,
@@ -794,11 +773,7 @@ export function createLorRespondProcessor(
             }
 
             const channel = await db
-              .select({
-                workspaceId: schema.channel.workspaceId,
-                name: schema.channel.name,
-                agentModel: schema.channel.agentModel,
-              })
+              .select({ workspaceId: schema.channel.workspaceId })
               .from(schema.channel)
               .where(eq(schema.channel.id, channelId))
               .then((r) => r[0])
@@ -880,22 +855,6 @@ export function createLorRespondProcessor(
                 .where(eq(schema.message.id, lorMessageId))
                 .catch(() => {})
               emit(OUT_OF_CREDITS_MESSAGE, true, "failed")
-              // Whoever woke a channel agent is waiting in the chat.
-              if (channelAgent) {
-                await postLorMessage(
-                  { emitter, redis },
-                  {
-                    channelId,
-                    content: OUT_OF_CREDITS_MESSAGE,
-                    type: "agent_post",
-                  }
-                ).catch((postErr) =>
-                  logger.error(
-                    { err: postErr, lorMessageId },
-                    "Agent out-of-credits notice failed"
-                  )
-                )
-              }
               await runWriter.transition("failed", {
                 stopReason: "out_of_credits",
               })
@@ -924,7 +883,7 @@ export function createLorRespondProcessor(
             )
 
             // Named only once the run may spend: titling is metered too.
-            if (threadRootId && job.data.runId && !channelAgent) {
+            if (threadRootId && job.data.runId) {
               void titleSessionOnFirstRun({
                 emitter,
                 threadRootId,
@@ -1074,12 +1033,8 @@ export function createLorRespondProcessor(
                     .where(eq(schema.message.id, triggerMessageId))
                     .then((rows) => rows[0]?.content?.trim() ?? null)
                 : null
-            // A channel agent runs every turn on its channel's model.
-            const turnModel = channelAgent
-              ? (channel.agentModel ?? picks?.model)
-              : picks?.model
             const turn = {
-              ...(turnModel ? { model: turnModel } : {}),
+              ...(picks?.model ? { model: picks.model } : {}),
               ...(picks?.effort ? { effort: picks.effort } : {}),
               ...(picks?.fast && session.harness === "claude_code"
                 ? { fast: true }
@@ -1230,26 +1185,8 @@ export function createLorRespondProcessor(
                     }
                   : {}),
                 // A loop's fire or an Act event never schedules loops or
-                // files proposals. Neither does a channel agent yet: their
-                // cards would land in its private conversation.
-                ...(automated || channelAgent
-                  ? {}
-                  : { proposeLoop, proposeChange }),
-                ...(channelAgent
-                  ? {
-                      agent: {
-                        channelName: channel.name,
-                        sendMessage: async ({ content }) => {
-                          const sent = await postLorMessage(
-                            { emitter, redis },
-                            { channelId, content, type: "agent_post" }
-                          )
-                          sentToChat = true
-                          return sent
-                        },
-                      },
-                    }
-                  : {}),
+                // files proposals.
+                ...(automated ? {} : { proposeLoop, proposeChange }),
                 ...(triggerRun ? { trigger: triggerRun.context } : {}),
                 ...(continuesSession ? { continuesSession } : {}),
                 ...(forkedFrom ? { forkedFrom } : {}),
@@ -1495,20 +1432,6 @@ export function createLorRespondProcessor(
                     ? err.message
                     : LOR_ERROR_FALLBACK
             await persistFailure(failureText)
-            // The failure text above is in the agent's private conversation.
-            // Whoever woke it is waiting in the chat, so say it there too,
-            // unless it already answered.
-            if (agentRun && !sentToChat) {
-              await postLorMessage(
-                { emitter, redis },
-                { channelId, content: failureText, type: "agent_post" }
-              ).catch((postErr) =>
-                logger.error(
-                  { err: postErr, lorMessageId },
-                  "Agent failure notice failed"
-                )
-              )
-            }
             await runWriter.transition("failed", {
               stopReason:
                 execution &&
@@ -1564,19 +1487,13 @@ export function createLorRespondProcessor(
             // would persist across reloads.
             finalText = grounded.text
             if (!finalText.trim()) {
-              // A channel agent's own text is private notes: a turn with
-              // none is normal, whether it spoke in the chat or stayed quiet.
               finalText = stoppedByUser
                 ? "Stopped before I had an answer."
                 : awaitingApproval
                   ? "Waiting for approval before I continue."
-                  : agentRun
-                    ? sentToChat
-                      ? "Sent a message in the chat."
-                      : "Stayed quiet."
-                    : "I couldn't pull together an answer for that — could you add a bit more detail or rephrase?"
+                  : "I couldn't pull together an answer for that — could you add a bit more detail or rephrase?"
               emptyFallback = true
-              if (!stoppedByUser && !awaitingApproval && !agentRun) {
+              if (!stoppedByUser && !awaitingApproval) {
                 logger.warn(
                   { lorMessageId },
                   "Lor produced no answer text; using empty fallback"

@@ -95,9 +95,6 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   "session_pr_merged",
   // In a code session: someone changed its environment or sandbox size.
   "session_setup_changed",
-  // In the channel agent's conversation: one batch from the channel's inbox.
-  // Content is what Lor reads; clients show how many items it carried.
-  "agent_wake",
 ])
 
 // Claude Code's own permission modes, picked per message in a Claude Code
@@ -428,14 +425,7 @@ export type SessionPullRequestPayload = {
   githubLogin: string
 }
 
-// agent_wake: how many inbox items the batch carried, by lane.
-export type AgentWakePayload = {
-  woke: number
-  unread: number
-}
-
 export type ChannelEventPayload =
-  | AgentWakePayload
   | ChannelCreatedPayload
   | ChannelRenamedPayload
   | MemberAddedPayload

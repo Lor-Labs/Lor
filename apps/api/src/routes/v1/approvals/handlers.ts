@@ -12,10 +12,12 @@ import {
   sql,
 } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import { isChannelAgentRun } from "@repo/db/queries/channel-agent"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { Approval, ClaudeCodeAnswers, Plan } from "@repo/db/schema"
 import { channelRoom } from "@repo/realtime-types/rooms"
 import { findRunVoiceRequest } from "@repo/voice/server"
+import { flushAgentInbox } from "@/lib/agent-inbox-queue"
 import {
   loadApprovalResolver,
   loadApprovalResolvers,
@@ -435,19 +437,25 @@ async function resolveApproval(
   // continuation answers Lor's paused reply. Only an old message-less run
   // still needs a posted resolution to trigger on; if that can't be created,
   // un-resolve the CAS so the caller can retry.
-  const messageId = !decided.complete
-    ? null
-    : (row.run?.messageId ??
-      (await postScopeMessage({
-        channelId: scope.channelId,
-        threadRootId: scope.threadRootId,
-        authorId: userId,
-        content:
-          resolution === "approved"
-            ? `Approved — go ahead: ${resolved.description}`
-            : `Rejected — do not proceed: ${resolved.description}`,
-      }).catch(() => null)))
-  if (decided.complete && !messageId) {
+  // A channel agent's turn needs no posted resolution: its paused turn goes
+  // on from the agent's inbox worker.
+  const agentTurn = resolved.runId
+    ? await isChannelAgentRun(resolved.runId)
+    : false
+  const messageId =
+    !decided.complete || agentTurn
+      ? null
+      : (row.run?.messageId ??
+        (await postScopeMessage({
+          channelId: scope.channelId,
+          threadRootId: scope.threadRootId,
+          authorId: userId,
+          content:
+            resolution === "approved"
+              ? `Approved — go ahead: ${resolved.description}`
+              : `Rejected — do not proceed: ${resolved.description}`,
+        }).catch(() => null)))
+  if (decided.complete && !messageId && !agentTurn) {
     await undoResolution()
     return { kind: "post_failed" }
   }
@@ -480,6 +488,15 @@ async function resolveApproval(
       { err, approvalId },
       "Approval resolution broadcast failed; continuing"
     )
+  }
+  if (agentTurn && decided.complete) {
+    await flushAgentInbox(scope.channelId).catch((err) =>
+      logger.error(
+        { err, approvalId, runId: resolved.runId },
+        "Agent inbox flush after approval failed"
+      )
+    )
+    return { kind: "resolved", approval: resolved }
   }
   // The rest of the set is still open: the turn stays paused.
   if (!messageId) return { kind: "resolved", approval: resolved }

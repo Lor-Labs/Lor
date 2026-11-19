@@ -129,6 +129,8 @@ export async function postLorMessage(
     // A reply in this thread rather than a channel message.
     threadRootId?: string
     silent?: boolean
+    // A run's message: clients show the run's approval card under it.
+    lorTriggerMessageId?: string
   }
 ): Promise<{ messageId: string }> {
   const author = await loadLorAuthor()
@@ -186,6 +188,9 @@ export async function postLorMessage(
         }
       : null,
     threadRootId: input.threadRootId ?? null,
+    ...(input.lorTriggerMessageId
+      ? { lorTriggerMessageId: input.lorTriggerMessageId }
+      : {}),
   }
   if (!input.threadRootId) {
     deps.emitter

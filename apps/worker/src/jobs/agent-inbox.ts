@@ -1,30 +1,34 @@
-import type { ServerToClientEvents } from "@repo/realtime-types/events"
-import type {
-  AgentInboxFlushJobData,
-  LorRespondJobData,
+import {
+  AGENT_COMPACT_JOB,
+  AGENT_TURN_JOB,
+  type AgentCompactJobData,
+  type AgentInboxFlushJobData,
+  type AgentTurnJobData,
 } from "@repo/realtime-types/queues"
-import type { Emitter } from "@socket.io/redis-emitter"
-import type { Job, Queue } from "bullmq"
-import type { createClient } from "redis"
-import { flushAgentInbox } from "@/lib/agent-inbox"
+import type { Job } from "bullmq"
+import {
+  type AgentDeps,
+  type AgentQueueData,
+  flushAgentInbox,
+  runAgentCompactJob,
+  runAgentTurnJob,
+} from "@/lib/agent-inbox"
 import { logger } from "@/lib/logger"
 
-type RedisClient = ReturnType<typeof createClient>
-
-// A flush of one channel's agent inbox. Cheap when there is nothing to do:
-// several flushes for quick messages in a row find the same pending items,
-// the first starts the turn and the rest find none.
-export function createAgentInboxProcessor(
-  emitter: Emitter<ServerToClientEvents>,
-  redis: RedisClient,
-  respondQueue: Queue<LorRespondJobData>
-) {
-  return async (job: Job<AgentInboxFlushJobData>) => {
-    const { channelId } = job.data
-    const outcome = await flushAgentInbox(
-      { emitter, redis, respondQueue },
-      channelId
-    )
+// The channel agents' queue: inbox flushes, turns and compactions
+// (reference/always-on-agents.md §3, §8).
+export function createAgentInboxProcessor(deps: AgentDeps) {
+  return async (job: Job<AgentQueueData>, token?: string) => {
+    if (job.name === AGENT_TURN_JOB) {
+      await runAgentTurnJob(deps, job as Job<AgentTurnJobData>, token)
+      return
+    }
+    if (job.name === AGENT_COMPACT_JOB) {
+      await runAgentCompactJob(deps, job as Job<AgentCompactJobData>, token)
+      return
+    }
+    const { channelId } = job.data as AgentInboxFlushJobData
+    const outcome = await flushAgentInbox(deps, channelId)
     logger.info({ channelId, outcome }, "Agent inbox flushed")
   }
 }

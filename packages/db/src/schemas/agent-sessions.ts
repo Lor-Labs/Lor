@@ -26,11 +26,6 @@ export const agentSessionOriginEnum = pgEnum("agent_session_origin", [
   "new",
   "loop",
   "trigger",
-  // The channel's always-on agent: its private working conversation, one per
-  // channel, never listed as a session. Its turns start from the channel's
-  // inbox and it speaks in the channel chat with send_message
-  // (reference/always-on-agents.md).
-  "agent",
 ])
 
 // Fixed when the session starts (reference/planned/code-channels.md §2).
@@ -157,9 +152,6 @@ export const agentSession = pgTable(
     uniqueIndex("agent_session_loopId_uidx")
       .on(table.loopId)
       .where(sql`loop_id is not null`),
-    uniqueIndex("agent_session_channel_agent_uidx")
-      .on(table.channelId)
-      .where(sql`origin = 'agent'`),
     index("agent_session_triggerId_subject_idx")
       .on(table.triggerId, table.triggerSubject)
       .where(sql`trigger_id is not null`),

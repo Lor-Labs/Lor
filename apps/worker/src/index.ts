@@ -12,7 +12,6 @@ import {
   type ActFlushJobData,
   AGENT_INBOX_QUEUE,
   AGENT_RUN_STOP_CHANNEL,
-  type AgentInboxFlushJobData,
   ATTACHMENT_INDEX_QUEUE,
   DELETE_SESSION_SANDBOX_JOB,
   type DeleteSessionSandboxJobData,
@@ -63,6 +62,7 @@ import {
   VOICE_SESSION_AUDIT_EVERY_MS,
   VOICE_SESSION_SWEEP_EVERY_MS,
 } from "@/jobs/voice-sessions"
+import type { AgentQueueData } from "@/lib/agent-inbox"
 import { signalRunStop } from "@/lib/agent-run"
 import {
   escalateApproval,
@@ -226,10 +226,10 @@ async function bootstrap() {
     },
   })
 
-  // The channel agents' inboxes (reference/always-on-agents.md §3).
-  // The realtime gateway is the producer for chat messages; a finished agent
-  // run adds a flush for what woke it meanwhile.
-  const agentInboxQueue = new Queue<AgentInboxFlushJobData>(AGENT_INBOX_QUEUE, {
+  // The channel agents: inbox flushes, turns and compactions
+  // (reference/always-on-agents.md §3). The realtime gateway adds flushes
+  // for chat messages; a finished turn adds one for what woke it meanwhile.
+  const agentInboxQueue = new Queue<AgentQueueData>(AGENT_INBOX_QUEUE, {
     connection: {
       ...redisOpts,
       maxRetriesPerRequest: null,
@@ -238,7 +238,11 @@ async function bootstrap() {
 
   const agentInboxWorker = new Worker(
     AGENT_INBOX_QUEUE,
-    createAgentInboxProcessor(emitter, redisEmitterClient, lorRespondQueue),
+    createAgentInboxProcessor({
+      emitter,
+      redis: redisEmitterClient,
+      queue: agentInboxQueue,
+    }),
     {
       connection: {
         ...redisOpts,
@@ -261,12 +265,7 @@ async function bootstrap() {
 
   const lorRespondWorker = new Worker(
     LOR_RESPOND_QUEUE,
-    createLorRespondProcessor(
-      emitter,
-      redisEmitterClient,
-      lorRespondQueue,
-      agentInboxQueue
-    ),
+    createLorRespondProcessor(emitter, redisEmitterClient, lorRespondQueue),
     {
       connection: {
         ...redisOpts,

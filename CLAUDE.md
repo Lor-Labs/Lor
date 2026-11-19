@@ -242,7 +242,9 @@ reference and is deleted after the last step.
 Channel chat is changing under `reference/always-on-agents.md` (LOR-169): each
 channel has one always-on agent that answers in the chat, and `@Lor` there
 wakes it instead of starting a session. Where the two docs differ, that plan
-wins. It has no launch flag and needs `db:push` before deploy.
+wins. It has no launch flag and needs `db:push` before deploy. The agent's
+turns run on Lor's own loop (`packages/lor/src/agent-loop.ts`), not Pi, and
+open no sandbox: the session rules below do not apply to them.
 
 ### Conventions
 
