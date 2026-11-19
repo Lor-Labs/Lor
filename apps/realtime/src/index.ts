@@ -57,7 +57,6 @@ import {
   LINK_UNFURL_QUEUE,
   LOR_RESPOND_QUEUE,
 } from "@repo/realtime-types/queues"
-import { features } from "@repo/utils/features"
 import { createAdapter } from "@socket.io/redis-adapter"
 import { Queue } from "bullmq"
 import { createClient } from "redis"
@@ -922,7 +921,6 @@ io.on("connection", (socket) => {
         // The channel's always-on agent: what people say in the channel chat
         // lands in its inbox, and a mention or a reply to it wakes it.
         if (
-          features.channelAgent &&
           accessibleChannel.type === "text" &&
           !session &&
           !createdMessage.message.threadRootId &&

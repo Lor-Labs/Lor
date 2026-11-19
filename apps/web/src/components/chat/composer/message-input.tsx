@@ -279,7 +279,8 @@ function selectMentionIds({ editor }: EditorStateSnapshot<Editor | null>) {
 // Mirrors the server's session routing rule (realtime routeLor): in a session
 // Lor runs unless the message addresses only people (a mention, or a reply to
 // someone else) or is switched to people; addressing Lor always wins. In chat
-// and human threads only an @Lor mention starts a session.
+// an @Lor mention wakes the channel agent; in a human thread it starts a
+// session.
 function resolveRouting({
   destination,
   mentionedIds,
@@ -450,7 +451,7 @@ export const MessageInput = memo(function MessageInput({
     placeholderOverride ??
     (context.type === "channel"
       ? lorIntro && !lorHint.dismissed
-        ? `Message #${context.name}, or @Lor to start a session`
+        ? `Message #${context.name}, or ask @Lor`
         : `Message #${context.name}`
       : `Message ${context.name}`)
 
@@ -1055,7 +1056,7 @@ export const MessageInput = memo(function MessageInput({
         align="start"
         onDismiss={dismissLorHint}
       >
-        {`Mention @Lor${isTauri ? " or press ⌘N" : ""} to start a session. Lor works there, next to the chat.`}
+        {`Mention @Lor and it answers here in the chat.${isTauri ? " Press ⌘N to start a session." : ""}`}
       </HintPopover>
       <div
         ref={composerRef}
@@ -1217,7 +1218,6 @@ export const MessageInput = memo(function MessageInput({
               <div className="min-w-0 flex-1">
                 <DestinationBar
                   destination={destination}
-                  channelName={context.name}
                   toLor={routing.toLor}
                   pinged={routing.pinged}
                   subscribers={subscribers}

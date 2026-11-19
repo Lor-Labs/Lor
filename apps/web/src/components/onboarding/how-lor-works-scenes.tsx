@@ -655,14 +655,7 @@ export function SessionStartScene({ workspaceName, you, onDone }: SceneProps) {
         toLor={drafting}
         notice={startedNote}
         bar={
-          drafting && (
-            <DestinationBar
-              destination="channel"
-              channelName="engineering"
-              toLor
-              pinged={[]}
-            />
-          )
+          drafting && <DestinationBar destination="channel" toLor pinged={[]} />
         }
       >
         {drafting ? (
@@ -806,7 +799,6 @@ export function SharedSessionScene({ workspaceName, you, onDone }: SceneProps) {
             drafting && (
               <DestinationBar
                 destination="session"
-                channelName="engineering"
                 toLor={phase < 3}
                 pinged={[]}
                 subscribers={[{ id: "rafael", ...RAFAEL, avatarColor: null }]}

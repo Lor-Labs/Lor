@@ -38,7 +38,6 @@ import { useMemberModeration } from "@/hooks/use-member-moderation"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
-import { useSessionStart } from "@/hooks/use-session-start"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import type { ChannelSearchResult, Message } from "@/lib/api-types"
@@ -96,10 +95,7 @@ function ChannelScreen() {
   // open composer flips to the archived notice without a reload.
   useProjectUpdates(workspace?.slug)
 
-  const sessionStart = useSessionStart({
-    id: channelId ?? "",
-    name: channelState.channel?.name ?? null,
-  })
+  // `@Lor` here wakes the channel agent, which answers in the chat.
   const chat = useChannelMessages({
     source: {
       kind: "channel",
@@ -108,7 +104,6 @@ function ChannelScreen() {
     },
     socket,
     currentUser: session?.user,
-    sessionStart,
   })
   // Chat is people only: Lor's runs, plans, approvals, proposals and queues
   // live in sessions.

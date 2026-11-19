@@ -582,12 +582,7 @@ export function SessionStartScene({ you, onDone }: SceneProps) {
       <MiniComposer
         bar={
           phase >= 1 ? (
-            <DestinationBar
-              channelName="engineering"
-              destination="channel"
-              pinged={[]}
-              toLor
-            />
+            <DestinationBar destination="channel" pinged={[]} toLor />
           ) : null
         }
         toLor={phase >= 1}
@@ -703,7 +698,6 @@ export function SharedSessionScene({ you, onDone }: SceneProps) {
         bar={
           drafting ? (
             <DestinationBar
-              channelName="engineering"
               destination="session"
               pinged={[]}
               subscribers={[RAFAEL_FACE]}

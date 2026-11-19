@@ -153,10 +153,6 @@ senders for search, workspace templates, and push visibility. Existing code and
 data are retained. DM and voice are product visibility flags, not API authorization: their
 endpoints remain accessible to authorized clients.
 
-`channelAgent` is off by default: on, each channel has one always-on agent
-that answers in the channel chat, and `@Lor` there wakes it instead of starting
-a session (`reference/always-on-agents.md`). It needs `db:push` first.
-
 `selfSignups` is off by default; `claudeCodeHarness` and `codexHarness` are on.
 Hosted beta allows `pi`, `claude_code` and `codex` (each person's own plan).
 These flags are enforced on the server. Self signup requires a valid, pending signed email
@@ -242,6 +238,11 @@ branch: implementation decisions, hazards, per-step file lists, and status
 checkboxes live there. Update its checkboxes and deviations log as steps land.
 The `/prototype` route (`apps/web/src/components/prototype/`) is a flow
 reference and is deleted after the last step.
+
+Channel chat is changing under `reference/always-on-agents.md` (LOR-169): each
+channel has one always-on agent that answers in the chat, and `@Lor` there
+wakes it instead of starting a session. Where the two docs differ, that plan
+wins. It has no launch flag and needs `db:push` before deploy.
 
 ### Conventions
 

@@ -1,9 +1,9 @@
 # Always-on agents: one agent and one chat per channel
 
 **Status:** Plan for LOR-169, decided with Jacob between 2026-11-16 and
-2026-11-18. Building started 2026-11-18: slice 1 is partly built behind the
-`channelAgent` launch flag (`packages/utils/src/features.ts`), off by default, with `db:push` and a live run
-owed (§13). It replaces the proposal in `planned/team-agents.md`, which stays
+2026-11-19. Building started 2026-11-18: slice 1 is partly built, with
+`db:push` and a live run owed (§13). There is no launch flag: the work ships
+in one batch when it is all done (Jacob, 11-19). It replaces the proposal in `planned/team-agents.md`, which stays
 as the record of how the design was reached. Where the two differ, this doc
 wins.
 
@@ -42,7 +42,7 @@ The whole mechanism:
                   |
     +-------------+--------------+----------------+
     |             |              |                |
-  stays quiet  send_message  start a session  wake_up, remember
+  stays quiet  send_message  start a session     wake_up
 ```
 
 This unites what Lor already has. Loops, webhooks, connector triggers and
@@ -66,7 +66,7 @@ proposal that he has not objected to and should confirm.
 | 8 | Per channel: wake on mentions (the default) or on every message | Jacob, 11-18 |
 | 9 | One tool to speak, `send_message`. A turn can end quietly | Jacob, 11-18 |
 | 10 | `wake_up`: the agent schedules its own wake, with instructions for its future self | Jacob, 11-18 |
-| 11 | `remember`: the agent writes memory with a tool. No pass after each turn. Compaction is the backstop | Jacob, 11-18 |
+| 11 | A memory pass after each turn, as in Lee Robinson's talk: one call on the turn's warm cache updates the channel's facts and, when something clears the bar, brain pages. No `remember` tool. Fact changes are not posted in the chat. For the agent it replaces today's write-back pass; sessions keep theirs | Jacob, 11-19 |
 | 12 | Sessions are tools to the agent: start, check, message, stop. A finished session is an inbox event | Jacob, 11-18 |
 | 13 | A session the agent starts gets code tools and read access only. A session a person starts keeps what it has today | Jacob, 11-18 |
 | 14 | The agent's own turn starts no sandbox unless a tool needs one | Jacob, 11-18 |
@@ -182,10 +182,9 @@ an approval.
 |---|---|
 | `send_message` | Posts to the channel's chat, in Lor or the linked Discord channel. Text, files, or a control that asks for a decision. The only output people see |
 | `wake_up` | Schedules a wake at a time, with a note to its future self |
-| `remember` | Writes a profile fact or a brain page |
 | `start_session`, `check_session`, `message_session`, `stop_session` | Runs code sessions as helpers |
 | Connector tools | Read and write, as the channel's tool profile allows. Writes follow the approval rules |
-| Memory read and search | As today |
+| Memory tools | Read, search and write brain pages, as today. Facts change only in the memory pass (§7) |
 | Its computer | A sandbox that starts only when a tool needs it |
 
 - There is one place to send, so the model never chooses where.
@@ -245,8 +244,9 @@ ceiling of 15 at once stops a runaway.
 | Everything else | Brain pages and search | Unchanged. The full chat and every step stay stored, so compaction loses nothing for good |
 
 - **The brief gives instructions and only people change it.** Facts are
-  information. The agent changes them on its own with `remember`, each
-  change shows in the chat, and anyone can edit or delete one.
+  information. The memory pass changes them (below). Changes are not posted
+  in the chat: the facts are listed in the channel's settings, each with its
+  source and date, and anyone can edit or delete one.
 - **The log and the open block come from data,** not from the model, so they
   cannot drift.
 - **Compaction** replaces the history with a summary while the cache is
@@ -259,6 +259,21 @@ ceiling of 15 at once stops a runaway.
 - **Stored memory informs. It never instructs.** A note inferred from a
   webhook or an issue body does not carry the weight of something a person
   said.
+
+**The memory pass** (Jacob, 11-19: as in Lee Robinson's talk)
+
+| | Rule |
+|---|---|
+| When | Right after every turn, quiet or not. It does not hold up the next turn |
+| How | One call on the turn's prompt while the cache is warm (same tools, system prompt and model), with the current facts and the request added at the end |
+| Facts | It adds, rewrites or removes facts, and can rewrite or remove only facts it was shown, by id. At most 100 in about 4,000 characters: when full, it replaces or drops one to add one. It never touches the brief. Anything a person asked it to remember is saved |
+| Sources | Each fact keeps who said it, or which webhook or issue it came from |
+| Brain pages | When something clears today's bar (a settled decision, how a system works, who owns something, a resolved problem, a lasting convention), it edits brain pages with the memory tools the agent already has. Lor refuses any other tool during the pass |
+| Result | Most turns change nothing. The agent learns of a change from a change note in its next turn, and the snapshot catches up at compaction |
+| Cost | One more call per turn on the warm cache: a few cents at a 100,000-token chat on Opus 5.5, mostly its own output. If that adds up, today's cheap first check goes back in front of it |
+
+For the agent it replaces today's write-back pass, a separate call that
+reads the turn again without the cache. Sessions keep that pass.
 
 Reused as built: brain pages and their channel scope, search over messages,
 sources and attachments, and the divider Lor already shows where context was
@@ -395,7 +410,7 @@ Discord's approval once an app is in 100 or more servers.
 | Log and open block | None | New, derived from existing records |
 | The agent's turn | Every Lor run goes through the session engine on Pi | A loop of Lor's own for the channel's agent: stored steps and a prompt built by hand. Sessions unchanged |
 | Compaction | When the window is nearly full | For the agent: above about 100k tokens, about 10 minutes after a turn, on the warm cache. Sessions unchanged |
-| Brain pages, search | Built | Unchanged. The pass after each turn is replaced by `remember` and compaction |
+| Brain pages, search | Built | Unchanged. For the agent, the write-back pass becomes the memory pass on the warm cache (§7) |
 | Approval rules | Per tool, per workspace | Unchanged. Add the order for who is asked, and record who set up a trigger |
 | Discord | Only the webhook payload format | New: a bot, one-way sync, account linking |
 | A persistent computer and repo per agent | None | Later |
@@ -409,7 +424,7 @@ Discord's approval once an app is in 100 or more servers.
 | `workspace-model.md` item 12 | The sidebar is the attention surface, with no inbox view | Two tabs |
 | `act-sessions-runbook.md` | A session mode per trigger | Inbox lanes |
 | `loops.md` | A Loop owns a recurring session | A Loop writes to the inbox |
-| `lor-mvp-spec.md` | Write-back runs after each turn | `remember` and compaction |
+| `lor-mvp-spec.md` | Write-back runs after each turn | For the agent, the memory pass on the warm cache. Sessions unchanged |
 | `context-continuation.md` | Compaction at the window limit | For the agent, compaction on the warm cache after a turn |
 | `harness-sessions.md` | Every Lor run on Pi, with a sandbox for every agent run | The channel's agent runs on Lor's own loop, with a computer on demand. Sessions stay on Pi |
 | `slack-connector-next.md` | Never a bot in a chat app | A Discord bot first. Slack later, same shape |
@@ -517,18 +532,23 @@ and is to be read before 1.8 is designed.
   cards would land in its conversation, not the chat.
 - A run swept as dead does not flush the inbox. The next wake does.
 - No "working" indicator in the chat while the agent runs.
-- The memory pass after each turn still runs for the agent. Slice 4 replaces
-  it.
+- Today's write-back pass still runs for the agent. Slice 4 replaces it
+  with the memory pass.
 - A failed turn, or a workspace out of credits, says so in the chat.
 
-**Owed before turning the flag on**
+**Owed before the batch ships**
 
 - `db:push`: the new table, the two channel columns and three enum values.
   The code selects the new channel columns, so it must run before deploy.
 - A live run of a mention, a reply, two quick messages, a wake during a
   turn, and a failure.
-- The mobile app is not changed: it still decides on its own that `@Lor`
-  in chat starts a session (`apps/mobile/src/hooks/use-session-start.ts`).
+- The "How Lor works" onboarding scenes, on web and mobile, still show
+  `@Lor` in chat starting a session.
+
+Done 2026-11-19 with the flag's removal: on web and mobile, `@Lor` in the
+channel composer shows "To Lor" instead of "New session in #channel", the
+Chat and Code picker is gone from the channel composer, and the placeholder
+and the first-run hint say Lor answers in the chat.
 
 **Slice 2: it runs coding agents**
 
@@ -560,7 +580,8 @@ After it: the chat can run for weeks without growing, and the agent knows
 the channel.
 
 - [ ] 4.1 The channel profile: brief and facts, in Setup and in the prompt.
-- [ ] 4.2 `remember`, with each change shown in the chat.
+- [ ] 4.2 The memory pass (§7), replacing today's write-back pass for the
+  agent.
 - [ ] 4.3 The log and the open block, derived from records.
 - [ ] 4.4 Tune the compaction size and wait from the measured cached
   share. Compaction itself is in slice 1.
@@ -599,7 +620,7 @@ Discord channel.
 | One context for everyone | Each bot's single conversation became a bottleneck | Accepted. Compaction and memory carry it, and code goes to sessions |
 | When to speak is unsolved | Grok Bot's own team says they do not have it right yet | Start quiet. Tune the brief, not code |
 | Untrusted input meets write tools | Webhook bodies and issue text reach the agent | The workspace's approval rules, as today. Stored memory never instructs |
-| Hidden memory | Memory rewritten where the reviewer could not see it | Every change shows in the chat and can be edited |
+| Hidden memory | Memory rewritten where the reviewer could not see it | Facts are listed in the channel's settings with their source and date, and anyone can edit or delete one |
 
 Numbers to watch:
 

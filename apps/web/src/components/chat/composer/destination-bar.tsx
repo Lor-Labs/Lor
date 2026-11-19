@@ -5,9 +5,10 @@ import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { AnimatePresence, motion } from "motion/react"
 import type { ReactNode, RefObject } from "react"
 
-// Where the composer's message goes: channel chat and human threads start a
-// session on @Lor; inside a session a message goes to Lor or to people; the
-// New session view always starts one.
+// Where the composer's message goes: @Lor in channel chat wakes the channel
+// agent, which answers there; @Lor in a human thread starts a session; inside
+// a session a message goes to Lor or to people; the New session view always
+// starts one.
 export type ComposerDestination = "channel" | "thread" | "session" | "new"
 
 export type PingedPerson = { id: string; name: string; image: string | null }
@@ -27,7 +28,6 @@ const swap = {
 
 export function DestinationBar({
   destination,
-  channelName,
   toLor,
   pinged,
   subscribers = [],
@@ -36,7 +36,6 @@ export function DestinationBar({
   lorPillRef,
 }: {
   destination: ComposerDestination
-  channelName: string
   toLor: boolean
   pinged: PingedPerson[]
   // Session only: who a message to people reaches, without you.
@@ -52,11 +51,7 @@ export function DestinationBar({
   lorPillRef?: RefObject<HTMLSpanElement | null>
 }) {
   const lorLabel =
-    destination === "session"
-      ? "To Lor"
-      : destination === "thread"
-        ? "New session from this thread"
-        : `New session in #${channelName}`
+    destination === "thread" ? "New session from this thread" : "To Lor"
   const isSession = destination === "session"
   // A session message reaches its subscribers, and the people it mentions
   // follow once it sends: mentioned first, so "+N" never hides them.
@@ -103,7 +98,7 @@ export function DestinationBar({
             {pinged.length > 0 && (
               <PingedPeople
                 people={pinged}
-                label={isSession ? "Notifies" : "Adds"}
+                label={destination === "thread" ? "Adds" : "Notifies"}
               />
             )}
           </motion.div>

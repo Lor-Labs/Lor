@@ -18,8 +18,6 @@ import {
   scrollToMessage,
 } from "@/components/chat/message-list"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
-import { useLorStartMode } from "@/components/session/lor-start-mode"
-import { SessionStartedNote } from "@/components/session/session-started-note"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { VoiceChannelView } from "@/components/voice/voice-channel-view"
 import { useSocket } from "@/context/socket-context"
@@ -42,7 +40,6 @@ import { useMessageSending } from "@/hooks/use-message-sending"
 import { useOpenNewSession } from "@/hooks/use-open-new-session"
 import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { useReplyState } from "@/hooks/use-reply-state"
-import { useSessionStart } from "@/hooks/use-session-start"
 import { useStableCallback } from "@/hooks/use-stable-callback"
 import { useThreadActivity } from "@/hooks/use-thread-activity"
 import { useThreadPanelUrlSync } from "@/hooks/use-thread-panel-url-sync"
@@ -215,18 +212,14 @@ function ChannelView() {
     [workspaceSlug, channelId]
   )
 
-  const sessionStart = useSessionStart({
-    workspaceSlug,
-    channel: { id: channelId, name: data?.name ?? null },
-  })
+  // `@Lor` here wakes the channel agent, which answers in the chat. Sessions
+  // start from New session.
   const { handleSend, pendingNonces } = useMessageSending({
     socket,
     queryClient,
     channelId,
     currentUser: session?.user,
-    sessionStart: sessionStart.handlers,
   })
-  const lorStart = useLorStartMode({ workspaceSlug, channelId })
 
   const {
     messages,
@@ -557,17 +550,7 @@ function ChannelView() {
       handleSend(content, {
         mentions: [],
         ...options,
-        ...lorStart.sendOptions,
       })
-  )
-  const composerNotice = useMemo(
-    () => (
-      <SessionStartedNote
-        session={sessionStart.started}
-        workspaceSlug={workspaceSlug}
-      />
-    ),
-    [sessionStart.started, workspaceSlug]
   )
 
   if (isPending) {
@@ -667,11 +650,8 @@ function ChannelView() {
           onComposerDraftConsumed={consumeComposerDraft}
           lorIntro
           destination="channel"
-          notice={composerNotice}
           context={context}
           channelId={channelId}
-          leadingTools={lorStart.tools}
-          lorSendBlocked={lorStart.sendBlocked}
           onSend={onComposerSend}
           currentUserId={currentUserId}
           mentionCandidates={mentionCandidates}

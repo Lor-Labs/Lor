@@ -13,7 +13,6 @@ import {
   type AgentInboxFlushJobData,
   type LorRespondJobData,
 } from "@repo/realtime-types/queues"
-import { features } from "@repo/utils/features"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
 import type { createClient } from "redis"
@@ -45,7 +44,6 @@ export async function flushAgentInbox(
   deps: InboxDeps,
   channelId: string
 ): Promise<InboxFlushOutcome> {
-  if (!features.channelAgent) return "skipped"
   const channel = await db
     .select({
       id: schema.channel.id,
@@ -134,7 +132,7 @@ export async function flushAfterAgentRun(
   queue: Queue<AgentInboxFlushJobData>,
   args: { channelId: string; threadRootId: string | null }
 ): Promise<void> {
-  if (!features.channelAgent || !args.threadRootId) return
+  if (!args.threadRootId) return
   const session = await findAgentSessionByThreadRoot(args.threadRootId)
   if (session?.origin !== "agent") return
   if (!(await hasPendingWake(args.channelId))) return

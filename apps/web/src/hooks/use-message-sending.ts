@@ -6,7 +6,6 @@ import {
   type SendMessagePayload,
   sessionTitleFromPrompt,
 } from "@repo/realtime-types"
-import { features } from "@repo/utils/features"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import type {
@@ -230,16 +229,14 @@ export function useMessageSending({
       }
 
       if (cancelInFlightRefetch()) refetchOwed.current = true
-      // `@Lor` in channel chat or a human thread starts a session and posts
-      // nothing where it was sent. Only those composers pass `sessionStart`.
+      // `@Lor` in a human thread starts a session and posts nothing where
+      // it was sent. In the channel chat it is a normal post that wakes the
+      // channel agent, which answers in the chat.
       const handlers = sessionStartRef.current
-      // With a channel agent, `@Lor` in the channel chat is a normal post: it
-      // wakes the agent, which answers in the chat.
-      const wakesChannelAgent = features.channelAgent && !threadRootId
       const startsSession =
         options?.startSession ||
-        (!wakesChannelAgent &&
-          (!threadRootId || Boolean(handlers)) &&
+        (Boolean(threadRootId) &&
+          Boolean(handlers) &&
           (options?.mentions ?? []).some(
             (mention) => mention.id === LOR_USER_ID
           ))
