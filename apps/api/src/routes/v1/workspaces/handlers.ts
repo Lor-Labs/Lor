@@ -810,6 +810,7 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
           .where(
             and(
               inArray(schema.agentSession.channelId, searchChannelIds),
+              ne(schema.agentSession.origin, "agent"),
               ilike(schema.agentSession.title, searchPattern)
             )
           )

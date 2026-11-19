@@ -1,6 +1,6 @@
 # Team agents: always-on agents for your team
 
-**Superseded 2026-11-18 by `always-on-agents.md`,** which is the plan. This
+**Superseded 2026-11-18 by `reference/always-on-agents.md`,** which is the plan. This
 doc is kept as the record of how the design was reached, through eight
 revisions. The mocks at `/prototype/agents` and `/prototype/orchestration`
 follow §5 here, not the plan. Where the two docs differ, the plan wins.

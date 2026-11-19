@@ -2,7 +2,7 @@ import {
   approvalResolverSpecFor,
   canResolveApproval,
 } from "@repo/auth/permissions"
-import { and, db, desc, eq, inArray, isNull, schema, sql } from "@repo/db"
+import { and, db, desc, eq, inArray, isNull, ne, schema, sql } from "@repo/db"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import {
   type ChannelActivity,
@@ -149,6 +149,8 @@ export async function getWorkspaceActivity(
         and(
           eq(schema.agentSession.workspaceId, workspaceId),
           inArray(schema.agentSession.channelId, channelIds),
+          // The channel agent's own conversation never shows as a session.
+          ne(schema.agentSession.origin, "agent"),
           isNull(schema.agentSession.archivedAt)
         )
       )

@@ -10,7 +10,9 @@ import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   ACT_FLUSH_JOB,
   type ActFlushJobData,
+  AGENT_INBOX_QUEUE,
   AGENT_RUN_STOP_CHANNEL,
+  type AgentInboxFlushJobData,
   ATTACHMENT_INDEX_QUEUE,
   DELETE_SESSION_SANDBOX_JOB,
   type DeleteSessionSandboxJobData,
@@ -32,6 +34,7 @@ import {
 import { Emitter } from "@socket.io/redis-emitter"
 import { Queue, Worker } from "bullmq"
 import { createClient } from "redis"
+import { createAgentInboxProcessor } from "@/jobs/agent-inbox"
 import { createAttachmentIndexProcessor } from "@/jobs/attachment-index"
 import { createLinkUnfurlProcessor } from "@/jobs/link-unfurl"
 import { createLoopRunProcessor } from "@/jobs/loop-run"
@@ -223,9 +226,47 @@ async function bootstrap() {
     },
   })
 
+  // The channel agents' inboxes (reference/always-on-agents.md §3).
+  // The realtime gateway is the producer for chat messages; a finished agent
+  // run adds a flush for what woke it meanwhile.
+  const agentInboxQueue = new Queue<AgentInboxFlushJobData>(AGENT_INBOX_QUEUE, {
+    connection: {
+      ...redisOpts,
+      maxRetriesPerRequest: null,
+    },
+  })
+
+  const agentInboxWorker = new Worker(
+    AGENT_INBOX_QUEUE,
+    createAgentInboxProcessor(emitter, redisEmitterClient, lorRespondQueue),
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+      concurrency: 3,
+    }
+  )
+
+  agentInboxWorker.on("failed", (job, error) => {
+    logger.error({ jobId: job?.id, err: error }, "Agent-inbox job failed")
+  })
+
+  agentInboxWorker.on("error", (error) => {
+    logger.error(
+      { queue: AGENT_INBOX_QUEUE, workerId: agentInboxWorker.id, err: error },
+      "Agent-inbox worker error"
+    )
+  })
+
   const lorRespondWorker = new Worker(
     LOR_RESPOND_QUEUE,
-    createLorRespondProcessor(emitter, redisEmitterClient, lorRespondQueue),
+    createLorRespondProcessor(
+      emitter,
+      redisEmitterClient,
+      lorRespondQueue,
+      agentInboxQueue
+    ),
     {
       connection: {
         ...redisOpts,
@@ -509,6 +550,7 @@ async function bootstrap() {
         ATTACHMENT_INDEX_QUEUE,
         SOURCE_INGEST_QUEUE,
         LOR_RESPOND_QUEUE,
+        AGENT_INBOX_QUEUE,
         TRIGGERED_RUN_QUEUE,
         LOOP_RUN_QUEUE,
         VOICE_REQUEST_QUEUE,
@@ -518,7 +560,7 @@ async function bootstrap() {
     },
     "Worker started"
   )
-  posthogLogCapture.info("worker_started", { queue_count: 9 })
+  posthogLogCapture.info("worker_started", { queue_count: 10 })
 
   const shutdown = async () => {
     logger.info("Shutting down...")
@@ -526,6 +568,7 @@ async function bootstrap() {
     await linkUnfurlWorker.close()
     await attachmentIndexWorker.close()
     await sourceIngestWorker.close()
+    await agentInboxWorker.close()
     await lorRespondWorker.close()
     await triggeredRunWorker.close()
     await loopRunWorker.close()
@@ -538,6 +581,7 @@ async function bootstrap() {
     // in flight before closing the queue they enqueue follow-up runs on.
     await awaitInflightDrains()
     await lorRespondQueue.close()
+    await agentInboxQueue.close()
     await triggeredRunQueue.close()
     await loopRunQueue.close()
     await maintenanceQueue.close()

@@ -46,6 +46,8 @@ type DeltaRow = {
 // A loop's fire line is Lor-authored but is the turn's request, so it reads
 // as coming from the schedule.
 export const LOOP_SCHEDULE_SPEAKER = "Loop schedule"
+// The channel agent's wake line, the same way: a batch from its inbox.
+export const AGENT_INBOX_SPEAKER = "Inbox"
 
 function toTurn(row: DeltaRow): AgentRunContext["conversation"][number] {
   return {
@@ -54,7 +56,9 @@ function toTurn(row: DeltaRow): AgentRunContext["conversation"][number] {
     authorName:
       row.eventType === "loop_run"
         ? LOOP_SCHEDULE_SPEAKER
-        : userDisplayName(row),
+        : row.eventType === "agent_wake"
+          ? AGENT_INBOX_SPEAKER
+          : userDisplayName(row),
     content: row.content ?? "",
     images: (row.attachments ?? [])
       .filter((a) => a.contentType.startsWith("image/"))
@@ -133,10 +137,11 @@ async function loadDelta(args: {
         ne(schema.message.id, args.lorMessageId),
         // Lor's own answers are already in the conversation as assistant
         // turns; re-adding them as user text would double them. A loop's
-        // fire line is the exception: it is the new turn's request.
+        // fire line and a channel agent's wake line are the exceptions: each
+        // is the new turn's request.
         or(
           ne(schema.message.authorId, LOR_USER_ID),
-          eq(schema.message.eventType, "loop_run")
+          inArray(schema.message.eventType, ["loop_run", "agent_wake"])
         ),
         or(
           isNotNull(schema.message.content),

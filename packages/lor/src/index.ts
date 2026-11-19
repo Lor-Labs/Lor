@@ -95,6 +95,11 @@ import {
   resolveWorkspaceCapabilities,
 } from "./capabilities"
 import {
+  channelAgentPromptSection,
+  type RunAgentContext,
+  sendMessageTool,
+} from "./channel-agent"
+import {
   type ChatgptCredential,
   chatgptCredential,
   saveChatgptModels,
@@ -679,6 +684,9 @@ export type RespondContext = {
   // Set on every run in a loop's session: the loop's standing brief in the
   // system prompt, plus complete_loop when the loop has an end condition.
   loop?: RunLoopContext
+  // Set on every run in a channel agent's conversation: binds send_message,
+  // the only way its words reach the channel chat.
+  agent?: RunAgentContext
   // Set on a request spoken in a voice call: binds show_in_call and the call
   // framing. Results go to Lor's window, never the chat.
   voice?: RunVoiceContext
@@ -2827,7 +2835,7 @@ async function respondImpl(
       ...brainWriteTools,
       ...instructionsTools,
       // Reactions only inside a session: Lor has no presence in channel chat.
-      ...(ctx.channelId && ctx.threadRootId && !ctx.voice
+      ...(ctx.channelId && ctx.threadRootId && !ctx.voice && !ctx.agent
         ? messageActionTools
         : {}),
       // Claude Code brings its own web tools and task list, so a Claude Code
@@ -2838,9 +2846,13 @@ async function respondImpl(
       ...(shareFileEnabled ? shareFileTool : {}),
       // Codex has its own plan tool too; its web search is off, so it keeps
       // Lor's web tools.
-      ...((ctx.plan || ctx.threadRootId) && !ctx.claudeCode && !ctx.codex
+      ...((ctx.plan || ctx.threadRootId) &&
+      !ctx.claudeCode &&
+      !ctx.codex &&
+      !ctx.agent
         ? planTools
         : {}),
+      ...(ctx.agent ? sendMessageTool : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.code ? sessionChangesTool : {}),
       ...(ctx.code && ctx.threadRootId ? sessionSetupTool : {}),
@@ -3034,6 +3046,9 @@ async function respondImpl(
       ...(ctx.loop?.completeLoop
         ? { complete_loop: { completeLoop: ctx.loop.completeLoop } }
         : {}),
+      ...(ctx.agent
+        ? { send_message: { sendMessage: ctx.agent.sendMessage } }
+        : {}),
       ...(ctx.voice
         ? {
             show_in_call: { show: ctx.voice.show },
@@ -3179,7 +3194,7 @@ async function respondImpl(
       : null
     const instructions = agentHarness
       ? `${[agentHarness === "claude_code" ? CLAUDE_CODE_PROMPT_HEAD : CODEX_PROMPT_HEAD, ...connectorPromptLines].join("\n")}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceSection}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, agentHarness, codeLinear)}` : ""}`
-      : `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceSection}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, "pi", codeLinear)}` : ""}`
+      : `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceSection}${(ctx.plan || ctx.threadRootId) && !ctx.agent ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.agent ? `\n\n${channelAgentPromptSection(ctx.agent)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, "pi", codeLinear)}` : ""}`
 
     // The turn's request. A retried attempt sends the saved one again. A run
     // that only finishes a paused turn sends none; its empty request still

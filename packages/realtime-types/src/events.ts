@@ -286,6 +286,7 @@ export type RealtimeMessageType =
   | "call_summary"
   | "agent_session"
   | "forward"
+  | "agent_post"
 
 // Mirrors channel_event_type / ChannelEventPayload in @repo/db (messages.ts) —
 // hand-copied like RealtimeMessageType so clients don't pull in drizzle.
@@ -309,8 +310,10 @@ export type RealtimeChannelEventType =
   | "session_pr_opened"
   | "session_pr_merged"
   | "session_setup_changed"
+  | "agent_wake"
 
 export type RealtimeChannelEventPayload =
+  | { woke: number; unread: number }
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
   | { from: string; to: string }
   | { userIds: string[] }
@@ -1070,7 +1073,12 @@ export type PlanUpdatedEvent = {
   plan: RealtimePlan
 }
 
-export type RealtimeAgentSessionOrigin = "chat" | "new" | "loop" | "trigger"
+export type RealtimeAgentSessionOrigin =
+  | "chat"
+  | "new"
+  | "loop"
+  | "trigger"
+  | "agent"
 export type RealtimeAgentSessionMode = "chat" | "code"
 
 // Snapshot of a Lor session row. Mirrors agent_session in @repo/db; guarded

@@ -6,12 +6,17 @@ export const features: Readonly<{
   codexHarness: boolean
   directMessages: boolean
   voiceChannels: boolean
+  // One always-on agent per channel that answers in the channel chat
+  // (reference/always-on-agents.md). Off: `@Lor` in chat starts a
+  // session, as before.
+  channelAgent: boolean
 }> = {
   selfSignups: false,
   claudeCodeHarness: true,
   codexHarness: true,
   directMessages: false,
   voiceChannels: false,
+  channelAgent: false,
 }
 
 // Harnesses hosted beta allows: Lor's own agent, Claude Code on the person's

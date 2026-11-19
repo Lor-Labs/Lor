@@ -153,6 +153,10 @@ senders for search, workspace templates, and push visibility. Existing code and
 data are retained. DM and voice are product visibility flags, not API authorization: their
 endpoints remain accessible to authorized clients.
 
+`channelAgent` is off by default: on, each channel has one always-on agent
+that answers in the channel chat, and `@Lor` there wakes it instead of starting
+a session (`reference/always-on-agents.md`). It needs `db:push` first.
+
 `selfSignups` is off by default; `claudeCodeHarness` and `codexHarness` are on.
 Hosted beta allows `pi`, `claude_code` and `codex` (each person's own plan).
 These flags are enforced on the server. Self signup requires a valid, pending signed email

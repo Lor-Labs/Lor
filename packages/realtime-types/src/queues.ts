@@ -33,6 +33,17 @@ export type LorRespondJobData = {
   resumeApprovalId?: string
 }
 
+// The channel agent's inbox (reference/always-on-agents.md §3). A
+// flush reads the channel's pending items and starts one turn for them.
+// Deliberately has no jobId: the pending rows are the dedupe, so a flush
+// that finds none does nothing.
+export const AGENT_INBOX_QUEUE = "agent-inbox"
+export const AGENT_INBOX_FLUSH_JOB = "flush"
+// A few seconds of quiet, so quick messages in a row become one turn.
+export const AGENT_INBOX_BATCH_MS = 3000
+
+export type AgentInboxFlushJobData = { channelId: string }
+
 // Headless triggered runs (the Act effect — reference/automation-primitives.md
 // §2). The run row carries provenance (triggerId/deliveryId); the job carries
 // the normalized inbound payload since first-party event content isn't stored.

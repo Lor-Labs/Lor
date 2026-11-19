@@ -1,9 +1,11 @@
 # Always-on agents: one agent and one chat per channel
 
 **Status:** Plan for LOR-169, decided with Jacob between 2026-11-16 and
-2026-11-18. Not started. It replaces the proposal in `team-agents.md`, which
-stays as the record of how the design was reached. Where the two differ, this
-doc wins.
+2026-11-18. Building started 2026-11-18: slice 1 is partly built behind the
+`channelAgent` launch flag (`packages/utils/src/features.ts`), off by default, with `db:push` and a live run
+owed (§13). It replaces the proposal in `planned/team-agents.md`, which stays
+as the record of how the design was reached. Where the two differ, this doc
+wins.
 
 The mocks at `/prototype/agents` and `/prototype/orchestration` show an
 earlier shape, with threads and a page per agent. §9 says which parts of them
@@ -60,11 +62,11 @@ proposal that he has not objected to and should confirm.
 | 4 | The main chat replaces chat sessions. New session is code only. Existing chat sessions stay readable | Jacob, 11-18 |
 | 5 | Everything goes into the channel's inbox. Nothing calls the agent directly | Jacob, 11-18 |
 | 6 | Two lanes: some things wake the agent now, the rest wait unread until its next wake | Jacob, 11-18 |
-| 7 | A check-in bounds the wait. It is a Loop that comes with every channel: every 30 minutes in active hours, skipped when nothing is unread. It is not `wake_up`, which the agent sets itself | Default |
+| 7 | A check-in bounds the wait. It is a Loop that comes with every channel: every 30 minutes in active hours, skipped when nothing is unread. It is not `wake_up`, which the agent sets itself | Jacob, 11-18 |
 | 8 | Per channel: wake on mentions (the default) or on every message | Jacob, 11-18 |
 | 9 | One tool to speak, `send_message`. A turn can end quietly | Jacob, 11-18 |
 | 10 | `wake_up`: the agent schedules its own wake, with instructions for its future self | Jacob, 11-18 |
-| 11 | `remember`: the agent writes memory with a tool. No pass after each turn. The fold is the backstop | Jacob, 11-18 |
+| 11 | `remember`: the agent writes memory with a tool. No pass after each turn. Compaction is the backstop | Jacob, 11-18 |
 | 12 | Sessions are tools to the agent: start, check, message, stop. A finished session is an inbox event | Jacob, 11-18 |
 | 13 | A session the agent starts gets code tools and read access only. A session a person starts keeps what it has today | Jacob, 11-18 |
 | 14 | The agent's own turn starts no sandbox unless a tool needs one | Jacob, 11-18 |
@@ -73,13 +75,16 @@ proposal that he has not objected to and should confirm.
 | 17 | A channel profile is always in the prompt. The agent may change its facts on its own; only people change the brief | Jacob, 11-18 |
 | 18 | The log is built from records, and what is open is computed at each wake | Jacob, 11-18 |
 | 19 | Profile and log are per channel. Brain pages stay shared across the workspace | Jacob, 11-18 |
-| 20 | Context rules: a fixed top, a fixed tool list, fold early, bulk stays out, a cache miss is a bug | Jacob, 11-18 |
+| 20 | Context rules: a fixed top, a fixed tool list, compact while the cache is warm (28), bulk stays out, a cache miss is a bug | Jacob, 11-18 |
 | 21 | Discord is the first chat app after Lor | Jacob, 11-18 |
 | 22 | A channel's chat lives in one place, Lor or Discord. When Discord is linked, Lor shows it read-only | Jacob, 11-18 |
-| 23 | When no person started the turn, an action that changes something outside Lor waits for a person, unless that trigger was set up to allow it (§5) | Default |
+| 23 | Approvals work as they do today: an action needs approval only where an approval rule or a session's safety check says so. Who is asked: the person or role the rule names, else the session's subscribers, else whoever gave the instructions (§5) | Jacob, 11-18 |
 | 24 | The sidebar has two tabs: what needs you with running sessions, and channels | Jacob, 11-18 |
 | 26 | No product limit on how many sessions a channel runs. A safety ceiling of 15 at once | Jacob, 11-18 |
 | 25 | Later: a persistent computer and its own repo per agent, agents talking to each other, custom apps | Jacob, 11-17 |
+| 27 | The agent's turn runs on a loop Lor owns: Lor stores every step and assembles the prompt by hand. It does not run on a session's engine. Sessions keep their harnesses | Jacob, 11-18 |
+| 28 | Compaction as in Lee Robinson's talk: the history grows until it passes about 100k tokens, then is summarized about 10 minutes after a turn, on the warm cache, unless other work is about to wake the agent. The latest messages stay word for word. Every step stays stored, and the agent can read its history, a thread or a session back in full | Jacob, 11-18 |
+| 29 | The agent's computer is its own: for installing things and using websites, not for writing code. Planned, not built now. A tool starts it, a turn never does | Jacob, 11-18 |
 
 Considered and dropped, so they are not added back by accident:
 
@@ -140,19 +145,33 @@ How today's pieces map:
 
 ## 4. A turn
 
-The prompt is assembled in a fixed order, so the provider's cache holds:
+Lor assembles the prompt itself, from steps it stores (decision 27), in
+the order Lee Robinson's talk describes for Grok Bot. The agent's turn does
+not run on a session's engine.
 
-1. Tool names. Schemas load on demand.
-2. Lor's system prompt.
-3. Workspace instructions.
-4. The channel profile: the brief and the facts.
-5. The last fold: its summary and the recent log lines.
-6. Messages since the fold.
-7. The newest message: the time, what is open, the unread items, and what
-   woke it.
+Stays the same until the next compaction:
 
-Items 1 to 4 never change inside a conversation. Anything that changes is
-appended as a new message.
+1. Tool definitions: the same set on every call. Other tools are listed by
+   name, and their schemas load on demand.
+2. The system prompt: Lor's rules, workspace instructions, the channel
+   profile (brief and facts) and the recent log, as a snapshot taken when
+   the conversation started or was last compacted.
+3. The first message: the environment and the tool names. After a
+   compaction, also the summary and the latest messages word for word (§8).
+
+Grows only at the end:
+
+4. Every turn since, in full: the inbox text, the agent's tool calls and
+   results, and what it sent.
+
+New on every call:
+
+5. The newest message: the time, change notes (a fact changed, a tool was
+   added), what is open, the unread items and what woke it.
+
+Nothing above the newest message is ever edited. A change to the profile,
+the log or the tools reaches the agent as a change note, and the snapshot
+catches up at the next compaction.
 
 A turn ends one of three ways: quietly, with a `send_message`, or waiting on
 an approval.
@@ -174,16 +193,21 @@ an approval.
   with a note: "at 15:00, check the deploy". The check-in is a Loop every
   channel starts with. It exists so unread items never wait forever, and a
   person can change its cadence or turn it off like any Loop.
-- **When no person started the turn** (a webhook, a Loop, a check-in), the
-  text the agent is reading came from outside: an alert body, an issue
-  someone filed, an email. That text can be written to trick a model. So in
-  those turns, an action that changes something outside Lor (updating the
-  CRM, commenting on an issue, sending an email) pauses and asks a person.
-  Reading, starting a session and posting to the chat never pause. Whoever
-  sets up a trigger can allow specific actions for it, such as "this alert
-  may comment on Linear without asking".
-- A follow-up is a record: "I'll check in an hour" has to be a `wake_up`
-  call, or nothing wakes it.
+- **Approvals work as they do today.** An action pauses only where an
+  approval rule covers that tool, or a session's safety check flags a
+  command. Who is asked, in order:
+  1. The person or role the approval rule names.
+  2. For something flagged inside a session, the people subscribed to that
+     session.
+  3. Otherwise whoever gave the instructions: the person who asked, or who
+     set up the trigger or Loop.
+
+  Step 3 needs triggers to record who set them up. Loops already do.
+- **What this leaves open:** on a turn no person started, a write with no
+  approval rule runs unasked, as it does for trigger runs today. The text
+  such a turn reads came from outside (an alert body, an issue someone
+  filed), so a workspace should put approval rules on the writes it cares
+  about.
 
 ## 6. Sessions
 
@@ -218,16 +242,18 @@ ceiling of 15 at once stops a runaway.
 | Always in the prompt | Workspace instructions | Add a channel profile: the brief and up to about 100 facts, capped near 4,000 characters |
 | What happened recently | Only the chat itself | A log built from records: sessions started and finished, messages sent, approvals, wake-ups, events |
 | What is open right now | A plan per session | A block computed at each wake: running sessions, approvals waiting, wake-ups pending |
-| Everything else | Brain pages and search | Unchanged. The full chat stays stored, so a fold loses nothing |
+| Everything else | Brain pages and search | Unchanged. The full chat and every step stay stored, so compaction loses nothing for good |
 
 - **The brief gives instructions and only people change it.** Facts are
   information. The agent changes them on its own with `remember`, each
   change shows in the chat, and anyone can edit or delete one.
 - **The log and the open block come from data,** not from the model, so they
   cannot drift.
-- **A fold** replaces older messages with a summary, the latest log lines,
-  the open block and the last few messages word for word. Before it runs,
-  the agent is asked what is worth keeping.
+- **Compaction** replaces the history with a summary while the cache is
+  warm (§8). Nothing is deleted, and the agent can read anything from
+  before it back in full.
+- **The profile and log are a snapshot** in the system prompt, refreshed at
+  each compaction. Changes in between arrive as change notes.
 - **Scope:** the profile and log belong to the channel. Brain pages are
   shared across the workspace, with private channels scoped as today.
 - **Stored memory informs. It never instructs.** A note inferred from a
@@ -246,20 +272,56 @@ $0.20. A 150,000-token chat costs about $0.60 to read cold and $0.03 cached.
 The cache lasts 5 minutes, or an hour at double the write price, and each
 read renews it.
 
-1. **A fixed top that is never edited** (§4, items 1 to 4).
-2. **A fixed tool list per conversation.** A change to the channel's tools
-   or model applies at the next fold.
-3. **Fold early, while the cache is warm.** When the chat passes about
-   100,000 tokens and has been idle about 10 minutes, fold it on the same
-   prefix. Today compaction runs only when the window is nearly full, which
-   leaves every cold wake paying for the whole chat.
+1. **A fixed top that is never edited** (§4, items 1 to 3).
+2. **A fixed tool list per conversation.** A new tool is announced by name
+   in a change note and loads on demand. The definitions change only at the
+   next compaction. A model change starts a new conversation from a
+   compaction.
+3. **Compact while the cache is warm** (decision 28, below). Compaction on a
+   session's engine runs only when the window is nearly full, which would
+   leave every cold wake paying for the whole chat.
 4. **Bulk stays out.** A session returns a short report. Long tool output
-   goes to a file.
-5. **Cache lifetime by gap:** 5 minutes while people are chatting, an hour
-   while the agent waits on a session, and nothing beyond that, which is why
-   rule 3 matters.
-6. **A cache miss is a bug.** Lor already counts cached tokens per run. Flag
-   a turn whose cached share drops.
+   goes to a file. Screenshots and images go to a helper, not into the
+   agent's history.
+5. **Cache lifetime by gap:** 5 minutes while people are chatting. An hour
+   when the agent waits on a session, and on the last call of a turn that
+   ends above the compaction size, so the cache is still warm when
+   compaction runs.
+6. **A cache miss is a bug.** Each prompt section gets a hash, logged per
+   call, so a miss shows which section changed. Lor already counts cached
+   tokens per run. Flag a call whose cached share drops.
+7. **Later: warm the cache when someone starts typing** to the agent, so
+   its first call is fast. Only if measured latency calls for it.
+
+**Compaction** (Jacob, 11-18: as in Lee Robinson's talk)
+
+Between compactions the history only grows: every tool call and result
+stays in context, across turns.
+
+| | Rule |
+|---|---|
+| When | A turn has ended, the prompt is above about 100,000 tokens, and about 10 minutes passed with nothing new |
+| Not when | Background work is about to wake the agent anyway: a session about to report back, a `wake_up` due, a wake pending in the inbox |
+| How | One call on the identical prefix (same tools, system prompt, model and settings) while the cache is warm, with the request to summarize added at the end. It calls no tools |
+| Then | A new conversation: the same tools, a fresh snapshot of the profile and log, and a first message with the summary and the latest messages |
+| Kept word for word | What people said and what the agent sent most recently |
+| Left out of context, kept in the database | Everything else: earlier turns, tool calls and results, reasoning |
+
+- **The summary keeps** what was asked, decided or ruled out, in people's
+  own words; problems and how they were handled; where things stand; what
+  is still open or promised; names, numbers, links and ids exactly.
+  Anthropic publishes a summarization prompt built for this.
+- **The kept messages go in as text** in the new first message, not as
+  replayed turns. Opus 5.5 rejects earlier turns replayed after a summary
+  with their reasoning attached, so this is required, not a style choice.
+- **Reading back.** All compression is lossy, so nothing is deleted.
+  `read_thread` already reads the chat and any session in full. A new tool
+  searches and reads the agent's own history from before a compaction.
+- **A long turn that fills the window** compacts in place between tool
+  calls, as the session engine does today. This should be rare.
+- **The cost:** the summary call reads a warm cache, so it costs about a
+  twentieth of a cold read plus the summary's own output. The new
+  conversation starts cold once. To be measured on the first build.
 
 Lor already keeps instructions byte-stable per conversation, appends new
 turns only, and puts elapsed time in the newest message.
@@ -331,9 +393,10 @@ Discord's approval once an app is in 100 or more servers.
 | Model | Picked in the composer, or the default | A model per channel |
 | Channel brief and profile | None. Instructions exist per workspace only | New |
 | Log and open block | None | New, derived from existing records |
-| Compaction | When the window is nearly full | Also by size and idle time |
-| Brain pages, search | Built | Unchanged. The pass after each turn is replaced by `remember` and the fold |
-| Approval rules | Per tool, per workspace | Add: writes on a wake nobody typed need approval unless pre-approved |
+| The agent's turn | Every Lor run goes through the session engine on Pi | A loop of Lor's own for the channel's agent: stored steps and a prompt built by hand. Sessions unchanged |
+| Compaction | When the window is nearly full | For the agent: above about 100k tokens, about 10 minutes after a turn, on the warm cache. Sessions unchanged |
+| Brain pages, search | Built | Unchanged. The pass after each turn is replaced by `remember` and compaction |
+| Approval rules | Per tool, per workspace | Unchanged. Add the order for who is asked, and record who set up a trigger |
 | Discord | Only the webhook payload format | New: a bot, one-way sync, account linking |
 | A persistent computer and repo per agent | None | Later |
 
@@ -346,9 +409,9 @@ Discord's approval once an app is in 100 or more servers.
 | `workspace-model.md` item 12 | The sidebar is the attention surface, with no inbox view | Two tabs |
 | `act-sessions-runbook.md` | A session mode per trigger | Inbox lanes |
 | `loops.md` | A Loop owns a recurring session | A Loop writes to the inbox |
-| `lor-mvp-spec.md` | Write-back runs after each turn | `remember` and the fold |
-| `context-continuation.md` | Compaction at the window limit | Also by size and idle time |
-| `harness-sessions.md` | A sandbox for every agent run | On demand for the channel's agent |
+| `lor-mvp-spec.md` | Write-back runs after each turn | `remember` and compaction |
+| `context-continuation.md` | Compaction at the window limit | For the agent, compaction on the warm cache after a turn |
+| `harness-sessions.md` | Every Lor run on Pi, with a sandbox for every agent run | The channel's agent runs on Lor's own loop, with a computer on demand. Sessions stay on Pi |
 | `slack-connector-next.md` | Never a bot in a chat app | A Discord bot first. Slack later, same shape |
 | `positioning.md` | "The multiplayer runtime for your agents" | The thesis in §1 |
 
@@ -363,25 +426,109 @@ Six slices. Each ends in something Jacob's team uses before the next starts.
 
 **Before starting**
 
-- [ ] 0.1 Record what Lor's agent and the gateway send for caching today:
-  where the breakpoints are, which lifetime, and the cached share per turn.
+- [x] 0.1 What Lor sends for caching today, read from code 2026-11-18. Lor
+  sets no cache lifetime, so Pi's default `short` applies: 5 minutes on
+  Anthropic models. The Pi harness takes `cacheRetention: "long"` for one
+  hour. A session key rides each gateway request, and
+  `agent_run.cached_input_tokens` records the cached share. Where Pi places
+  its breakpoints was not traced.
 - [ ] 0.2 Count how many inbox events a day Jacob's own channels would have
-  produced last week, by lane.
+  produced last week, by lane. Needs the production database.
 
 **Slice 1: the agent answers in the channel chat**
 
 After it: mention Lor in #eng and it answers there, using the channel's
 tools.
 
-- [ ] 1.1 The inbox table and the worker: one per channel, batching, dedupe,
-  one turn at a time.
-- [ ] 1.2 The channel conversation: the agent's turns run in the channel's
-  chat, with the prompt order in §4.
-- [ ] 1.3 `send_message`, with the agent's other text kept private.
-- [ ] 1.4 Mentions and replies wake it. Other messages wait unread. The
-  per-channel switch.
-- [ ] 1.5 A model per channel, default Opus 5.5.
-- [ ] 1.6 No sandbox for the agent's turn until a tool needs one.
+- [x] 1.1 The inbox and its worker. Built 2026-11-18: `agent_inbox`
+  (`packages/db/src/schemas/agent-inbox.ts`), the `agent-inbox` queue and
+  `flushAgentInbox` (`apps/worker/src/lib/agent-inbox.ts`). One turn at a
+  time, duplicates dropped on the message id, a 3-second batch delay.
+- [ ] 1.2 The agent's conversation. Built 2026-11-18 as a hidden session,
+  and being replaced: see "How it is stored" and "The agent's own loop"
+  below.
+- [x] 1.3 `send_message` (`packages/lor/src/channel-agent.ts`), bound only on
+  the agent's runs. Its posts are messages of type `agent_post`, the one
+  kind of Lor message the chat feed shows.
+- [x] 1.4 Mentions and replies wake it, other messages wait unread
+  (`apps/realtime/src/services/agent-inbox.ts`). The per-channel switch is
+  the column `channel.agent_wake_mode`. No setting for it in the app yet.
+- [ ] 1.5 A model per channel. The column `channel.agent_model` exists and
+  the agent's runs use it. Owed: the setting in the app, and Opus 5.5 as the
+  default, which needs its gateway id. Until then a channel with no model
+  runs on Lor's main model.
+- [ ] 1.6 No sandbox until a tool needs one. Not possible on Pi, which
+  keeps its session file inside the sandbox and reads the home folder at the
+  start of every turn (`session-core/pi-runtime.ts`). The agent's own loop
+  below has no sandbox at all. The agent's computer comes later (decision
+  29), started by the first tool that needs it.
+
+**How it is stored**
+
+Being replaced (decided 2026-11-18, decisions 27 and 28). As built, the
+agent's working conversation is one hidden session per channel
+(`agent_session.origin = "agent"`, one per channel by a unique index), so
+that the session run engine could be reused. That engine is Pi: it owns the
+context and compacts only near the window limit, and it needs a sandbox for
+every turn. Neither fits the agent. The inbox, the lanes, `send_message` and
+the composer change stay. The hidden session and the edits to the session
+run job come out, before any `db:push`.
+
+- It is storage, not product shape. It is never listed as a session (the
+  channel session list, search and the sidebar leave it out), it has no repo
+  and its harness is always Lor's own.
+- A wake is a line in that conversation (`agent_wake`) carrying the inbox
+  batch, answered through the same path as a Loop's fire.
+- The agent's own text streams into that conversation and stays there. Only
+  `send_message` reaches the chat. Opening the conversation shows what the
+  agent did, which is what Activity needs later.
+
+**The agent's own loop** (not built, design owed)
+
+- [ ] 1.7 A store for the agent's steps: every model call, tool call and
+  result, append-only and never pruned. `agent_run_event` is pruned after a
+  run ends, so it cannot be this.
+- [ ] 1.8 The loop: build the prompt in the order of §4, call the model,
+  run its tools, repeat. No sandbox. Reused, checked in code 2026-11-18:
+  run records scoped to the channel (`agent_run.scope_key` is the channel
+  when there is no thread, with one active run per scope), the stored
+  results that stop a retried step repeating an action
+  (`agent_run_tool_result`), and `export_tool_result`, which saves a large
+  result as a workspace file on the server.
+- [ ] 1.9 Compaction (§8) and the tool to read the agent's history from
+  before it.
+- [ ] 1.10 Pause and resume on an approval, and resume after a crash.
+- [ ] 1.11 Take out the hidden session and the edits to the session run
+  job.
+
+Lor ran a loop of its own with stored steps until 2026-10-22
+(`context-continuation.md`). That code is not in this checkout's history
+and is to be read before 1.8 is designed.
+
+**Deviations and gaps in slice 1**
+
+- A mention that arrives mid-turn waits for the next turn. It does not steer
+  the running one.
+- A mention of Lor inside a human thread still starts a session.
+- While a turn waits on an approval, the conversation is held: new wakes
+  stay pending until the decision's run ends. The approval card is in the
+  agent's conversation, and approvers get the usual notice.
+- `propose_loop` and workspace change proposals are off for the agent: their
+  cards would land in its conversation, not the chat.
+- A run swept as dead does not flush the inbox. The next wake does.
+- No "working" indicator in the chat while the agent runs.
+- The memory pass after each turn still runs for the agent. Slice 4 replaces
+  it.
+- A failed turn, or a workspace out of credits, says so in the chat.
+
+**Owed before turning the flag on**
+
+- `db:push`: the new table, the two channel columns and three enum values.
+  The code selects the new channel columns, so it must run before deploy.
+- A live run of a mention, a reply, two quick messages, a wake during a
+  turn, and a failure.
+- The mobile app is not changed: it still decides on its own that `@Lor`
+  in chat starts a session (`apps/mobile/src/hooks/use-session-start.ts`).
 
 **Slice 2: it runs coding agents**
 
@@ -402,8 +549,9 @@ run through the agent.
 - [ ] 3.1 Webhooks and connector triggers write to the inbox, in the wake or
   the wait lane. Migrate existing ones.
 - [ ] 3.2 Loops write to the inbox. Migrate existing ones.
-- [ ] 3.3 Actions that change something outside Lor wait for a person when
-  no person started the turn, with a per-trigger allowance.
+- [ ] 3.3 Who an approval asks on a turn no person started: the rule's
+  approver, else the session's subscribers, else whoever set up the trigger
+  or Loop. Triggers record who set them up.
 - [ ] 3.4 New session is code only. Chat sessions become read-only history.
 
 **Slice 4: it remembers and stays cheap**
@@ -414,7 +562,8 @@ the channel.
 - [ ] 4.1 The channel profile: brief and facts, in Setup and in the prompt.
 - [ ] 4.2 `remember`, with each change shown in the chat.
 - [ ] 4.3 The log and the open block, derived from records.
-- [ ] 4.4 Fold by size and idle time, on the same prefix.
+- [ ] 4.4 Tune the compaction size and wait from the measured cached
+  share. Compaction itself is in slice 1.
 - [ ] 4.5 A standing check on the cached share per turn.
 
 **Slice 5: it follows up by itself**
@@ -428,7 +577,8 @@ than half an hour.
 
 **Slice 6: Discord**
 
-After it: the team talks to the agent in its Discord channel.
+Not now (Jacob, 2026-11-18). After it: the team talks to the agent in its
+Discord channel.
 
 - [ ] 6.1 The bot, linking a channel, and one-way sync.
 - [ ] 6.2 `send_message` to the linked channel. The Lor composer locks.
@@ -446,9 +596,9 @@ After it: the team talks to the agent in its Discord channel.
 |---|---|---|
 | Quiet wakes cost money | One reviewer's bots spent $100 in a weekend deciding there was nothing to say | The wait lane, batching, the check-in skipped when nothing is unread |
 | Forgotten follow-ups | "I'll get back to you", then nothing woke the bot | `wake_up` is the only way to promise |
-| One context for everyone | Each bot's single conversation became a bottleneck | Accepted. Folding and memory carry it, and code goes to sessions |
+| One context for everyone | Each bot's single conversation became a bottleneck | Accepted. Compaction and memory carry it, and code goes to sessions |
 | When to speak is unsolved | Grok Bot's own team says they do not have it right yet | Start quiet. Tune the brief, not code |
-| Untrusted input meets write tools | Webhook bodies and issue text reach the agent | Approval on writes for a wake nobody typed |
+| Untrusted input meets write tools | Webhook bodies and issue text reach the agent | The workspace's approval rules, as today. Stored memory never instructs |
 | Hidden memory | Memory rewritten where the reviewer could not see it | Every change shows in the chat and can be edited |
 
 Numbers to watch:
@@ -473,7 +623,11 @@ harness documentation that I found.
   [Franklin Javier](https://franklinjavier.com/blog/how-always-on-agents-work/),
   [Reducer notes](https://reducer.xgoose.org/items/4705),
   [Peter P](https://www.peterp.me/articles/what-actually-happens-when-you-message-grok-bot/).
-  The video's transcript could not be read.
+  The video's transcript could not be read. §4 and the compaction rules
+  in §8 follow the first two (re-read 2026-11-18).
+- Anthropic's API reference for caching and compaction on Opus 5.5: cache
+  lifetimes and prices, the summary call on the parent's prefix, and why
+  kept turns cannot be replayed with their reasoning after a summary
 - [Builder.io's review of Grok Bot](https://www.builder.io/blog/grokbot-review)
 - LangChain: [ambient agents](https://www.langchain.com/blog/introducing-ambient-agents)
 - [Navan](https://navan.com/blog/build-proactive-ai-agents) on deciding when

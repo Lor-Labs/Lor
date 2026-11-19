@@ -10,6 +10,7 @@ import {
   isNotNull,
   isNull,
   lt,
+  ne,
   or,
   schema,
   sql,
@@ -405,6 +406,8 @@ export const listChannelSessions: AppRouteHandler<
     .where(
       and(
         eq(session.channelId, channelId),
+        // The channel agent's own conversation is not a session to list.
+        ne(session.origin, "agent"),
         archived ? isNotNull(session.archivedAt) : isNull(session.archivedAt)
       )
     )

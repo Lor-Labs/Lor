@@ -36,6 +36,11 @@ export const channelAudienceEnum = pgEnum("channel_audience", [
   "members",
 ])
 
+export const channelAgentWakeModeEnum = pgEnum("channel_agent_wake_mode", [
+  "mention",
+  "every_message",
+])
+
 export const channel = pgTable(
   "channel",
   {
@@ -71,6 +76,15 @@ export const channel = pgTable(
       (): AnyPgColumn => agentProfile.id,
       { onDelete: "set null" }
     ),
+
+    // The channel agent's model, as Lor's own harness names it. Null = the
+    // default (reference/always-on-agents.md, decision 15).
+    agentModel: text("agent_model"),
+    // What wakes the channel agent: a mention or a reply to it, or every
+    // message. Other messages wait unread in its inbox.
+    agentWakeMode: channelAgentWakeModeEnum("agent_wake_mode")
+      .notNull()
+      .default("mention"),
 
     // ordering within a category or workspace
     position: integer("position").default(0).notNull(),

@@ -46,21 +46,25 @@ import {
   workspaceRoom,
 } from "@repo/realtime-types"
 import type {
+  AgentInboxFlushJobData,
   AttachmentIndexJobData,
   LinkUnfurlJobData,
   LorRespondJobData,
 } from "@repo/realtime-types/queues"
 import {
+  AGENT_INBOX_QUEUE,
   ATTACHMENT_INDEX_QUEUE,
   LINK_UNFURL_QUEUE,
   LOR_RESPOND_QUEUE,
 } from "@repo/realtime-types/queues"
+import { features } from "@repo/utils/features"
 import { createAdapter } from "@socket.io/redis-adapter"
 import { Queue } from "bullmq"
 import { createClient } from "redis"
 import { Server, type Socket } from "socket.io"
 import { toErrorMessage } from "@/lib/errors"
 import { logger } from "@/lib/logger"
+import { addChatMessageToAgentInbox } from "@/services/agent-inbox"
 import { assertUserCanAccessChannel } from "@/services/channel-access"
 import {
   createAgentRun,
@@ -915,6 +919,23 @@ io.on("connection", (socket) => {
           .where(eq(schema.agentRunQueue.messageId, createdMessage.message.id))
           .limit(1)
         if (queued) return
+        // The channel's always-on agent: what people say in the channel chat
+        // lands in its inbox, and a mention or a reply to it wakes it.
+        if (
+          features.channelAgent &&
+          accessibleChannel.type === "text" &&
+          !session &&
+          !createdMessage.message.threadRootId &&
+          createdMessage.message.type !== "forward"
+        ) {
+          await addChatMessageToAgentInbox({
+            workspaceId,
+            channelId: parsed.channelId,
+            message: createdMessage.message,
+            queue: agentInboxQueue,
+          })
+          return
+        }
         // Lor works only in sessions; chat and human threads are people only.
         // createMessage decided this message's route with the session rule
         // (lor-routing.ts) and stored it.
@@ -1454,6 +1475,17 @@ const attachmentIndexQueue = new Queue<AttachmentIndexJobData>(
     },
   }
 )
+
+const agentInboxQueue = new Queue<AgentInboxFlushJobData>(AGENT_INBOX_QUEUE, {
+  connection: {
+    ...parseRedisUrl(env.REDIS_URL),
+    maxRetriesPerRequest: null,
+  },
+  defaultJobOptions: {
+    removeOnComplete: true,
+    removeOnFail: { age: 86400, count: 1000 },
+  },
+})
 
 const lorRespondQueue = new Queue<LorRespondJobData>(LOR_RESPOND_QUEUE, {
   connection: {

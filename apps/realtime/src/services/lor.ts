@@ -25,7 +25,7 @@ import {
   type SendMessagePayload,
   sessionTitleFromPrompt,
 } from "@repo/realtime-types"
-import { assertHarnessEnabled } from "@repo/utils/features"
+import { assertHarnessEnabled, features } from "@repo/utils/features"
 import { isValidNewBranchName, lorBranchName } from "@repo/utils/github"
 import { logger } from "@/lib/logger"
 import type { AccessibleChannel } from "@/services/channel-access"
@@ -239,6 +239,11 @@ export async function sessionStartFor(args: {
   ) {
     return undefined
   }
+  // With a channel agent, `@Lor` in the channel chat is a normal post: it
+  // lands in the agent's inbox and wakes it, and the agent answers in the
+  // chat (reference/always-on-agents.md). A mention in a human
+  // thread still starts a session.
+  if (features.channelAgent && !payload.threadRootId) return undefined
 
   const start = await codeStartFor(
     payload,

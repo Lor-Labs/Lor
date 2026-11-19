@@ -6,6 +6,7 @@ import {
   type SendMessagePayload,
   sessionTitleFromPrompt,
 } from "@repo/realtime-types"
+import { features } from "@repo/utils/features"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import type {
@@ -232,9 +233,13 @@ export function useMessageSending({
       // `@Lor` in channel chat or a human thread starts a session and posts
       // nothing where it was sent. Only those composers pass `sessionStart`.
       const handlers = sessionStartRef.current
+      // With a channel agent, `@Lor` in the channel chat is a normal post: it
+      // wakes the agent, which answers in the chat.
+      const wakesChannelAgent = features.channelAgent && !threadRootId
       const startsSession =
         options?.startSession ||
-        ((!threadRootId || Boolean(handlers)) &&
+        (!wakesChannelAgent &&
+          (!threadRootId || Boolean(handlers)) &&
           (options?.mentions ?? []).some(
             (mention) => mention.id === LOR_USER_ID
           ))

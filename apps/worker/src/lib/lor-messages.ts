@@ -118,6 +118,8 @@ export async function postLorMessage(
       | "loop_card"
       | "loop_fire"
       | "proposal_card"
+      // The channel agent speaking in the channel chat (send_message).
+      | "agent_post"
     // Channel event kind + structured copy data (type "event" only).
     eventType?: ChannelEventType
     eventPayload?: ChannelEventPayload
