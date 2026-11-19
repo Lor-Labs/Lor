@@ -32,3 +32,7 @@ export const fundedModelId = (funding: InferenceFunding) =>
   funding.source === "byok"
     ? keyModelId(funding.provider, funding.model)
     : funding.model
+
+// The model a channel's always-on agent runs on until the channel picks one
+// (reference/always-on-agents.md, decision 15).
+export const CHANNEL_AGENT_DEFAULT_MODEL = "anthropic/claude-opus-5.5"

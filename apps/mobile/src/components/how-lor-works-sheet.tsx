@@ -13,8 +13,8 @@ import Animated, {
 } from "react-native-reanimated"
 import {
   ChannelAgentScene,
+  ChatAnswerScene,
   type SceneProps,
-  SessionStartScene,
   SharedSessionScene,
   WelcomeScene,
 } from "@/components/how-lor-works-scenes"
@@ -35,13 +35,13 @@ const STEPS: [Step, ...Step[]] = [
     Scene: WelcomeScene,
   },
   {
-    title: "Lor works in sessions",
-    body: "Mention @Lor or tap the pencil on the Channels tab to start one. Each session belongs to a channel, and the chat stays for your team.",
-    Scene: SessionStartScene,
+    title: "Lor answers in the chat",
+    body: "Mention @Lor in any channel and it answers there. It reads what everyone said, so it knows what's going on.",
+    Scene: ChatAnswerScene,
   },
   {
-    title: "Sessions are shared",
-    body: "Anyone in the channel can see the work, step in, or approve what Lor sends.",
+    title: "Sessions for longer work",
+    body: "Tap the pencil on the Channels tab to start a session, like a code change. Anyone in the channel can see the work, step in, or approve what Lor sends.",
     Scene: SharedSessionScene,
   },
   // Last, once people know what a session is: a loop's runs land in one.

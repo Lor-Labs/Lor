@@ -40,6 +40,12 @@ type LoopPayload = {
   loopName: string
   reason?: "failures" | "out_of_credits"
 }
+type AgentSessionStartedPayload = {
+  sessionId: string
+  title: string
+  repoFullName: string | null
+}
+
 type SessionContinuedPayload = {
   sessionId: string
   repoFullName: string | null
@@ -222,6 +228,17 @@ function eventText(
         </>
       )
     }
+    case "agent_session_started": {
+      if (!payload) break
+      const p = payload as AgentSessionStartedPayload
+      return (
+        <>
+          {actor} started the code session{" "}
+          <SessionTitleLink fallback={p.title} sessionId={p.sessionId} />
+          {p.repoFullName ? ` on ${p.repoFullName}` : null}
+        </>
+      )
+    }
     case "session_continued": {
       if (!payload) break
       const p = payload as SessionContinuedPayload
@@ -331,6 +348,20 @@ function eventText(
     // (thread-message-list.tsx); this line shows only outside one.
     case "session_rewound":
       return <>{actor} rewound to here</>
+    // The channel agent's brief to a session it runs.
+    case "agent_task": {
+      const p = payload as { channelName?: string | null } | null
+      return (
+        <>
+          <Name>
+            {p?.channelName
+              ? `#${p.channelName}'s agent`
+              : "The channel's agent"}
+          </Name>
+          : {message.content}
+        </>
+      )
+    }
     // The triggering message is rendered below this attribution line.
     case "trigger_run": {
       const p = payload as TriggerRunPayload | null

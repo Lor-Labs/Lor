@@ -30,6 +30,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
+import { AgentModelSelect } from "@/components/sidebar/channel-panel/agent-model-select"
 import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
 import { MorphText } from "@/components/ui/morph-text"
 import { GrantedChips } from "@/components/workspace/agent-profiles-section"
@@ -48,11 +49,17 @@ import { channelQueryOptions } from "@/lib/channel-query"
 
 const INHERIT = "__inherit__"
 
+// When the channel's agent takes a turn (reference/always-on-agents.md §3).
+const WAKE_MODES = [
+  { value: "mention", label: "When mentioned or replied to" },
+  { value: "every_message", label: "To every message" },
+] as const
+
 export type EditChannelTab = "overview" | "profile" | "webhooks"
 type Tab = EditChannelTab
 const TABS: { id: Tab; label: string; icon: IconSvgElement }[] = [
   { id: "overview", label: "Overview", icon: Settings01Icon },
-  { id: "profile", label: "Agent profile", icon: Layers01Icon },
+  { id: "profile", label: "Agent", icon: Layers01Icon },
   { id: "webhooks", label: "Webhooks", icon: WebhookIcon },
 ]
 
@@ -85,7 +92,7 @@ export function EditChannelDialog({
   onOpenChange: (open: boolean) => void
   /** The channel's creator without channel:update: name and topic only. */
   overviewOnly?: boolean
-  // The tab it opens on (the channel menu's Agent Profile and Webhooks).
+  // The tab it opens on (the channel menu's Agent Settings and Webhooks).
   initialTab?: Tab
 }) {
   const { workspaceSlug } = useParams({ strict: false })
@@ -97,6 +104,8 @@ export function EditChannelDialog({
   const [name, setName] = useState(channel.name ?? "")
   const [topic, setTopic] = useState(channel.topic ?? "")
   const [profileId, setProfileId] = useState(channel.agentProfileId ?? INHERIT)
+  const [agentModel, setAgentModel] = useState(channel.agentModel ?? null)
+  const [wakeMode, setWakeMode] = useState(channel.agentWakeMode ?? "mention")
 
   useEffect(() => {
     if (open) {
@@ -104,6 +113,8 @@ export function EditChannelDialog({
       setName(channel.name ?? "")
       setTopic(channel.topic ?? "")
       setProfileId(channel.agentProfileId ?? INHERIT)
+      setAgentModel(channel.agentModel ?? null)
+      setWakeMode(channel.agentWakeMode ?? "mention")
     }
   }, [
     open,
@@ -112,6 +123,8 @@ export function EditChannelDialog({
     channel.name,
     channel.topic,
     channel.agentProfileId,
+    channel.agentModel,
+    channel.agentWakeMode,
   ])
 
   const { data: profilesData } = useQuery({
@@ -144,6 +157,9 @@ export function EditChannelDialog({
           ...(overviewOnly
             ? {}
             : { agentProfileId: profileId === INHERIT ? null : profileId }),
+          ...(overviewOnly || isCategory
+            ? {}
+            : { agentModel, agentWakeMode: wakeMode }),
         },
       })
       if (!res.ok) {
@@ -222,7 +238,9 @@ export function EditChannelDialog({
   const hasChanges =
     name !== (channel.name ?? "") ||
     (!isCategory && topic !== (channel.topic ?? "")) ||
-    profileId !== (channel.agentProfileId ?? INHERIT)
+    profileId !== (channel.agentProfileId ?? INHERIT) ||
+    agentModel !== (channel.agentModel ?? null) ||
+    wakeMode !== (channel.agentWakeMode ?? "mention")
   const isValid = name.trim().length > 0
 
   const selectedProfile =
@@ -354,6 +372,47 @@ export function EditChannelDialog({
                   ) : null
                 ) : (
                   <div className="space-y-3">
+                    {channel.type === "text" && workspaceSlug && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="channel-agent-model">Model</Label>
+                          <AgentModelSelect
+                            id="channel-agent-model"
+                            workspaceSlug={workspaceSlug}
+                            value={agentModel}
+                            onChange={setAgentModel}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="channel-agent-wake">Answers</Label>
+                          <Select
+                            items={WAKE_MODES}
+                            value={wakeMode}
+                            onValueChange={(v) =>
+                              v && setWakeMode(v as typeof wakeMode)
+                            }
+                          >
+                            <SelectTrigger
+                              id="channel-agent-wake"
+                              className="w-full"
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {WAKE_MODES.map((mode) => (
+                                <SelectItem key={mode.value} value={mode.value}>
+                                  {mode.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">
+                            Lor reads every message here either way. This sets
+                            which ones it answers right away.
+                          </p>
+                        </div>
+                      </>
+                    )}
                     {customProfiles.length > 0 && (
                       <div className="space-y-2">
                         <Label htmlFor="channel-agent-profile">Profile</Label>

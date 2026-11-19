@@ -48,6 +48,15 @@ export type CatalogHarness = "pi" | "claude_code" | "codex"
 
 const GATEWAY_PROVIDER = "vercel-ai-gateway"
 
+// A model Lor can run on its own credits: what a channel's agent may pick.
+// Batch-only models can't answer live.
+export function isLorCreditModel(id: string): boolean {
+  return (
+    !id.endsWith("-batch") &&
+    getBuiltinModels(GATEWAY_PROVIDER).some((model) => model.id === id)
+  )
+}
+
 const piEfforts = (levels: string[]) => (levels.length > 1 ? levels : [])
 
 // Lor's own agent: each provider the workspace has a key for lists its

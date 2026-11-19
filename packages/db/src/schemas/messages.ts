@@ -95,6 +95,11 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   "session_pr_merged",
   // In a code session: someone changed its environment or sandbox size.
   "session_setup_changed",
+  // In a session the channel's agent runs: its brief or follow-up, the
+  // turn's request (reference/always-on-agents.md §6).
+  "agent_task",
+  // In the channel chat: the channel's agent started a code session.
+  "agent_session_started",
 ])
 
 // Claude Code's own permission modes, picked per message in a Claude Code
@@ -425,7 +430,21 @@ export type SessionPullRequestPayload = {
   githubLogin: string
 }
 
+// agent_task: which channel's agent wrote it.
+export type AgentTaskPayload = {
+  channelName: string | null
+}
+
+// agent_session_started: the session the channel's agent started.
+export type AgentSessionStartedPayload = {
+  sessionId: string
+  title: string
+  repoFullName: string | null
+}
+
 export type ChannelEventPayload =
+  | AgentTaskPayload
+  | AgentSessionStartedPayload
   | ChannelCreatedPayload
   | ChannelRenamedPayload
   | MemberAddedPayload

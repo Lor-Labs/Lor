@@ -242,6 +242,7 @@ async function bootstrap() {
       emitter,
       redis: redisEmitterClient,
       queue: agentInboxQueue,
+      respondQueue: lorRespondQueue,
     }),
     {
       connection: {
@@ -265,7 +266,12 @@ async function bootstrap() {
 
   const lorRespondWorker = new Worker(
     LOR_RESPOND_QUEUE,
-    createLorRespondProcessor(emitter, redisEmitterClient, lorRespondQueue),
+    createLorRespondProcessor(
+      emitter,
+      redisEmitterClient,
+      lorRespondQueue,
+      agentInboxQueue
+    ),
     {
       connection: {
         ...redisOpts,

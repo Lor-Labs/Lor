@@ -44,7 +44,7 @@ import type { OnUsage } from "./usage"
 // prompt only grows at the end and the provider's cache holds. No sandbox.
 // Compaction starts a new epoch from a summary; old steps stay readable.
 
-export const AGENT_DEFAULT_MODEL = "anthropic/claude-opus-5.5"
+export { CHANNEL_AGENT_DEFAULT_MODEL as AGENT_DEFAULT_MODEL } from "@repo/utils/inference"
 // Compaction: once a turn ends above this prompt size and the conversation
 // stays idle, summarize it while the cache is still warm.
 export const COMPACT_AT_TOKENS = 100_000

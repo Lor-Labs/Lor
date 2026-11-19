@@ -310,8 +310,12 @@ export type RealtimeChannelEventType =
   | "session_pr_opened"
   | "session_pr_merged"
   | "session_setup_changed"
+  | "agent_task"
+  | "agent_session_started"
 
 export type RealtimeChannelEventPayload =
+  | { channelName: string | null }
+  | { sessionId: string; title: string; repoFullName: string | null }
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
   | { from: string; to: string }
   | { userIds: string[] }
@@ -1071,7 +1075,12 @@ export type PlanUpdatedEvent = {
   plan: RealtimePlan
 }
 
-export type RealtimeAgentSessionOrigin = "chat" | "new" | "loop" | "trigger"
+export type RealtimeAgentSessionOrigin =
+  | "chat"
+  | "new"
+  | "loop"
+  | "trigger"
+  | "agent"
 export type RealtimeAgentSessionMode = "chat" | "code"
 
 // Snapshot of a Lor session row. Mirrors agent_session in @repo/db; guarded

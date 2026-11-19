@@ -468,13 +468,24 @@ tools.
   twice (`SIDE_EFFECT_TOOLS`).
 - [x] 1.4 Mentions and replies wake it, other messages wait unread
   (`apps/realtime/src/services/agent-inbox.ts`). The per-channel switch is
-  the column `channel.agent_wake_mode`. No setting for it in the app yet.
-- [ ] 1.5 A model per channel. The column `channel.agent_model` exists and
-  the agent's turns use it, defaulting to Opus 5.5
-  (`AGENT_DEFAULT_MODEL = "anthropic/claude-opus-5.5"`). Owed: the setting
-  in the app.
+  `channel.agent_wake_mode`, set in the channel's Agent settings ("Answers":
+  when mentioned or replied to, or to every message).
+- [x] 1.5 A model per channel: `channel.agent_model`, picked in the
+  channel's Agent settings from Lor's own models (batch-only ones left out,
+  checked by the API with `isLorCreditModel`). Null runs on
+  `CHANNEL_AGENT_DEFAULT_MODEL`, Opus 5.5 (`@repo/utils/inference`). A
+  change mid-epoch misses the cache once and cuts old reasoning (checked
+  live, 2026-11-19).
 - [x] 1.6 No sandbox. The agent's turn never opens one. Its computer comes
   later (decision 29), started by the first tool that needs it.
+- [x] "Lor is typing" in the chat while a turn runs. Realtime sends it the
+  moment someone mentions or replies to Lor, the worker repeats it every 3
+  seconds during the turn and pauses it after each post, and both apps drop
+  a typer as soon as their message arrives. Not shown for turns nobody
+  addressed (with "every message" on).
+- [x] The "How Lor works" tour on web and mobile: "Lor answers in the chat"
+  replaces the slide where `@Lor` started a session, and the sessions slide
+  is now "Sessions for longer work".
 
 **The agent's own loop** (built 2026-11-19)
 
@@ -554,8 +565,7 @@ it. The cached share per call was 0 at first, then 85 to 99%, see below.
   on." after the first). A turn with many gated calls is noisy.
 - `propose_loop` and workspace change proposals are off for the agent.
 - A run swept as dead does not flush the inbox. The next wake does.
-- No "working" indicator in the chat while the agent runs, and nowhere yet
-  to see a turn's steps (Activity, slice 5).
+- Nowhere yet to see a turn's steps (Activity, slice 5).
 - Today's write-back pass still runs for the agent. Slice 4 replaces it
   with the memory pass.
 - The one-hour cache lifetime on large conversations is sent as an Anthropic
@@ -567,8 +577,6 @@ it. The cached share per call was 0 at first, then 85 to 99%, see below.
 - `db:push` on each environment. The dev database got this work's tables,
   enums and columns by hand on 2026-11-19 (the full push stopped at an
   unrelated prompt to truncate `brain_node`).
-- The "How Lor works" onboarding scenes, on web and mobile, still show
-  `@Lor` in chat starting a session.
 - `.lor/environment.json` has no worker service, so the Browser tab's Start
   buttons run the app without agents. The worker has no port to list.
 
@@ -582,11 +590,54 @@ and the first-run hint say Lor answers in the chat.
 After it: "look at my Linear issues and get started" starts sessions and
 reports back in the chat.
 
-- [ ] 2.1 `start_session`, `check_session`, `message_session`,
-  `stop_session`, with the ceiling of 15.
-- [ ] 2.2 A finished, failed or asking session writes to the inbox.
-- [ ] 2.3 The narrower tool profile for sessions the agent starts.
-- [ ] 2.4 A session shows as a card in the chat and opens beside it.
+- [x] 2.1 `start_session`, `check_session`, `message_session`,
+  `stop_session` (`agentSessionTools` in `packages/lor/src/channel-agent.ts`,
+  run by `apps/worker/src/lib/agent-session-tools.ts`). Built 2026-11-19.
+  - A session the agent starts is `agent_session.origin = "agent"`: a code
+    session on a repo the channel's profile allows (`channelCodeRepo`), on
+    its own `lor/` branch from the repo's default branch or the one asked
+    for, on Lor's own agent (Pi). The person who woke the agent is
+    subscribed.
+  - The agent's brief, and each follow-up, is an `agent_task` line in the
+    session, the turn's request. Sessions show it as a message from
+    "#channel's agent", and the session page says "Started by the channel's
+    agent".
+  - Called without a repo, `start_session` lists the repositories, or says
+    why there are none (GitHub not connected, unreachable, or code not
+    allowed in the channel).
+  - `message_session` refuses while the session is working; `stop_session`
+    stops a working turn the way the Stop button does.
+  - At most 15 of the agent's sessions working at once in a channel.
+- [x] 2.2 When a turn of such a session ends (finished, waiting for
+  approval, failed or stopped), a note goes to the channel's inbox in the
+  wake lane: the session's title, id, branch, outcome and its last reply
+  (`reportHelperTurn`, called from `lor-respond.ts`). Inbox items now carry
+  a `note` for anything that is not a chat message (`agent_inbox.note`,
+  source `session`).
+- [x] 2.3 Sessions the agent starts get `helper: true`: connector tools
+  only where the registry marks them read-only, no custom or MCP server
+  tools (they can't be told apart), and no memory writes, instruction
+  proposals, reactions, Loop or change proposals.
+- [x] 2.4 A line in the chat when the agent starts a session: "Lor started
+  the code session <title> on <repo>", the title linking to the session
+  (event `agent_session_started`, the one Lor-authored event the chat feed
+  shows). The session also shows under the channel in the sidebar.
+- [ ] A coding agent on the asker's Claude or ChatGPT plan (decision 16).
+  Sessions the agent starts run on Lor's own agent for now.
+
+Checked 2026-11-19 and 11-20 in a test channel on the dev database: the
+tool listing and its reasons, sessions started on a real repository
+(`BuckyMcYolo/ivyoak`) with their branches and chat lines, a brief and a
+follow-up, failure reports waking the agent, `check_session` and
+`message_session` from the chat, and the agent staying quiet about a
+session it had not started.
+
+A session's turn could not run from Lor's own dev sandbox: that sandbox is
+itself a Blaxel VM, and from inside it Blaxel rejects requests that carry
+the SDK's `x-blaxel-authorization` header (401), while the same key in an
+`Authorization` header works. Workers running anywhere else are not
+affected. A full code session turn is still to be watched once, from a
+machine outside Blaxel.
 
 **Slice 3: events and timers arrive**
 

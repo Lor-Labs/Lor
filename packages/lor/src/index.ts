@@ -102,6 +102,7 @@ import {
   resolveWorkspaceCapabilities,
 } from "./capabilities"
 import {
+  agentSessionTools,
   channelAgentPromptSection,
   type RunAgentContext,
   sendMessageTool,
@@ -313,6 +314,24 @@ for (const name of Object.keys(webTools)) {
   if (!builtinApprovalTool(name))
     throw new Error(`Tool ${name} needs a STANDALONE_TOOLS entry`)
 }
+
+// Writes a helper session leaves to the channel's agent (connector writes
+// are filtered from its grants by READ_ONLY_CONNECTOR_TOOLS).
+const HELPER_WRITE_TOOLS = [
+  "memory_write",
+  "memory_edit",
+  "memory_link",
+  "propose_instructions",
+  "react_to_message",
+  "propose_loop",
+  "propose_workspace_change",
+] as const
+const READ_ONLY_CONNECTOR_TOOLS: ReadonlySet<string> = new Set(
+  Object.values(CONNECTOR_TOOLS)
+    .flat()
+    .filter((tool) => tool.readOnlyHint)
+    .map((tool) => tool.name)
+)
 
 // How often a running Codex turn checks its ChatGPT token, which is refreshed
 // with 20 minutes left (chatgpt-account.ts).
@@ -702,6 +721,10 @@ export type RespondContext = {
   // Set on every run in a channel agent's conversation: binds send_message,
   // the only way its words reach the channel chat.
   agent?: RunAgentContext
+  // A code session the channel's agent started: code tools and read-only
+  // connectors, no writes to connectors or memory. It reports to the agent,
+  // which acts (reference/always-on-agents.md §6).
+  helper?: boolean
   // Set on a request spoken in a voice call: binds show_in_call and the call
   // framing. Results go to Lor's window, never the chat.
   voice?: RunVoiceContext
@@ -2740,10 +2763,23 @@ async function respondImpl(
     : EMPTY_LOR_RUN_SCOPE
 
   // Profile reads fail closed to core tools, including resumed runs.
-  const grants = await (ctx.channelId
+  const profileGrants = await (ctx.channelId
     ? resolveChannelCapabilities(ctx.channelId, ctx.workspaceId)
     : resolveWorkspaceCapabilities(ctx.workspaceId)
   ).catch(() => EMPTY_TOOL_GRANTS)
+  // A helper session keeps the read side: custom and MCP tools can't be told
+  // apart, so they stay out.
+  const grants = ctx.helper
+    ? {
+        ...profileGrants,
+        connectorTools: profileGrants.connectorTools.filter((name) =>
+          READ_ONLY_CONNECTOR_TOOLS.has(name)
+        ),
+        customTools: [],
+        mcpServers: [],
+        mcpTools: {},
+      }
+    : profileGrants
   const selectedBuiltinTools = new Set(grants.builtinTools)
   const selectedConnectorTools = new Set(grants.connectorTools)
   const needsConnector = (provider: keyof typeof CONNECTOR_TOOLS) =>
@@ -2870,7 +2906,13 @@ async function respondImpl(
       !ctx.agent
         ? planTools
         : {}),
-      ...(ctx.agent ? { ...sendMessageTool, ...readAgentHistoryTool } : {}),
+      ...(ctx.agent
+        ? {
+            ...sendMessageTool,
+            ...readAgentHistoryTool,
+            ...(ctx.agent.sessions ? agentSessionTools : {}),
+          }
+        : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.code ? sessionChangesTool : {}),
       ...(ctx.code && ctx.threadRootId ? sessionSetupTool : {}),
@@ -2886,6 +2928,10 @@ async function respondImpl(
       ...(datadogMcp ? datadogMcp.tools : {}),
       ...(betterstackMcp ? betterstackMcp.tools : {}),
       ...(cloudwatch ? cloudwatchTools : {}),
+    }
+    if (ctx.helper) {
+      for (const name of HELPER_WRITE_TOOLS)
+        delete (builtinTools as ToolSet)[name]
     }
     const takenBuiltinNames = new Set(Object.keys(builtinTools))
     for (const name of takenBuiltinNames) {
@@ -3068,6 +3114,14 @@ async function respondImpl(
         ? {
             send_message: { sendMessage: ctx.agent.sendMessage },
             read_agent_history: { channelId: ctx.channelId },
+            ...(ctx.agent.sessions
+              ? {
+                  start_session: { sessions: ctx.agent.sessions },
+                  check_session: { sessions: ctx.agent.sessions },
+                  message_session: { sessions: ctx.agent.sessions },
+                  stop_session: { sessions: ctx.agent.sessions },
+                }
+              : {}),
           }
         : {}),
       ...(ctx.voice

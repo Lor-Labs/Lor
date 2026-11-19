@@ -431,7 +431,9 @@ export function ThreadView({
             ? "Loop"
             : lorSession.origin === "trigger"
               ? "Started by an automation"
-              : `Started by ${nameOf(lorSession.creatorId)}`
+              : lorSession.origin === "agent"
+                ? "Started by the channel's agent"
+                : `Started by ${nameOf(lorSession.creatorId)}`
         }
         starter={
           starter

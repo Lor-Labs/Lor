@@ -1,5 +1,14 @@
 import { checkCredits, recordUsage } from "@repo/billing"
-import { and, db, desc, eq, inArray, isUniqueViolation, schema } from "@repo/db"
+import {
+  and,
+  db,
+  desc,
+  eq,
+  inArray,
+  isUniqueViolation,
+  LOR_USER_ID,
+  schema,
+} from "@repo/db"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import { env } from "@repo/env/server"
 import { type ModelMessage, respond, writeBack } from "@repo/lor"
@@ -27,6 +36,7 @@ import {
   type AgentCompactJobData,
   type AgentInboxFlushJobData,
   type AgentTurnJobData,
+  type LorRespondJobData,
 } from "@repo/realtime-types/queues"
 import { channelRoom, workspaceRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
@@ -38,6 +48,7 @@ import {
   LeaseLostError,
   type RunExecution,
 } from "@/lib/agent-run"
+import { agentSessionExecutors } from "@/lib/agent-session-tools"
 import {
   notifyApprovalParked,
   scheduleApprovalEscalation,
@@ -58,6 +69,8 @@ export type AgentDeps = {
   emitter: Emitter<ServerToClientEvents>
   redis: RedisClient
   queue: Queue<AgentQueueData>
+  // Starts the turns of the code sessions the agent runs.
+  respondQueue: Queue<LorRespondJobData>
 }
 
 export type InboxFlushOutcome =
@@ -75,6 +88,32 @@ const FAILED_MESSAGE =
 const APPROVAL_MESSAGE = "I need an approval before I go on."
 // A turn that already went on after a decision and paused again.
 const ANOTHER_APPROVAL_MESSAGE = "One more approval before I go on."
+
+// "Lor is typing" in the chat while a turn runs: clients drop a typer 5s
+// after their last signal, or when their message arrives.
+const TYPING_EVERY_MS = 3_000
+
+function showTyping(deps: AgentDeps, channelId: string) {
+  let pausedUntil = 0
+  const emit = () => {
+    if (Date.now() < pausedUntil) return
+    deps.emitter.to(channelRoom(channelId)).emit("typing:update", {
+      channelId,
+      threadRootId: null,
+      userId: LOR_USER_ID,
+      name: "Lor",
+    })
+  }
+  emit()
+  const timer = setInterval(emit, TYPING_EVERY_MS)
+  return {
+    // After a post the turn usually just ends; typing resumes if it goes on.
+    pause: () => {
+      pausedUntil = Date.now() + 2 * TYPING_EVERY_MS
+    },
+    stop: () => clearInterval(timer),
+  }
+}
 
 const TURN_JOB_OPTIONS = {
   attempts: 2,
@@ -288,13 +327,20 @@ async function claim(job: Job, token: string | undefined, runId: string) {
 function agentHooks(
   deps: AgentDeps,
   execution: RunExecution,
-  channel: { id: string; name: string | null },
+  channel: { id: string; name: string | null; workspaceId: string },
   mode: RunAgentContext["mode"],
-  onSent: () => void
+  onSent: () => void,
+  askerId: string | null = null
 ): RunAgentContext {
   return {
     channelName: channel.name,
     mode,
+    sessions: agentSessionExecutors(deps, {
+      workspaceId: channel.workspaceId,
+      channelId: channel.id,
+      channelName: channel.name,
+      askerId,
+    }),
     sendMessage: async ({ content }) => {
       const posted = await postLorMessage(deps, {
         channelId: channel.id,
@@ -327,6 +373,7 @@ export async function runAgentTurnJob(
       name: schema.channel.name,
       workspaceId: schema.channel.workspaceId,
       agentModel: schema.channel.agentModel,
+      agentWakeMode: schema.channel.agentWakeMode,
     })
     .from(schema.channel)
     .where(eq(schema.channel.id, channelId))
@@ -334,6 +381,7 @@ export async function runAgentTurnJob(
     .select({
       triggerMessageId: schema.agentRun.triggerMessageId,
       triggerAuthorId: schema.message.authorId,
+      triggerContent: schema.message.content,
     })
     .from(schema.agentRun)
     .leftJoin(
@@ -365,6 +413,14 @@ export async function runAgentTurnJob(
       return
     }
     const userId = run?.triggerAuthorId ?? undefined
+    // Typing only when someone addressed Lor: with "every message" on, most
+    // turns end quiet.
+    const addressed =
+      channel.agentWakeMode === "mention" ||
+      Boolean(run?.triggerContent?.includes(`<@${LOR_USER_ID}>`))
+    const typing = addressed
+      ? showTyping(deps, channelId)
+      : { pause: () => {}, stop: () => {} }
     const result = await respond(
       {
         workspaceId,
@@ -377,9 +433,17 @@ export async function runAgentTurnJob(
         ...(userId ? { userId } : {}),
         aiSessionId: channelId,
         turn: { model: channel.agentModel ?? AGENT_DEFAULT_MODEL },
-        agent: agentHooks(deps, execution, channel, "turn", () => {
-          sent = true
-        }),
+        agent: agentHooks(
+          deps,
+          execution,
+          { ...channel, workspaceId },
+          "turn",
+          () => {
+            sent = true
+            typing.pause()
+          },
+          userId ?? null
+        ),
       },
       {
         onDelta: () => {},
@@ -391,7 +455,7 @@ export async function runAgentTurnJob(
           }),
       },
       execution.handle
-    )
+    ).finally(() => typing.stop())
     const agent = result.agent
 
     // A turn paused on approvals: the set is filed under a message in the
@@ -586,7 +650,13 @@ export async function runAgentCompactJob(
         turn: {
           model: context.model ?? channel.agentModel ?? AGENT_DEFAULT_MODEL,
         },
-        agent: agentHooks(deps, execution, channel, "compact", () => {}),
+        agent: agentHooks(
+          deps,
+          execution,
+          { ...channel, workspaceId },
+          "compact",
+          () => {}
+        ),
       },
       {
         onDelta: () => {},

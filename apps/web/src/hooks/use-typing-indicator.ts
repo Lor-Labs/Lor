@@ -1,4 +1,7 @@
-import type { TypingIndicatorEvent } from "@repo/realtime-types"
+import type {
+  RealtimeMessage,
+  TypingIndicatorEvent,
+} from "@repo/realtime-types"
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { AppSocket } from "@/lib/socket"
 
@@ -74,10 +77,21 @@ export function useTypingIndicator({
       })
     }
 
+    // A message from someone ends their typing at once, Lor's included.
+    const onMessageCreated = (message: RealtimeMessage) => {
+      if (message.channelId !== channelId) return
+      setTypingUsers((prev) => {
+        const filtered = prev.filter((u) => u.userId !== message.author.id)
+        return filtered.length === prev.length ? prev : filtered
+      })
+    }
+
     socket.on("typing:update", onTypingUpdate)
+    socket.on("message:created", onMessageCreated)
 
     return () => {
       socket.off("typing:update", onTypingUpdate)
+      socket.off("message:created", onMessageCreated)
     }
   }, [socket, channelId, currentUserId, threadRootId, blockedUserIds])
 

@@ -2,7 +2,6 @@ import { HashtagIcon, RepeatIcon, Tick02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import type { SidebarSessionState } from "@repo/realtime-types"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
-import { Spinner } from "@repo/ui/components/spinner"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import {
@@ -47,14 +46,6 @@ const appear = {
 // A reaction landing: a soft spring (damping ratio 0.5) with a small
 // overshoot, livelier than the app's crisp snaps.
 const reactionPop = { type: "spring", stiffness: 400, damping: 20 } as const
-
-// Opening a session: the main pane cross-fades from the chat to it.
-const paneSwap = {
-  initial: { opacity: 0, filter: "blur(2px)" },
-  animate: { opacity: 1, filter: "blur(0px)" },
-  exit: { opacity: 0, filter: "blur(2px)" },
-  transition: { duration: 0.3, ease: EASE_OUT },
-}
 
 // Phase n begins at times[n - 1] ms. Reduced motion shows the last frame.
 // Done fires after the last phase settles (typing, cursor travel).
@@ -209,13 +200,10 @@ function MiniComposer({
   toLor,
   children,
   bar,
-  notice,
 }: {
   toLor: boolean
   children?: ReactNode
   bar?: ReactNode
-  // Sits above the composer, like the real "Started …" note.
-  notice?: ReactNode
 }) {
   return (
     <div
@@ -224,49 +212,9 @@ function MiniComposer({
         toLor ? "border-agent/50" : "border-input"
       )}
     >
-      {notice}
       <div className="min-h-5 text-foreground/90">{children}</div>
       {bar && <div className="mt-1.5">{bar}</div>}
     </div>
-  )
-}
-
-// A pointer that glides in from below-right so its tip lands on the center
-// of its parent, then presses with a small ripple.
-function MiniCursor({ clicking }: { clicking: boolean }) {
-  return (
-    <motion.span
-      aria-hidden="true"
-      initial={{ x: 72, y: 44, opacity: 0 }}
-      animate={{ x: 0, y: 0, opacity: 1 }}
-      transition={{ duration: 0.7, ease: EASE_OUT }}
-      className="pointer-events-none absolute top-1/2 left-1/2 z-20"
-    >
-      {clicking && (
-        <motion.span
-          initial={{ scale: 0.3, opacity: 0.5 }}
-          animate={{ scale: 1.8, opacity: 0 }}
-          transition={{ duration: 0.4, ease: EASE_OUT }}
-          className="absolute -top-2 -left-2 size-4 rounded-full bg-foreground/40"
-        />
-      )}
-      <motion.svg
-        aria-hidden="true"
-        animate={{ scale: clicking ? 0.82 : 1 }}
-        transition={{ duration: 0.12, ease: EASE_OUT }}
-        width="16"
-        height="20"
-        viewBox="0 0 16 20"
-        className="block origin-top-left drop-shadow-sm"
-      >
-        <path
-          d="M1 1V15.5L4.8 11.9L7.4 18L9.9 16.9L7.4 10.9H12.6L1 1Z"
-          className="fill-foreground stroke-background"
-          strokeWidth="1.2"
-          strokeLinejoin="round"
-        />
-      </motion.svg>
-    </motion.span>
   )
 }
 
@@ -588,157 +536,77 @@ export function ChannelAgentScene({ you, onDone }: SceneProps) {
   )
 }
 
-// @Lor appears, the question types out, the send clears the composer without
-// posting in the chat, and a session row starts under #engineering. The
-// Started note shows, a cursor clicks Open, and the session opens: your
-// question on top, Lor working, and its answer.
-const START_TIMES = [500, 800, 2100, 2800, 3300, 4100, 4400, 5900] as const
+// You ask Lor in the channel: the question posts in the chat like any
+// message, Lor reads the conversation around it (the highlight), shows as
+// typing, and answers right there (reference/always-on-agents.md).
+const ANSWER_TIMES = [500, 800, 2100, 2700, 4600] as const
 
-export function SessionStartScene({ workspaceName, you, onDone }: SceneProps) {
-  const phase = usePhase(START_TIMES, onDone)
+export function ChatAnswerScene({ workspaceName, you, onDone }: SceneProps) {
+  const phase = usePhase(ANSWER_TIMES, onDone)
   const drafting = phase >= 1 && phase < 3
-  const titled = phase >= 4
-  const clicking = phase >= 6
-  const inSession = phase >= 7
-  const answered = phase >= 8
-  const readingChat = phase === 3 || phase === 4
-
-  const startedNote = phase >= 3 && (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.16, ease: EASE_OUT }}
-      className="absolute bottom-full left-1 mb-1.5 flex max-w-[calc(100%-0.5rem)] items-center gap-2 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground backdrop-blur"
-    >
-      <Spinner className="size-3 shrink-0 text-agent" />
-      <span className="truncate">
-        Started{" "}
-        <span className="font-medium text-foreground">
-          <TypewriterText
-            text={titled ? SESSION_TITLE : "New session"}
-            animate
-          />
-        </span>
-      </span>
-      <span
-        className={cn(
-          "relative shrink-0 font-medium text-agent",
-          clicking && "underline"
-        )}
-      >
-        Open
-        {phase >= 5 && <MiniCursor clicking={clicking} />}
-      </span>
-    </motion.div>
-  )
-
-  const channelPane = (
-    <>
-      <div className="border-b px-3 py-2 font-semibold"># engineering</div>
-      <div className="flex flex-1 flex-col justify-end px-1.5 pb-1.5">
-        {/* The send lights up the chat Lor takes as context. */}
-        <div
-          className={cn(
-            "flex flex-col gap-3 rounded-lg px-1.5 py-1.5 ring-1 transition-[background-color,box-shadow] duration-500",
-            readingChat ? "bg-agent/8 ring-agent/25" : "ring-transparent"
-          )}
-        >
-          <MiniMessage person={ZOE}>
-            Deploy is green. Shipping the billing fix after lunch.
-          </MiniMessage>
-          <MiniMessage person={RAFAEL}>
-            Nice, I'll keep an eye on error rates.
-          </MiniMessage>
-        </div>
-      </div>
-      <MiniComposer
-        toLor={drafting}
-        notice={startedNote}
-        bar={
-          drafting && <DestinationBar destination="channel" toLor pinged={[]} />
-        }
-      >
-        {drafting ? (
-          <>
-            <MentionChip />
-            <TypewriterText text={phase >= 2 ? QUESTION : ""} animate />
-          </>
-        ) : (
-          <span className="text-muted-foreground">Message #engineering</span>
-        )}
-      </MiniComposer>
-    </>
-  )
-
-  const sessionPane = (
-    <>
-      <div className="flex items-center gap-2 border-b px-3 py-2">
-        <span className="min-w-0 flex-1 truncate font-semibold">
-          {SESSION_TITLE}
-        </span>
-        <PersonAvatar person={you} />
-      </div>
-      <div className="flex flex-1 flex-col gap-3 px-3 pt-3 pb-3">
-        <MiniMessage person={you}>
-          <MentionChip />
-          {QUESTION}
-          <span className="mt-1 flex w-fit items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground">
-            <HugeiconsIcon
-              icon={HashtagIcon}
-              className="size-3"
-              strokeWidth={2}
-            />
-            engineering · 2 messages
-          </span>
-        </MiniMessage>
-        <div className="flex gap-2.5">
-          <img src="/lor-mark.svg" alt="" className="mt-0.5 size-5" />
-          <div className="min-w-0 space-y-1">
-            <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-              {!answered && <SessionStateIndicator state="running" />}
-              {answered ? "Worked" : "Reading #engineering…"}
-            </div>
-            {/* Mounted empty first, so the answer types out when it lands. */}
-            <p className="text-foreground/90">
-              <TypewriterText text={answered ? LOR_ANSWER : ""} animate />
-            </p>
-          </div>
-        </div>
-      </div>
-      <MiniComposer toLor={false}>
-        <span className="text-muted-foreground">Reply…</span>
-      </MiniComposer>
-    </>
-  )
-
+  const asked = phase >= 3
+  const reading = phase === 4
+  const answered = phase >= 5
   return (
     <MiniWindow>
       <MiniSidebar
         workspaceName={workspaceName}
-        channelActive={!inSession}
-        sessions={
-          <>
-            {phase >= 3 && (
-              <MiniSessionRow
-                title={titled ? SESSION_TITLE : "New session"}
-                state={answered ? "idle" : "running"}
-                active={inSession}
-              />
-            )}
-            <MiniSessionRow title="Pricing page copy" state="unread" />
-          </>
-        }
+        sessions={<MiniSessionRow title="Pricing page copy" state="unread" />}
       />
-      <div className="relative min-w-0 flex-1">
-        <AnimatePresence initial={false}>
-          <motion.div
-            key={inSession ? "session" : "channel"}
-            {...paneSwap}
-            className="absolute inset-0 flex flex-col"
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="border-b px-3 py-2 font-semibold"># engineering</div>
+        <div className="flex flex-1 flex-col justify-end gap-3 overflow-hidden px-1.5 pb-1 [mask-image:linear-gradient(to_bottom,transparent,black_28px)]">
+          <div
+            className={cn(
+              "flex flex-col gap-3 rounded-lg px-1.5 py-1.5 ring-1 transition-[background-color,box-shadow] duration-500",
+              reading ? "bg-agent/8 ring-agent/25" : "ring-transparent"
+            )}
           >
-            {inSession ? sessionPane : channelPane}
-          </motion.div>
-        </AnimatePresence>
+            <MiniMessage person={ZOE}>
+              Deploy is green. Shipping the billing fix after lunch.
+            </MiniMessage>
+            <MiniMessage person={RAFAEL}>
+              Nice, I'll keep an eye on error rates.
+            </MiniMessage>
+          </div>
+          <div className="flex flex-col gap-3 px-1.5">
+            {asked && (
+              <MiniMessage person={you}>
+                <MentionChip />
+                {QUESTION}
+              </MiniMessage>
+            )}
+            {answered && (
+              <motion.div {...appear} className="flex gap-2.5">
+                <img src="/lor-mark.svg" alt="" className="size-6 shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-[12px] font-semibold">Lor</div>
+                  <p className="text-foreground/90">{LOR_ANSWER}</p>
+                </div>
+              </motion.div>
+            )}
+          </div>
+        </div>
+        <div className="h-4 px-4 text-[11px] text-muted-foreground">
+          {asked && !answered && "Lor is typing…"}
+        </div>
+        <MiniComposer
+          toLor={drafting}
+          bar={
+            drafting && (
+              <DestinationBar destination="channel" toLor pinged={[]} />
+            )
+          }
+        >
+          {drafting ? (
+            <>
+              <MentionChip />
+              <TypewriterText text={phase >= 2 ? QUESTION : ""} animate />
+            </>
+          ) : (
+            <span className="text-muted-foreground">Message #engineering</span>
+          )}
+        </MiniComposer>
       </div>
     </MiniWindow>
   )

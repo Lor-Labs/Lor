@@ -345,7 +345,9 @@ function SessionConversation({
       ? "Loop"
       : session.origin === "trigger"
         ? "Started by an automation"
-        : `Started by ${nameOf(session.creatorId)}`
+        : session.origin === "agent"
+          ? "Started by the channel's agent"
+          : `Started by ${nameOf(session.creatorId)}`
   const starter =
     people.find((person) => person.userId === session.creatorId) ?? null
   const [renaming, setRenaming] = useState(false)

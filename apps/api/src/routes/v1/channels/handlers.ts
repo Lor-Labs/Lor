@@ -30,6 +30,7 @@ import {
   searchConnector,
   searchConnectorFiles as searchFiles,
 } from "@repo/lor/connector-search"
+import { isLorCreditModel } from "@repo/lor/model-catalog"
 import {
   channelRoom,
   type ServerToClientEvents,
@@ -477,13 +478,16 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
   const body = c.req.valid("json")
 
   // channel:update edits any channel. Without it, the channel's creator may
-  // still rename it and change its topic; slowmode and the agent profile
-  // always need the permission.
+  // still rename it and change its topic; slowmode and the agent's profile,
+  // model and wake mode always need the permission.
   const canUpdateAny = hasWorkspaceAuthority(c.var.authority, {
     channel: ["update"],
   })
   const isNameOrTopicOnly =
-    body.rateLimitPerUser === undefined && body.agentProfileId === undefined
+    body.rateLimitPerUser === undefined &&
+    body.agentProfileId === undefined &&
+    body.agentModel === undefined &&
+    body.agentWakeMode === undefined
   if (!canUpdateAny && !isNameOrTopicOnly) {
     return c.json(
       { success: false, message: "Forbidden" },
@@ -526,6 +530,15 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
         HttpStatusCodes.NOT_FOUND
       )
     }
+  }
+
+  // The channel agent runs on Lor's credits, so only Lor's models qualify.
+  // null goes back to the default.
+  if (body.agentModel && !isLorCreditModel(body.agentModel)) {
+    return c.json(
+      { success: false, message: "Model not available" },
+      HttpStatusCodes.BAD_REQUEST
+    )
   }
 
   // Prior-name read + update in one transaction with a row lock, so a

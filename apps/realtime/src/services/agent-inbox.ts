@@ -18,7 +18,8 @@ export async function addChatMessageToAgentInbox(args: {
   channelId: string
   message: RealtimeMessage
   queue: Queue<AgentInboxFlushJobData>
-}): Promise<"wake" | "wait" | "duplicate"> {
+  // "addressed": a mention of Lor or a reply to it, which always wakes it.
+}): Promise<"addressed" | "wake" | "wait" | "duplicate"> {
   const addressed =
     isLorMentioned(args.message.content) ||
     isReplyToLor(args.message.referencedMessage)
@@ -45,5 +46,5 @@ export async function addChatMessageToAgentInbox(args: {
       { delay: AGENT_INBOX_BATCH_MS }
     )
   }
-  return lane
+  return addressed ? "addressed" : lane
 }

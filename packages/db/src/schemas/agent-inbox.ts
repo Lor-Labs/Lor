@@ -16,7 +16,12 @@ import { workspace } from "./workspaces"
 // What an inbox item is about. A chat message today; webhooks, Loops and
 // finished sessions join in later steps (reference/always-on-agents.md
 // §3).
-export const agentInboxSourceEnum = pgEnum("agent_inbox_source", ["message"])
+export const agentInboxSourceEnum = pgEnum("agent_inbox_source", [
+  "message",
+  // A session the agent started ended a turn: finished, failed, stopped or
+  // waiting on an approval.
+  "session",
+])
 
 // "wake" starts the channel agent's next turn. "wait" sits unread until
 // something else wakes it.
@@ -49,6 +54,8 @@ export const agentInbox = pgTable(
     messageId: uuid("message_id").references(() => message.id, {
       onDelete: "cascade",
     }),
+    // What the agent reads for an item that is not a chat message.
+    note: text("note"),
     status: agentInboxStatusEnum("status").notNull().default("pending"),
     readAt: timestamp("read_at"),
     // The agent turn that read this item.

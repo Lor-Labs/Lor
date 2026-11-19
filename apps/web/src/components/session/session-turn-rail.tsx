@@ -72,7 +72,9 @@ function preview(message: Message) {
 
 function turnTitle(turn: Turn) {
   const { start } = turn
-  if (start.type !== "event") return preview(start) || "Attachment"
+  if (start.type !== "event" || start.eventType === "agent_task") {
+    return preview(start) || "Attachment"
+  }
   const payload = start.eventPayload as {
     loopName?: string
     label?: string

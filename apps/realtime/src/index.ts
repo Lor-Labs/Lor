@@ -7,7 +7,7 @@ import {
   type Session,
   USER_ACCESS_REVOKED_CHANNEL,
 } from "@repo/auth"
-import { and, db, eq, notExists, schema } from "@repo/db"
+import { and, db, eq, LOR_USER_ID, notExists, schema } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import {
   canSeeSessionChat,
@@ -926,12 +926,23 @@ io.on("connection", (socket) => {
           !createdMessage.message.threadRootId &&
           createdMessage.message.type !== "forward"
         ) {
-          await addChatMessageToAgentInbox({
+          const lane = await addChatMessageToAgentInbox({
             workspaceId,
             channelId: parsed.channelId,
             message: createdMessage.message,
             queue: agentInboxQueue,
           })
+          // The agent's turn starts after a short batch delay; show it as
+          // typing from the moment someone addresses it (the worker keeps it
+          // up while the turn runs).
+          if (lane === "addressed") {
+            io.to(channelRoom(parsed.channelId)).emit("typing:update", {
+              channelId: parsed.channelId,
+              threadRootId: null,
+              userId: LOR_USER_ID,
+              name: "Lor",
+            })
+          }
           return
         }
         // Lor works only in sessions; chat and human threads are people only.

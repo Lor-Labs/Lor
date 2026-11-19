@@ -9,7 +9,6 @@ import Animated, {
   Easing,
   FadeIn,
   FadeInDown,
-  FadeOut,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
@@ -17,7 +16,6 @@ import Animated, {
   ZoomIn,
 } from "react-native-reanimated"
 import Svg, { Path } from "react-native-svg"
-import { SessionStateIndicator } from "@/components/channel-sessions"
 import {
   DestinationBar,
   type PingedPerson,
@@ -65,8 +63,6 @@ const appear = FadeInDown.duration(250)
 // A reaction landing: a soft spring (damping ratio 0.5) with a small
 // overshoot, livelier than the app's crisp snaps. Same as web's.
 const reactionPop = ZoomIn.springify().stiffness(400).damping(20)
-const paneIn = FadeIn.duration(300)
-const paneOut = FadeOut.duration(200)
 
 // Done fires after the last phase settles (typing, cursor travel).
 const SCENE_SETTLE_MS = 1200
@@ -558,36 +554,62 @@ export function ChannelAgentScene({ you, onDone }: SceneProps) {
   )
 }
 
-// @Lor appears and the question types out with "New session in
-// #engineering" under it; the send opens the session: your question with the
-// chat it read, Lor working, then its answer.
-const START_TIMES = [500, 800, 2300, 3100, 4300] as const
+// You ask Lor in the channel: the question posts in the chat like any
+// message, Lor shows as typing, and answers right there
+// (reference/always-on-agents.md).
+const ANSWER_TIMES = [500, 800, 2300, 2900, 4500] as const
 
-export function SessionStartScene({ you, onDone }: SceneProps) {
-  const phase = usePhase(START_TIMES, onDone)
-  const inSession = phase >= 3
+export function ChatAnswerScene({ you, onDone }: SceneProps) {
+  const phase = usePhase(ANSWER_TIMES, onDone)
+  const drafting = phase >= 1 && phase < 3
+  const asked = phase >= 3
   const answered = phase >= 5
-
-  const channelPane = (
-    <>
+  return (
+    <MiniPhone>
       <MiniHeader title="# engineering" />
-      <View className="flex-1 justify-end gap-three px-three pb-three">
+      <View className="flex-1 justify-end gap-three overflow-hidden px-three pb-one">
         <MiniMessage person={ZOE}>
           Deploy is green. Shipping the billing fix after lunch.
         </MiniMessage>
         <MiniMessage person={RAFAEL}>
           Nice, I'll keep an eye on error rates.
         </MiniMessage>
+        {asked ? (
+          <MiniMessage person={you}>
+            <MentionChip />
+            {QUESTION}
+          </MiniMessage>
+        ) : null}
+        {answered ? (
+          <Animated.View className="flex-row gap-two" entering={appear}>
+            <View className="w-6 items-center pt-px">
+              <LorMark size={18} />
+            </View>
+            <View className="min-w-0 flex-1 gap-px">
+              <Text className="text-[11px] font-semibold text-foreground">
+                Lor
+              </Text>
+              <Text className="text-[12px] leading-4 text-foreground">
+                {LOR_ANSWER}
+              </Text>
+            </View>
+          </Animated.View>
+        ) : null}
+      </View>
+      <View className="h-4 px-three">
+        <Text className="text-[10px] text-muted">
+          {asked && !answered ? "Lor is typing…" : ""}
+        </Text>
       </View>
       <MiniComposer
         bar={
-          phase >= 1 ? (
+          drafting ? (
             <DestinationBar destination="channel" pinged={[]} toLor />
           ) : null
         }
-        toLor={phase >= 1}
+        toLor={drafting}
       >
-        {phase >= 1 ? (
+        {drafting ? (
           <>
             <MentionChip />
             <TypewriterText animate text={phase >= 2 ? QUESTION : ""} />
@@ -596,56 +618,6 @@ export function SessionStartScene({ you, onDone }: SceneProps) {
           <Text className="text-muted">Message #engineering</Text>
         )}
       </MiniComposer>
-    </>
-  )
-
-  const sessionPane = (
-    <>
-      <MiniHeader
-        title={phase >= 4 ? SESSION_TITLE : "New session"}
-        right={<PersonAvatar person={you} />}
-      />
-      <View className="flex-1 gap-three px-three pt-three">
-        <MiniMessage named={false} person={you}>
-          <MentionChip />
-          {QUESTION}
-        </MiniMessage>
-        <View className="ml-eight self-start rounded-lor-sm border border-border px-two py-px">
-          <Text className="text-[11px] text-muted">
-            # engineering · 2 messages
-          </Text>
-        </View>
-        <Animated.View className="flex-row gap-two" entering={appear}>
-          <View className="w-6 items-center pt-px">
-            <LorMark size={18} />
-          </View>
-          <View className="min-w-0 flex-1 gap-one">
-            <View className="flex-row items-center gap-one">
-              {answered ? null : <SessionStateIndicator state="running" />}
-              <Text className="text-[11px] text-muted">
-                {answered ? "Worked" : "Reading #engineering…"}
-              </Text>
-            </View>
-            {/* Mounted empty first, so the answer types out when it lands. */}
-            <Text className="text-[12px] leading-4 text-foreground">
-              <TypewriterText animate text={answered ? LOR_ANSWER : ""} />
-            </Text>
-          </View>
-        </Animated.View>
-      </View>
-    </>
-  )
-
-  return (
-    <MiniPhone>
-      <Animated.View
-        className="absolute inset-0"
-        entering={paneIn}
-        exiting={paneOut}
-        key={inSession ? "session" : "channel"}
-      >
-        {inSession ? sessionPane : channelPane}
-      </Animated.View>
     </MiniPhone>
   )
 }
