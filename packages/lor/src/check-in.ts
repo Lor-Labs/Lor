@@ -4,18 +4,21 @@ import { logger } from "./logger"
 import { nextLoopRunAt } from "./loop-schedule"
 
 // The check-in every text channel's agent comes with
-// (reference/always-on-agents.md, decision 7): a Loop every 30 minutes in
-// active hours that wakes the agent only when something waits unread. People
-// change its hours or turn it off like any Loop.
+// (reference/always-on-agents.md, decision 7): a Loop every 30 minutes, all
+// day, that wakes the agent only when something waits unread, so a quiet
+// channel's check-ins cost nothing. People change it or turn it off like any
+// Loop.
 
 export const CHECK_IN_NAME = "Check-in"
-// Every 30 minutes from 9:00 to 18:00 on weekdays.
-export const CHECK_IN_SCHEDULE = "*/30 9-17 * * 1-5"
+// Every 30 minutes, all day (Jacob, 2026-11-20; was 9:00 to 18:00 on
+// weekdays).
+export const CHECK_IN_SCHEDULE = "*/30 * * * *"
 export const CHECK_IN_INSTRUCTIONS =
   "Look over what came in since you last looked: messages that weren't addressed to you and events that waited. Act or answer only where something needs you or the team would want you to step in; otherwise end the turn quietly."
 
-// Active hours in the team's time: the zone a person pinned on the
-// workspace's latest Loop, else UTC (nothing stores a workspace's zone).
+// The team's time, for when someone narrows the check-in to working hours:
+// the zone a person pinned on the workspace's latest Loop, else UTC (nothing
+// stores a workspace's zone).
 async function workspaceTimezone(workspaceId: string): Promise<string> {
   const [row] = await db
     .select({ timezone: schema.loop.timezone })

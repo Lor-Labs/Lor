@@ -62,6 +62,15 @@ export function describeLoopSchedule(
       if (days) {
         const every =
           shape.every === 60 ? "Every hour" : `Every ${shape.every} minutes`
+        if (shape.fromHour === 0 && shape.toHour === 24) {
+          const on =
+            days === "every day"
+              ? ""
+              : days.includes("&") || days.includes(",")
+                ? ` on ${days}`
+                : ` on ${days}s`
+          return `${every}${on}${suffix}`
+        }
         const on =
           days === "every day"
             ? days
@@ -142,11 +151,14 @@ export function parseLoopSchedule(schedule: string): LoopScheduleShape {
   const fields = schedule.trim().split(/\s+/)
   if (fields.length === 5) {
     const [min = "", hour = "", dom = "", month = "", dow = ""] = fields
-    const hours = /^(\d+)-(\d+)$/.exec(hour)
+    // "*" is all day, from midnight to midnight.
+    const hours = hour === "*" ? ["*", "0", "23"] : /^(\d+)-(\d+)$/.exec(hour)
     const every =
       min === "0" ? 60 : Number(/^\*\/(\d+)$/.exec(min)?.[1] ?? Number.NaN)
+    // "0 * * * *" stays the hourly shape.
     if (
       hours &&
+      !(hour === "*" && every === 60) &&
       dom === "*" &&
       month === "*" &&
       (dow === "*" || EDITABLE_DOW.test(dow)) &&
@@ -191,7 +203,7 @@ export function formatLoopSchedule(shape: LoopScheduleShape): string {
     case "monthly":
       return `${shape.minute} ${shape.hour} ${shape.dom} * *`
     case "interval":
-      return `${shape.every === 60 ? "0" : `*/${shape.every}`} ${shape.fromHour}-${shape.toHour - 1} * * ${shape.dow}`
+      return `${shape.every === 60 ? "0" : `*/${shape.every}`} ${shape.fromHour === 0 && shape.toHour === 24 ? "*" : `${shape.fromHour}-${shape.toHour - 1}`} * * ${shape.dow}`
     case "custom":
       return shape.schedule
   }

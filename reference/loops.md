@@ -6,7 +6,7 @@
 > serves other channels.
 >
 > Since 2026-11-20 every text channel also has a `check_in` Loop that wakes
-> the agent in active hours only when something is unread
+> the agent every 30 minutes, only when something is unread
 > (`always-on-agents.md` §13, step 5.2).
 
 Status legend: `[ ]` todo · `[x]` done. Update checkboxes as phases land, and

@@ -62,7 +62,7 @@ proposal that he has not objected to and should confirm.
 | 4 | The main chat replaces chat sessions. New session is code only. Existing chat sessions stay readable | Jacob, 11-18 |
 | 5 | Everything goes into the channel's inbox. Nothing calls the agent directly | Jacob, 11-18 |
 | 6 | Two lanes: some things wake the agent now, the rest wait unread until its next wake | Jacob, 11-18 |
-| 7 | A check-in bounds the wait. It is a Loop that comes with every channel: every 30 minutes in active hours, skipped when nothing is unread. It is not `wake_up`, which the agent sets itself | Jacob, 11-18 |
+| 7 | A check-in bounds the wait. It is a Loop that comes with every channel: every 30 minutes, all day (Jacob, 11-20; it was active hours only), skipped when nothing is unread. It is not `wake_up`, which the agent sets itself | Jacob, 11-18 |
 | 8 | Per channel: wake on mentions (the default) or on every message | Jacob, 11-18 |
 | 9 | One tool to speak, `send_message`. A turn can end quietly | Jacob, 11-18 |
 | 10 | `wake_up`: the agent schedules its own wake, with instructions for its future self | Jacob, 11-18 |
@@ -900,8 +900,9 @@ than half an hour.
     turn answers in the chat, even when the wake-up was set in a thread.
 - [x] 5.2 The check-in Loop on every channel. Built 2026-11-20
   (`packages/lor/src/check-in.ts`).
-  - A Loop of kind `check_in` ("Check-in", every 30 minutes from 9:00 to
-    18:00 on weekdays), made once per text channel: when the channel is
+  - A Loop of kind `check_in` ("Check-in", every 30 minutes all day since
+    2026-11-20; at first 9:00 to 18:00 on weekdays), made once per text
+    channel: when the channel is
     created, or on its next chat message for channels made before
     (`channel.agent_check_in_at` marks it, so a deleted check-in stays
     deleted). No card in the chat.
@@ -909,8 +910,9 @@ than half an hour.
     pending; otherwise it wakes the agent with the Loop's instructions, and
     the unread items come first in its inbox. Its runs show in the Loop's
     history and count toward the five-failures pause.
-  - Active hours are in the zone a person pinned on the workspace's latest
-    Loop, else UTC: nothing stores a workspace's or person's zone.
+  - Its zone, which matters only if someone narrows it to working hours, is
+    the one a person pinned on the workspace's latest Loop, else UTC:
+    nothing stores a workspace's or person's zone.
   - Schedules of the form "every 15, 30 or 60 minutes between two hours on
     chosen days" now read as words ("Every 30 minutes from 9:00 AM to 6:00
     PM on weekdays") and are editable in the Loop panel ("Through the
@@ -941,8 +943,23 @@ Checked 2026-11-20 on the dev database:
 
 **Deviations and gaps in slice 5**
 
-- The check-in's default zone is a guess (the workspace's latest Loop, else
-  UTC) until a workspace stores its zone.
+- The check-in's zone is a guess (the workspace's latest Loop, else UTC)
+  until a workspace stores its zone. It matters only for working hours.
+
+**How often other agents wake themselves (read 2026-11-20)**
+
+Only OpenClaw publishes a default: a heartbeat every 30 minutes, all day
+unless `activeHours` is set, with `NO_REPLY` as the quiet answer. Grok Bot
+has no default heartbeat; routines run on a schedule at least five minutes
+apart, or on events. OpenAI's Dots decides itself when to check back, plus
+schedules people set and events, with read-only background research.
+Meta's Muse runs background jobs and interrupts only when it judges it
+worth it. Hermes has no self-wake by default; its monitor mode skips the
+model when nothing changed. A third-party guide calls hourly common and
+15 minutes the fast case. Builder.io's Grok Bot reviewer spent $100 in a
+weekend mostly on wakes that found nothing, and recommends events over
+clocks. Lor's check-in skips the model when nothing is unread, so its
+cadence costs nothing on a quiet channel.
 - "Answered" means the person wrote anything in that place since the
   question, which can clear a question too early.
 - Mobile has no Needs you tab, Follow-ups or "Through the day" editor yet.
