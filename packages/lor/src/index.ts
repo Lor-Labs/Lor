@@ -57,7 +57,9 @@ import {
 import { z } from "zod"
 import {
   type AgentTurnResult,
+  agentMemoryPass,
   compactAgentConversation,
+  type MemoryPassResult,
   readAgentHistoryTool,
   runAgentTurn,
   usageLedger,
@@ -89,6 +91,11 @@ import {
   pageExists,
   supersededPageIds,
 } from "./brain"
+import {
+  BRAIN_PAGE_FORMAT,
+  BRAIN_SAVE_BAR,
+  BRAIN_SAVE_STEPS,
+} from "./brain-rules"
 import { keyFunding, nativeInference } from "./byok"
 import {
   parseCallTime,
@@ -108,6 +115,11 @@ import {
   type RunAgentContext,
   sendMessageTool,
 } from "./channel-agent"
+import {
+  channelAgentLog,
+  channelProfileSection,
+  loadChannelProfile,
+} from "./channel-profile"
 import {
   type ChatgptCredential,
   chatgptCredential,
@@ -665,17 +677,11 @@ Answer false — the default — for everything else: small talk, greetings, tra
 
 const WRITEBACK_INSTRUCTION = `You've just answered. Now step back and act as the keeper of this workspace's long-term memory.
 
-Your bar for saving is high. Only save specific, durable, workspace-specific knowledge a teammate would genuinely benefit from weeks from now: a settled decision, how one of the team's systems or processes actually works, who owns or is responsible for something, a resolved problem and its fix, or a lasting convention. Save nothing for small talk, transient status, questions that state no new fact, opinions, speculation, undecided proposals, general or how-to knowledge, or anything vague or one-off. When in doubt, save nothing — a sparse, trustworthy brain is worth far more than a cluttered one.
+${BRAIN_SAVE_BAR}
 
-- If (and only if) something clears that bar: first browse your brain (memory_ls / memory_read) to find where it belongs and whether a page on this already exists (you may have already saved something while answering — don't duplicate it). Strongly prefer changing an existing page with memory_edit over creating a new one; only create a page with memory_write for a genuinely new topic. Make the smallest change that captures the fact (memory_write creates parent folders automatically), and use memory_link only when the relationship to another page is clear. Keep pages tight, factual, and self-contained. When a newer decision replaces one already in memory, write the new decision as its own page and link it to the old page with supersedes (from the new page to the old one); leave the old page as it was, so the earlier decision and its date stay on record. Use memory_edit for corrections and additions, not to replace a decision.
-- Otherwise, do nothing. This is the common case.
+${BRAIN_SAVE_STEPS}
 
-Page format — begin every page with a short frontmatter block, then the body:
----
-summary: one line on what this page is
-aliases: [terms or synonyms someone might search for this by]
----
-(the markdown body)
+${BRAIN_PAGE_FORMAT}
 
 Decide for yourself. Don't reply to the user; just maintain memory. End with one short line of what you saved, or "nothing to save".`
 
@@ -900,6 +906,7 @@ export type RespondResult = {
   // schedules after it.
   agent?: Omit<AgentTurnResult, "text" | "messages" | "stoppedFor"> & {
     compacted?: boolean
+    memory?: MemoryPassResult | null
   }
 }
 
@@ -3288,6 +3295,45 @@ async function respondImpl(
         }),
         { store: run.toolResults }
       ).tools
+      const agentApproval: Record<string, ToolApprovalStatus> = {}
+      for (const name of Object.keys(agentTools)) {
+        const target = toolTargets.targetFor(name)
+        if (target !== null && approvalGates.has(target)) {
+          agentApproval[name] = "user-approval"
+        }
+      }
+      if (Object.hasOwn(agentTools, "request_approval")) {
+        agentApproval.request_approval = "user-approval"
+      }
+      if (ctx.agent.mode === "memory") {
+        const ledger = usageLedger({
+          workspaceId: ctx.workspaceId,
+          runId: run.runId,
+          model: agentModel,
+          label: "memory",
+          ...(onUsage ? { onUsage } : {}),
+        })
+        let calls = 0
+        const memory = await agentMemoryPass({
+          workspaceId: ctx.workspaceId,
+          channelId: ctx.channelId,
+          turnRunId: run.runId,
+          model: agentModel,
+          tools: agentTools,
+          toolsContext,
+          gated: new Set(Object.keys(agentApproval)),
+          record: (usage) => {
+            calls += 1
+            ledger.add(usage)
+          },
+          ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
+        }).finally(() => ledger.charge(calls))
+        return {
+          text: "",
+          messages: [],
+          agent: { approvals: [], promptTokens: 0, sentMessages: 0, memory },
+        }
+      }
       if (ctx.agent.mode === "compact") {
         const ledger = usageLedger({
           workspaceId: ctx.workspaceId,
@@ -3319,27 +3365,22 @@ async function respondImpl(
           },
         }
       }
-      const agentApproval: Record<string, ToolApprovalStatus> = {}
-      for (const name of Object.keys(agentTools)) {
-        const target = toolTargets.targetFor(name)
-        if (target !== null && approvalGates.has(target)) {
-          agentApproval[name] = "user-approval"
-        }
-      }
-      if (Object.hasOwn(agentTools, "request_approval")) {
-        agentApproval.request_approval = "user-approval"
-      }
-      const [workspaceInstructions, rosterText] = await Promise.all([
-        loadWorkspaceInstructions(ctx.workspaceId),
-        loadMentionRoster(ctx.workspaceId),
-      ])
+      // The profile and log are read here but only used when the epoch's
+      // prompt is frozen: later changes arrive as change notes.
+      const [workspaceInstructions, rosterText, profile, agentLog] =
+        await Promise.all([
+          loadWorkspaceInstructions(ctx.workspaceId),
+          loadMentionRoster(ctx.workspaceId),
+          loadChannelProfile(ctx.channelId),
+          channelAgentLog(ctx.channelId),
+        ])
       const turn = await runAgentTurn({
         workspaceId: ctx.workspaceId,
         channelId: ctx.channelId,
         agent: ctx.agent,
         run,
         model: agentModel,
-        instructions: `${buildSystemPrompt(connectorPromptLines, ANSWERING)}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}\n\n${channelAgentPromptSection(ctx.agent)}${rosterText}`,
+        instructions: `${buildSystemPrompt(connectorPromptLines, ANSWERING)}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}\n\n${channelAgentPromptSection(ctx.agent)}\n\n${channelProfileSection(profile)}${agentLog ? `\n\n${agentLog}` : ""}${rosterText}`,
         tools: agentTools,
         toolsContext,
         approval: agentApproval,

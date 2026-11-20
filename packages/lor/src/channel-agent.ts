@@ -45,8 +45,9 @@ export type CompleteAgentLoop = (input: {
 export type RunAgentContext = {
   channelName: string | null
   sendMessage: SendMessageExecutor
-  // "compact" summarizes the conversation instead of running a turn.
-  mode: "turn" | "compact"
+  // "compact" summarizes the conversation instead of running a turn;
+  // "memory" runs the memory pass after a turn.
+  mode: "turn" | "compact" | "memory"
   // Adds one model call to the run's counters and spend, under its lease.
   recordUsage: (
     usage: RunStepRecord,

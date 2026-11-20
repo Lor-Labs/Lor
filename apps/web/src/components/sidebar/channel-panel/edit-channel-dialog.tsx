@@ -30,6 +30,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
+import { AgentFactsList } from "@/components/sidebar/channel-panel/agent-facts-list"
 import { AgentModelSelect } from "@/components/sidebar/channel-panel/agent-model-select"
 import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
 import { MorphText } from "@/components/ui/morph-text"
@@ -106,6 +107,7 @@ export function EditChannelDialog({
   const [profileId, setProfileId] = useState(channel.agentProfileId ?? INHERIT)
   const [agentModel, setAgentModel] = useState(channel.agentModel ?? null)
   const [wakeMode, setWakeMode] = useState(channel.agentWakeMode ?? "mention")
+  const [brief, setBrief] = useState(channel.agentBrief ?? "")
 
   useEffect(() => {
     if (open) {
@@ -115,6 +117,7 @@ export function EditChannelDialog({
       setProfileId(channel.agentProfileId ?? INHERIT)
       setAgentModel(channel.agentModel ?? null)
       setWakeMode(channel.agentWakeMode ?? "mention")
+      setBrief(channel.agentBrief ?? "")
     }
   }, [
     open,
@@ -125,6 +128,7 @@ export function EditChannelDialog({
     channel.agentProfileId,
     channel.agentModel,
     channel.agentWakeMode,
+    channel.agentBrief,
   ])
 
   const { data: profilesData } = useQuery({
@@ -159,7 +163,13 @@ export function EditChannelDialog({
             : { agentProfileId: profileId === INHERIT ? null : profileId }),
           ...(overviewOnly || isCategory
             ? {}
-            : { agentModel, agentWakeMode: wakeMode }),
+            : {
+                agentModel,
+                agentWakeMode: wakeMode,
+                ...(brief !== (channel.agentBrief ?? "")
+                  ? { agentBrief: brief.trim() || null }
+                  : {}),
+              }),
         },
       })
       if (!res.ok) {
@@ -240,7 +250,8 @@ export function EditChannelDialog({
     (!isCategory && topic !== (channel.topic ?? "")) ||
     profileId !== (channel.agentProfileId ?? INHERIT) ||
     agentModel !== (channel.agentModel ?? null) ||
-    wakeMode !== (channel.agentWakeMode ?? "mention")
+    wakeMode !== (channel.agentWakeMode ?? "mention") ||
+    brief !== (channel.agentBrief ?? "")
   const isValid = name.trim().length > 0
 
   const selectedProfile =
@@ -411,6 +422,25 @@ export function EditChannelDialog({
                             which ones it answers right away.
                           </p>
                         </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="channel-agent-brief">Brief</Label>
+                          <Textarea
+                            id="channel-agent-brief"
+                            value={brief}
+                            onChange={(e) => setBrief(e.target.value)}
+                            maxLength={4000}
+                            rows={4}
+                            placeholder="What Lor should know and do here, e.g. “Watch deploys and tell us in two lines when one fails. Zoe owns the pipeline.”"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Standing instructions for Lor in this channel. Only
+                            people write the brief.
+                          </p>
+                        </div>
+                        <AgentFactsList
+                          workspaceSlug={workspaceSlug}
+                          channelId={channel.id}
+                        />
                       </>
                     )}
                     {customProfiles.length > 0 && (

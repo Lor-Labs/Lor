@@ -160,7 +160,9 @@ function proposeLoop(description: string) {
         ),
       endAfter: z
         .object({
-          amount: z.number().int().min(1).max(365),
+          // Anthropic's strict tools reject integer bounds, and zod's int()
+          // emits the safe-integer bounds, so it is checked when the tool runs.
+          amount: z.number().describe("a whole number from 1 to 365"),
           unit: z.enum(["days", "weeks", "months"]),
         })
         .nullable()
@@ -173,6 +175,17 @@ function proposeLoop(description: string) {
       { name, instructions, schedule, timezone, endCondition, endAfter },
       { context }
     ) => {
+      if (
+        endAfter &&
+        (!Number.isInteger(endAfter.amount) ||
+          endAfter.amount < 1 ||
+          endAfter.amount > 365)
+      ) {
+        return {
+          ok: false as const,
+          error: "endAfter.amount must be a whole number from 1 to 365",
+        }
+      }
       // Validated at proposal so the card never carries an invalid cron;
       // a failure comes back to the model, which can fix the expression.
       // Unpinned tz validates in UTC — gap checks are tz-insensitive at the

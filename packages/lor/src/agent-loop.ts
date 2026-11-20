@@ -26,6 +26,13 @@ import {
 import { z } from "zod"
 import { aiRuntimeContext, aiTelemetry } from "./ai-observability"
 import type { RunAgentContext } from "./channel-agent"
+import {
+  applyFactChanges,
+  factsForMemoryPass,
+  loadChannelProfile,
+  memoryPassRequest,
+  parseFactChanges,
+} from "./channel-profile"
 import { logger } from "./logger"
 import { lorGatewayModel } from "./models"
 import type {
@@ -319,14 +326,23 @@ function withLongCache(
 }
 
 // One provider per conversation: the prompt cache and reasoning signatures
-// both live with the provider that wrote them.
-function gatewayOptions(model: string) {
+// both live with the provider that wrote them. The gateway's session
+// affinity puts a session's last provider ahead of `order`; without our own
+// session id it fingerprints the prompt's opening and pinned every channel
+// agent to one provider. One id per conversation (channel and epoch), shared
+// by its turns, memory passes and compaction, also pins the exact credential.
+function gatewayOptions(model: string, conversation: string) {
   return {
     gateway: {
       caching: "auto" as const,
+      sessionId: conversation,
       ...(model.startsWith("anthropic/") ? { order: ["anthropic"] } : {}),
     },
   }
+}
+
+function conversationId(channelId: string, epoch: number): string {
+  return `lor-agent-${channelId}-${epoch}`
 }
 
 // Reasoning signed under an earlier tool set or model is dropped from the
@@ -584,6 +600,17 @@ async function turnLoop(
   const startedAt = messages.length
   const window = contextWindowOf(args.model)
   let promptTokens = context.promptTokens
+  // The standing cache check (always-on-agents.md §8, step 4.5): the first
+  // call of a turn is expected warm only when the last turn ended within the
+  // 5-minute lifetime (or the hour, above the compaction size); every later
+  // call should read what the call before it sent.
+  const lifetimeMs =
+    promptTokens >= COMPACT_AT_TOKENS ? 55 * 60_000 : 4 * 60_000
+  let expectWarm =
+    context.lastTurnEndedAt !== null &&
+    Date.now() - context.lastTurnEndedAt.getTime() < lifetimeMs
+  let lastProvider: string | undefined
+  const turnCache = { calls: 0, input: 0, cacheRead: 0, coldFirst: false }
   let sentMessages = 0
   let stoppedFor: RunStopCause | undefined
   const approvals: PendingApproval[] = []
@@ -643,6 +670,7 @@ async function turnLoop(
         steps = await loadEpochSteps(channelId, context.epoch)
         messages = promptMessages(steps, context.reasoningCutSeq)
         promptTokens = 0
+        expectWarm = false
       }
     }
 
@@ -655,14 +683,41 @@ async function turnLoop(
       toolsContext: args.toolsContext as never,
       toolApproval,
       stopWhen: isStepCount(1),
-      providerOptions: gatewayOptions(args.model),
+      providerOptions: gatewayOptions(
+        args.model,
+        conversationId(channelId, context.epoch)
+      ),
       ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
       runtimeContext: aiRuntimeContext(),
       telemetry: aiTelemetry("lor.agent"),
     })
     const usage = stepUsage(args.model, result)
+    const routing = (
+      result.providerMetadata?.gateway as
+        | {
+            routing?: {
+              finalProvider?: string
+              modelAttempts?: {
+                providerAttempts?: {
+                  provider?: string
+                  success?: boolean
+                  statusCode?: number
+                }[]
+              }[]
+            }
+          }
+        | undefined
+    )?.routing
+    const provider = routing?.finalProvider
+    // A provider that refused the call before the gateway fell back: the
+    // fallback's cache is cold, so it is logged with the call.
+    const refusedBy = (routing?.modelAttempts ?? [])
+      .flatMap((attempt) => attempt.providerAttempts ?? [])
+      .filter((attempt) => attempt.success === false)
+      .map((attempt) => `${attempt.provider}:${attempt.statusCode ?? "?"}`)
     // A cache miss is a bug (always-on-agents.md §8): every call logs its
-    // cached share.
+    // cached share, and a miss where the cache should be warm is flagged
+    // with what could explain it.
     logger.info(
       {
         channelId,
@@ -671,14 +726,40 @@ async function turnLoop(
         cacheRead: usage.cachedInputTokens,
         cacheWrite: result.usage.inputTokenDetails.cacheWriteTokens ?? 0,
         messages: messages.length,
-        provider: (
-          result.providerMetadata?.gateway as
-            | { routing?: { finalProvider?: string } }
-            | undefined
-        )?.routing?.finalProvider,
+        provider,
+        ...(refusedBy.length > 0 ? { refusedBy } : {}),
       },
       "Agent model call"
     )
+    if (turnCache.calls === 0 && usage.cachedInputTokens === 0) {
+      turnCache.coldFirst = true
+    }
+    if (
+      expectWarm &&
+      promptTokens > 4_096 &&
+      usage.cachedInputTokens < promptTokens * 0.5
+    ) {
+      logger.warn(
+        {
+          channelId,
+          runId: run.runId,
+          call: turnCache.calls + 1,
+          expectedCached: promptTokens,
+          cacheRead: usage.cachedInputTokens,
+          provider,
+          previousProvider: lastProvider ?? context.model,
+          systemHash: sha256(system).slice(0, 12),
+          toolsHash: toolsHash.slice(0, 12),
+          reasoningCutSeq: context.reasoningCutSeq,
+        },
+        "Agent cache miss"
+      )
+    }
+    turnCache.calls += 1
+    turnCache.input += usage.inputTokens
+    turnCache.cacheRead += usage.cachedInputTokens
+    expectWarm = true
+    lastProvider = provider
     const counters = await agent.recordUsage(usage, "step")
     ledgerSpend.credits = counters.creditsSpent
     ledger.add(usage, counters.costUsd)
@@ -730,6 +811,20 @@ async function turnLoop(
     .update(schema.agentContext)
     .set({ promptTokens, lastTurnEndedAt: new Date() })
     .where(eq(schema.agentContext.channelId, channelId))
+  if (turnCache.calls > 0) {
+    logger.info(
+      {
+        channelId,
+        runId: run.runId,
+        calls: turnCache.calls,
+        inputTokens: turnCache.input,
+        cacheRead: turnCache.cacheRead,
+        cachedShare: Math.round((turnCache.cacheRead / turnCache.input) * 100),
+        coldFirst: turnCache.coldFirst,
+      },
+      "Agent turn cache"
+    )
+  }
 
   return {
     text: lastAssistantText(messages.slice(startedAt)),
@@ -806,7 +901,10 @@ export async function compactAgentConversation(args: {
     messages,
     tools: inert,
     stopWhen: isStepCount(1),
-    providerOptions: gatewayOptions(args.model),
+    providerOptions: gatewayOptions(
+      args.model,
+      conversationId(args.channelId, context.epoch)
+    ),
     ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
     runtimeContext: aiRuntimeContext(),
     telemetry: aiTelemetry("lor.agent.compact"),
@@ -866,6 +964,123 @@ export async function compactAgentConversation(args: {
     "Agent conversation compacted"
   )
   return { epoch: next, summaryChars: summary.length }
+}
+
+const MEMORY_PASS_CALLS = 6
+const MEMORY_TOOLS: ReadonlySet<string> = new Set([
+  "memory_ls",
+  "memory_read",
+  "memory_write",
+  "memory_edit",
+  "memory_link",
+])
+const NOT_IN_MEMORY_PASS = {
+  ok: false as const,
+  error: "Only the memory tools run during the memory pass.",
+}
+
+export type MemoryPassResult = {
+  added: number
+  edited: number
+  removed: number
+  calls: number
+}
+
+// After a turn, on its own prompt while the cache is warm (decision 11): the
+// same tools, system prompt and model, with the current facts and the request
+// added at the end. It changes facts through its closing block and brain
+// pages through the memory tools; every other tool is refused, and so is a
+// memory tool an approval rule covers. Nothing it writes joins the history.
+export async function agentMemoryPass(args: {
+  workspaceId: string
+  channelId: string
+  // The turn it follows: the pass reads the history up to that turn's end.
+  turnRunId: string
+  model: string
+  tools: ToolSet
+  toolsContext: unknown
+  gated: ReadonlySet<string>
+  record: (usage: RunStepRecord & { reasoningTokens: number }) => void
+  abortSignal?: AbortSignal
+}): Promise<MemoryPassResult | null> {
+  const context = await loadAgentContext(args.workspaceId, args.channelId)
+  if (!context.system) return null
+  const steps = await loadEpochSteps(args.channelId, context.epoch)
+  const through = steps.filter((step) => step.runId === args.turnRunId).at(-1)
+  if (!through) return null
+  const history = steps.filter((step) => step.seq <= through.seq)
+  if (openApprovals(history.at(-1)).length > 0) return null
+
+  const profile = await loadChannelProfile(args.channelId)
+  const shown = factsForMemoryPass(profile.facts)
+  const tools = Object.fromEntries(
+    Object.entries(args.tools).map(([name, t]) => [
+      name,
+      MEMORY_TOOLS.has(name) && !args.gated.has(name)
+        ? t
+        : { ...(t as object), execute: async () => NOT_IN_MEMORY_PASS },
+    ])
+  ) as ToolSet
+  const messages: ModelMessage[] = [
+    ...promptMessages(history, context.reasoningCutSeq),
+    { role: "user", content: memoryPassRequest(shown.text) },
+  ]
+
+  let calls = 0
+  let reply = ""
+  while (calls < MEMORY_PASS_CALLS) {
+    const result = await generateText({
+      model: lorGatewayModel(args.model),
+      instructions: context.system,
+      messages,
+      tools,
+      toolsContext: args.toolsContext as never,
+      stopWhen: isStepCount(1),
+      providerOptions: gatewayOptions(
+        args.model,
+        conversationId(args.channelId, context.epoch)
+      ),
+      ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
+      runtimeContext: aiRuntimeContext(),
+      telemetry: aiTelemetry("lor.agent.memory"),
+    })
+    calls += 1
+    const usage = stepUsage(args.model, result)
+    args.record(usage)
+    logger.info(
+      {
+        channelId: args.channelId,
+        runId: args.turnRunId,
+        inputTokens: usage.inputTokens,
+        cacheRead: usage.cachedInputTokens,
+        outputTokens: usage.outputTokens,
+      },
+      "Agent memory pass call"
+    )
+    messages.push(...(result.responseMessages as ModelMessage[]))
+    reply = result.text
+    if (!result.content.some((part) => part.type === "tool-call")) break
+  }
+
+  const changes = parseFactChanges(reply)
+  if (!changes) {
+    logger.warn(
+      { channelId: args.channelId, runId: args.turnRunId, calls },
+      "Agent memory pass left no facts block"
+    )
+    return { added: 0, edited: 0, removed: 0, calls }
+  }
+  const applied = await applyFactChanges({
+    workspaceId: args.workspaceId,
+    channelId: args.channelId,
+    shown: shown.ids,
+    changes,
+  })
+  logger.info(
+    { channelId: args.channelId, runId: args.turnRunId, calls, ...applied },
+    "Agent memory pass ended"
+  )
+  return { ...applied, calls }
 }
 
 // The agent's own history, including what compaction left out of its

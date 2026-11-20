@@ -85,6 +85,10 @@ export const channel = pgTable(
     agentWakeMode: channelAgentWakeModeEnum("agent_wake_mode")
       .notNull()
       .default("mention"),
+    // The channel agent's brief: standing instructions only people write,
+    // in its system prompt (reference/always-on-agents.md §7).
+    agentBrief: text("agent_brief"),
+    agentBriefUpdatedAt: timestamp("agent_brief_updated_at"),
 
     // ordering within a category or workspace
     position: integer("position").default(0).notNull(),

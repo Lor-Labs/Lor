@@ -89,6 +89,9 @@ export const agentContext = pgTable("agent_context", {
   promptTokens: integer("prompt_tokens").notNull().default(0),
   lastTurnEndedAt: timestamp("last_turn_ended_at"),
   compactedAt: timestamp("compacted_at"),
+  // Profile changes up to here have reached the agent, in its system prompt
+  // or a turn's change note.
+  notesThrough: timestamp("notes_through"),
   updatedAt: timestamp("updated_at")
     .defaultNow()
     .$onUpdate(() => new Date())

@@ -72,12 +72,14 @@ import { getRedisClient } from "@/lib/redis"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CreateChannelRoute,
+  DeleteAgentFactRoute,
   DeleteChannelRoute,
   GetChannelAudienceRoute,
   GetChannelReadPositionRoute,
   GetChannelRoute,
   GetLinearIssuePromptRoute,
   GetMessageLocationRoute,
+  ListAgentFactsRoute,
   ListChannelConnectorsRoute,
   ListChannelMessagesRoute,
   ListChannelsRoute,
@@ -93,6 +95,7 @@ import type {
   SearchChannelConnectorRoute,
   SearchConnectorFilesRoute,
   ToggleMessagePinRoute,
+  UpdateAgentFactRoute,
   UpdateChannelRoute,
 } from "@/routes/v1/channels/routes"
 
@@ -479,7 +482,7 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
 
   // channel:update edits any channel. Without it, the channel's creator may
   // still rename it and change its topic; slowmode and the agent's profile,
-  // model and wake mode always need the permission.
+  // model, wake mode and brief always need the permission.
   const canUpdateAny = hasWorkspaceAuthority(c.var.authority, {
     channel: ["update"],
   })
@@ -487,7 +490,8 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
     body.rateLimitPerUser === undefined &&
     body.agentProfileId === undefined &&
     body.agentModel === undefined &&
-    body.agentWakeMode === undefined
+    body.agentWakeMode === undefined &&
+    body.agentBrief === undefined
   if (!canUpdateAny && !isNameOrTopicOnly) {
     return c.json(
       { success: false, message: "Forbidden" },
@@ -554,9 +558,19 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
       .for("update")
       .then((rows) => rows[0])
     if (!prior) return null
+    const { agentBrief, ...fields } = body
     const updated = await tx
       .update(channel)
-      .set(body)
+      .set({
+        ...fields,
+        // The agent learns of a new brief from a change note.
+        ...(agentBrief !== undefined
+          ? {
+              agentBrief: agentBrief?.trim() || null,
+              agentBriefUpdatedAt: new Date(),
+            }
+          : {}),
+      })
       .where(
         and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
       )
@@ -588,6 +602,152 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
   }
 
   return c.json(updated, HttpStatusCodes.OK)
+}
+
+// The channel agent's facts (reference/always-on-agents.md §7): anyone who
+// can see the channel may read, edit or delete them. A deleted fact keeps its
+// row so the agent's next turn can be told it is gone.
+async function loadAgentFact(channelId: string, factId: string) {
+  const [row] = await db
+    .select({
+      id: schema.channelAgentFact.id,
+      text: schema.channelAgentFact.text,
+      source: schema.channelAgentFact.source,
+      createdAt: schema.channelAgentFact.createdAt,
+      updatedAt: schema.channelAgentFact.updatedAt,
+      editorId: schema.user.id,
+      editorName: schema.user.name,
+    })
+    .from(schema.channelAgentFact)
+    .leftJoin(
+      schema.user,
+      eq(schema.user.id, schema.channelAgentFact.editedById)
+    )
+    .where(
+      and(
+        eq(schema.channelAgentFact.id, factId),
+        eq(schema.channelAgentFact.channelId, channelId),
+        isNull(schema.channelAgentFact.deletedAt)
+      )
+    )
+  return row ?? null
+}
+
+function serializeAgentFact(
+  row: NonNullable<Awaited<ReturnType<typeof loadAgentFact>>>
+) {
+  return {
+    id: row.id,
+    text: row.text,
+    source: row.source,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    editedBy:
+      row.editorId && row.editorName
+        ? { id: row.editorId, name: row.editorName }
+        : null,
+  }
+}
+
+export const listAgentFacts: AppRouteHandler<ListAgentFactsRoute> = async (
+  c
+) => {
+  const { channelId } = c.req.valid("param")
+  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const rows = await db
+    .select({
+      id: schema.channelAgentFact.id,
+      text: schema.channelAgentFact.text,
+      source: schema.channelAgentFact.source,
+      createdAt: schema.channelAgentFact.createdAt,
+      updatedAt: schema.channelAgentFact.updatedAt,
+      editorId: schema.user.id,
+      editorName: schema.user.name,
+    })
+    .from(schema.channelAgentFact)
+    .leftJoin(
+      schema.user,
+      eq(schema.user.id, schema.channelAgentFact.editedById)
+    )
+    .where(
+      and(
+        eq(schema.channelAgentFact.channelId, channelId),
+        isNull(schema.channelAgentFact.deletedAt)
+      )
+    )
+    .orderBy(
+      asc(schema.channelAgentFact.createdAt),
+      asc(schema.channelAgentFact.id)
+    )
+  return c.json({ facts: rows.map(serializeAgentFact) }, HttpStatusCodes.OK)
+}
+
+export const updateAgentFact: AppRouteHandler<UpdateAgentFactRoute> = async (
+  c
+) => {
+  const { channelId, factId } = c.req.valid("param")
+  const { text } = c.req.valid("json")
+  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const updated = await db
+    .update(schema.channelAgentFact)
+    .set({ text, updatedAt: new Date(), editedById: c.var.user.id })
+    .where(
+      and(
+        eq(schema.channelAgentFact.id, factId),
+        eq(schema.channelAgentFact.channelId, channelId),
+        isNull(schema.channelAgentFact.deletedAt)
+      )
+    )
+    .returning({ id: schema.channelAgentFact.id })
+  const row = updated[0] ? await loadAgentFact(channelId, factId) : null
+  if (!row) {
+    return c.json(
+      { success: false, message: "Fact not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  return c.json(serializeAgentFact(row), HttpStatusCodes.OK)
+}
+
+export const deleteAgentFact: AppRouteHandler<DeleteAgentFactRoute> = async (
+  c
+) => {
+  const { channelId, factId } = c.req.valid("param")
+  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const now = new Date()
+  const deleted = await db
+    .update(schema.channelAgentFact)
+    .set({ deletedAt: now, updatedAt: now, editedById: c.var.user.id })
+    .where(
+      and(
+        eq(schema.channelAgentFact.id, factId),
+        eq(schema.channelAgentFact.channelId, channelId),
+        isNull(schema.channelAgentFact.deletedAt)
+      )
+    )
+    .returning({ id: schema.channelAgentFact.id })
+  if (!deleted[0]) {
+    return c.json(
+      { success: false, message: "Fact not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
 export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {

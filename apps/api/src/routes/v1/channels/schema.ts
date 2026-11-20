@@ -73,6 +73,11 @@ const updateChannelRequestBaseSchema = updateChannelSchema
     agentModel: true,
     agentWakeMode: true,
   })
+  .extend({
+    // The channel agent's brief (reference/always-on-agents.md §7). Empty
+    // or null removes it.
+    agentBrief: z.string().max(4_000).nullable().optional(),
+  })
   .strict()
 
 export const updateChannelRequestSchema = updateChannelRequestBaseSchema.refine(
@@ -85,6 +90,40 @@ export const updateChannelRequestSchema = updateChannelRequestBaseSchema.refine(
 export const updateChannelResponseSchema = selectChannelSchema
 
 export const deleteChannelResponseSchema = z.object({
+  success: z.literal(true),
+})
+
+// ── Channel agent facts ──────────────────────────────────────────
+
+export const agentFactParamsSchema = channelParamsSchema.extend({
+  factId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "factId", in: "path", required: true },
+      example: "00000000-0000-0000-0000-000000000000",
+    }),
+})
+
+export const agentFactSchema = z.object({
+  id: z.string().uuid(),
+  text: z.string(),
+  source: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  // The person who last edited it in settings; null when the agent did.
+  editedBy: z.object({ id: z.string(), name: z.string() }).nullable(),
+})
+
+export const listAgentFactsResponseSchema = z.object({
+  facts: z.array(agentFactSchema),
+})
+
+export const updateAgentFactRequestSchema = z
+  .object({ text: z.string().trim().min(1).max(300) })
+  .strict()
+
+export const deleteAgentFactResponseSchema = z.object({
   success: z.literal(true),
 })
 

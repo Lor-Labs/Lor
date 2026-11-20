@@ -760,13 +760,119 @@ up in the card's thread.
 After it: the chat can run for weeks without growing, and the agent knows
 the channel.
 
-- [ ] 4.1 The channel profile: brief and facts, in Setup and in the prompt.
-- [ ] 4.2 The memory pass (§7), replacing today's write-back pass for the
-  agent.
-- [ ] 4.3 The log and the open block, derived from records.
-- [ ] 4.4 Tune the compaction size and wait from the measured cached
-  share. Compaction itself is in slice 1.
-- [ ] 4.5 A standing check on the cached share per turn.
+- [x] 4.1 The channel profile. Built 2026-11-20
+  (`packages/lor/src/channel-profile.ts`).
+  - The brief is `channel.agent_brief`, written in the channel's Agent
+    settings (needs `channel:update`, like the model and wake mode). Facts
+    are `channel_agent_fact` rows: text, source, date, the person who last
+    edited one, and a soft delete so the next turn can be told it is gone.
+    The Agent settings list them; anyone who can see the channel may edit or
+    delete one through the API (`/channels/:id/agent-facts`), though the
+    settings tab itself still needs `channel:update`.
+  - Both go into the system prompt snapshot, frozen per conversation. The
+    brief is presented as the team's instructions, the facts as information
+    of uneven weight.
+  - Change notes: the newest message of a turn starts with what changed in
+    the brief or facts since the agent's last turn
+    (`agent_context.notes_through`). A conversation not frozen yet gets the
+    profile in its snapshot instead.
+- [x] 4.2 The memory pass. Built 2026-11-20 (`agentMemoryPass` in
+  `packages/lor/src/agent-loop.ts`, run as mode `memory` through
+  `respond()`).
+  - Right after a turn, in the turn's job but after the next turn is free
+    to start. It reuses the turn's context, so the tools, system prompt,
+    model and gateway session match and it reads the turn's cache. It reads
+    the history up to the end of that turn, plus the current facts with
+    short ids and the request (`memoryPassRequest`).
+  - It returns fact changes in a closing `<facts>` block (add, edit, remove,
+    by id), applied within 100 facts and about 4,000 characters. It edits
+    brain pages with the memory tools only. Every other tool is refused, and
+    so is a memory tool an approval rule covers. Up to six calls.
+  - Facts a person edited in settings are marked, and the pass leaves them
+    as written unless they are wrong. It writes dates, not "this week".
+  - Write-back no longer runs for the agent. The brain-page bar and page
+    format are shared with write-back (`packages/lor/src/brain-rules.ts`,
+    write-back's prompt unchanged byte for byte).
+  - Skipped for a turn paused on approvals (its continuation gets one) and
+    for a turn a person stopped. Usage folds into the turn's run and bills
+    like the turn.
+- [x] 4.3 The log and the open block. Built 2026-11-20.
+  - The log (`channelAgentLog`) is in the snapshot: the last 7 days from
+    records, up to 40 lines, oldest first. Events with their source and
+    first line, Loop runs, session reports, sessions the agent started,
+    approvals and who decided them, and its posts per day.
+  - The open block (`openBlock`) starts each turn's newest message: the
+    agent's sessions still working, approvals people haven't decided, and
+    the channel's Loops with their next run. Wake-ups join it in slice 5.
+- [x] 4.4 Compaction size and wait, from measured cache numbers
+  (2026-11-20). No change yet; numbers and options below.
+- [x] 4.5 The standing cache check. Built 2026-11-20.
+  - Every call logs its cached share, provider, and any provider that
+    refused it before the gateway fell back. A call that should have been
+    warm (not the first of a turn, or the first within the cache lifetime
+    of the last turn) and read less than half its prompt from cache logs
+    "Agent cache miss" with the provider before and after, the system and
+    tools hashes and the reasoning cut. Each turn logs "Agent turn cache".
+  - Per turn in the database: `agent_run.cached_input_tokens` over
+    `agent_run.input_tokens` for runs with `scope_key` = the channel (turn
+    and memory pass together).
+
+**What the cache check found on its first day (2026-11-20)**
+
+- Since slice 3, every agent request was refused with a 400 by Anthropic,
+  Claude on AWS and Bedrock: `propose_loop` is a strict tool and its
+  `endAfter.amount` was `z.number().int().min(1).max(365)`. Anthropic's
+  strict tools reject integer bounds, and zod's `int()` emits the
+  safe-integer bounds anyway. The gateway fell back to Vertex, which drops
+  `strict`. Fixed: a plain number, checked when the tool runs.
+- The gateway's session affinity then kept every channel agent on Vertex.
+  Without a session id it fingerprints the prompt's opening and puts the
+  pinned provider ahead of `order`. On Vertex the first turn of a
+  conversation sometimes missed the cache two calls in a row. Fixed: one
+  gateway `sessionId` per conversation (channel and epoch), shared by its
+  turns, memory passes and compaction, which also pins the exact
+  credential.
+
+**Measured (dev database, Opus 5.5, prompts of 20k to 46k tokens)**
+
+- Within a turn, calls after the first read 92 to 99% from cache, on one
+  provider.
+- The first call of a turn read the cache only when the previous turn
+  ended under 5 minutes before. Every wake after a longer gap was a full
+  write: about $0.10 at 20k tokens, $0.23 at 46k, $0.50 at 100k (writes at
+  $5 per million on the 5-minute cache).
+- The memory pass read 92 to 99% from cache: one more cheap call per turn,
+  about 200 output tokens. A turn plus its memory pass was 82% cached
+  overall on a channel's first turn.
+- No conversation reached 100k, so compaction's own cost is still
+  unmeasured.
+
+Options for the cold first call, not built: the 1-hour cache on the last
+call of every turn (writes at 2x; the Anthropic docs don't say whether
+re-marking a cached prefix re-bills it, so measure first), a keep-alive
+read while a channel is active, or a lower compaction size (60k would cut
+each cold wake by 40% and compact more often). Pick from production gaps:
+the share of turns logged with `coldFirst: true`.
+
+Checked 2026-11-20 on the dev database:
+- A brief written in settings reached a new conversation's snapshot.
+- "Remember that Zoe owns the deploy pipeline and Priya reviews every
+  migration" became two facts sourced to the person who said them.
+- A fact edited in settings reached the next turn as a change note, and
+  the agent answered from it.
+- The log rendered for a channel with events, Loop runs and approvals.
+- After both fixes, every call went to Anthropic with no refusals, and the
+  memory pass read warm.
+
+**Deviations and gaps in slice 4**
+
+- The settings tab that lists facts needs `channel:update`, so other members
+  can't reach the edit and delete the API allows them.
+- A person can't add a fact in settings, only edit or delete one. They ask
+  Lor to remember it instead.
+- Mobile has no Agent settings yet: no brief or facts there.
+- The log is a snapshot, so a conversation that never compacts keeps the
+  log from when it started. Change notes cover the profile, not the log.
 
 **Slice 5: it follows up by itself**
 

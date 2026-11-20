@@ -13,7 +13,7 @@ import {
 } from "@repo/db"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import { env } from "@repo/env/server"
-import { type ModelMessage, respond, writeBack } from "@repo/lor"
+import { type ModelMessage, respond } from "@repo/lor"
 import { saveHandoffNote } from "@repo/lor/act-runs"
 import {
   AGENT_DEFAULT_MODEL,
@@ -31,6 +31,7 @@ import {
   markInboxRead,
   type RunAgentContext,
 } from "@repo/lor/channel-agent"
+import { openBlock, profileChangeNotes } from "@repo/lor/channel-profile"
 import { LoopProposalError, type ProposeLoopExecutor } from "@repo/lor/loops"
 import {
   ProposalRefusedError,
@@ -185,6 +186,26 @@ async function createTurnRun(args: {
   loop?: { id: string; scheduledFor: Date | null } | null
 }): Promise<string | null> {
   const loop = args.loop ?? args.batch?.loop ?? null
+  // The newest message carries what changed in the profile since the agent
+  // last saw it and what is open now (reference/always-on-agents.md §4). A
+  // conversation not frozen yet gets the profile in its snapshot instead.
+  const notedAt = new Date()
+  let opening: string | null = null
+  if (args.batch) {
+    const context = await loadAgentContext(args.workspaceId, args.channelId)
+    const [notes, open] = await Promise.all([
+      context.system
+        ? profileChangeNotes(
+            args.channelId,
+            context.notesThrough ?? context.compactedAt ?? new Date(0)
+          )
+        : null,
+      openBlock(args.channelId),
+    ])
+    opening = [turnHeader(notedAt), notes, open, args.batch.text]
+      .filter((part): part is string => Boolean(part))
+      .join("\n\n")
+  }
   try {
     return await db.transaction(async (tx) => {
       const [run] = await tx
@@ -202,7 +223,7 @@ async function createTurnRun(args: {
         })
         .returning({ id: schema.agentRun.id })
       if (!run) throw new Error("Agent run insert returned no row")
-      if (args.batch) {
+      if (args.batch && opening) {
         const context = await loadAgentContext(args.workspaceId, args.channelId)
         await appendSteps(tx, {
           workspaceId: args.workspaceId,
@@ -210,15 +231,13 @@ async function createTurnRun(args: {
           epoch: context.epoch,
           runId: run.id,
           steps: [
-            {
-              kind: "inbox",
-              message: {
-                role: "user",
-                content: `${turnHeader(new Date())}\n\n${args.batch.text}`,
-              },
-            },
+            { kind: "inbox", message: { role: "user", content: opening } },
           ],
         })
+        await tx
+          .update(schema.agentContext)
+          .set({ notesThrough: notedAt })
+          .where(eq(schema.agentContext.channelId, args.channelId))
         await markInboxRead(tx, args.batch.itemIds, run.id)
         // The delivery log points at the turn that read each event.
         if (args.batch.deliveryIds.length > 0) {
@@ -366,13 +385,6 @@ function sentText(messages: ModelMessage[]): string[] {
         )
       : []
   )
-}
-
-function inboxText(messages: ModelMessage[]): string {
-  const first = messages[0]
-  return first?.role === "user" && typeof first.content === "string"
-    ? first.content
-    : ""
 }
 
 async function claim(job: Job, token: string | undefined, runId: string) {
@@ -554,28 +566,34 @@ export async function runAgentTurnJob(
     const typing = addressed
       ? showTyping(deps, channelId, threadRootId)
       : { pause: () => {}, stop: () => {} }
+    // The memory pass reuses this context, so its tools and prompt match
+    // the turn's and it reads the turn's cache.
+    const turnContext = {
+      workspaceId,
+      channelId,
+      conversation: [],
+      runId,
+      ...(run?.triggerMessageId
+        ? { triggerMessageId: run.triggerMessageId }
+        : {}),
+      ...(userId ? { userId } : {}),
+      aiSessionId: channelId,
+      turn: { model: channel.agentModel ?? AGENT_DEFAULT_MODEL },
+      proposeLoop: agentProposeLoop(
+        deps,
+        { id: channelId, workspaceId },
+        userId ?? null
+      ),
+      proposeChange: agentProposeChange(
+        deps,
+        { id: channelId, workspaceId },
+        userId ?? null
+      ),
+    }
+    const turnPlace = { askerId: userId ?? null, threadRootId }
     const result = await respond(
       {
-        workspaceId,
-        channelId,
-        conversation: [],
-        runId,
-        ...(run?.triggerMessageId
-          ? { triggerMessageId: run.triggerMessageId }
-          : {}),
-        ...(userId ? { userId } : {}),
-        aiSessionId: channelId,
-        turn: { model: channel.agentModel ?? AGENT_DEFAULT_MODEL },
-        proposeLoop: agentProposeLoop(
-          deps,
-          { id: channelId, workspaceId },
-          userId ?? null
-        ),
-        proposeChange: agentProposeChange(
-          deps,
-          { id: channelId, workspaceId },
-          userId ?? null
-        ),
+        ...turnContext,
         agent: agentHooks(
           deps,
           execution,
@@ -585,7 +603,7 @@ export async function runAgentTurnJob(
             sent = true
             typing.pause()
           },
-          { askerId: userId ?? null, threadRootId }
+          turnPlace
         ),
       },
       {
@@ -685,27 +703,38 @@ export async function runAgentTurnJob(
     const said = sentText(result.messages)
     if (said.length > 0) await saveHandoffNote(runId, said.join("\n\n"))
 
-    // Today's memory pass, until the memory pass of slice 4 replaces it.
-    if (result.messages.length > 0 && !stoppedByUser) {
-      await writeBack(
+    // The next turn may start now; the memory pass doesn't hold it up.
+    await flushIfWaiting(deps, channelId)
+
+    // The memory pass (decision 11), on the turn's warm cache. It replaces
+    // write-back for the agent; a turn paused on approvals has its pass when
+    // it goes on.
+    if (result.messages.length > 0 && !stoppedByUser && !parkedApprovalId) {
+      await respond(
         {
-          workspaceId,
-          channelId,
-          priorMessages: result.messages,
-          gateText: [
-            inboxText(result.messages),
-            ...said.map((s) => `Lor: ${s}`),
-          ]
-            .filter(Boolean)
-            .join("\n\n"),
+          ...turnContext,
+          agent: agentHooks(
+            deps,
+            execution,
+            { ...channel, workspaceId },
+            "memory",
+            () => {},
+            turnPlace
+          ),
         },
         {
+          onDelta: () => {},
           onUsage: (u) => {
             execution.addUsage(u)
-            void recordUsage(u, { channelId, debitScope: runId })
+            void recordUsage(u, {
+              channelId,
+              userId: userId ?? null,
+              debitScope: runId,
+            })
           },
-        }
-      ).catch((err) => logger.warn({ err, runId }, "Agent write-back failed"))
+        },
+        execution.handle
+      ).catch((err) => logger.warn({ err, runId }, "Agent memory pass failed"))
     }
 
     if (agent && agent.promptTokens >= COMPACT_AT_TOKENS) {
