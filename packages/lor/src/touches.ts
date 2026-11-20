@@ -188,8 +188,9 @@ const CATALOG_SPECS: Record<
   ],
   update_betterstack_error_state: (input) => [betterstackError(input)],
   search_web: null,
+  // A plain web page is not an item: only a connector link counts.
   fetch_web: (input, output) => [
-    urlItem(str(output, "url") ?? str(input, "url") ?? ""),
+    itemFromUrl(str(output, "url") ?? str(input, "url") ?? ""),
   ],
   // Sandbox files are private until shared; only a shared file is an item.
   bash: null,
@@ -212,8 +213,8 @@ const READ_ONLY = new Map<string, boolean>([
   ...STANDALONE_TOOLS.map((t): [string, boolean] => [t.name, t.readOnlyHint]),
 ])
 
-// Lor's own tools. Unlisted tools (plans, reactions, MCP and custom tools)
-// touch nothing.
+// Lor's own tools and Claude Code's page fetch. Unlisted tools (plans,
+// reactions, MCP and custom tools) touch nothing.
 const CORE_SPECS: Record<
   string,
   (input: Rec, output: Rec) => (Touch | BrainPathTouch | null)[]
@@ -224,7 +225,14 @@ const CORE_SPECS: Record<
   memory_read: (input) => [brainPathOf(str(input, "path"), "read")],
   memory_write: (_input, output) => [brainPathOf(str(output, "path"), "wrote")],
   memory_edit: (_input, output) => [brainPathOf(str(output, "path"), "wrote")],
+  // Claude Code's own page fetch, recorded like fetch_web.
+  WebFetch: (input) => [
+    withAction(itemFromUrl(str(input, "url") ?? ""), "read"),
+  ],
 }
+
+const withAction = (i: Item | null, action: TouchAction): Touch | null =>
+  i ? { ...i, action } : null
 
 function touchOf(
   kind: TouchKind,
@@ -276,11 +284,10 @@ const TOOL_CALL_READERS: Record<
   codex: codexToolCalls,
 }
 
-// The run's tool calls from the session's saved harness log, without failed
-// or refused calls. Text results (built-in tools, MCP) carry no typed fields.
-async function runToolCalls(
-  sessionId: string,
-  runId: string
+// The session's tool calls from its saved harness log, without failed or
+// refused calls. Text results (built-in tools, MCP) carry no typed fields.
+async function sessionToolCalls(
+  sessionId: string
 ): Promise<PiToolCallRecord[]> {
   const chunks = await db
     .select({
@@ -298,32 +305,71 @@ async function runToolCalls(
   const kind = chunks[0]?.kind
   const calls = kind ? TOOL_CALL_READERS[kind](chunks) : []
   return calls.filter(
-    (call) =>
-      call.runId === runId &&
-      !call.isError &&
-      deniedReason(call.outputText) === null
+    (call) => !call.isError && deniedReason(call.outputText) === null
   )
 }
+
+const callTouches = (call: PiToolCallRecord) =>
+  touchesForCall({
+    toolName: call.toolName,
+    input: call.input,
+    output: call.output ?? {},
+  })
 
 const MARKDOWN_LINK = /\]\((https?:\/\/[^\s)]+)\)|<(https?:\/\/[^\s>]+)>/g
 const BARE_URL = /https?:\/\/[^\s<>()[\]"']+/g
 
-function linkTouches(reply: string, seen: string): (Touch | null)[] {
+const bareUrls = (text: string) =>
+  [...text.matchAll(BARE_URL)].map((m) => m[0].replace(/[.,;:!?]+$/, ""))
+
+// Hash and host case are already dropped by the item key; a trailing slash
+// often differs between a pasted link and the one Lor writes.
+const linkKey = (i: Item) => `${i.kind}|${i.value.replace(/\/+$/, "")}`
+
+// Reply links that count as cited. A plain web link counts only when someone
+// pasted it into the session: docs Lor found itself repeat the reply's
+// sources and would link unrelated sessions. A connector item counts when the
+// session's tools returned or fetched it or the session touched it before.
+// A made-up link records nothing.
+async function citableLinks(
+  sessionId: string,
+  calls: PiToolCallRecord[]
+): Promise<Set<string>> {
+  const keys = new Set<string>()
+  const add = (i: Item | BrainPathTouch | null) => {
+    if (i && !("brainPath" in i)) keys.add(linkKey(i))
+  }
+  for (const call of calls) {
+    bareUrls(call.outputText).forEach((url) => add(itemFromUrl(url)))
+    callTouches(call).forEach(add)
+  }
+  const touched = await db
+    .select({
+      kind: schema.touch.kind,
+      value: schema.touch.value,
+      action: schema.touch.action,
+    })
+    .from(schema.touch)
+    .where(eq(schema.touch.sessionId, sessionId))
+  for (const t of touched) {
+    if (t.kind !== "url" || t.action === "mentioned") add(t)
+  }
+  return keys
+}
+
+function linkTouches(reply: string, citable: Set<string>): (Touch | null)[] {
   return [...reply.matchAll(MARKDOWN_LINK)].map((m) => {
-    const url = m[1] ?? m[2] ?? ""
-    if (!seen.includes(url)) return null
-    const found = urlItem(url)
-    return found ? { ...found, action: "cited" } : null
+    const found = urlItem(m[1] ?? m[2] ?? "")
+    return found && citable.has(linkKey(found))
+      ? withAction(found, "cited")
+      : null
   })
 }
 
 // Links people pasted into the turn's prompts.
 function mentionTouches(prompts: string[]): (Touch | null)[] {
   return prompts.flatMap((text) =>
-    [...text.matchAll(BARE_URL)].map((m) => {
-      const found = urlItem(m[0].replace(/[.,;:!?]+$/, ""))
-      return found ? { ...found, action: "mentioned" } : null
-    })
+    bareUrls(text).map((url) => withAction(urlItem(url), "mentioned"))
   )
 }
 
@@ -425,9 +471,9 @@ export async function recordPromptTouches(
   ])
 }
 
-// After the reply persists: citations and links in it. The run's tool calls
-// are read back from the saved log to check links against, and saved again
-// in case a live record was missed.
+// After the reply persists: citations and links in it. The session's tool
+// calls are read back from the saved log to check links against, and the
+// run's are saved again in case a live record was missed.
 export async function recordRunTouches(args: {
   workspaceId: string
   channelId: string
@@ -444,10 +490,10 @@ export async function recordRunTouches(args: {
     .then((r) => r[0])
   if (!session) return false
 
-  const calls = args.runId ? await runToolCalls(session.id, args.runId) : []
-  // Everything the run's tools returned: a link in the reply counts only if
-  // it came from here, so a made-up link records nothing.
-  const seen = calls.map((call) => call.outputText).join("\n")
+  const calls = await sessionToolCalls(session.id)
+  const runCalls = args.runId
+    ? calls.filter((call) => call.runId === args.runId)
+    : []
   return saveTouches(
     {
       workspaceId: args.workspaceId,
@@ -456,15 +502,9 @@ export async function recordRunTouches(args: {
       runId: args.runId,
     },
     [
-      ...calls.flatMap((call) =>
-        touchesForCall({
-          toolName: call.toolName,
-          input: call.input,
-          output: call.output ?? {},
-        })
-      ),
+      ...runCalls.flatMap(callTouches),
       ...citationTouches(args.replyText),
-      ...linkTouches(args.replyText, seen),
+      ...linkTouches(args.replyText, await citableLinks(session.id, calls)),
     ]
   )
 }
@@ -574,9 +614,7 @@ export function itemsInText(text: string): ItemRef[] {
   const add = (i: ItemRef | null) => {
     if (i) items.set(`${i.kind}|${i.value}`, i)
   }
-  for (const m of text.matchAll(BARE_URL)) {
-    add(urlItem(m[0].replace(/[.,;:!?]+$/, "")))
-  }
+  for (const url of bareUrls(text)) add(urlItem(url))
   for (const m of text.matchAll(ISSUE_KEY)) {
     add(item("linear_issue", linearIssueKey(m[0].toUpperCase())))
   }
