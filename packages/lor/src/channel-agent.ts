@@ -34,6 +34,17 @@ export type AgentSessionTools = {
   stop: (input: { sessionId: string }) => Promise<unknown>
 }
 
+// The agent's own follow-ups (reference/always-on-agents.md, decision 10).
+// The worker implements them; each returns what the model reads.
+export type AgentWakeUps = {
+  schedule: (input: {
+    note: string
+    inMinutes?: number
+    at?: string
+  }) => Promise<unknown>
+  cancel: (input: { wakeUpId: string }) => Promise<unknown>
+}
+
 // Ends one of the channel's Loops. Returns what the model reads.
 export type CompleteAgentLoop = (input: {
   loopId: string
@@ -57,6 +68,7 @@ export type RunAgentContext = {
   loadDecisions?: (pausedRunId: string) => Promise<ApprovalDecision[]>
   sessions?: AgentSessionTools
   completeLoop?: CompleteAgentLoop
+  wakeUps?: AgentWakeUps
 }
 
 const sendMessageContext = z.object({
@@ -135,6 +147,37 @@ export const agentSessionTools = {
   }),
 }
 
+const wakeUpContext = z.object({ wakeUps: z.custom<AgentWakeUps>() })
+
+export const agentWakeUpTools = {
+  wake_up: tool({
+    description:
+      'Schedule a turn for yourself later: at that time you are woken with your note. Use it for every follow-up you promise ("I\'ll check back in an hour") or need (look at a deploy again, see whether someone answered). It is the only way to come back later. Give `inMinutes` (1 to 43200) or `at` (an ISO 8601 time with an offset, e.g. 2026-11-21T15:00:00-05:00). The note is for your future self: what to check, why, and the ids you will need. Your pending wake-ups are listed under "Open right now" at the top of each turn.',
+    inputSchema: z.object({
+      note: z.string().min(1).max(2_000),
+      inMinutes: z.number().optional().describe("minutes from now, 1 to 43200"),
+      at: z.string().optional().describe("an ISO 8601 time with an offset"),
+    }),
+    contextSchema: wakeUpContext,
+    execute: async (input, { context }) => context.wakeUps.schedule(input),
+  }),
+  cancel_wake_up: tool({
+    description:
+      'Cancel a pending wake-up you set, when it is no longer needed. Its id is under "Open right now".',
+    inputSchema: z.object({
+      wakeUpId: z.string().uuid().describe("the wake-up's id"),
+    }),
+    contextSchema: wakeUpContext,
+    execute: async (input, { context }) => context.wakeUps.cancel(input),
+  }),
+}
+
+// What the agent reads when one of its wake-ups comes due. The chat never
+// says a wake-up woke it (decision 30).
+export function wakeUpInboxNote(input: { setAt: Date; note: string }): string {
+  return `A wake-up you set at ${input.setAt.toISOString().slice(0, 16).replace("T", " ")} UTC came due. Your note to yourself:\n${input.note}\n\nDo what it says if it still applies; things may have moved on. Speak in the chat only if there is something worth saying, as if you noticed it yourself.`
+}
+
 // The agent's complete_loop names the Loop: a channel has several, and the
 // tool set stays the same from turn to turn (it is part of the cached prompt).
 export const agentLoopTools = {
@@ -166,7 +209,7 @@ You are the always-on agent for ${channel}: one teammate the whole channel share
 - Nothing you write here reaches anyone. This conversation is your private working notes. To speak, call send_message: it posts in the channel's chat for everyone.
 - Answer the person who addressed you with one send_message. Mention them as <@id> only when the message needs their attention.
 - You may stay quiet. When nothing needs saying, end the turn without send_message.
-- Never promise to come back later unless a tool schedules it for you.
+- To follow up later, call wake_up. Never promise to come back otherwise.
 - You have no computer of your own yet: you can't run code, use a shell or make files yourself. Work on code goes to code sessions: start_session hands a task to a coding agent on one repository, and you are woken with its report when its turn ends. Tell people in the chat what you started and, when it reports, what came of it. People review the branch and open pull requests; you and the sessions never do.
 - A Loop is a schedule the team set for you: when one fires you are woken with its standing instructions, and you do its work then. propose_loop drafts a new one when a person asks for recurring work.
 - In the chat, never narrate what woke you: no "my Loop ran", "a scheduled check", "an event came in" or "my inbox". Say what you noticed and what it means, the way a teammate who was keeping an eye on things would.
@@ -175,11 +218,11 @@ You are the always-on agent for ${channel}: one teammate the whole channel share
 }
 
 // An item that is not a chat message: a session's report, an event a trigger
-// delivered, or a Loop's fire.
+// delivered, a Loop's fire or a wake-up.
 export async function addInboxNote(input: {
   workspaceId: string
   channelId: string
-  source: "session" | "trigger" | "loop"
+  source: "session" | "trigger" | "loop" | "wake_up"
   sourceId: string
   note: string
   lane: AgentInboxLane

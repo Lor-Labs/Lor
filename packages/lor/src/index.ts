@@ -111,6 +111,7 @@ import {
 import {
   agentLoopTools,
   agentSessionTools,
+  agentWakeUpTools,
   channelAgentPromptSection,
   type RunAgentContext,
   sendMessageTool,
@@ -2927,6 +2928,7 @@ async function respondImpl(
             ...readAgentHistoryTool,
             ...(ctx.agent.sessions ? agentSessionTools : {}),
             ...(ctx.agent.completeLoop ? agentLoopTools : {}),
+            ...(ctx.agent.wakeUps ? agentWakeUpTools : {}),
           }
         : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
@@ -3144,6 +3146,12 @@ async function respondImpl(
               : {}),
             ...(ctx.agent.completeLoop
               ? { complete_loop: { completeLoop: ctx.agent.completeLoop } }
+              : {}),
+            ...(ctx.agent.wakeUps
+              ? {
+                  wake_up: { wakeUps: ctx.agent.wakeUps },
+                  cancel_wake_up: { wakeUps: ctx.agent.wakeUps },
+                }
               : {}),
           }
         : {}),

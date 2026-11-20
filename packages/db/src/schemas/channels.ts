@@ -89,6 +89,9 @@ export const channel = pgTable(
     // in its system prompt (reference/always-on-agents.md §7).
     agentBrief: text("agent_brief"),
     agentBriefUpdatedAt: timestamp("agent_brief_updated_at"),
+    // When the channel got its agent's check-in Loop: it is made once, so a
+    // check-in someone deleted stays deleted.
+    agentCheckInAt: timestamp("agent_check_in_at"),
 
     // ordering within a category or workspace
     position: integer("position").default(0).notNull(),

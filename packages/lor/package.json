@@ -10,6 +10,7 @@
     "./agent-loop": "./src/agent-loop.ts",
     "./channel-agent": "./src/channel-agent.ts",
     "./channel-profile": "./src/channel-profile.ts",
+    "./check-in": "./src/check-in.ts",
     "./ai-observability": "./src/ai-observability.ts",
     "./artifacts": "./src/artifacts/service.ts",
     "./attachments": "./src/attachments/index.ts",

@@ -1,5 +1,7 @@
 import { db, eq, LOR_USER_ID, schema } from "@repo/db"
 import { addInboxMessage } from "@repo/lor/channel-agent"
+import { ensureCheckInLoop } from "@repo/lor/check-in"
+import { toRealtimeLoop } from "@repo/lor/loops"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import {
   AGENT_INBOX_BATCH_MS,
@@ -7,7 +9,29 @@ import {
   type AgentInboxFlushJobData,
 } from "@repo/realtime-types/queues"
 import type { Queue } from "bullmq"
+import { logger } from "@/lib/logger"
 import { isLorMentioned, isReplyToLor } from "@/services/lor-routing"
+
+// Channels whose check-in this process already made sure of.
+const checkedIn = new Set<string>()
+
+// A channel's agent comes with its check-in (always-on-agents.md, decision
+// 7). Channels made before it get theirs on their next message.
+function ensureCheckIn(
+  channelId: string,
+  onMade: (loop: ReturnType<typeof toRealtimeLoop>) => void
+) {
+  if (checkedIn.has(channelId)) return
+  checkedIn.add(channelId)
+  void ensureCheckInLoop(channelId)
+    .then((loop) => {
+      if (loop) onMade(toRealtimeLoop(loop))
+    })
+    .catch((err) => {
+      checkedIn.delete(channelId)
+      logger.warn({ err, channelId }, "Check-in Loop failed")
+    })
+}
 
 async function threadRootIsLor(threadRootId: string): Promise<boolean> {
   const [root] = await db
@@ -28,9 +52,12 @@ export async function addChatMessageToAgentInbox(args: {
   channelId: string
   message: RealtimeMessage
   queue: Queue<AgentInboxFlushJobData>
+  // Tells the channel about a check-in Loop made for it just now.
+  onCheckInMade: (loop: ReturnType<typeof toRealtimeLoop>) => void
   // "addressed": a mention of Lor or a reply to it, which always wakes it.
   // "skipped": a thread reply not for the agent.
 }): Promise<"addressed" | "wake" | "wait" | "duplicate" | "skipped"> {
+  ensureCheckIn(args.channelId, args.onCheckInMade)
   const threadRootId = args.message.threadRootId
   const addressed =
     isLorMentioned(args.message.content) ||

@@ -942,6 +942,10 @@ io.on("connection", (socket) => {
             channelId: parsed.channelId,
             message: createdMessage.message,
             queue: agentInboxQueue,
+            onCheckInMade: (loop) =>
+              io
+                .to(channelRoom(parsed.channelId))
+                .emit("loop:updated", { loop }),
           })
           // The agent's turn starts after a short batch delay; show it as
           // typing from the moment someone addresses it (the worker keeps it

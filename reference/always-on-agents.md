@@ -879,9 +879,74 @@ Checked 2026-11-20 on the dev database:
 After it: "I'll check in an hour" happens, and nothing unread waits more
 than half an hour.
 
-- [ ] 5.1 `wake_up` and its scheduler.
-- [ ] 5.2 The check-in Loop on every channel, with active hours.
-- [ ] 5.3 Needs you in the sidebar, and the two tabs.
+- [x] 5.1 `wake_up` and its scheduler. Built 2026-11-20.
+  - `wake_up` (a note, and `inMinutes` or `at` with an offset, from a
+    minute to 30 days out) and `cancel_wake_up`, on every turn of the
+    agent. Rows in `agent_wake_up`: due time, note, the turn that set it and
+    the person who woke that turn. At most 20 pending per channel.
+  - The minute sweep that runs Loops also fires due wake-ups
+    (`sweepDueWakeUps` in `apps/worker/src/lib/agent-wake-ups.ts`): each
+    becomes a wake-lane inbox item (source `wake_up`) carrying the note,
+    then is marked fired. A crash between the two repeats safely.
+  - Pending wake-ups are in "Open right now", fired ones in the log.
+    Compaction waits when one is due within 15 minutes. Approvals on a
+    wake-up's turn ask the person who woke the turn that set it.
+  - Follow-ups: the channel's overview panel lists pending wake-ups under
+    the Loops ("Lor checks back 7:48 PM", with the note), and anyone who
+    can see the channel can cancel one (`/channels/:id/agent-wake-ups`,
+    live through `agent:wake-ups:updated`). Wake-ups and Loops stay
+    separate (Jacob, 11-20).
+  - The chat never says a wake-up woke the agent (decision 30). A wake-up
+    turn answers in the chat, even when the wake-up was set in a thread.
+- [x] 5.2 The check-in Loop on every channel. Built 2026-11-20
+  (`packages/lor/src/check-in.ts`).
+  - A Loop of kind `check_in` ("Check-in", every 30 minutes from 9:00 to
+    18:00 on weekdays), made once per text channel: when the channel is
+    created, or on its next chat message for channels made before
+    (`channel.agent_check_in_at` marks it, so a deleted check-in stays
+    deleted). No card in the chat.
+  - A fire does nothing unless something waits unread and no wake is
+    pending; otherwise it wakes the agent with the Loop's instructions, and
+    the unread items come first in its inbox. Its runs show in the Loop's
+    history and count toward the five-failures pause.
+  - Active hours are in the zone a person pinned on the workspace's latest
+    Loop, else UTC: nothing stores a workspace's or person's zone.
+  - Schedules of the form "every 15, 30 or 60 minutes between two hours on
+    chosen days" now read as words ("Every 30 minutes from 9:00 AM to 6:00
+    PM on weekdays") and are editable in the Loop panel ("Through the
+    day": how often, from, until, days), so people change the check-in's
+    hours there, or pause or delete it.
+- [x] 5.3 Needs you, and the two tabs. Built 2026-11-20.
+  - The sidebar has two tabs, Needs you and Channels (the choice is kept
+    per device). Needs you carries a count of what waits on the person.
+  - Needs you lists the channel agents' approvals the person can decide
+    (with the card's description) and questions the agent asked them by
+    mention in the last week that they haven't answered (nothing from them
+    since, in that place), then sessions waiting on them, then sessions
+    running. A row opens the message or the session.
+  - The activity snapshot carries `agentNeeds` per channel. It refetches
+    when a turn ends and when the person posts in a channel with a question
+    waiting.
+
+Checked 2026-11-20 on the dev database:
+- "Check back with me in 2 minutes" set a wake-up with a useful note. It
+  showed under Follow-ups and fired at the next minute, and the agent
+  followed up in the chat on its own, with no mention of a timer.
+- The check-in was made on a channel's next message. Run now with nothing
+  unread did nothing. With an unread message it woke the agent, which read
+  it and stayed quiet.
+- The check-in's panel showed its hours as words, with editable rows.
+- Needs you showed a pending web-search approval and a question Lor asked
+  by mention, kept up to date as the turn ended and when I replied.
+
+**Deviations and gaps in slice 5**
+
+- The check-in's default zone is a guess (the workspace's latest Loop, else
+  UTC) until a workspace stores its zone.
+- "Answered" means the person wrote anything in that place since the
+  question, which can clear a question too early.
+- Mobile has no Needs you tab, Follow-ups or "Through the day" editor yet.
+- A wake-up set in a thread turn answers in the chat.
 
 **Slice 6: Discord**
 

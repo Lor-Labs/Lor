@@ -377,7 +377,12 @@ export async function channelAgentLog(
       .where(
         and(
           eq(schema.agentInbox.channelId, channelId),
-          inArray(schema.agentInbox.source, ["trigger", "session", "loop"]),
+          inArray(schema.agentInbox.source, [
+            "trigger",
+            "session",
+            "loop",
+            "wake_up",
+          ]),
           gte(schema.agentInbox.createdAt, since)
         )
       )
@@ -440,9 +445,11 @@ export async function channelAgentLog(
       text:
         item.source === "loop"
           ? `Loop "${sanitizeInlineLabel(item.loopName ?? "deleted")}" ran${item.runState === "failed" ? " and failed" : ""}`
-          : item.source === "session"
-            ? `Session report: ${firstLine(item.note)}`
-            : `${item.lane === "wake" ? "Event" : "Event (waited unread)"} from ${eventLine(item.note)}`,
+          : item.source === "wake_up"
+            ? `Your wake-up came due: ${firstLine(item.note?.split("Your note to yourself:\n")[1] ?? null)}`
+            : item.source === "session"
+              ? `Session report: ${firstLine(item.note)}`
+              : `${item.lane === "wake" ? "Event" : "Event (waited unread)"} from ${eventLine(item.note)}`,
     })),
     ...sessions.map((session) => ({
       at: session.at,
@@ -473,9 +480,10 @@ export async function channelAgentLog(
 }
 
 // What is open right now, computed at each wake: the agent's sessions still
-// working, approvals people haven't decided, and the channel's Loops.
+// working, approvals people haven't decided, the channel's Loops and the
+// wake-ups the agent set.
 export async function openBlock(channelId: string): Promise<string | null> {
-  const [working, waiting, loops] = await Promise.all([
+  const [working, waiting, loops, wakeUps] = await Promise.all([
     db
       .select({
         id: schema.agentSession.id,
@@ -532,6 +540,20 @@ export async function openBlock(channelId: string): Promise<string | null> {
         )
       )
       .orderBy(asc(schema.loop.nextRunAt)),
+    db
+      .select({
+        id: schema.agentWakeUp.id,
+        dueAt: schema.agentWakeUp.dueAt,
+        note: schema.agentWakeUp.note,
+      })
+      .from(schema.agentWakeUp)
+      .where(
+        and(
+          eq(schema.agentWakeUp.channelId, channelId),
+          eq(schema.agentWakeUp.status, "pending")
+        )
+      )
+      .orderBy(asc(schema.agentWakeUp.dueAt)),
   ])
   const lines = [
     ...working.map(
@@ -545,6 +567,10 @@ export async function openBlock(channelId: string): Promise<string | null> {
     ...loops.map(
       (loop) =>
         `- Loop "${sanitizeInlineLabel(loop.name)}"${loop.nextRunAt ? ` runs next at ${minute(loop.nextRunAt)} UTC` : ""}${loop.endCondition ? `, until: ${loop.endCondition}` : ""}`
+    ),
+    ...wakeUps.map(
+      (wakeUp) =>
+        `- Your wake-up at ${minute(wakeUp.dueAt)} UTC (wake-up ${wakeUp.id}): ${firstLine(wakeUp.note)}`
     ),
   ]
   return lines.length > 0 ? `Open right now:\n${lines.join("\n")}` : null

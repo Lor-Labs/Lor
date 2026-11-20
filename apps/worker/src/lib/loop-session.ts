@@ -22,6 +22,7 @@ import {
   loopFireSourceId,
   loopInboxNote,
 } from "@repo/lor/channel-agent"
+import { checkInInboxNote } from "@repo/lor/check-in"
 import { describeLoopSchedule } from "@repo/lor/loop-schedule"
 import { toRealtimeLoop } from "@repo/lor/loops"
 import { channelEventContent } from "@repo/messaging"
@@ -65,6 +66,22 @@ type FireOutcome = "started" | "queued" | "skipped" | "failed"
 // A Loop's fire on a text channel wakes the channel's agent through its inbox
 // (reference/always-on-agents.md §3): the turn that reads it is the fire's
 // run. A fire of the same Loop still unread or running skips this one.
+async function checkInNeeded(channelId: string): Promise<boolean> {
+  const pending = await db
+    .select({ lane: schema.agentInbox.lane })
+    .from(schema.agentInbox)
+    .where(
+      and(
+        eq(schema.agentInbox.channelId, channelId),
+        eq(schema.agentInbox.status, "pending")
+      )
+    )
+  return (
+    pending.some((item) => item.lane === "wait") &&
+    !pending.some((item) => item.lane === "wake")
+  )
+}
+
 async function fireLoopToInbox(
   deps: { agentInboxQueue: Queue<AgentQueueData> },
   loop: Loop,
@@ -99,6 +116,11 @@ async function fireLoopToInbox(
       : Promise.resolve([]),
   ])
   if (waiting || running) return "skipped"
+  // The check-in wakes the agent only for what waits unread, and not when a
+  // turn is coming anyway (decision 7).
+  if (loop.kind === "check_in" && !(await checkInNeeded(loop.channelId))) {
+    return "skipped"
+  }
   const added = await addInboxNote({
     workspaceId: loop.workspaceId,
     channelId: loop.channelId,
@@ -106,14 +128,20 @@ async function fireLoopToInbox(
     sourceId: loopFireSourceId(loop.id, scheduledFor),
     loopId: loop.id,
     lane: "wake",
-    note: loopInboxNote({
-      loopId: loop.id,
-      name: loop.name,
-      scheduleDescription: describeLoopSchedule(loop.schedule, loop.timezone),
-      instructions: loop.instructions,
-      endCondition: loop.endCondition,
-      setUpBy: creator?.name ?? null,
-    }),
+    note:
+      loop.kind === "check_in"
+        ? checkInInboxNote(loop.instructions)
+        : loopInboxNote({
+            loopId: loop.id,
+            name: loop.name,
+            scheduleDescription: describeLoopSchedule(
+              loop.schedule,
+              loop.timezone
+            ),
+            instructions: loop.instructions,
+            endCondition: loop.endCondition,
+            setUpBy: creator?.name ?? null,
+          }),
   })
   if (!added) return "skipped"
   await deps.agentInboxQueue.add(AGENT_INBOX_FLUSH_JOB, {

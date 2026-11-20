@@ -64,6 +64,7 @@ import {
 } from "@/jobs/voice-sessions"
 import type { AgentQueueData } from "@/lib/agent-inbox"
 import { signalRunStop } from "@/lib/agent-run"
+import { sweepDueWakeUps } from "@/lib/agent-wake-ups"
 import {
   escalateApproval,
   MAINTENANCE_QUEUE,
@@ -465,9 +466,10 @@ async function bootstrap() {
           triggeredRunQueue
         )
         await sweepOrphanedPlaceholders(emitter)
-      } else if (job.name === "sweep-due-loops")
+      } else if (job.name === "sweep-due-loops") {
         await sweepDueLoops(emitter, loopRunQueue)
-      else if (job.name === "sweep-voice-sessions") await sweepVoiceSessions()
+        await sweepDueWakeUps({ emitter, agentInboxQueue })
+      } else if (job.name === "sweep-voice-sessions") await sweepVoiceSessions()
       else if (job.name === "sweep-checkpoint-storage") {
         const swept = await sweepCheckpointStorage()
         logger.info(swept, "Checkpoint storage swept")

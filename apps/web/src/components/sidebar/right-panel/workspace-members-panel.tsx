@@ -43,6 +43,7 @@ import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
+import { FollowUpsSection } from "@/components/sidebar/right-panel/follow-ups-section"
 import { LoopsOverviewSection } from "@/components/sidebar/right-panel/loops-overview-section"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { WorkspaceMembersSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -649,6 +650,10 @@ export function WorkspaceMembersPanel({
               </div>
             </section>
             <LoopsOverviewSection
+              workspaceSlug={view.workspaceSlug}
+              channelId={view.channelId}
+            />
+            <FollowUpsSection
               workspaceSlug={view.workspaceSlug}
               channelId={view.channelId}
             />

@@ -41,6 +41,9 @@ export const SIDE_EFFECT_TOOLS = new Set([
   "propose_workspace_change",
   // The channel agent's post in the chat; a retried step must not repeat it.
   "send_message",
+  // A retried step must not set the same wake-up twice.
+  "wake_up",
+  "cancel_wake_up",
 ])
 
 // Canonical JSON (sorted object keys) so the same logical input always hashes

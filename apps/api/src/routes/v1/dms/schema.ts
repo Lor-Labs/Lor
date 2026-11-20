@@ -58,6 +58,7 @@ export const dmChannelSchema = selectChannelSchema
     agentWakeMode: true,
     agentBrief: true,
     agentBriefUpdatedAt: true,
+    agentCheckInAt: true,
   })
   .extend({
     members: z.array(dmMemberSchema),

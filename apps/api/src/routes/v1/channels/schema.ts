@@ -127,6 +127,33 @@ export const deleteAgentFactResponseSchema = z.object({
   success: z.literal(true),
 })
 
+// ── Channel agent wake-ups (Follow-ups) ──────────────────────────────
+
+export const agentWakeUpParamsSchema = channelParamsSchema.extend({
+  wakeUpId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "wakeUpId", in: "path", required: true },
+      example: "00000000-0000-0000-0000-000000000000",
+    }),
+})
+
+export const listAgentWakeUpsResponseSchema = z.object({
+  wakeUps: z.array(
+    z.object({
+      id: z.string().uuid(),
+      dueAt: z.string(),
+      note: z.string(),
+      createdAt: z.string(),
+    })
+  ),
+})
+
+export const cancelAgentWakeUpResponseSchema = z.object({
+  success: z.literal(true),
+})
+
 // ── Messages ──────────────────────────────────────────
 
 export {

@@ -15,6 +15,8 @@ import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
   agentFactParamsSchema,
   agentFactSchema,
+  agentWakeUpParamsSchema,
+  cancelAgentWakeUpResponseSchema,
   channelAudienceResponseSchema,
   channelConnectorParamsSchema,
   channelParamsSchema,
@@ -34,6 +36,7 @@ import {
   linearIssuesQuerySchema,
   linearIssuesResponseSchema,
   listAgentFactsResponseSchema,
+  listAgentWakeUpsResponseSchema,
   listChannelConnectorsResponseSchema,
   listChannelsResponseSchema,
   listConnectorScopesResponseSchema,
@@ -262,6 +265,45 @@ export const deleteAgentFact = createRoute({
     [HttpStatusCodes.OK]: jsonContent({
       schema: deleteAgentFactResponseSchema,
       description: "The fact was deleted",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export const listAgentWakeUps = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/agent-wake-ups",
+  method: "get",
+  summary: "List the channel agent's pending wake-ups",
+  description:
+    "The follow-ups the channel's agent set for itself with wake_up (reference/always-on-agents.md, decision 10).",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: channelParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listAgentWakeUpsResponseSchema,
+      description: "Pending wake-ups, soonest first",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export const cancelAgentWakeUp = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/agent-wake-ups/{wakeUpId}",
+  method: "delete",
+  summary: "Cancel one of the channel agent's wake-ups",
+  description: "Anyone who can see the channel can cancel a wake-up.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: agentWakeUpParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: cancelAgentWakeUpResponseSchema,
+      description: "The wake-up was cancelled",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
@@ -676,6 +718,8 @@ export type ListConnectorScopesRoute = typeof listConnectorScopes
 export type ListAgentFactsRoute = typeof listAgentFacts
 export type UpdateAgentFactRoute = typeof updateAgentFact
 export type DeleteAgentFactRoute = typeof deleteAgentFact
+export type ListAgentWakeUpsRoute = typeof listAgentWakeUps
+export type CancelAgentWakeUpRoute = typeof cancelAgentWakeUp
 export type SearchConnectorFilesRoute = typeof searchConnectorFiles
 export type ListLinearIssuesRoute = typeof listLinearIssues
 export type GetLinearIssuePromptRoute = typeof getLinearIssuePrompt

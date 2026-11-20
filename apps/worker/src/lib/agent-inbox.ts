@@ -62,6 +62,7 @@ import {
   type RunExecution,
 } from "@/lib/agent-run"
 import { agentSessionExecutors } from "@/lib/agent-session-tools"
+import { agentWakeUpExecutors, wakeUpDueSoon } from "@/lib/agent-wake-ups"
 import {
   notifyApprovalParked,
   scheduleApprovalEscalation,
@@ -461,6 +462,12 @@ function agentHooks(
       askerId: turn.askerId,
     }),
     completeLoop: agentCompleteLoop(deps, channel.id),
+    wakeUps: agentWakeUpExecutors(deps, {
+      workspaceId: channel.workspaceId,
+      channelId: channel.id,
+      runId: execution.runId,
+      askedById: turn.askerId,
+    }),
     sendMessage: async ({ content }) => {
       const posted = await postLorMessage(deps, {
         channelId: channel.id,
@@ -794,6 +801,7 @@ export async function runAgentCompactJob(
   if (latest?.id !== afterRunId) return
   if (await hasPendingWake(channelId)) return
   if (await pausedAgentRun(channelId)) return
+  if (await wakeUpDueSoon(channelId)) return
   const [channel] = await db
     .select({
       id: schema.channel.id,

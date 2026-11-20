@@ -4,6 +4,10 @@
 > the channel's agent through its inbox, and the agent drafts Loops in the
 > chat (`always-on-agents.md` §13, step 3.2). The session flow below still
 > serves other channels.
+>
+> Since 2026-11-20 every text channel also has a `check_in` Loop that wakes
+> the agent in active hours only when something is unread
+> (`always-on-agents.md` §13, step 5.2).
 
 Status legend: `[ ]` todo · `[x]` done. Update checkboxes as phases land, and
 append to the **Decisions & deviations log** at the bottom when reality forces

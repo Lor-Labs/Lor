@@ -80,6 +80,7 @@ export const loopSchema = z.object({
   channelId: z.string().uuid(),
   cardMessageId: z.string().uuid().nullable(),
   creatorId: z.string().uuid().nullable(),
+  kind: z.enum(["custom", "check_in"]),
   name: z.string(),
   instructions: z.string(),
   schedule: z.string(),

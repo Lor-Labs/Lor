@@ -27,6 +27,7 @@ export function toRealtimeLoop(row: LoopRow): RealtimeLoop {
     channelId: row.channelId,
     cardMessageId: row.cardMessageId,
     creatorId: row.creatorId,
+    kind: row.kind,
     name: row.name,
     instructions: row.instructions,
     schedule: row.schedule,

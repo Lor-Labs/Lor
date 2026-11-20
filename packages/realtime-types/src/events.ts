@@ -37,10 +37,24 @@ export type SessionUncommittedUpdated = UncommittedLines & {
   sessionId: string
 }
 
+// Something the channel's agent is waiting on this person for
+// (reference/always-on-agents.md §9): an approval they can decide, or a
+// question it asked them that they haven't answered.
+export type AgentNeed = {
+  kind: "approval" | "question"
+  // The chat message to open: the approval's line or the agent's post.
+  messageId: string
+  threadRootId: string | null
+  text: string
+  createdAt: string
+}
+
 export type ChannelActivity = {
   channelId: string
   // The caller's subscribed, unarchived sessions here, newest activity first.
   sessions: SidebarSession[]
+  // What the channel's agent is waiting on the caller for, newest first.
+  agentNeeds: AgentNeed[]
 }
 
 export type WorkspaceActivityAck = (
@@ -975,6 +989,9 @@ export interface ServerToClientEvents {
   "loop:updated": (payload: LoopUpdatedEvent) => void
   // Loop hard-deleted (its card message goes separately via message:deleted).
   "loop:deleted": (payload: { loopId: string; channelId: string }) => void
+  // The channel agent's wake-ups changed (set, fired or cancelled): clients
+  // refetch the channel's Follow-ups.
+  "agent:wake-ups:updated": (payload: { channelId: string }) => void
   "message:pin:toggled": (payload: RealtimeMessagePinToggled) => void
   "message:thread:updated": (payload: RealtimeMessageThreadUpdated) => void
   "notification:bootstrap": (payload: NotificationBootstrap) => void
@@ -1226,6 +1243,8 @@ export type RealtimeLoop = {
   channelId: string
   cardMessageId: string | null
   creatorId: string | null
+  // "check_in": the one every channel's agent comes with (decision 7).
+  kind: "custom" | "check_in"
   name: string
   instructions: string
   schedule: string

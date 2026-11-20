@@ -12,6 +12,7 @@ import {
   isNotNull,
   LOR_USER_ID,
   schema,
+  sql,
 } from "@repo/db"
 import { env } from "@repo/env/server"
 import { sendApprovalPush } from "@repo/messaging"
@@ -271,8 +272,9 @@ async function resolverAudience(
 
 // The person whose message triggered the parked run. A turn no person
 // started asks whoever gave its instructions: the creator of the Loop that
-// fired, or the person who set up the trigger whose event woke the channel's
-// agent (reference/always-on-agents.md §5). Null when there is nobody: the
+// fired, the person who woke the turn that set the wake-up that came due, or
+// the person who set up the trigger whose event woke the channel's agent
+// (reference/always-on-agents.md §5). Null when there is nobody: the
 // workspace owner is paged.
 async function requesterOf(row: ParkedApprovalRow): Promise<string | null> {
   if (row.triggerMessageId) {
@@ -293,6 +295,22 @@ async function requesterOf(row: ParkedApprovalRow): Promise<string | null> {
     .innerJoin(schema.loop, eq(schema.loop.id, schema.agentRun.loopId))
     .where(eq(schema.agentRun.id, row.runId))
   if (fired?.userId) return fired.userId
+  const [wokeUp] = await db
+    .select({ userId: schema.agentWakeUp.askedById })
+    .from(schema.agentInbox)
+    .innerJoin(
+      schema.agentWakeUp,
+      sql`${schema.agentWakeUp.id}::text = ${schema.agentInbox.sourceId}`
+    )
+    .where(
+      and(
+        eq(schema.agentInbox.runId, row.runId),
+        eq(schema.agentInbox.source, "wake_up"),
+        isNotNull(schema.agentWakeUp.askedById)
+      )
+    )
+    .limit(1)
+  if (wokeUp?.userId) return wokeUp.userId
   const [setUp] = await db
     .select({ userId: schema.connectorTrigger.configuredById })
     .from(schema.agentInbox)

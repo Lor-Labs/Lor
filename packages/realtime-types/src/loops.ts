@@ -56,6 +56,22 @@ export function describeLoopSchedule(
   if (fields.length === 5) {
     const [min = "", hour = "", dom = "", month = "", dow = ""] = fields
 
+    const shape = parseLoopSchedule(schedule)
+    if (shape.kind === "interval") {
+      const days = shape.dow === "*" ? "every day" : describeDayField(shape.dow)
+      if (days) {
+        const every =
+          shape.every === 60 ? "Every hour" : `Every ${shape.every} minutes`
+        const on =
+          days === "every day"
+            ? days
+            : days.includes("&") || days.includes(",")
+              ? `on ${days}`
+              : `on ${days}s`
+        return `${every} from ${formatTime(shape.fromHour, 0)} to ${formatTime(shape.toHour % 24, 0)} ${on}${suffix}`
+      }
+    }
+
     const everyN = /^\*\/(\d+)$/.exec(min)
     if (everyN && hour === "*" && dom === "*" && month === "*" && dow === "*") {
       const n = Number(everyN[1])
@@ -104,16 +120,44 @@ export type LoopScheduleShape =
   | { kind: "daily"; hour: number; minute: number }
   | { kind: "weekly"; dow: string; hour: number; minute: number }
   | { kind: "monthly"; dom: number; hour: number; minute: number }
+  // Through the day: every 15, 30 or 60 minutes from `fromHour` until
+  // `toHour` (exclusive) on `dow` ("*" for every day). The channel agent's
+  // check-in Loop is one (reference/always-on-agents.md, decision 7).
+  | {
+      kind: "interval"
+      every: number
+      fromHour: number
+      toHour: number
+      dow: string
+    }
   | { kind: "custom"; schedule: string }
 
 // Weekday range preset, or any comma list of days (single day included) —
 // the editor's multi-day picker emits sorted lists like "1,4,6".
 const EDITABLE_DOW = /^(1-5|[0-6](,[0-6])*)$/
 
+export const INTERVAL_EVERY_OPTIONS = [15, 30, 60] as const
+
 export function parseLoopSchedule(schedule: string): LoopScheduleShape {
   const fields = schedule.trim().split(/\s+/)
   if (fields.length === 5) {
     const [min = "", hour = "", dom = "", month = "", dow = ""] = fields
+    const hours = /^(\d+)-(\d+)$/.exec(hour)
+    const every =
+      min === "0" ? 60 : Number(/^\*\/(\d+)$/.exec(min)?.[1] ?? Number.NaN)
+    if (
+      hours &&
+      dom === "*" &&
+      month === "*" &&
+      (dow === "*" || EDITABLE_DOW.test(dow)) &&
+      (INTERVAL_EVERY_OPTIONS as readonly number[]).includes(every)
+    ) {
+      const fromHour = Number(hours[1])
+      const lastHour = Number(hours[2])
+      if (fromHour <= lastHour && lastHour <= 23) {
+        return { kind: "interval", every, fromHour, toHour: lastHour + 1, dow }
+      }
+    }
     if (/^\d+$/.test(min) && month === "*") {
       const minute = Number(min)
       if (hour === "*" && dom === "*" && dow === "*") {
@@ -146,6 +190,8 @@ export function formatLoopSchedule(shape: LoopScheduleShape): string {
       return `${shape.minute} ${shape.hour} * * ${shape.dow}`
     case "monthly":
       return `${shape.minute} ${shape.hour} ${shape.dom} * *`
+    case "interval":
+      return `${shape.every === 60 ? "0" : `*/${shape.every}`} ${shape.fromHour}-${shape.toHour - 1} * * ${shape.dow}`
     case "custom":
       return shape.schedule
   }

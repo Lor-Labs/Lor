@@ -25,6 +25,8 @@ export const agentInboxSourceEnum = pgEnum("agent_inbox_source", [
   "trigger",
   // A Loop's schedule fired.
   "loop",
+  // A wake-up the agent set for itself came due (source id: the wake-up).
+  "wake_up",
 ])
 
 // "wake" starts the channel agent's next turn. "wait" sits unread until

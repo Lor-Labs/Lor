@@ -22,6 +22,7 @@ import {
   threadReadState,
   user,
 } from "@repo/db/schema"
+import { ensureCheckInLoop } from "@repo/lor/check-in"
 import { channelCodeRepo, listRepoBranches } from "@repo/lor/code-repo"
 import {
   listLinearPickerIssues,
@@ -71,6 +72,7 @@ import { fetchChannelThreadActivity } from "@/lib/queries/thread-activity"
 import { getRedisClient } from "@/lib/redis"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
+  CancelAgentWakeUpRoute,
   CreateChannelRoute,
   DeleteAgentFactRoute,
   DeleteChannelRoute,
@@ -80,6 +82,7 @@ import type {
   GetLinearIssuePromptRoute,
   GetMessageLocationRoute,
   ListAgentFactsRoute,
+  ListAgentWakeUpsRoute,
   ListChannelConnectorsRoute,
   ListChannelMessagesRoute,
   ListChannelsRoute,
@@ -281,6 +284,14 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
     return c.json(
       { success: false, message: "Internal server error" },
       HttpStatusCodes.INTERNAL_SERVER_ERROR
+    )
+  }
+
+  // A text channel's agent comes with its check-in (always-on-agents.md,
+  // decision 7). Best-effort: the channel's next message makes it otherwise.
+  if (newChannel.type === "text") {
+    await ensureCheckInLoop(newChannel.id).catch((err) =>
+      logger.warn({ err, channelId: newChannel.id }, "Check-in Loop failed")
     )
   }
 
@@ -747,6 +758,85 @@ export const deleteAgentFact: AppRouteHandler<DeleteAgentFactRoute> = async (
       HttpStatusCodes.NOT_FOUND
     )
   }
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
+
+// The channel agent's wake-ups, as Follow-ups in the channel's Loops panel
+// (reference/always-on-agents.md, decision 10). Anyone who can see the
+// channel may cancel one.
+export const listAgentWakeUps: AppRouteHandler<ListAgentWakeUpsRoute> = async (
+  c
+) => {
+  const { channelId } = c.req.valid("param")
+  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const rows = await db
+    .select({
+      id: schema.agentWakeUp.id,
+      dueAt: schema.agentWakeUp.dueAt,
+      note: schema.agentWakeUp.note,
+      createdAt: schema.agentWakeUp.createdAt,
+    })
+    .from(schema.agentWakeUp)
+    .where(
+      and(
+        eq(schema.agentWakeUp.channelId, channelId),
+        eq(schema.agentWakeUp.status, "pending")
+      )
+    )
+    .orderBy(asc(schema.agentWakeUp.dueAt))
+  return c.json(
+    {
+      wakeUps: rows.map((row) => ({
+        id: row.id,
+        dueAt: row.dueAt.toISOString(),
+        note: row.note,
+        createdAt: row.createdAt.toISOString(),
+      })),
+    },
+    HttpStatusCodes.OK
+  )
+}
+
+export const cancelAgentWakeUp: AppRouteHandler<
+  CancelAgentWakeUpRoute
+> = async (c) => {
+  const { channelId, wakeUpId } = c.req.valid("param")
+  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const cancelled = await db
+    .update(schema.agentWakeUp)
+    .set({
+      status: "cancelled",
+      cancelledAt: new Date(),
+      cancelledById: c.var.user.id,
+    })
+    .where(
+      and(
+        eq(schema.agentWakeUp.id, wakeUpId),
+        eq(schema.agentWakeUp.channelId, channelId),
+        eq(schema.agentWakeUp.status, "pending")
+      )
+    )
+    .returning({ id: schema.agentWakeUp.id })
+  if (!cancelled[0]) {
+    return c.json(
+      { success: false, message: "Wake-up not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const emitter = await getEmitter().catch(() => null)
+  emitter
+    ?.to(channelRoom(channelId))
+    .emit("agent:wake-ups:updated", { channelId })
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
