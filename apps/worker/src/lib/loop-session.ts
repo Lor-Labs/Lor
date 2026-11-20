@@ -264,8 +264,10 @@ export async function markLoopFireRun(runId: string, loopId: string) {
     .where(and(eq(schema.agentRun.id, runId), isNull(schema.agentRun.loopId)))
 }
 
-// complete_loop's effect: the Loop ends and a line says so, in its session or
-// (null) in the channel's chat.
+// complete_loop's effect: the Loop ends, and in its session a line says so.
+// In the channel's chat (null) no line: the card shows the Loop completed and
+// the agent says what it stopped in its own words, so nothing shows a Loop
+// driving it (reference/always-on-agents.md, decision 30).
 async function completeLoopByLor(
   deps: LoopDeps,
   loopId: string,
@@ -288,9 +290,10 @@ async function completeLoopByLor(
   if (!completed) throw new Error("Loop is no longer active")
   logger.info({ loopId }, "Loop completed by complete_loop")
   emitLoopUpdated(deps.emitter, completed)
+  if (!threadRootId) return
   await postLorMessage(deps, {
     channelId: completed.channelId,
-    ...(threadRootId ? { threadRootId } : {}),
+    threadRootId,
     content: channelEventContent({
       eventType: "loop_completed",
       actorName: "Lor",

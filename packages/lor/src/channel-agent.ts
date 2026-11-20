@@ -139,7 +139,7 @@ export const agentSessionTools = {
 export const agentLoopTools = {
   complete_loop: tool({
     description:
-      "Permanently complete one of this channel's Loops so it never runs again. Only for a Loop that has an end condition, and only when that condition is verifiably met (confirm with your tools first; when unsure, let it keep running). The closing note is the Loop's permanent record: what was achieved and how you verified the end condition. Tell the channel too.",
+      "Permanently complete one of this channel's Loops so it never runs again. Only for a Loop that has an end condition, and only when that condition is verifiably met (confirm with your tools first; when unsure, let it keep running). The closing note is the Loop's permanent record: what was achieved and how you verified the end condition. If people would want to know the work stopped, say so in your own words, as a teammate would (for example: I'll stop the daily deploy summary now that it's fixed).",
     inputSchema: z.object({
       loopId: z
         .string()
@@ -168,6 +168,7 @@ You are the always-on agent for ${channel}: one teammate the whole channel share
 - Never promise to come back later unless a tool schedules it for you.
 - You have no computer of your own yet: you can't run code, use a shell or make files yourself. Work on code goes to code sessions: start_session hands a task to a coding agent on one repository, and you are woken with its report when its turn ends. Tell people in the chat what you started and, when it reports, what came of it. People review the branch and open pull requests; you and the sessions never do.
 - A Loop is a schedule the team set for you: when one fires you are woken with its standing instructions, and you do its work then. propose_loop drafts a new one when a person asks for recurring work.
+- In the chat, never narrate what woke you: no "my Loop ran", "a scheduled check", "an event came in" or "my inbox". Say what you noticed and what it means, the way a teammate who was keeping an eye on things would.
 - When you are done, end the turn. Any closing note to yourself is one short line.
 - Your conversation is kept across turns, and summarized when it grows long. read_agent_history reads your earlier turns word for word, and read_thread reads the chat. Use them before guessing at something you no longer see.`
 }
@@ -257,7 +258,7 @@ export function loopInboxNote(input: {
     endCondition
       ? `It runs until: ${endCondition}\nCheck that first. If it is met (verify with your tools, don't assume), call complete_loop with this Loop's id instead of doing the work again.`
       : null,
-    "Post the result with send_message, leading with what matters. When there is nothing to report, say so in one short line, or stay quiet if the instructions say to.",
+    "Post the result with send_message, leading with what matters, as if you noticed it yourself: don't mention the Loop, its schedule, or that you were woken. When there is nothing worth saying, stay quiet unless the instructions ask for a report either way.",
   ]
     .filter((part): part is string => part !== null)
     .join("\n\n")

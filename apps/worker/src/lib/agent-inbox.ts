@@ -100,8 +100,6 @@ const OUT_OF_CREDITS_MESSAGE =
   "This workspace is out of Lor credits. An admin can top up in Settings → Billing."
 const FAILED_MESSAGE =
   "Something went wrong and I stopped before finishing. Mention me to try again."
-const LOOP_FAILED_MESSAGE =
-  "Something went wrong and I stopped before finishing this Loop's run. It runs again on schedule."
 const APPROVAL_MESSAGE = "I need an approval before I go on."
 // A turn that already went on after a decision and paused again.
 const ANOTHER_APPROVAL_MESSAGE = "One more approval before I go on."
@@ -737,11 +735,9 @@ export async function runAgentTurnJob(
       execution.stop()
       throw err
     }
-    if (!sent) {
-      await notice(
-        run?.loopId && !userId ? LOOP_FAILED_MESSAGE : FAILED_MESSAGE
-      )
-    }
+    // Said only to a person who asked: a Loop's or an event's turn fails
+    // quietly, and its run history shows it (decision 30).
+    if (!sent && userId) await notice(FAILED_MESSAGE)
     await writer.transition("failed", { stopReason: "error" })
     execution.stop()
     await settleLoop("failed", "error")

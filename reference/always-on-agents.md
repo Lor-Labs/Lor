@@ -85,6 +85,7 @@ proposal that he has not objected to and should confirm.
 | 27 | The agent's turn runs on a loop Lor owns: Lor stores every step and assembles the prompt by hand. It does not run on a session's engine. Sessions keep their harnesses | Jacob, 11-18 |
 | 28 | Compaction as in Lee Robinson's talk: the history grows until it passes about 100k tokens, then is summarized about 10 minutes after a turn, on the warm cache, unless other work is about to wake the agent. The latest messages stay word for word. Every step stays stored, and the agent can read its history, a thread or a session back in full | Jacob, 11-18 |
 | 29 | The agent's computer is its own: for installing things and using websites, not for writing code. Planned, not built now. A tool starts it, a turn never does | Jacob, 11-18 |
+| 30 | The chat never shows what woke the agent. A Loop's or a `wake_up`'s turn reads as the agent noticing something itself: no "ran on schedule" line, no line when the agent completes a Loop (the card shows it), no failure notice on a turn no person asked for, and the agent doesn't narrate the Loop. `wake_up` and Loops stay separate | Jacob, 11-20 |
 
 Considered and dropped, so they are not added back by accident:
 
@@ -568,8 +569,9 @@ it. The cached share per call was 0 at first, then 85 to 99%, see below.
   with the memory pass.
 - The one-hour cache lifetime on large conversations is sent as an Anthropic
   provider option through the gateway; whether it applies was not checked.
-- A failed turn says so in the chat. A workspace out of credits is told
-  only when a person asked: events and Loops would repeat it.
+- A failed turn, or a workspace out of credits, is told in the chat only
+  when a person asked (decision 30). A Loop's or an event's failed turn
+  shows in its run history.
 
 **Owed before the batch ships**
 
@@ -685,8 +687,13 @@ run through the agent.
     so a trigger or a Loop can't schedule more Loops. Activation makes no
     session on a text channel.
   - `complete_loop` for the agent names the Loop, and works only for one
-    with an end condition. The chat shows "Lor completed the loop", and a
-    Loop paused after five failures says so in the chat too.
+    with an end condition. No line in the chat: the Loop's card shows it
+    completed, and the agent says what it stopped in its own words
+    (decision 30, 2026-11-20). A Loop paused after five failures still says
+    so in the chat, since nothing else would show people it stopped.
+  - The fire's note and the agent's prompt tell it to post as if it noticed
+    things itself, never mentioning the Loop, a schedule or being woken,
+    and to stay quiet when there is nothing worth saying.
   - What a turn said in the chat is saved as the run's note, which the
     Loop's history and the trigger settings show.
   - Nothing to migrate: existing Loops fire into the inbox from the deploy
