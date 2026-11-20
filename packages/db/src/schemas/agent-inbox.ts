@@ -10,17 +10,21 @@ import {
 } from "drizzle-orm/pg-core"
 import { agentRun } from "./agent-runs"
 import { channel } from "./channels"
+import { loop } from "./loops"
 import { message } from "./messages"
+import { triggerDelivery } from "./trigger-deliveries"
 import { workspace } from "./workspaces"
 
-// What an inbox item is about. A chat message today; webhooks, Loops and
-// finished sessions join in later steps (reference/always-on-agents.md
-// §3).
+// What an inbox item is about (reference/always-on-agents.md §3).
 export const agentInboxSourceEnum = pgEnum("agent_inbox_source", [
   "message",
   // A session the agent started ended a turn: finished, failed, stopped or
   // waiting on an approval.
   "session",
+  // A webhook or connector event a trigger delivered.
+  "trigger",
+  // A Loop's schedule fired.
+  "loop",
 ])
 
 // "wake" starts the channel agent's next turn. "wait" sits unread until
@@ -56,6 +60,12 @@ export const agentInbox = pgTable(
     }),
     // What the agent reads for an item that is not a chat message.
     note: text("note"),
+    // The trigger delivery the item is about (source "trigger").
+    deliveryId: uuid("delivery_id").references(() => triggerDelivery.id, {
+      onDelete: "cascade",
+    }),
+    // The Loop whose schedule fired (source "loop").
+    loopId: uuid("loop_id").references(() => loop.id, { onDelete: "cascade" }),
     status: agentInboxStatusEnum("status").notNull().default("pending"),
     readAt: timestamp("read_at"),
     // The agent turn that read this item.
@@ -72,6 +82,9 @@ export const agentInbox = pgTable(
     index("agent_inbox_channel_pending_idx")
       .on(table.channelId, table.createdAt)
       .where(sql`status = 'pending'`),
+    index("agent_inbox_delivery_idx")
+      .on(table.deliveryId)
+      .where(sql`delivery_id is not null`),
   ]
 )
 

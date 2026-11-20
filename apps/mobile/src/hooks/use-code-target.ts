@@ -6,11 +6,10 @@ import { useBetaAvailability } from "@/hooks/use-beta"
 import { api } from "@/lib/api"
 import { HARNESS_LABELS, type SessionHarness } from "@/lib/harness"
 
-// New session in Code mode: one repo and base branch, fixed for the session,
-// and the agent that runs it. Mirrors web's code-target-picker.tsx and
+// A new code session's repo and base branch, fixed for the session, and the
+// agent that runs it. Mirrors web's code-target-picker.tsx and
 // harness-picker.tsx; the picks are remembered on the device.
 
-export type SessionMode = "chat" | "code"
 // `newBranch`: a branch the session makes from `branch` at its start;
 // `autoBranch`: the server names that branch (lor/<place>-<id>).
 export type CodeTarget = {
@@ -20,7 +19,6 @@ export type CodeTarget = {
   autoBranch?: boolean
 }
 
-const MODE_KEY = "lor.new-session-mode"
 const HARNESS_KEY = "lor.new-session-harness"
 // SecureStore keys allow letters, digits, ".", "-" and "_" only.
 const repoKey = (workspaceSlug: string) =>
@@ -92,10 +90,6 @@ function useStoredChoice<T extends string>(
     writeStored(key, next)
   }
   return [value, change]
-}
-
-export function useSessionMode() {
-  return useStoredChoice<SessionMode>(MODE_KEY, ["chat", "code"], "chat")
 }
 
 export function useSessionHarness(): [

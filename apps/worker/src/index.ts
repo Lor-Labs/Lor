@@ -353,7 +353,12 @@ async function bootstrap() {
 
   const loopRunWorker = new Worker(
     LOOP_RUN_QUEUE,
-    createLoopRunProcessor(emitter, redisEmitterClient, lorRespondQueue),
+    createLoopRunProcessor(
+      emitter,
+      redisEmitterClient,
+      lorRespondQueue,
+      agentInboxQueue
+    ),
     {
       connection: {
         ...redisOpts,

@@ -5,13 +5,16 @@ import {
   desc,
   eq,
   inArray,
+  isNotNull,
   isUniqueViolation,
   LOR_USER_ID,
+  notInArray,
   schema,
 } from "@repo/db"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import { env } from "@repo/env/server"
 import { type ModelMessage, respond, writeBack } from "@repo/lor"
+import { saveHandoffNote } from "@repo/lor/act-runs"
 import {
   AGENT_DEFAULT_MODEL,
   appendSteps,
@@ -28,6 +31,11 @@ import {
   markInboxRead,
   type RunAgentContext,
 } from "@repo/lor/channel-agent"
+import { LoopProposalError, type ProposeLoopExecutor } from "@repo/lor/loops"
+import {
+  ProposalRefusedError,
+  type ProposeChangeExecutor,
+} from "@repo/lor/proposals"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   AGENT_COMPACT_JOB,
@@ -38,7 +46,11 @@ import {
   type AgentTurnJobData,
   type LorRespondJobData,
 } from "@repo/realtime-types/queues"
-import { channelRoom, workspaceRoom } from "@repo/realtime-types/rooms"
+import {
+  channelRoom,
+  threadRoom,
+  workspaceRoom,
+} from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
@@ -53,7 +65,10 @@ import {
   notifyApprovalParked,
   scheduleApprovalEscalation,
 } from "@/lib/approval-notify"
+import { createProposalCard } from "@/lib/change-proposal"
 import { logger } from "@/lib/logger"
+import { agentCompleteLoop, settleLoopRun } from "@/lib/loop-session"
+import { createLoopCard } from "@/lib/lor-loop"
 import { postLorMessage } from "@/lib/lor-messages"
 import { loadPausedDecisions } from "@/lib/paused-turn"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
@@ -85,24 +100,33 @@ const OUT_OF_CREDITS_MESSAGE =
   "This workspace is out of Lor credits. An admin can top up in Settings → Billing."
 const FAILED_MESSAGE =
   "Something went wrong and I stopped before finishing. Mention me to try again."
+const LOOP_FAILED_MESSAGE =
+  "Something went wrong and I stopped before finishing this Loop's run. It runs again on schedule."
 const APPROVAL_MESSAGE = "I need an approval before I go on."
 // A turn that already went on after a decision and paused again.
 const ANOTHER_APPROVAL_MESSAGE = "One more approval before I go on."
 
-// "Lor is typing" in the chat while a turn runs: clients drop a typer 5s
-// after their last signal, or when their message arrives.
+// "Lor is typing" in the chat, or the thread the turn answers in, while a
+// turn runs: clients drop a typer 5s after their last signal, or when their
+// message arrives.
 const TYPING_EVERY_MS = 3_000
 
-function showTyping(deps: AgentDeps, channelId: string) {
+function showTyping(
+  deps: AgentDeps,
+  channelId: string,
+  threadRootId: string | null
+) {
   let pausedUntil = 0
   const emit = () => {
     if (Date.now() < pausedUntil) return
-    deps.emitter.to(channelRoom(channelId)).emit("typing:update", {
-      channelId,
-      threadRootId: null,
-      userId: LOR_USER_ID,
-      name: "Lor",
-    })
+    deps.emitter
+      .to(threadRootId ? threadRoom(threadRootId) : channelRoom(channelId))
+      .emit("typing:update", {
+        channelId,
+        threadRootId,
+        userId: LOR_USER_ID,
+        name: "Lor",
+      })
   }
   emit()
   const timer = setInterval(emit, TYPING_EVERY_MS)
@@ -159,7 +183,10 @@ async function createTurnRun(args: {
   channelId: string
   triggerMessageId: string | null
   batch: InboxBatch | null
+  // The Loop whose fire this turn answers: its run in the Loop's history.
+  loop?: { id: string; scheduledFor: Date | null } | null
 }): Promise<string | null> {
+  const loop = args.loop ?? args.batch?.loop ?? null
   try {
     return await db.transaction(async (tx) => {
       const [run] = await tx
@@ -171,6 +198,7 @@ async function createTurnRun(args: {
           threadRootId: null,
           messageId: null,
           triggerMessageId: args.triggerMessageId,
+          ...(loop ? { loopId: loop.id, scheduledFor: loop.scheduledFor } : {}),
           budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
           budgetCredits: env.AGENT_RUN_MAX_CREDITS,
         })
@@ -194,6 +222,13 @@ async function createTurnRun(args: {
           ],
         })
         await markInboxRead(tx, args.batch.itemIds, run.id)
+        // The delivery log points at the turn that read each event.
+        if (args.batch.deliveryIds.length > 0) {
+          await tx
+            .update(schema.triggerDelivery)
+            .set({ runId: run.id })
+            .where(inArray(schema.triggerDelivery.id, args.batch.deliveryIds))
+        }
       }
       return run.id
     })
@@ -233,7 +268,10 @@ export async function flushAgentInbox(
   if (paused) {
     if (await pendingApproval(paused.runId)) return "busy"
     const [pausedRun] = await db
-      .select({ triggerMessageId: schema.agentRun.triggerMessageId })
+      .select({
+        triggerMessageId: schema.agentRun.triggerMessageId,
+        loopId: schema.agentRun.loopId,
+      })
       .from(schema.agentRun)
       .where(eq(schema.agentRun.id, paused.runId))
     const runId = await createTurnRun({
@@ -241,12 +279,33 @@ export async function flushAgentInbox(
       channelId,
       triggerMessageId: pausedRun?.triggerMessageId ?? null,
       batch: null,
+      loop: pausedRun?.loopId
+        ? { id: pausedRun.loopId, scheduledFor: null }
+        : null,
     })
     if (!runId) return "busy"
     await enqueueTurn(deps, workspaceId, { channelId, runId })
     return "resumed"
   }
 
+  // A fire of a Loop paused, completed or deleted since is not read.
+  await db
+    .update(schema.agentInbox)
+    .set({ status: "read", readAt: new Date() })
+    .where(
+      and(
+        eq(schema.agentInbox.channelId, channelId),
+        eq(schema.agentInbox.status, "pending"),
+        isNotNull(schema.agentInbox.loopId),
+        notInArray(
+          schema.agentInbox.loopId,
+          db
+            .select({ id: schema.loop.id })
+            .from(schema.loop)
+            .where(eq(schema.loop.status, "active"))
+        )
+      )
+    )
   const batch = await loadInboxBatch(channelId)
   if (!batch) return "empty"
   const runId = await createTurnRun({
@@ -324,13 +383,63 @@ async function claim(job: Job, token: string | undefined, runId: string) {
   return outcome.kind === "claimed" ? outcome.execution : null
 }
 
+// propose_loop for the agent: a draft card in the chat, only in a turn a
+// person started (a trigger or a Loop must not schedule more Loops).
+function agentProposeLoop(
+  deps: AgentDeps,
+  channel: { id: string; workspaceId: string },
+  askerId: string | null
+): ProposeLoopExecutor {
+  return (input) => {
+    if (!askerId) {
+      throw new LoopProposalError(
+        "Nobody asked for this in the chat just now. Propose a Loop only when a person asks for one."
+      )
+    }
+    return createLoopCard(deps, {
+      workspaceId: channel.workspaceId,
+      channelId: channel.id,
+      threadRootId: null,
+      creatorId: askerId,
+      ...input,
+    })
+  }
+}
+
+// propose_workspace_change for the agent: the card posts in the chat (never
+// in a thread: a decision on a thread card would continue a session there),
+// only in a turn a person started.
+function agentProposeChange(
+  deps: AgentDeps,
+  channel: { id: string; workspaceId: string },
+  askerId: string | null
+): ProposeChangeExecutor {
+  return (input) => {
+    if (!askerId) {
+      throw new ProposalRefusedError(
+        "Nobody asked for this in the chat just now. Propose workspace changes only when a person asks for them."
+      )
+    }
+    return createProposalCard(deps, {
+      workspaceId: channel.workspaceId,
+      channelId: channel.id,
+      threadRootId: null,
+      ...input,
+    })
+  }
+}
+
 function agentHooks(
   deps: AgentDeps,
   execution: RunExecution,
   channel: { id: string; name: string | null; workspaceId: string },
   mode: RunAgentContext["mode"],
   onSent: () => void,
-  askerId: string | null = null
+  // Who woke the turn, and the human thread it answers in (null: the chat).
+  turn: { askerId: string | null; threadRootId: string | null } = {
+    askerId: null,
+    threadRootId: null,
+  }
 ): RunAgentContext {
   return {
     channelName: channel.name,
@@ -339,13 +448,15 @@ function agentHooks(
       workspaceId: channel.workspaceId,
       channelId: channel.id,
       channelName: channel.name,
-      askerId,
+      askerId: turn.askerId,
     }),
+    completeLoop: agentCompleteLoop(deps, channel.id),
     sendMessage: async ({ content }) => {
       const posted = await postLorMessage(deps, {
         channelId: channel.id,
         content,
         type: "agent_post",
+        ...(turn.threadRootId ? { threadRootId: turn.threadRootId } : {}),
       })
       onSent()
       return posted
@@ -382,6 +493,8 @@ export async function runAgentTurnJob(
       triggerMessageId: schema.agentRun.triggerMessageId,
       triggerAuthorId: schema.message.authorId,
       triggerContent: schema.message.content,
+      triggerThreadRootId: schema.message.threadRootId,
+      loopId: schema.agentRun.loopId,
     })
     .from(schema.agentRun)
     .leftJoin(
@@ -395,31 +508,53 @@ export async function runAgentTurnJob(
     return
   }
   const workspaceId = channel.workspaceId
+  const userId = run?.triggerAuthorId ?? undefined
+  // A turn woken in a human thread answers there (loadInboxBatch keeps a
+  // turn to one place, and its trigger is the first message that woke it).
+  const threadRootId = run?.triggerThreadRootId ?? null
   let sent = false
   const notice = (content: string) =>
-    postLorMessage(deps, { channelId, content, type: "agent_post" }).catch(
-      (err) => logger.error({ err, runId }, "Agent notice failed")
-    )
+    postLorMessage(deps, {
+      channelId,
+      content,
+      type: "agent_post",
+      ...(threadRootId ? { threadRootId } : {}),
+    }).catch((err) => logger.error({ err, runId }, "Agent notice failed"))
+  // A Loop fire's turn counts toward the Loop's health: five failures in a
+  // row pause it, with a line in the chat.
+  const settleLoop = async (
+    outcome: "complete" | "failed" | "stopped",
+    stopReason?: string
+  ) => {
+    if (!run?.loopId) return
+    await settleLoopRun(deps, run.loopId, null, {
+      outcome,
+      ...(stopReason ? { stopReason } : {}),
+    }).catch((err) => logger.error({ err, runId }, "Loop settlement failed"))
+  }
 
   try {
     const gate = await checkCredits(workspaceId)
     if (!gate.allowed) {
-      await notice(OUT_OF_CREDITS_MESSAGE)
+      // Said only to a person who asked: events and Loops would repeat it.
+      if (userId) await notice(OUT_OF_CREDITS_MESSAGE)
       await writer.transition("failed", { stopReason: "out_of_credits" })
       execution.stop()
+      await settleLoop("failed", "out_of_credits")
       deps.emitter
         .to(workspaceRoom(workspaceId))
         .emit("billing:updated", { workspaceId, reason: "out_of_credits" })
       return
     }
-    const userId = run?.triggerAuthorId ?? undefined
-    // Typing only when someone addressed Lor: with "every message" on, most
-    // turns end quiet.
+    // Typing only when a person addressed Lor: turns woken by an event, a
+    // session's report or "every message" often end quiet. A person's id
+    // marks a person's message (the trigger of a note-only turn is null).
     const addressed =
-      channel.agentWakeMode === "mention" ||
-      Boolean(run?.triggerContent?.includes(`<@${LOR_USER_ID}>`))
+      Boolean(userId) &&
+      (channel.agentWakeMode === "mention" ||
+        Boolean(run?.triggerContent?.includes(`<@${LOR_USER_ID}>`)))
     const typing = addressed
-      ? showTyping(deps, channelId)
+      ? showTyping(deps, channelId, threadRootId)
       : { pause: () => {}, stop: () => {} }
     const result = await respond(
       {
@@ -433,6 +568,16 @@ export async function runAgentTurnJob(
         ...(userId ? { userId } : {}),
         aiSessionId: channelId,
         turn: { model: channel.agentModel ?? AGENT_DEFAULT_MODEL },
+        proposeLoop: agentProposeLoop(
+          deps,
+          { id: channelId, workspaceId },
+          userId ?? null
+        ),
+        proposeChange: agentProposeChange(
+          deps,
+          { id: channelId, workspaceId },
+          userId ?? null
+        ),
         agent: agentHooks(
           deps,
           execution,
@@ -442,7 +587,7 @@ export async function runAgentTurnJob(
             sent = true
             typing.pause()
           },
-          userId ?? null
+          { askerId: userId ?? null, threadRootId }
         ),
       },
       {
@@ -505,6 +650,7 @@ export async function runAgentTurnJob(
       stopReason: result.stoppedFor ?? "completed",
     })
     execution.stop()
+    await settleLoop(stoppedByUser ? "stopped" : "complete")
 
     if (parkedApprovalId) {
       deps.emitter.to(channelRoom(channelId)).emit("approval:created", {
@@ -537,9 +683,12 @@ export async function runAgentTurnJob(
     }
     notifyWorkspaceActivity(workspaceId)
 
+    // What the turn said is its note in a Loop's or trigger's run history.
+    const said = sentText(result.messages)
+    if (said.length > 0) await saveHandoffNote(runId, said.join("\n\n"))
+
     // Today's memory pass, until the memory pass of slice 4 replaces it.
     if (result.messages.length > 0 && !stoppedByUser) {
-      const said = sentText(result.messages)
       await writeBack(
         {
           workspaceId,
@@ -588,9 +737,14 @@ export async function runAgentTurnJob(
       execution.stop()
       throw err
     }
-    if (!sent) await notice(FAILED_MESSAGE)
+    if (!sent) {
+      await notice(
+        run?.loopId && !userId ? LOOP_FAILED_MESSAGE : FAILED_MESSAGE
+      )
+    }
     await writer.transition("failed", { stopReason: "error" })
     execution.stop()
+    await settleLoop("failed", "error")
     notifyWorkspaceActivity(workspaceId)
   }
   await flushIfWaiting(deps, channelId)
@@ -650,6 +804,17 @@ export async function runAgentCompactJob(
         turn: {
           model: context.model ?? channel.agentModel ?? AGENT_DEFAULT_MODEL,
         },
+        // Unused here, but the summary call needs the turn's exact tool set.
+        proposeLoop: agentProposeLoop(
+          deps,
+          { id: channelId, workspaceId },
+          null
+        ),
+        proposeChange: agentProposeChange(
+          deps,
+          { id: channelId, workspaceId },
+          null
+        ),
         agent: agentHooks(
           deps,
           execution,

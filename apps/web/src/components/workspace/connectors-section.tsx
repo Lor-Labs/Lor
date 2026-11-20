@@ -816,7 +816,6 @@ function EventRoutes({
                       textChannels.find((ch) => ch.id === ev.channelId)?.name
                     }
                     disabled={busy || !canManage}
-                    subjectLabel="One session per item (PR, issue, record)"
                     codeScope={{ workspaceSlug, channelId: ev.channelId }}
                     value={{
                       post: ev.post,

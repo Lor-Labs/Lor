@@ -13,6 +13,7 @@ import {
 } from "drizzle-orm/pg-core"
 import { channel } from "./channels"
 import { integrationConnection } from "./integration-connections"
+import { user } from "./users"
 
 // Act rate-shape defaults. Exported so the API's "not configured yet" event
 // rows and the settings UI show the same numbers a new trigger would get.
@@ -59,6 +60,11 @@ export const connectorTrigger = pgTable(
     actRepoFullName: text("act_repo_full_name"),
     actBaseBranch: text("act_base_branch"),
     enabled: boolean("enabled").notNull().default(true),
+    // Who last saved the trigger's effects: the person asked to approve on a
+    // turn its events start (reference/always-on-agents.md §5).
+    configuredById: uuid("configured_by_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
     // Act rate shape. The window coalesces a burst into ONE run: the first
     // delivery opens it (actWindowOpenedAt), everything arriving before it
     // closes joins the same batch. 0 = no batching, one run per delivery.

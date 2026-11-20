@@ -41,11 +41,12 @@ const STEPS: [Step, ...Step[]] = [
     Scene: ChatAnswerScene,
   },
   {
-    title: "Sessions for longer work",
-    body: `${isTauri ? "Press ⌘N" : "Click the pencil beside the search"} to start a session, like a code change. Anyone in the channel can see the work, step in, or approve what Lor sends.`,
+    title: "Code sessions",
+    body: `Lor starts a code session when work needs a change, or ${isTauri ? "press ⌘N" : "click the pencil beside the search"} to start one yourself. Anyone in the channel can see the work, step in, or approve what Lor sends.`,
     Scene: SharedSessionScene,
   },
-  // Last, once people know what a session is: a loop's runs land in one.
+  // Last: the channel's agent works for the channel, including on a
+  // schedule.
   {
     title: "Every channel has its own agent",
     body: "Choose which tools Lor can use in each channel, and give it work on a schedule, like finding leads in #gtm every weekday.",

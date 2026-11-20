@@ -338,6 +338,7 @@ export const createChannelWebhook: AppRouteHandler<
         event: "data_received",
         channelId,
         post: true,
+        configuredById: c.var.user.id,
       })
       .returning()
       .then((rows) => rows[0])
@@ -490,6 +491,7 @@ export const updateChannelWebhook: AppRouteHandler<
       await tx
         .update(connectorTrigger)
         .set({
+          configuredById: c.var.user.id,
           ...(post !== undefined ? { post } : {}),
           ...(actInstructions !== undefined ? { actInstructions } : {}),
           ...(actSessionMode !== undefined ? { actSessionMode } : {}),

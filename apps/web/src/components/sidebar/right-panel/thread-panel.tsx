@@ -48,7 +48,6 @@ import {
 } from "@/components/chat/message-scroller-controls"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
-import { SessionStartedNote } from "@/components/session/session-started-note"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type {
@@ -73,7 +72,6 @@ import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useReplyState } from "@/hooks/use-reply-state"
-import { useSessionStart } from "@/hooks/use-session-start"
 import { useStableCallback } from "@/hooks/use-stable-callback"
 import {
   type FetchPageParams,
@@ -224,11 +222,6 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
   const { data: channel } = useQuery(
     channelQueryOptions(view.workspaceSlug, view.channelId)
   )
-  // @Lor in a human thread starts a session seeded with the thread.
-  const sessionStart = useSessionStart({
-    workspaceSlug: view.workspaceSlug,
-    channel: { id: view.channelId, name: channel?.name ?? null },
-  })
   const { handleSend, pendingNonces } = useMessageSending({
     socket,
     queryClient,
@@ -240,7 +233,6 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
       void queryClient.invalidateQueries({
         queryKey: threadSubscribersKey(view.threadRootId),
       }),
-    sessionStart: channel?.type === "text" ? sessionStart.handlers : undefined,
   })
 
   const {
@@ -486,15 +478,6 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
       scroll.scrollAfterSend()
     }
   )
-  const composerNotice = useMemo(
-    () => (
-      <SessionStartedNote
-        session={sessionStart.started}
-        workspaceSlug={view.workspaceSlug}
-      />
-    ),
-    [sessionStart.started, view.workspaceSlug]
-  )
 
   const channelContext = useMemo(
     () => ({
@@ -597,7 +580,6 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
         contextScopeKey={view.threadRootId}
         placeholder={composerPlaceholder}
         destination={channel?.type === "text" ? "thread" : undefined}
-        notice={composerNotice}
         onSend={onComposerSend}
         currentUserId={currentUserId}
         replyingTo={replyingTo}

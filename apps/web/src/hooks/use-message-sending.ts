@@ -1,5 +1,4 @@
 import { usePostHog } from "@posthog/react"
-import { LOR_USER_ID } from "@repo/db/constants"
 import {
   type RealtimeMessageEmbedsUpdated,
   type SendMessageAck,
@@ -190,8 +189,8 @@ export function useMessageSending({
         toPeople?: boolean
         // New session view: start a session in this channel.
         startSession?: boolean
-        // A session start (New session, or `@Lor` with Code picked): Code
-        // mode on this repo and branch, or a new branch made from it.
+        // A session start: this repo and branch, or a new branch made from
+        // it.
         code?: SendMessagePayload["code"]
         // With code: Claude Code or Codex runs it instead of Lor's own agent.
         harness?: SendMessagePayload["harness"]
@@ -204,8 +203,6 @@ export function useMessageSending({
         fast?: boolean
         // With startSession: "Continue in Code" from this session.
         continueFrom?: { id: string; title: string }
-        // "Ask Lor about this": the message the new session starts with.
-        contextMessageId?: string
         // Cmd+Enter: a session start stays where it was sent.
         stay?: boolean
         onFailed?: (error: string) => void
@@ -229,17 +226,11 @@ export function useMessageSending({
       }
 
       if (cancelInFlightRefetch()) refetchOwed.current = true
-      // `@Lor` in a human thread starts a session and posts nothing where
-      // it was sent. In the channel chat it is a normal post that wakes the
-      // channel agent, which answers in the chat.
+      // Only New session starts a session. `@Lor` in the chat or a human
+      // thread is a normal post that wakes the channel's agent, which
+      // answers where it was asked.
       const handlers = sessionStartRef.current
-      const startsSession =
-        options?.startSession ||
-        (Boolean(threadRootId) &&
-          Boolean(handlers) &&
-          (options?.mentions ?? []).some(
-            (mention) => mention.id === LOR_USER_ID
-          ))
+      const startsSession = Boolean(options?.startSession)
       // The client picks the new session's ids, so it can show the session
       // before the ack; the server inserts the rows under them.
       const startIds =
@@ -252,7 +243,7 @@ export function useMessageSending({
       const start: SessionStart | null = startIds
         ? {
             ...startIds,
-            origin: options?.startSession ? "new" : "chat",
+            origin: "new",
             ...(code ? { code } : {}),
             ...(harness ? { harness } : {}),
             ...(source ? { source } : {}),
@@ -289,10 +280,7 @@ export function useMessageSending({
         )
       }
 
-      // A session start carries its context message in the reply field; the
-      // server attaches it as context, not as a reply.
-      const referencedMessageId =
-        options?.referencedMessage?.id ?? options?.contextMessageId
+      const referencedMessageId = options?.referencedMessage?.id
       const attachments = options?.attachments ?? undefined
       const payload: SendMessagePayload = {
         channelId,

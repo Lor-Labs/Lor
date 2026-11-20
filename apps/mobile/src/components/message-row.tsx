@@ -135,12 +135,14 @@ function RoutedChip() {
 function MessageRowBody({
   message,
   onOpenThread,
+  onAskLor,
   onJumpToMessage,
   onToggleReaction,
   sessionThreadRootId = null,
 }: {
   message: Message
   onOpenThread?: (message: Message) => void
+  onAskLor?: (message: Message, prompt?: string) => void
   onJumpToMessage?: (messageId: string) => void
   onToggleReaction?: (message: Message, emoji: string) => void
   // In a session: its approval cards stay after the decision.
@@ -259,7 +261,7 @@ function MessageRowBody({
             // recording if embeds reorder; eventLabel-matched embeds lack it.
             key={embed.meeting?.recordingId ?? `${embed.url}-${index}`}
             message={message}
-            onOpenThread={onOpenThread}
+            onAskLor={onAskLor}
           />
         ) : (
           <MessageEmbed embed={embed} key={`${embed.url}-${index}`} />
@@ -307,6 +309,7 @@ export function MessageRow({
   message,
   showHeader,
   onOpenThread,
+  onAskLor,
   onJumpToMessage,
   onPressAuthor,
   isHighlighted = false,
@@ -319,6 +322,8 @@ export function MessageRow({
   message: Message
   showHeader: boolean
   onOpenThread?: (message: Message) => void
+  // A meeting recording's questions for the channel's agent.
+  onAskLor?: (message: Message, prompt?: string) => void
   onJumpToMessage?: (messageId: string) => void
   onPressAuthor?: (message: Message) => void
   isHighlighted?: boolean
@@ -392,6 +397,7 @@ export function MessageRow({
           <MessageProseContext.Provider value={prose}>
             <MessageRowBody
               message={message}
+              onAskLor={onAskLor}
               onJumpToMessage={onJumpToMessage}
               onOpenThread={onOpenThread}
               onToggleReaction={onToggleReaction}
@@ -461,6 +467,7 @@ export function MessageRow({
         ) : null}
         <MessageRowBody
           message={message}
+          onAskLor={onAskLor}
           onJumpToMessage={onJumpToMessage}
           onOpenThread={onOpenThread}
           onToggleReaction={onToggleReaction}

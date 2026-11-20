@@ -113,13 +113,23 @@ export function endAfterToDate(
   return date
 }
 
-// Bound only on conversational runs (respond() spreads it in when the
-// executor is present); triggered/loop runs never see it — a loop must not
-// schedule more loops.
-export const proposeLoopTool = {
-  propose_loop: tool({
-    description:
-      'Set up a scheduled loop in this channel: a recurring run of yourself that follows standing instructions on a cron schedule, each run a turn in the loop\'s own session. Use ONLY when someone asks for genuinely recurring work ("check the support queue every morning", "post a Friday digest") — never for one-off work you can just do now. This creates a DRAFT card in this conversation; nothing runs until a teammate presses Create Loop on it, so end your answer by pointing them at the card. `instructions` are the complete standing brief for every run — each run sees them and its own session, nothing else from this conversation, so include every detail it needs. `schedule` is a standard 5-field cron. `timezone`: pass an IANA timezone (e.g. America/New_York) ONLY when the conversation explicitly establishes one; otherwise pass null — the card shows the schedule in each viewer\'s local timezone and the activating teammate pins one. A loop can end one of three ways: when the ask names an outcome ("until the app ships"), put that finish line in `endCondition` and a future run will judge when it\'s met; when the ask names a duration ("for the next two weeks"), use `endAfter`; otherwise leave both null and the loop simply runs until the team stops it — don\'t describe that in words. Set at most one of the two.',
+// A refusal the model should read as written (the executor's other failures
+// are reported as a generic error).
+export class LoopProposalError extends Error {}
+
+const SESSION_PROPOSE_DESCRIPTION =
+  'Set up a scheduled loop in this channel: a recurring run of yourself that follows standing instructions on a cron schedule, each run a turn in the loop\'s own session. Use ONLY when someone asks for genuinely recurring work ("check the support queue every morning", "post a Friday digest") — never for one-off work you can just do now. This creates a DRAFT card in this conversation; nothing runs until a teammate presses Create Loop on it, so end your answer by pointing them at the card. `instructions` are the complete standing brief for every run — each run sees them and its own session, nothing else from this conversation, so include every detail it needs. `schedule` is a standard 5-field cron. `timezone`: pass an IANA timezone (e.g. America/New_York) ONLY when the conversation explicitly establishes one; otherwise pass null — the card shows the schedule in each viewer\'s local timezone and the activating teammate pins one. A loop can end one of three ways: when the ask names an outcome ("until the app ships"), put that finish line in `endCondition` and a future run will judge when it\'s met; when the ask names a duration ("for the next two weeks"), use `endAfter`; otherwise leave both null and the loop simply runs until the team stops it — don\'t describe that in words. Set at most one of the two.'
+
+// The channel agent's wording: a fire wakes it in the channel's chat, and the
+// draft card is posted there.
+const AGENT_PROPOSE_DESCRIPTION =
+  'Set up a Loop in this channel: a schedule that wakes you with standing instructions, on a cron. Use ONLY when a person asks for genuinely recurring work ("check the support queue every morning", "post a Friday digest"), never for one-off work you can do now. This posts a DRAFT card in the chat; nothing runs until a teammate presses Create Loop on it, so point them at the card with send_message. `instructions` are the complete standing brief for every run: write them so they stand on their own, with every detail a run needs. `schedule` is a standard 5-field cron. `timezone`: pass an IANA timezone (e.g. America/New_York) ONLY when the conversation explicitly establishes one; otherwise pass null: the card shows the schedule in each viewer\'s local timezone and the activating teammate pins one. A Loop can end one of three ways: when the ask names an outcome ("until the app ships"), put that finish line in `endCondition` and a later run judges when it is met; when the ask names a duration ("for the next two weeks"), use `endAfter`; otherwise leave both null and the Loop runs until the team stops it. Set at most one of the two.'
+
+// Bound on runs a person is part of (respond() spreads it in when the
+// executor is present): a trigger or a Loop must not schedule more Loops.
+function proposeLoop(description: string) {
+  return tool({
+    description,
     inputSchema: z.object({
       name: z
         .string()
@@ -200,10 +210,24 @@ export const proposeLoopTool = {
               : ""
           }`,
         }
-      } catch {
-        return { ok: false as const, error: "Failed to create the loop" }
+      } catch (err) {
+        return {
+          ok: false as const,
+          error:
+            err instanceof LoopProposalError
+              ? err.message
+              : "Failed to create the loop",
+        }
       }
     },
     strict: true,
-  }),
+  })
+}
+
+export const proposeLoopTool = {
+  propose_loop: proposeLoop(SESSION_PROPOSE_DESCRIPTION),
+}
+
+export const agentProposeLoopTool = {
+  propose_loop: proposeLoop(AGENT_PROPOSE_DESCRIPTION),
 }

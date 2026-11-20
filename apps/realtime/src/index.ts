@@ -666,6 +666,17 @@ io.on("connection", (socket) => {
         )
       }
 
+      // Chat sessions are history: questions go to the channel's agent in the
+      // chat (reference/always-on-agents.md, step 3.4).
+      if (parsed.threadRootId && !parsed.startSession) {
+        const target = await findAgentSessionByThreadRoot(parsed.threadRootId)
+        if (target?.mode === "chat") {
+          throw new Error(
+            "Chat sessions are read-only. Ask Lor in the channel's chat."
+          )
+        }
+      }
+
       delivery = await claimMessageDelivery(
         redisPresenceClient,
         socket.data.user.id,
@@ -919,11 +930,11 @@ io.on("connection", (socket) => {
           .limit(1)
         if (queued) return
         // The channel's always-on agent: what people say in the channel chat
-        // lands in its inbox, and a mention or a reply to it wakes it.
+        // lands in its inbox, and a mention or a reply to it wakes it, in the
+        // chat or in a human thread.
         if (
           accessibleChannel.type === "text" &&
           !session &&
-          !createdMessage.message.threadRootId &&
           createdMessage.message.type !== "forward"
         ) {
           const lane = await addChatMessageToAgentInbox({
@@ -936,9 +947,14 @@ io.on("connection", (socket) => {
           // typing from the moment someone addresses it (the worker keeps it
           // up while the turn runs).
           if (lane === "addressed") {
-            io.to(channelRoom(parsed.channelId)).emit("typing:update", {
+            const threadRootId = createdMessage.message.threadRootId ?? null
+            io.to(
+              threadRootId
+                ? threadRoom(threadRootId)
+                : channelRoom(parsed.channelId)
+            ).emit("typing:update", {
               channelId: parsed.channelId,
-              threadRootId: null,
+              threadRootId,
               userId: LOR_USER_ID,
               name: "Lor",
             })

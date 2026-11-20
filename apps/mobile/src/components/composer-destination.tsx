@@ -10,10 +10,10 @@ import { LorMark } from "@/components/voice/lor-window"
 import type { Message } from "@/lib/api-types"
 import type { MentionCandidate } from "@/lib/mentions"
 
-// Where the composer's message goes: @Lor in channel chat wakes the channel
-// agent, which answers there; @Lor in a human thread starts a session; inside
-// a session a message goes to Lor or to the session's subscribers. Mirrors
-// web's destination-bar.tsx.
+// Where the composer's message goes: @Lor in channel chat or a human thread
+// wakes the channel agent, which answers there; inside a session a message
+// goes to Lor or to the session's subscribers. Mirrors web's
+// destination-bar.tsx.
 export type ComposerDestination = "channel" | "thread" | "session"
 
 export type PingedPerson = {
@@ -139,16 +139,11 @@ export function DestinationBar({
               }`}
               numberOfLines={1}
             >
-              {destination === "thread"
-                ? "New session from this thread"
-                : "To Lor"}
+              To Lor
             </Text>
           </DestinationPill>
           {pinged.length > 0 ? (
-            <PingedPeople
-              label={destination === "thread" ? "Adds" : "Notifies"}
-              people={pinged}
-            />
+            <PingedPeople label="Notifies" people={pinged} />
           ) : null}
         </Animated.View>
       ) : (

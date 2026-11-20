@@ -1,5 +1,10 @@
 # Loops — scheduled headless Lor runs (execution runbook)
 
+> Since 2026-11-19 a Loop on a text channel has no session: each fire wakes
+> the channel's agent through its inbox, and the agent drafts Loops in the
+> chat (`always-on-agents.md` §13, step 3.2). The session flow below still
+> serves other channels.
+
 Status legend: `[ ]` todo · `[x]` done. Update checkboxes as phases land, and
 append to the **Decisions & deviations log** at the bottom when reality forces
 a change — this document is the source of truth across agent runs.

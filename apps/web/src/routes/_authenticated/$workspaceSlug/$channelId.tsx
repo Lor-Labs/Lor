@@ -6,7 +6,14 @@ import { toast } from "@repo/ui/components/toast"
 import { isChannelFeatureEnabled } from "@repo/utils/features"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { useDropzone } from "react-dropzone"
 import { ChatSkeleton } from "@/components/chat/chat-skeleton"
 import { MessageInput } from "@/components/chat/composer/message-input"
@@ -39,6 +46,7 @@ import {
 } from "@/hooks/use-message-search-navigation"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useOpenNewSession } from "@/hooks/use-open-new-session"
+import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useStableCallback } from "@/hooks/use-stable-callback"
@@ -75,6 +83,10 @@ type ChannelSearchParams = {
   // Prefills the composer with "@Lor <draft>" without sending (setup's Ask
   // Lor suggestions). Cleared once applied.
   draft?: string
+  // Replies to this message with "@Lor" in the composer ("Ask Lor about
+  // this", a meeting card's questions); `draft` follows the mention.
+  // Cleared once applied.
+  about?: string
   // Opens the channel's Sessions list in the right panel (the channel menus'
   // "View Sessions"). Cleared once applied.
   panel?: "sessions"
@@ -102,6 +114,7 @@ export const Route = createFileRoute(
     upload: typeof search.upload === "string" ? search.upload : undefined,
     draft:
       typeof search.draft === "string" ? search.draft.slice(0, 500) : undefined,
+    about: typeof search.about === "string" ? search.about : undefined,
     panel: search.panel === "sessions" ? "sessions" : undefined,
   }),
 })
@@ -160,13 +173,17 @@ function ChannelRoute() {
 
 function ChannelView() {
   const { workspaceSlug, channelId } = Route.useParams()
-  const { msgId, threadId, threadMessageId, draft, panel } = Route.useSearch()
+  const { msgId, threadId, threadMessageId, draft, about, panel } =
+    Route.useSearch()
   const navigate = Route.useNavigate()
+  const [askDraft, setAskDraft] = useState<{ id: string; text: string }>()
   const composerDraft = useMemo(
-    () => (draft ? { id: draft, text: draft } : undefined),
-    [draft]
+    () =>
+      askDraft ?? (draft && !about ? { id: draft, text: draft } : undefined),
+    [askDraft, draft, about]
   )
   const consumeComposerDraft = useCallback(() => {
+    setAskDraft(undefined)
     void navigate({
       search: (prev) => ({ ...prev, draft: undefined }),
       replace: true,
@@ -215,6 +232,7 @@ function ChannelView() {
 
   // Keeps the channel agent's approval cards live in the chat.
   useChannelApprovals(channelId)
+  useChannelProposals(channelId)
   // `@Lor` here wakes the channel agent, which answers in the chat. Sessions
   // start from New session.
   const { handleSend, pendingNonces } = useMessageSending({
@@ -348,14 +366,15 @@ function ChannelView() {
     (msg: Message) => handleOpenThread(msg.id),
     [handleOpenThread]
   )
+  // A question about a message goes to the channel's agent in the chat
+  // (reference/always-on-agents.md, step 3.4).
   const handleAskLor = useCallback(
     (msg: Message) =>
       void navigate({
-        to: "/$workspaceSlug/session/new",
-        params: { workspaceSlug },
-        search: { channelId, about: msg.id },
+        search: (prev) => ({ ...prev, about: msg.id }),
+        replace: true,
       }),
-    [navigate, workspaceSlug, channelId]
+    [navigate]
   )
   const openNewSession = useOpenNewSession()
 
@@ -423,6 +442,17 @@ function ChannelView() {
   })
 
   const { replyingTo, setReplyingTo, clearReply } = useReplyState()
+
+  useEffect(() => {
+    if (!about || messagesLoading) return
+    const target = messages.find((message) => message.id === about)
+    if (target) setReplyingTo(target)
+    setAskDraft({ id: crypto.randomUUID(), text: draft ?? "" })
+    void navigate({
+      search: (prev) => ({ ...prev, about: undefined, draft: undefined }),
+      replace: true,
+    })
+  }, [about, draft, messages, messagesLoading, setReplyingTo, navigate])
 
   const { data: threadActivityData } = useQuery({
     queryKey: ["thread-activity", channelId],

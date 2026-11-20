@@ -43,7 +43,6 @@ import {
   SettingsSection,
 } from "@/components/workspace/settings-group"
 import {
-  formatActWindowShort,
   TriggerEffects,
   type TriggerEffectsValue,
 } from "@/components/workspace/trigger-effects"
@@ -241,11 +240,7 @@ function effectsSummary(hook: {
 }) {
   const parts = [
     hook.post ? "Posts" : null,
-    hook.actInstructions !== null
-      ? hook.actWindowSeconds > 0
-        ? `Acts, batched ${formatActWindowShort(hook.actWindowSeconds)}`
-        : "Acts"
-      : null,
+    hook.actInstructions !== null ? "Wakes Lor" : null,
   ].filter(Boolean)
   return parts.length > 0 ? parts.join(" · ") : "Does nothing yet"
 }
@@ -573,7 +568,6 @@ export function ChannelWebhooksTab({
           <TriggerEffects
             idPrefix={`webhook-${open.id}`}
             channelLabel={channelName}
-            subjectLabel="One session per subject field"
             codeScope={{ workspaceSlug, channelId }}
             disabled={updateMutation.isPending}
             value={{

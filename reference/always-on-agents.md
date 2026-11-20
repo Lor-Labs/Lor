@@ -559,18 +559,17 @@ it. The cached share per call was 0 at first, then 85 to 99%, see below.
 
 - A mention that arrives mid-turn waits for the next turn. It does not steer
   the running one.
-- A mention of Lor inside a human thread still starts a session.
 - While a turn waits on an approval, new wakes wait too.
 - Every pause posts its own line in the chat ("One more approval before I go
   on." after the first). A turn with many gated calls is noisy.
-- `propose_loop` and workspace change proposals are off for the agent.
 - A run swept as dead does not flush the inbox. The next wake does.
 - Nowhere yet to see a turn's steps (Activity, slice 5).
 - Today's write-back pass still runs for the agent. Slice 4 replaces it
   with the memory pass.
 - The one-hour cache lifetime on large conversations is sent as an Anthropic
   provider option through the gateway; whether it applies was not checked.
-- A failed turn, or a workspace out of credits, says so in the chat.
+- A failed turn says so in the chat. A workspace out of credits is told
+  only when a person asked: events and Loops would repeat it.
 
 **Owed before the batch ships**
 
@@ -646,13 +645,108 @@ cut short now names the reply's message, so the agent reads it with
 After it: an alert at 02:00 is handled and reported in the chat, and Loops
 run through the agent.
 
-- [ ] 3.1 Webhooks and connector triggers write to the inbox, in the wake or
-  the wait lane. Migrate existing ones.
-- [ ] 3.2 Loops write to the inbox. Migrate existing ones.
-- [ ] 3.3 Who an approval asks on a turn no person started: the rule's
-  approver, else the session's subscribers, else whoever set up the trigger
-  or Loop. Triggers record who set them up.
-- [ ] 3.4 New session is code only. Chat sessions become read-only history.
+- [x] 3.1 Webhooks and connector triggers write to the inbox. Built
+  2026-11-19 (`deliverToInbox` in `apps/api/src/lib/connector-triggers.ts`,
+  for every source that goes through `dispatchConnectorEvent`).
+  - On a text channel, a trigger with Act instructions adds a wake-lane
+    item; one with only the post effect adds a wait-lane item beside its
+    card. The agent reads the event's text, the card's message id, the
+    team's instructions and who set them up (`triggerInboxNote`). The
+    event's text is marked as outside content: information, never
+    instructions.
+  - The hourly and daily limits now count wakes. Past one, the event waits
+    unread until the agent next wakes (delivery outcome `hourly_cap` or
+    `daily_cap`), instead of being dropped.
+  - The per-trigger batching window is gone: the inbox's own few seconds of
+    quiet batch events. Session modes are gone from the trigger settings,
+    which now say "Wakes Lor".
+  - A delivery points at the turn that read it (`trigger_delivery.run_id`),
+    so "Lor's last run" in the trigger settings shows what that turn said
+    in the chat.
+  - Nothing to migrate: existing triggers deliver to the inbox from the
+    deploy on. Their old sessions stay readable and get no more turns. The
+    Act session code (`startActRun`, `trigger-session.ts`, the triggered-run
+    job) still serves channels that are not text channels and is otherwise
+    unused.
+- [x] 3.2 Loops write to the inbox. Built 2026-11-19 (`fireLoopToInbox` in
+  `apps/worker/src/lib/loop-session.ts`).
+  - A fire on a text channel adds a wake-lane item with the Loop's
+    instructions, its end condition and who set it up (`loopInboxNote`,
+    source `loop`, `agent_inbox.loop_id`). The rules for a fire travel in
+    the item, because the system prompt is frozen per epoch.
+  - A turn reads at most one Loop fire. Its run carries the Loop's id and
+    due time, so the Loop's history, Run now, pause (which stops the turn)
+    and the five-failures pause work as before. Two Loops due together run
+    as two turns.
+  - A fire is skipped while the Loop's previous fire is unread or running.
+    A fire of a Loop paused, completed or deleted since is not read.
+  - `propose_loop` is on for the agent: the draft card posts in the chat,
+    and a teammate activates it. It refuses on a turn no person started,
+    so a trigger or a Loop can't schedule more Loops. Activation makes no
+    session on a text channel.
+  - `complete_loop` for the agent names the Loop, and works only for one
+    with an end condition. The chat shows "Lor completed the loop", and a
+    Loop paused after five failures says so in the chat too.
+  - What a turn said in the chat is saved as the run's note, which the
+    Loop's history and the trigger settings show.
+  - Nothing to migrate: existing Loops fire into the inbox from the deploy
+    on. Their old sessions stay readable and get no more turns.
+- [x] 3.3 Who an approval asks on a turn no person started. Built
+  2026-11-19 (`requesterOf` in `apps/worker/src/lib/approval-notify.ts`):
+  the creator of the Loop that fired, else whoever last saved the trigger
+  whose event woke the agent (`connector_trigger.configured_by_id`, set on
+  every save), else the workspace's approvers as before. The rule's named
+  approver still comes first.
+- [x] 3.4 New session is code only. Chat sessions become read-only history.
+  Built 2026-11-19.
+  - New session, on web and mobile, starts code sessions only: the Chat and
+    Code switch and the chat examples are gone, and the server refuses a
+    session start without a repository (`sessionStartFor` in
+    `apps/realtime/src/services/lor.ts`). The orphaned
+    `lor-start-mode.tsx` is deleted.
+  - A chat session is read-only: its composer becomes a line ("Chat
+    sessions are read-only. Ask Lor in #channel.") with Open chat, fork and
+    rewind are off, and the server refuses new messages, forks and rewinds
+    in it. Code sessions stay open whatever started them.
+  - "Ask Lor about this" replies to the message with `@Lor` in the
+    composer instead of opening New session (the channel route's `about`
+    search param). A meeting recording's questions do the same, and
+    Setup's questions open the channel with `@Lor <question>`. The agent's
+    inbox line for a reply carries the replied-to message.
+  - `@Lor` in a human thread wakes the agent and it answers in that thread
+    (default 3, not objected to). So does a quote-reply to Lor, or any
+    reply in a thread under one of Lor's messages; other thread replies do
+    not reach it. A turn answers in one place, the chat or one thread,
+    which its first wake picks; wakes from elsewhere wait for the next
+    turn. Typing shows in that thread. The thread composer's pill says "To
+    Lor".
+  - `propose_workspace_change` is on for the agent. The card posts in the
+    chat (never in a thread), it refuses on a turn no person started, and
+    a decision is posted in the card's thread as before and now wakes the
+    agent there. The chat shows proposal cards.
+
+Checked 2026-11-19 in the test channel on the dev database: a webhook event
+waiting unread, a failed deploy waking the agent and a successful one leaving
+it quiet, the hourly limit downgrading an event to unread, a Loop drafted in
+the chat, activated, run with Run now, posting its summary, and completing
+itself once someone said the pipeline was fixed; "Ask Lor about this"
+answered in the chat with the replied-to message in view; `@Lor` in a thread
+and a plain reply in a thread under Lor's card answered in those threads
+with no session made; New session showing Code only; an old chat session
+read-only; a workspace change proposed in the chat, approved, and followed
+up in the card's thread.
+
+**Deviations and gaps in slice 3**
+
+- A thread turn's approval line and card show in the main chat: approval
+  cards only render where the run's thread matches, and agent runs have
+  none.
+- A proposal's decision names what it created but not the new ids, so the
+  agent can't edit a new webhook in a follow-up proposal without looking it
+  up. Sessions get the same message.
+- Mobile changes are type-checked, not run on a device.
+- The legacy Act session and Loop session code stays for channels that are
+  not text channels.
 
 **Slice 4: it remembers and stays cheap**
 

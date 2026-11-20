@@ -1,4 +1,5 @@
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
+import LockedIcon from "@hugeicons/core-free-icons/LockedIcon"
 import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { LOR_USER_ID } from "@repo/db/constants"
@@ -79,7 +80,6 @@ import {
   useLiveSessionChanges,
   useSessionChanges,
 } from "@/hooks/use-session-changes"
-import { useSessionStart } from "@/hooks/use-session-start"
 import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { threadSubscribersQueryOptions } from "@/hooks/use-thread-subscribers"
@@ -159,13 +159,6 @@ export function ThreadView({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
   })
-  const sessionStart = useSessionStart({
-    id: channelId,
-    name: channelState.channel?.name ?? null,
-  })
-  // A human thread: @Lor starts a session. Call chats live in voice
-  // channels, where it starts nothing.
-  const startsSessions = !lorSession && channelState.channel?.type === "text"
   const thread = useThreadMessages({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
@@ -174,7 +167,6 @@ export function ThreadView({
     currentUser: session?.user,
     isSession: Boolean(lorSession),
     deferLoad: sessionPending,
-    sessionStart: startsSessions ? sessionStart : undefined,
   })
   // A call's chat: an unset tab means Summary for an ended call, else Chat;
   // Summary shows only once the call has ended. The call drawer is chat only.
@@ -537,7 +529,9 @@ export function ThreadView({
 
   // A session has no visible root to wait for.
   const isReady = Boolean(thread.root || lorSession)
-  // Archived sessions are read-only.
+  // Archived sessions are read-only, and so are chat sessions: questions go
+  // to the channel's agent in the chat (reference/always-on-agents.md,
+  // step 3.4).
   const archivedBar = lorSession?.archivedAt ? (
     <View className="bg-background px-three pb-three pt-two">
       <View className="min-h-11 flex-row items-center gap-two rounded-lor-sm border border-border px-three">
@@ -563,6 +557,32 @@ export function ThreadView({
           variant="ghost"
         >
           Unarchive
+        </Button>
+      </View>
+    </View>
+  ) : lorSession && lorSession.mode !== "code" ? (
+    <View className="bg-background px-three pb-three pt-two">
+      <View className="min-h-11 flex-row items-center gap-two rounded-lor-sm border border-border px-three">
+        <HugeiconsIcon
+          color={muted}
+          icon={LockedIcon}
+          size={16}
+          strokeWidth={2}
+        />
+        <Text className="min-w-0 flex-1 text-sm text-muted" numberOfLines={2}>
+          Chat sessions are read-only. Ask Lor in #{channelName}.
+        </Text>
+        <Button
+          onPress={() =>
+            router.push({
+              pathname: "/channel/[channelId]",
+              params: { channelId: lorSession.channelId },
+            })
+          }
+          size="sm"
+          variant="ghost"
+        >
+          Open chat
         </Button>
       </View>
     </View>
@@ -734,7 +754,11 @@ export function ThreadView({
               accessibilityLabel={lorSession ? "Reply" : "Reply in thread"}
               currentUserId={session?.user.id}
               destination={
-                lorSession ? "session" : startsSessions ? "thread" : undefined
+                lorSession
+                  ? "session"
+                  : channelState.channel?.type === "text"
+                    ? "thread"
+                    : undefined
               }
               initialDraft={composerDraft}
               peopleOnly={!harnessEnabled || withoutSubscription}
@@ -926,8 +950,9 @@ export function ThreadView({
                 onReply={archivedBar ? undefined : startReply}
                 onForward={lorSession ? setForwarding : undefined}
                 onFork={
-                  // The fork endpoint refuses a switched-off harness.
-                  lorSession && harnessEnabled
+                  // The fork endpoint refuses a switched-off harness and chat
+                  // sessions.
+                  lorSession && harnessEnabled && lorSession.mode === "code"
                     ? (message) =>
                         fork.mutate({
                           sessionId: lorSession.id,
@@ -939,7 +964,9 @@ export function ThreadView({
                   fork.isPending ? fork.variables.messageId : null
                 }
                 onRewind={
-                  lorSession && !lorSession.archivedAt
+                  lorSession &&
+                  !lorSession.archivedAt &&
+                  lorSession.mode === "code"
                     ? (message) =>
                         rewind.mutate(message.id, {
                           // The event may never reach this socket: reload.

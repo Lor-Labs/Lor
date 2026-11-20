@@ -27,17 +27,14 @@ export function MeetingRecordingCard({
     : embed.fields?.find((field) => field.name === "Duration")?.value
   const canAsk = Boolean(workspaceSlug && !message.threadRootId)
 
-  // Opens a new session about this recording with the question prefilled.
+  // Asks the channel's agent in the chat: a reply to this recording with
+  // "@Lor <question>" in the composer.
   function ask(prompt: string) {
     if (!workspaceSlug) return
     void navigate({
-      to: "/$workspaceSlug/session/new",
-      params: { workspaceSlug },
-      search: {
-        channelId: message.channelId,
-        about: message.id,
-        draft: prompt,
-      },
+      to: "/$workspaceSlug/$channelId",
+      params: { workspaceSlug, channelId: message.channelId },
+      search: { about: message.id, draft: prompt },
     })
   }
 

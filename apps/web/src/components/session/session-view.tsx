@@ -3,6 +3,7 @@ import {
   GitBranchIcon,
   HashtagIcon,
   Link01Icon,
+  LockedIcon,
   MoreHorizontalIcon,
   PencilEdit02Icon,
   Settings02Icon,
@@ -437,11 +438,14 @@ function SessionConversation({
       onShowChat={() => tabs.select(null)}
       onRead={markSidebarRead}
       targetMessageId={targetMessageId}
-      onFork={(message) =>
-        fork.mutateAsync({ sessionId: session.id, messageId: message.id })
+      onFork={
+        code
+          ? (message) =>
+              fork.mutateAsync({ sessionId: session.id, messageId: message.id })
+          : undefined
       }
       onRewind={
-        session.archivedAt
+        session.archivedAt || !code
           ? undefined
           : (message) => rewind.mutateAsync(message.id)
       }
@@ -496,7 +500,33 @@ function SessionConversation({
         ) : undefined
       }
       archivedBar={
-        session.archivedAt ? (
+        !session.archivedAt && !code ? (
+          // Chat sessions are history: questions go to the channel's agent
+          // in the chat (reference/always-on-agents.md, step 3.4).
+          <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
+            <HugeiconsIcon
+              icon={LockedIcon}
+              className="size-3.5 shrink-0"
+              strokeWidth={2}
+            />
+            <span className="min-w-0 flex-1 truncate">
+              Chat sessions are read-only. Ask Lor in #
+              {channel.name ?? "the channel"}.
+            </span>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() =>
+                void navigate({
+                  to: "/$workspaceSlug/$channelId",
+                  params: { workspaceSlug, channelId: session.channelId },
+                })
+              }
+            >
+              Open chat
+            </Button>
+          </div>
+        ) : session.archivedAt ? (
           <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
             <HugeiconsIcon
               icon={Archive02Icon}

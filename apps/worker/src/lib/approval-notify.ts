@@ -3,7 +3,16 @@ import {
   formatWorkspaceRole,
   isWorkspaceRole,
 } from "@repo/auth/permissions"
-import { and, asc, db, eq, LOR_USER_ID, schema } from "@repo/db"
+import {
+  APP_USER_ID,
+  and,
+  asc,
+  db,
+  eq,
+  isNotNull,
+  LOR_USER_ID,
+  schema,
+} from "@repo/db"
 import { env } from "@repo/env/server"
 import { sendApprovalPush } from "@repo/messaging"
 import type {
@@ -260,17 +269,51 @@ async function resolverAudience(
   }
 }
 
-// The person whose message triggered the parked run; null for headless runs
-// (loops, triggered runs) and Lor-authored triggers.
+// The person whose message triggered the parked run. A turn no person
+// started asks whoever gave its instructions: the creator of the Loop that
+// fired, or the person who set up the trigger whose event woke the channel's
+// agent (reference/always-on-agents.md §5). Null when there is nobody: the
+// workspace owner is paged.
 async function requesterOf(row: ParkedApprovalRow): Promise<string | null> {
-  if (!row.triggerMessageId) return null
-  const authorId = await db
-    .select({ authorId: schema.message.authorId })
-    .from(schema.message)
-    .where(eq(schema.message.id, row.triggerMessageId))
+  if (row.triggerMessageId) {
+    const authorId = await db
+      .select({ authorId: schema.message.authorId })
+      .from(schema.message)
+      .where(eq(schema.message.id, row.triggerMessageId))
+      .limit(1)
+      .then((rows) => rows[0]?.authorId ?? null)
+    if (authorId && authorId !== LOR_USER_ID && authorId !== APP_USER_ID) {
+      return authorId
+    }
+  }
+  if (!row.runId) return null
+  const [fired] = await db
+    .select({ userId: schema.loop.creatorId })
+    .from(schema.agentRun)
+    .innerJoin(schema.loop, eq(schema.loop.id, schema.agentRun.loopId))
+    .where(eq(schema.agentRun.id, row.runId))
+  if (fired?.userId) return fired.userId
+  const [setUp] = await db
+    .select({ userId: schema.connectorTrigger.configuredById })
+    .from(schema.agentInbox)
+    .innerJoin(
+      schema.triggerDelivery,
+      eq(schema.triggerDelivery.id, schema.agentInbox.deliveryId)
+    )
+    .innerJoin(
+      schema.connectorTrigger,
+      eq(schema.connectorTrigger.id, schema.triggerDelivery.triggerId)
+    )
+    .where(
+      and(
+        eq(schema.agentInbox.runId, row.runId),
+        eq(schema.agentInbox.lane, "wake"),
+        isNotNull(schema.connectorTrigger.configuredById)
+      )
+    )
+    .orderBy(asc(schema.agentInbox.createdAt))
     .limit(1)
-    .then((rows) => rows[0]?.authorId ?? null)
-  return authorId && authorId !== LOR_USER_ID ? authorId : null
+  return setUp?.userId ?? null
 }
 
 async function buildNotification(

@@ -1,4 +1,4 @@
-import { db, eq, schema } from "@repo/db"
+import { db, eq, LOR_USER_ID, schema } from "@repo/db"
 import { addInboxMessage } from "@repo/lor/channel-agent"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import {
@@ -9,20 +9,34 @@ import {
 import type { Queue } from "bullmq"
 import { isLorMentioned, isReplyToLor } from "@/services/lor-routing"
 
+async function threadRootIsLor(threadRootId: string): Promise<boolean> {
+  const [root] = await db
+    .select({ authorId: schema.message.authorId })
+    .from(schema.message)
+    .where(eq(schema.message.id, threadRootId))
+  return root?.authorId === LOR_USER_ID
+}
+
 // A message in the channel chat lands in the channel agent's inbox
 // (reference/always-on-agents.md §3). A mention or a reply to the
 // agent wakes it; anything else waits unread until its next turn, unless the
-// channel is set to wake it on every message.
+// channel is set to wake it on every message. In a human thread only a
+// mention, a reply to the agent, or a reply in a thread under one of its
+// messages reaches it, and the agent answers in that thread.
 export async function addChatMessageToAgentInbox(args: {
   workspaceId: string
   channelId: string
   message: RealtimeMessage
   queue: Queue<AgentInboxFlushJobData>
   // "addressed": a mention of Lor or a reply to it, which always wakes it.
-}): Promise<"addressed" | "wake" | "wait" | "duplicate"> {
+  // "skipped": a thread reply not for the agent.
+}): Promise<"addressed" | "wake" | "wait" | "duplicate" | "skipped"> {
+  const threadRootId = args.message.threadRootId
   const addressed =
     isLorMentioned(args.message.content) ||
-    isReplyToLor(args.message.referencedMessage)
+    isReplyToLor(args.message.referencedMessage) ||
+    (threadRootId ? await threadRootIsLor(threadRootId) : false)
+  if (threadRootId && !addressed) return "skipped"
   const everyMessage = addressed
     ? false
     : await db

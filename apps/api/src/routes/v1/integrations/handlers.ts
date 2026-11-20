@@ -1058,6 +1058,7 @@ export const updateIntegration: AppRouteHandler<
       post,
       actInstructions,
       actSessionMode: sessionMode,
+      configuredById: c.var.user.id,
       ...actTarget.columns,
       // Absent = keep the column default on create.
       ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
@@ -1071,6 +1072,7 @@ export const updateIntegration: AppRouteHandler<
         post,
         actInstructions,
         actSessionMode: sessionMode,
+        configuredById: c.var.user.id,
         ...actTarget.columns,
         // Absent = leave the configured limits alone.
         ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),

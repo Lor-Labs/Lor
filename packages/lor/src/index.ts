@@ -102,6 +102,7 @@ import {
   resolveWorkspaceCapabilities,
 } from "./capabilities"
 import {
+  agentLoopTools,
   agentSessionTools,
   channelAgentPromptSection,
   type RunAgentContext,
@@ -164,7 +165,11 @@ import {
   startLinearIssues,
 } from "./linear"
 import { logger } from "./logger"
-import { type ProposeLoopExecutor, proposeLoopTool } from "./loops"
+import {
+  agentProposeLoopTool,
+  type ProposeLoopExecutor,
+  proposeLoopTool,
+} from "./loops"
 import { channelMcpServers, mcpServersPromptLine } from "./mcp-servers"
 import { messageActionTools, type OnMessageReaction } from "./message-actions"
 import {
@@ -189,6 +194,7 @@ import {
   updatePlan,
 } from "./plans"
 import {
+  AGENT_PROPOSALS_PROMPT_LINE,
   PROPOSALS_PROMPT_LINE,
   type ProposeChangeExecutor,
   proposeChangeTool,
@@ -402,6 +408,8 @@ const EXPORT_PROMPT_LINE = `- Bulk data to a file: export_tool_result runs one o
 const CODE_PROMPT_LINE = `- The team's code: clone_repo copies a connected GitHub repository (one branch, latest commit) into your sandbox and returns its folder. Use it when a question needs the source, then search and read the folder with your sandbox tools. Link code you cite with a normal Markdown link made of the returned linkBase, the file's path in the repository and its lines, e.g. [src/billing.ts#L10-L24](<linkBase>src/billing.ts#L10-L24). You cannot commit, push or open pull requests.`
 
 const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a loop — a recurring run of you on a cron schedule, with standing instructions and an optional plain-language end condition. Each run is a turn in the loop's own session, which the team follows. It creates a draft card here; a teammate activates it from the card, so tell them to press Create Loop there. Only for genuinely recurring work — never for one-off requests you can handle now.`
+// The channel agent's Loops wake it in the chat instead of a session.
+const AGENT_LOOPS_PROMPT_LINE = `- Loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a Loop: a cron schedule that wakes you in this channel with standing instructions, and an optional plain-language end condition. It posts a draft card in the chat; a teammate activates it from the card, so tell them to press Create Loop there. Only when a person asks for genuinely recurring work, never for one-off requests you can handle now.`
 
 // Pi's sandbox tools, by their public names; the Sandbox tool group in agent
 // profiles turns them (and share_file) on or off.
@@ -2911,13 +2919,18 @@ async function respondImpl(
             ...sendMessageTool,
             ...readAgentHistoryTool,
             ...(ctx.agent.sessions ? agentSessionTools : {}),
+            ...(ctx.agent.completeLoop ? agentLoopTools : {}),
           }
         : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.code ? sessionChangesTool : {}),
       ...(ctx.code && ctx.threadRootId ? sessionSetupTool : {}),
       ...(ctx.voice ? voiceTools : {}),
-      ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
+      ...(ctx.proposeLoop && ctx.channelId
+        ? ctx.agent
+          ? agentProposeLoopTool
+          : proposeLoopTool
+        : {}),
       ...(ctx.proposeChange && ctx.channelId ? proposeChangeTool : {}),
       ...(linear ? linearTools : {}),
       ...(linear ? linearWriteTools : {}),
@@ -3122,6 +3135,9 @@ async function respondImpl(
                   stop_session: { sessions: ctx.agent.sessions },
                 }
               : {}),
+            ...(ctx.agent.completeLoop
+              ? { complete_loop: { completeLoop: ctx.agent.completeLoop } }
+              : {}),
           }
         : {}),
       ...(ctx.voice
@@ -3231,8 +3247,16 @@ async function respondImpl(
       hasToolGroup(notionTools) ? NOTION_PROMPT_LINE : null,
       hasToolGroup(notionWriteTools) ? NOTION_WRITE_PROMPT_LINE : null,
       ctx.channelId ? EXPORT_PROMPT_LINE : null,
-      ctx.proposeLoop && ctx.channelId ? LOOPS_PROMPT_LINE : null,
-      ctx.proposeChange && ctx.channelId ? PROPOSALS_PROMPT_LINE : null,
+      ctx.proposeLoop && ctx.channelId
+        ? ctx.agent
+          ? AGENT_LOOPS_PROMPT_LINE
+          : LOOPS_PROMPT_LINE
+        : null,
+      ctx.proposeChange && ctx.channelId
+        ? ctx.agent
+          ? AGENT_PROPOSALS_PROMPT_LINE
+          : PROPOSALS_PROMPT_LINE
+        : null,
       betterstackMcp && hasToolGroup(betterstackMcp.tools)
         ? BETTERSTACK_PROMPT_LINE
         : null,

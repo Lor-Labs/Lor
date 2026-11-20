@@ -40,8 +40,8 @@ const STEPS: [Step, ...Step[]] = [
     Scene: ChatAnswerScene,
   },
   {
-    title: "Sessions for longer work",
-    body: "Tap the pencil on the Channels tab to start a session, like a code change. Anyone in the channel can see the work, step in, or approve what Lor sends.",
+    title: "Code sessions",
+    body: "Lor starts a code session when work needs a change, or tap the pencil on the Channels tab to start one yourself. Anyone in the channel can see the work, step in, or approve what Lor sends.",
     Scene: SharedSessionScene,
   },
   // Last, once people know what a session is: a loop's runs land in one.
