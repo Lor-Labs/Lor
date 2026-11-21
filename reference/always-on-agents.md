@@ -1044,9 +1044,12 @@ deployed.
   worker). The agent's prompt names it, and a rename reaches it as a change
   note at its next turn. The channel's creator may set the name and
   creature too, like its name and topic.
-- [x] 7.3 The bestiary (decision 33, built 2026-11-21): 10 creatures
-  (dragon whelp, owl, golem, wisp, slime, fox spirit, mushroom, automaton,
-  kraken, mimic), 24x24 pixel art with an eyes-shut frame, in
+- [x] 7.3 The bestiary (decision 33, built 2026-11-21; touched up the
+  same day at Jacob's ask to stay playful but look less childlike: no
+  blush, smaller eyes under short brows, smirks instead of wide smiles):
+  12 creatures (dragon, griffin, owl, golem, ghost, wisp, slime, fox
+  spirit, mushroom, automaton, kraken, mimic), 24x24 pixel art with an
+  eyes-shut frame, in
   `@repo/utils/bestiary`. The web `AgentCreature` draws them as SVG and
   animates the real state in whole sprite pixels: asleep (eyes shut, a
   breath, floating z), working on every turn (hops, sparkles; the worker
