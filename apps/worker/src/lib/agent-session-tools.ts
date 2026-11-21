@@ -353,6 +353,8 @@ export function agentSessionExecutors(
         return {
           error:
             "The session was created but its first turn may not have started. Check it with check_session before sending the brief again with message_session.",
+          // The session exists: a retried step replays this, not a new one.
+          outcome: "unknown",
           sessionId,
         }
       }

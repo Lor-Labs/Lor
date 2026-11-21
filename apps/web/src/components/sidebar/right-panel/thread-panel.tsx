@@ -403,6 +403,14 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
   })
 
   const fileUpload = useFileUpload(view.channelId)
+  // A chat that lives in Discord keeps its threads there too.
+  // Until its status loads, the composer waits rather than offer a chat
+  // that may live in Discord.
+  const { data: discord, isLoading: discordLoading } = useChannelDiscord(
+    view.workspaceSlug,
+    view.channelId,
+    channel?.type === "text"
+  )
 
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
@@ -417,6 +425,8 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
     onDrop,
     noClick: true,
     noKeyboard: true,
+    // No composer to attach to while the Discord notice stands in for it.
+    noDrag: discordLoading || Boolean(discord?.link),
   })
 
   const { typingUsers, emitTyping } = useTypingIndicator({
@@ -437,14 +447,6 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
     view.workspaceSlug,
     view.channelId,
     { broadcasts: true }
-  )
-  // A chat that lives in Discord keeps its threads there too.
-  // Until its status loads, the composer waits rather than offer a chat
-  // that may live in Discord.
-  const { data: discord, isLoading: discordLoading } = useChannelDiscord(
-    view.workspaceSlug,
-    view.channelId,
-    channel?.type === "text"
   )
   const channelPeople = useChannelPeople(view.workspaceSlug, view.channelId)
   // The writer and the people they mention join the subscribers before the

@@ -384,8 +384,22 @@ export function useChannelMessages({
     setPendingMessages([])
   }, [])
 
+  // Cached messages stay visible while an anchored window loads, so isPending
+  // doesn't say when the anchor's own window has arrived.
+  const firstParam = query.data?.pageParams[0]
+  const isAnchorWindowLoaded =
+    query.isError ||
+    Boolean(
+      normalizedAnchor &&
+        firstParam &&
+        "around" in firstParam &&
+        firstParam.around === normalizedAnchor &&
+        !query.isFetching
+    )
+
   return {
     messages,
+    isAnchorWindowLoaded,
     isAnchorMissing: Boolean(
       normalizedAnchor &&
         query.data?.pages.some(

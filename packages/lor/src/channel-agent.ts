@@ -479,6 +479,8 @@ export async function loadInboxBatch(
   const omitted = Math.min(overflow, waiting.length)
   const unread = waiting.slice(omitted)
   const taken = [...waiting, ...woke]
+  // Tagged only when its fire is in this batch, not left for the next turn.
+  const takenLoop = [...unread, ...woke].find((row) => row.loopId)
   const replies = await repliedTo([...unread, ...woke])
 
   const line = (row: (typeof rows)[number]) => {
@@ -520,10 +522,10 @@ export async function loadInboxBatch(
     deliveryIds: taken.flatMap((row) =>
       row.deliveryId ? [row.deliveryId] : []
     ),
-    loop: loopFire?.loopId
+    loop: takenLoop?.loopId
       ? {
-          id: loopFire.loopId,
-          scheduledFor: dueTime(loopFire.sourceId),
+          id: takenLoop.loopId,
+          scheduledFor: dueTime(takenLoop.sourceId),
         }
       : null,
     threadRootId: place,

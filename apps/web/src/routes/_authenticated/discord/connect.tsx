@@ -23,12 +23,12 @@ function DiscordConnect() {
   const ranRef = useRef(false)
   // Set once the person leaves: a late answer must not move them.
   const leftRef = useRef(false)
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    leftRef.current = false
+    return () => {
       leftRef.current = true
-    },
-    []
-  )
+    }
+  }, [])
 
   useEffect(() => {
     if (ranRef.current) return

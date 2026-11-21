@@ -248,6 +248,7 @@ function ChannelView() {
     messages,
     isLoading: messagesLoading,
     isAnchorMissing,
+    isAnchorWindowLoaded,
     fetchOlder,
     fetchNewer,
     hasOlder,
@@ -449,7 +450,7 @@ function ChannelView() {
     if (!about || messagesLoading) return
     const target = messages.find((message) => message.id === about)
     // Not on the loaded page: load around it first, so the mention keeps it
-    // as the reply target. Once anchored there, go on either way.
+    // as the reply target. Once that window has loaded, go on either way.
     if (!target && msgId !== about) {
       void navigate({
         search: (prev) => ({ ...prev, msgId: about }),
@@ -457,13 +458,24 @@ function ChannelView() {
       })
       return
     }
+    if (!target && !isAnchorMissing && !isAnchorWindowLoaded) return
     if (target) setReplyingTo(target)
     setAskDraft({ id: crypto.randomUUID(), text: draft ?? "" })
     void navigate({
       search: (prev) => ({ ...prev, about: undefined, draft: undefined }),
       replace: true,
     })
-  }, [about, draft, messages, messagesLoading, msgId, setReplyingTo, navigate])
+  }, [
+    about,
+    draft,
+    messages,
+    messagesLoading,
+    msgId,
+    isAnchorMissing,
+    isAnchorWindowLoaded,
+    setReplyingTo,
+    navigate,
+  ])
 
   const { data: threadActivityData } = useQuery({
     queryKey: ["thread-activity", channelId],
@@ -554,6 +566,14 @@ function ChannelView() {
   }, [channelId, clearReply])
 
   const fileUpload = useFileUpload(channelId)
+  // A chat that lives in Discord is read-only here (decision 22).
+  // Until its status loads, the composer waits rather than offer a chat
+  // that may live in Discord.
+  const { data: discord, isLoading: discordLoading } = useChannelDiscord(
+    workspaceSlug,
+    channelId,
+    data?.type === "text"
+  )
 
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
@@ -568,17 +588,12 @@ function ChannelView() {
     onDrop,
     noClick: true,
     noKeyboard: true,
+    // Only while a composer is there to take the files.
+    noDrag:
+      Boolean(data?.archivedAt) || discordLoading || Boolean(discord?.link),
   })
 
   const mentionCandidates = useMentionCandidates(workspaceSlug, channelId)
-  // A chat that lives in Discord is read-only here (decision 22).
-  // Until its status loads, the composer waits rather than offer a chat
-  // that may live in Discord.
-  const { data: discord, isLoading: discordLoading } = useChannelDiscord(
-    workspaceSlug,
-    channelId,
-    data?.type === "text"
-  )
 
   const channelName = data?.name ?? channelId
   const channelTopic = data?.topic ?? undefined

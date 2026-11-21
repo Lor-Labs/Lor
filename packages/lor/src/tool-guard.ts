@@ -45,9 +45,9 @@ export const SIDE_EFFECT_TOOLS = new Set([
   "wake_up",
   "cancel_wake_up",
   // The agent's code sessions: a retry must not start or message one twice.
+  // stop_session stays out: a later stop in the same run must stop again.
   "start_session",
   "message_session",
-  "stop_session",
 ])
 
 // Canonical JSON (sorted object keys) so the same logical input always hashes

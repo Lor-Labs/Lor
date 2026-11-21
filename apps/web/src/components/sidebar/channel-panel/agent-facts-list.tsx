@@ -147,6 +147,8 @@ export function AgentFactsList({
                       setEditing({ id: fact.id, text: event.target.value })
                     }
                     onKeyDown={(event) => {
+                      // Enter that confirms an IME composition isn't a save.
+                      if (event.nativeEvent.isComposing) return
                       if (event.key === "Enter") {
                         event.preventDefault()
                         const text = editing.text.trim()

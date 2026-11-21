@@ -8,6 +8,7 @@ import {
   eq,
   inArray,
   isNotNull,
+  isNull,
   isUniqueViolation,
   LOR_USER_ID,
   lt,
@@ -210,6 +211,10 @@ async function pendingApproval(runId: string): Promise<boolean> {
   return Boolean(row)
 }
 
+// notesThrough: the profile-notes cursor before this run's opening advanced
+// it, restored if the run is unwound.
+type TurnRun = { runId: string; notesThrough?: Date | null }
+
 // A turn's run holds the channel's scope (one active run per scope), and its
 // inbox step and the items it read commit with it. Null when another run
 // holds the scope.
@@ -220,15 +225,17 @@ async function createTurnRun(args: {
   batch: InboxBatch | null
   // The Loop whose fire this turn answers: its run in the Loop's history.
   loop?: { id: string; scheduledFor: Date | null } | null
-}): Promise<string | null> {
+}): Promise<TurnRun | null> {
   const loop = args.loop ?? args.batch?.loop ?? null
   // The newest message carries what changed in the profile since the agent
   // last saw it and what is open now (reference/always-on-agents.md §4). A
   // conversation not frozen yet gets the profile in its snapshot instead.
   const notedAt = new Date()
   let opening: string | null = null
+  let notesThrough: Date | null | undefined
   if (args.batch) {
     const context = await loadAgentContext(args.workspaceId, args.channelId)
+    notesThrough = context.notesThrough
     const [notes, open] = await Promise.all([
       context.system
         ? profileChangeNotes(
@@ -283,7 +290,7 @@ async function createTurnRun(args: {
             .where(inArray(schema.triggerDelivery.id, args.batch.deliveryIds))
         }
       }
-      return run.id
+      return { runId: run.id, notesThrough }
     })
   } catch (err) {
     if (isUniqueViolation(err) || err instanceof StaleInboxBatchError) {
@@ -332,7 +339,7 @@ export async function flushAgentInbox(
       })
       .from(schema.agentRun)
       .where(eq(schema.agentRun.id, paused.runId))
-    const runId = await createTurnRun({
+    const turnRun = await createTurnRun({
       workspaceId,
       channelId,
       triggerMessageId: pausedRun?.triggerMessageId ?? null,
@@ -341,8 +348,8 @@ export async function flushAgentInbox(
         ? { id: pausedRun.loopId, scheduledFor: null }
         : null,
     })
-    if (!runId) return "busy"
-    await enqueueTurn(deps, workspaceId, { channelId, runId })
+    if (!turnRun) return "busy"
+    await enqueueTurn(deps, workspaceId, channelId, turnRun)
     return "resumed"
   }
 
@@ -366,22 +373,24 @@ export async function flushAgentInbox(
     )
   const batch = await loadInboxBatch(channelId)
   if (!batch) return "empty"
-  const runId = await createTurnRun({
+  const turnRun = await createTurnRun({
     workspaceId,
     channelId,
     triggerMessageId: batch.triggerMessageId,
     batch,
   })
-  if (!runId) return "busy"
-  await enqueueTurn(deps, workspaceId, { channelId, runId })
+  if (!turnRun) return "busy"
+  await enqueueTurn(deps, workspaceId, channelId, turnRun)
   return "started"
 }
 
 async function enqueueTurn(
   deps: AgentDeps,
   workspaceId: string,
-  data: AgentTurnJobData
+  channelId: string,
+  turnRun: TurnRun
 ) {
+  const data: AgentTurnJobData = { channelId, runId: turnRun.runId }
   notifyWorkspaceActivity(workspaceId)
   try {
     await deps.queue.add(AGENT_TURN_JOB, data, {
@@ -401,6 +410,13 @@ async function enqueueTurn(
         .delete(schema.agentStep)
         .where(eq(schema.agentStep.runId, data.runId))
       await tx.delete(schema.agentRun).where(eq(schema.agentRun.id, data.runId))
+      // The discarded opening carried the profile notes since this cursor.
+      if (turnRun.notesThrough !== undefined) {
+        await tx
+          .update(schema.agentContext)
+          .set({ notesThrough: turnRun.notesThrough })
+          .where(eq(schema.agentContext.channelId, channelId))
+      }
     })
     await deps.queue
       .add(
@@ -1078,12 +1094,14 @@ export async function runAgentCompactJob(
   const context = await loadAgentContext(workspaceId, channelId)
   if (context.promptTokens < COMPACT_AT_TOKENS) return
 
-  const runId = await createTurnRun({
-    workspaceId,
-    channelId,
-    triggerMessageId: null,
-    batch: null,
-  })
+  const runId = (
+    await createTurnRun({
+      workspaceId,
+      channelId,
+      triggerMessageId: null,
+      batch: null,
+    })
+  )?.runId
   if (!runId) return
   const execution = await claim(job, token, runId)
   if (!execution) return
@@ -1148,21 +1166,32 @@ export async function sweepStrandedInboxes(
   queue: Queue<AgentQueueData>
 ): Promise<number> {
   const before = new Date(Date.now() - STRANDED_AFTER_MS)
+  // Random order: channels a flush keeps skipping (out of credits, beta
+  // ended) can't hold every slot sweep after sweep.
   const unread = await db
-    .selectDistinct({ channelId: schema.agentInbox.channelId })
+    .select({ channelId: schema.agentInbox.channelId })
     .from(schema.agentInbox)
+    .innerJoin(
+      schema.channel,
+      eq(schema.channel.id, schema.agentInbox.channelId)
+    )
     .where(
       and(
         eq(schema.agentInbox.status, "pending"),
         eq(schema.agentInbox.lane, "wake"),
-        lt(schema.agentInbox.createdAt, before)
+        lt(schema.agentInbox.createdAt, before),
+        eq(schema.channel.type, "text"),
+        isNull(schema.channel.archivedAt)
       )
     )
+    .groupBy(schema.agentInbox.channelId)
+    .orderBy(sql`random()`)
     .limit(200)
   // The channel's latest run paused on approvals none of which is pending.
   const decided = await db.execute<{ channel_id: string }>(sql`
     select r.scope_key::text as channel_id
     from agent_run r
+    join channel c on c.id = r.channel_id and c.archived_at is null
     where r.stop_reason = 'awaiting_approval'
       and r.scope_key = r.channel_id
       and r.updated_at < now() - interval '1 minute'
@@ -1174,6 +1203,7 @@ export async function sweepStrandedInboxes(
         select 1 from agent_run later
         where later.scope_key = r.scope_key and later.created_at > r.created_at
       )
+    order by random()
     limit 200
   `)
   const channelIds = new Set([
