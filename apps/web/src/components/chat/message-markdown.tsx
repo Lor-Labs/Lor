@@ -1,5 +1,6 @@
 import { File01Icon, Folder01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { LOR_USER_ID } from "@repo/db/constants"
 import { env } from "@repo/env/client"
 import { MessageMarkdown as NexusMessageMarkdown } from "@repo/ui/components/nexus-ui/message"
 import { toast } from "@repo/ui/components/toast"
@@ -8,6 +9,7 @@ import { formatDateTime } from "@repo/utils/date"
 import { Link } from "@tanstack/react-router"
 import { memo, type ReactNode, useMemo, useState } from "react"
 import type { Components } from "streamdown"
+import { useChannelAgentContext } from "@/components/agent/channel-agent"
 import { LinearIssueCard } from "@/components/chat/linear-issue-card"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
 import { useCallCitation } from "@/hooks/use-call-citation"
@@ -249,12 +251,26 @@ interface MessageMarkdownProps {
 
 export const MessageMarkdown = memo(function MessageMarkdown({
   content,
-  mentions,
+  mentions: mentionsIn,
   className,
   editedAt,
   onCitationJump,
 }: MessageMarkdownProps) {
   const { prefetch: prefetchLocation } = useMessageLocation()
+  // @Lor in a channel reads as the channel agent's name.
+  const channelAgent = useChannelAgentContext()
+  const agentName = channelAgent?.name
+  const mentions = useMemo(
+    () =>
+      agentName
+        ? mentionsIn.map((mention) =>
+            mention.id === LOR_USER_ID
+              ? { ...mention, name: agentName }
+              : mention
+          )
+        : mentionsIn,
+    [mentionsIn, agentName]
+  )
   const mentionById = useMemo(
     () => new Map(mentions.map((mention) => [mention.id, mention])),
     [mentions]
@@ -384,7 +400,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({
           </span>
         )
         const mention = id ? mentionById.get(id) : undefined
-        if (!(id && mention)) return pill
+        if (!(id && mention) || (agentName && id === LOR_USER_ID)) return pill
 
         return (
           <UserHoverCard avatarColor={mention.avatarColor} userId={id}>
@@ -393,7 +409,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({
         )
       },
     }),
-    [mentionById, onCitationJump, prefetchLocation]
+    [mentionById, onCitationJump, prefetchLocation, agentName]
   )
 
   if (parts.length === 0) {

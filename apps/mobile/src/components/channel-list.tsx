@@ -656,8 +656,8 @@ export function ChannelList({
                   className="ml-[44px] mr-two mt-one"
                   onDismiss={sessionsHint.dismiss}
                 >
-                  Lor works in sessions, listed under their channel. Anyone in
-                  the channel can open one and join in.
+                  Sessions for longer work, like code, are listed under their
+                  channel. Anyone in the channel can open one and join in.
                 </HintCard>
               ) : undefined
             }

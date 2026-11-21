@@ -26,6 +26,10 @@ import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
 import type { createClient } from "redis"
+import {
+  reportHelperRun,
+  sweepUnreportedHelperRuns,
+} from "@/lib/agent-session-tools"
 import { logger } from "@/lib/logger"
 import { settleLoopRun } from "@/lib/loop-session"
 import { drainScopeQueue } from "@/lib/run-queue"
@@ -255,6 +259,16 @@ export async function sweepDeadRuns(
       )
     )
   }
+  // A dead helper run reports to its channel agent, which would otherwise
+  // never learn the turn died. The sweep after it recovers failed reports.
+  for (const run of dead) {
+    await reportHelperRun(null, run.id).catch((err) =>
+      logger.error({ err, runId: run.id }, "Dead helper-run report failed")
+    )
+  }
+  await sweepUnreportedHelperRuns().catch((err) =>
+    logger.error({ err }, "Unreported helper run sweep failed")
+  )
   if (dead.length > 0) {
     logger.warn(
       { count: dead.length, runIds: dead.map((r) => r.id) },

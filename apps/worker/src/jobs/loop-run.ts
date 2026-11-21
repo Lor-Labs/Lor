@@ -7,6 +7,7 @@ import type {
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
+import type { AgentQueueData } from "@/lib/agent-inbox"
 import { logger } from "@/lib/logger"
 import { fireLoop } from "@/lib/loop-session"
 import { cancelPendingRun } from "@/lib/unattended-run"
@@ -14,11 +15,13 @@ import { cancelPendingRun } from "@/lib/unattended-run"
 type RedisClient = ReturnType<typeof createClient>
 
 // One loop fire, from the sweep or "Run now": the kill switch is re-read at
-// process time, then the fire becomes a turn in the loop's session.
+// process time, then the fire wakes the channel's agent (text channels) or
+// becomes a turn in the loop's session.
 export function createLoopRunProcessor(
   emitter: Emitter<ServerToClientEvents>,
   redis: RedisClient,
-  respondQueue: Queue<LorRespondJobData>
+  respondQueue: Queue<LorRespondJobData>,
+  agentInboxQueue: Queue<AgentQueueData>
 ) {
   return async (job: Job<LoopRunJobData>) => {
     const { loopId } = job.data
@@ -35,7 +38,7 @@ export function createLoopRunProcessor(
     }
 
     const outcome = await fireLoop(
-      { emitter, redis, respondQueue },
+      { emitter, redis, respondQueue, agentInboxQueue },
       loop,
       job.data.scheduledFor ? new Date(job.data.scheduledFor) : new Date()
     )

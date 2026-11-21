@@ -39,6 +39,11 @@ export function useChannelActivity(channelId: string) {
   return channels.get(channelId)
 }
 
+// Every channel's activity, for the Needs you tab.
+export function useAllChannelActivity() {
+  return useContext(ActivityContext).channels
+}
+
 export function useActivityWorkspaceId() {
   return useContext(ActivityContext).workspaceId
 }

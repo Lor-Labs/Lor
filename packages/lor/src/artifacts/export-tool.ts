@@ -14,6 +14,8 @@ export const EXPORT_DENIED_TOOLS = new Set([
   ...SIDE_EFFECT_TOOLS,
   // Publishes a file; not a side-effect tool, so re-sharing makes a new version.
   "share_file",
+  // Not replay-cached (a later stop must stop again), but still an action.
+  "stop_session",
   "request_approval",
   "update_plan",
   "complete_plan",
@@ -329,6 +331,8 @@ export function createExportToolResultTool(opts: {
         return { error: "the file couldn't be stored; try again" }
       }
     },
-    strict: true,
+    // Not strict: `args` is free-form, which strict mode can't express, and
+    // Anthropic's API rejects the tool (and the whole request) when it is.
+    strict: false,
   })
 }

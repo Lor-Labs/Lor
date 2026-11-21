@@ -84,6 +84,12 @@ async function turnEnd(
       )
     )
     .limit(1)
+  // Chat sessions are history (reference/always-on-agents.md, step 3.4).
+  if (session.mode !== "code") {
+    throw new BranchRefusedError(
+      "Chat sessions are read-only. Ask Lor in the channel's chat"
+    )
+  }
   if (!run) throw new BranchRefusedError("That isn't one of Lor's replies here")
   if ((ACTIVE_RUN_STATES as readonly string[]).includes(run.state)) {
     throw new BranchRefusedError("Lor is still working on that reply")

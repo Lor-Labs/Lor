@@ -41,11 +41,24 @@ type DeltaRow = {
     | null
   name: string
   eventType?: string | null
+  eventPayload?: unknown
 }
 
 // A loop's fire line is Lor-authored but is the turn's request, so it reads
 // as coming from the schedule.
 export const LOOP_SCHEDULE_SPEAKER = "Loop schedule"
+
+// The channel agent's brief to a session it runs: Lor-authored, but the
+// turn's request (reference/always-on-agents.md §6).
+export function agentTaskSpeaker(payload: unknown): string {
+  const name =
+    payload && typeof payload === "object" && "channelName" in payload
+      ? payload.channelName
+      : null
+  return typeof name === "string" && name
+    ? `#${name}'s agent`
+    : "The channel's agent"
+}
 
 function toTurn(row: DeltaRow): AgentRunContext["conversation"][number] {
   return {
@@ -54,7 +67,9 @@ function toTurn(row: DeltaRow): AgentRunContext["conversation"][number] {
     authorName:
       row.eventType === "loop_run"
         ? LOOP_SCHEDULE_SPEAKER
-        : userDisplayName(row),
+        : row.eventType === "agent_task"
+          ? agentTaskSpeaker(row.eventPayload)
+          : userDisplayName(row),
     content: row.content ?? "",
     images: (row.attachments ?? [])
       .filter((a) => a.contentType.startsWith("image/"))
@@ -114,6 +129,7 @@ async function loadDelta(args: {
       attachments: schema.message.attachments,
       name: schema.user.name,
       eventType: schema.message.eventType,
+      eventPayload: schema.message.eventPayload,
     })
     .from(schema.message)
     .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
@@ -136,7 +152,7 @@ async function loadDelta(args: {
         // fire line is the exception: it is the new turn's request.
         or(
           ne(schema.message.authorId, LOR_USER_ID),
-          eq(schema.message.eventType, "loop_run")
+          inArray(schema.message.eventType, ["loop_run", "agent_task"])
         ),
         or(
           isNotNull(schema.message.content),

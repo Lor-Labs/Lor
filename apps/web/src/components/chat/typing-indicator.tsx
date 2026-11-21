@@ -1,6 +1,9 @@
+import { LOR_USER_ID } from "@repo/db/constants"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { AnimatePresence, motion } from "motion/react"
+import { AgentCreature } from "@/components/agent/agent-creature"
+import { useChannelAgentContext } from "@/components/agent/channel-agent"
 import { UserAvatar } from "@/components/ui/user-avatar"
 
 type TypingUser = {
@@ -30,12 +33,21 @@ function formatTypingText(users: TypingUser[]): string {
 // Zero-height overlay above the composer: showing or hiding the typing
 // indicator never resizes the transcript. `className` sets the fade surface.
 export function TypingIndicator({
-  users,
+  users: typers,
   className,
 }: {
   users: TypingUser[]
   className?: string
 }) {
+  // The channel agent types under its own name, with its creature at work.
+  const agent = useChannelAgentContext()
+  const agentTyping =
+    agent && typers.some((user) => user.userId === LOR_USER_ID)
+  const users = agent
+    ? typers.map((user) =>
+        user.userId === LOR_USER_ID ? { ...user, name: agent.name } : user
+      )
+    : typers
   return (
     <div className="relative h-0">
       <AnimatePresence>
@@ -50,6 +62,14 @@ export function TypingIndicator({
               className
             )}
           >
+            {agentTyping && agent && (
+              <AgentCreature
+                creature={agent.creature}
+                state="working"
+                size={24}
+                className="-my-1"
+              />
+            )}
             <span>{formatTypingText(users)}</span>
             <span className="inline-flex gap-0.5">
               {DOT_DELAYS.map((delay) => (

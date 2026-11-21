@@ -1,3 +1,4 @@
+import { LOR_USER_ID } from "@repo/db/constants"
 import { useThemeColor } from "heroui-native/hooks"
 import { createContext, useCallback, useContext, useMemo } from "react"
 import { useColorScheme } from "react-native"
@@ -7,6 +8,7 @@ import {
 } from "react-native-enriched-markdown"
 import { StreamdownText } from "react-native-streamdown"
 import { Fonts } from "@/constants/theme"
+import { useChannelAgent } from "@/hooks/use-channel-agent"
 import { useOpenCallTranscript } from "@/hooks/use-open-call-transcript"
 import type { Message } from "@/lib/api-types"
 import { BROADCAST_MENTION_IDS } from "@/lib/mentions"
@@ -181,9 +183,22 @@ export function MessageContent({
       textSecondary,
     ]
   )
+  // @Lor in a channel reads as its agent's name, outside session transcripts.
+  const channelAgent = useChannelAgent()
+  const agentName = prose.document ? undefined : channelAgent?.name
   const markdown = useMemo(
-    () => toDisplayMarkdown(content, mentions),
-    [content, mentions]
+    () =>
+      toDisplayMarkdown(
+        content,
+        agentName
+          ? mentions.map((mention) =>
+              mention.id === LOR_USER_ID
+                ? { ...mention, name: agentName }
+                : mention
+            )
+          : mentions
+      ),
+    [content, mentions, agentName]
   )
   const markdownStyle = useMemo(
     () => buildMarkdownStyle(theme, prose.document),

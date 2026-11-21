@@ -43,7 +43,6 @@ import {
   SettingsSection,
 } from "@/components/workspace/settings-group"
 import {
-  formatActWindowShort,
   TriggerEffects,
   type TriggerEffectsValue,
 } from "@/components/workspace/trigger-effects"
@@ -241,11 +240,7 @@ function effectsSummary(hook: {
 }) {
   const parts = [
     hook.post ? "Posts" : null,
-    hook.actInstructions !== null
-      ? hook.actWindowSeconds > 0
-        ? `Acts, batched ${formatActWindowShort(hook.actWindowSeconds)}`
-        : "Acts"
-      : null,
+    hook.actInstructions !== null ? "Wakes Lor" : null,
   ].filter(Boolean)
   return parts.length > 0 ? parts.join(" · ") : "Does nothing yet"
 }
@@ -370,7 +365,6 @@ export function ChannelWebhooksTab({
       actInstructions?: string | null
       actSessionMode?: TriggerEffectsValue["actSessionMode"]
       actCode?: TriggerEffectsValue["actCode"]
-      actModel?: TriggerEffectsValue["actModel"]
       actWindowSeconds?: number
       hourlyRunCap?: number
       dailyRunCap?: number
@@ -386,7 +380,6 @@ export function ChannelWebhooksTab({
           actInstructions: input.actInstructions,
           actSessionMode: input.actSessionMode,
           actCode: input.actCode,
-          actModel: input.actModel,
           actWindowSeconds: input.actWindowSeconds,
           hourlyRunCap: input.hourlyRunCap,
           dailyRunCap: input.dailyRunCap,
@@ -575,7 +568,6 @@ export function ChannelWebhooksTab({
           <TriggerEffects
             idPrefix={`webhook-${open.id}`}
             channelLabel={channelName}
-            subjectLabel="One session per subject field"
             codeScope={{ workspaceSlug, channelId }}
             disabled={updateMutation.isPending}
             value={{
@@ -583,7 +575,6 @@ export function ChannelWebhooksTab({
               actInstructions: open.actInstructions,
               actSessionMode: open.actSessionMode,
               actCode: open.actCode,
-              actModel: open.actModel,
               actWindowSeconds: open.actWindowSeconds,
               hourlyRunCap: open.hourlyRunCap,
               dailyRunCap: open.dailyRunCap,

@@ -16,6 +16,7 @@ import billingRouter from "@/routes/v1/billing/index"
 import channelMutesRouter from "@/routes/v1/channel-mutes/index"
 import channelsRouter from "@/routes/v1/channels/index"
 import customToolsRouter from "@/routes/v1/custom-tools/index"
+import discordRouter from "@/routes/v1/discord/index"
 import dmsRouter from "@/routes/v1/dms/index"
 import environmentsRouter from "@/routes/v1/environments/index"
 import faviconRouter from "@/routes/v1/favicon/index"
@@ -154,6 +155,7 @@ const routes = app
   .route("/v1", voiceRouter)
   .route("/v1", faviconRouter)
   .route("/v1", mobileRouter)
+  .route("/v1", discordRouter)
 
 export type AppType = typeof routes
 

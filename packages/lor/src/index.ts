@@ -56,6 +56,15 @@ import {
 } from "ai"
 import { z } from "zod"
 import {
+  type AgentTurnResult,
+  agentMemoryPass,
+  compactAgentConversation,
+  type MemoryPassResult,
+  readAgentHistoryTool,
+  runAgentTurn,
+  usageLedger,
+} from "./agent-loop"
+import {
   aiRuntimeContext,
   aiTelemetry,
   withAiObservabilityTurn,
@@ -82,6 +91,11 @@ import {
   pageExists,
   supersededPageIds,
 } from "./brain"
+import {
+  BRAIN_PAGE_FORMAT,
+  BRAIN_SAVE_BAR,
+  BRAIN_SAVE_STEPS,
+} from "./brain-rules"
 import { keyFunding, nativeInference } from "./byok"
 import {
   parseCallTime,
@@ -94,6 +108,19 @@ import {
   resolveChannelCapabilities,
   resolveWorkspaceCapabilities,
 } from "./capabilities"
+import {
+  agentLoopTools,
+  agentSessionTools,
+  agentWakeUpTools,
+  channelAgentPromptSection,
+  type RunAgentContext,
+  sendMessageTool,
+} from "./channel-agent"
+import {
+  channelAgentLog,
+  channelProfileSection,
+  loadChannelProfile,
+} from "./channel-profile"
 import {
   type ChatgptCredential,
   chatgptCredential,
@@ -151,7 +178,11 @@ import {
   startLinearIssues,
 } from "./linear"
 import { logger } from "./logger"
-import { type ProposeLoopExecutor, proposeLoopTool } from "./loops"
+import {
+  agentProposeLoopTool,
+  type ProposeLoopExecutor,
+  proposeLoopTool,
+} from "./loops"
 import { channelMcpServers, mcpServersPromptLine } from "./mcp-servers"
 import { messageActionTools, type OnMessageReaction } from "./message-actions"
 import {
@@ -176,6 +207,7 @@ import {
   updatePlan,
 } from "./plans"
 import {
+  AGENT_PROPOSALS_PROMPT_LINE,
   PROPOSALS_PROMPT_LINE,
   type ProposeChangeExecutor,
   proposeChangeTool,
@@ -304,6 +336,24 @@ for (const name of Object.keys(webTools)) {
     throw new Error(`Tool ${name} needs a STANDALONE_TOOLS entry`)
 }
 
+// Writes a helper session leaves to the channel's agent (connector writes
+// are filtered from its grants by READ_ONLY_CONNECTOR_TOOLS).
+const HELPER_WRITE_TOOLS = [
+  "memory_write",
+  "memory_edit",
+  "memory_link",
+  "propose_instructions",
+  "react_to_message",
+  "propose_loop",
+  "propose_workspace_change",
+] as const
+const READ_ONLY_CONNECTOR_TOOLS: ReadonlySet<string> = new Set(
+  Object.values(CONNECTOR_TOOLS)
+    .flat()
+    .filter((tool) => tool.readOnlyHint)
+    .map((tool) => tool.name)
+)
+
 // How often a running Codex turn checks its ChatGPT token, which is refreshed
 // with 20 minutes left (chatgpt-account.ts).
 const CHATGPT_TOKEN_CHECK_MS = 10 * 60_000
@@ -373,6 +423,8 @@ const EXPORT_PROMPT_LINE = `- Bulk data to a file: export_tool_result runs one o
 const CODE_PROMPT_LINE = `- The team's code: clone_repo copies a connected GitHub repository (one branch, latest commit) into your sandbox and returns its folder. Use it when a question needs the source, then search and read the folder with your sandbox tools. Link code you cite with a normal Markdown link made of the returned linkBase, the file's path in the repository and its lines, e.g. [src/billing.ts#L10-L24](<linkBase>src/billing.ts#L10-L24). You cannot commit, push or open pull requests.`
 
 const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a loop — a recurring run of you on a cron schedule, with standing instructions and an optional plain-language end condition. Each run is a turn in the loop's own session, which the team follows. It creates a draft card here; a teammate activates it from the card, so tell them to press Create Loop there. Only for genuinely recurring work — never for one-off requests you can handle now.`
+// The channel agent's Loops wake it in the chat instead of a session.
+const AGENT_LOOPS_PROMPT_LINE = `- Loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a Loop: a cron schedule that wakes you in this channel with standing instructions, and an optional plain-language end condition. It posts a draft card in the chat; a teammate activates it from the card, so tell them to press Create Loop there. Only when a person asks for genuinely recurring work, never for one-off requests you can handle now.`
 
 // Pi's sandbox tools, by their public names; the Sandbox tool group in agent
 // profiles turns them (and share_file) on or off.
@@ -544,9 +596,12 @@ function settledWithin<T>(
   })
 }
 
-const SYSTEM_PROMPT_TAIL = `Where you work: a channel's chat is for teammates talking to each other, and you work in sessions beside it. A session is one conversation, started by a teammate's request and sometimes seeded with chat messages as its starting context. Teammates can join a session and talk to each other there too; a message in it that's addressed to someone else is context, not a request to you. Your replies and reactions stay in the session.
+const SESSION_PLACE = `Where you work: a channel's chat is for teammates talking to each other, and you work in sessions beside it. A session is one conversation, started by a teammate's request and sometimes seeded with chat messages as its starting context. Teammates can join a session and talk to each other there too; a message in it that's addressed to someone else is context, not a request to you. Your replies and reactions stay in the session.
 
-You can also see images people share — they're included inline in the conversation below.
+`
+// The channel agent's prompt leaves out SESSION_PLACE: it works in the
+// channel's chat (channelAgentPromptSection).
+const ANSWERING = `You can also see images people share — they're included inline in the conversation below.
 
 How to answer:
 - Work on the current request in the active conversation only. Earlier requests from other sessions, threads, or channel background are reference material, not unfinished assignments, even if you cannot see their replies or resolution. Use them only when relevant to the current request; do not add their deliverables to the current request or resume them unless the user asks. The same applies to requests found in brain notes and search results.
@@ -559,8 +614,13 @@ Use reactions naturally and sparingly to complement your response. Always still 
 
 Use your tools silently — don't narrate that you're searching. Gather what you need, then give one clear answer. Be concise. Use Markdown. Speak in the first person; never claim to be human. Avoid putting emojis in your written answers — reactions are the main place an emoji belongs.`
 
-function buildSystemPrompt(connectorLines: string[]): string {
-  return `${[SYSTEM_PROMPT_HEAD, ...connectorLines].join("\n")}\n\n${SYSTEM_PROMPT_TAIL}`
+const SYSTEM_PROMPT_TAIL = `${SESSION_PLACE}${ANSWERING}`
+
+function buildSystemPrompt(
+  connectorLines: string[],
+  tail = SYSTEM_PROMPT_TAIL
+): string {
+  return `${[SYSTEM_PROMPT_HEAD, ...connectorLines].join("\n")}\n\n${tail}`
 }
 
 function conversationIdOf(owner: HarnessOwner): string {
@@ -620,17 +680,11 @@ Answer false — the default — for everything else: small talk, greetings, tra
 
 const WRITEBACK_INSTRUCTION = `You've just answered. Now step back and act as the keeper of this workspace's long-term memory.
 
-Your bar for saving is high. Only save specific, durable, workspace-specific knowledge a teammate would genuinely benefit from weeks from now: a settled decision, how one of the team's systems or processes actually works, who owns or is responsible for something, a resolved problem and its fix, or a lasting convention. Save nothing for small talk, transient status, questions that state no new fact, opinions, speculation, undecided proposals, general or how-to knowledge, or anything vague or one-off. When in doubt, save nothing — a sparse, trustworthy brain is worth far more than a cluttered one.
+${BRAIN_SAVE_BAR}
 
-- If (and only if) something clears that bar: first browse your brain (memory_ls / memory_read) to find where it belongs and whether a page on this already exists (you may have already saved something while answering — don't duplicate it). Strongly prefer changing an existing page with memory_edit over creating a new one; only create a page with memory_write for a genuinely new topic. Make the smallest change that captures the fact (memory_write creates parent folders automatically), and use memory_link only when the relationship to another page is clear. Keep pages tight, factual, and self-contained. When a newer decision replaces one already in memory, write the new decision as its own page and link it to the old page with supersedes (from the new page to the old one); leave the old page as it was, so the earlier decision and its date stay on record. Use memory_edit for corrections and additions, not to replace a decision.
-- Otherwise, do nothing. This is the common case.
+${BRAIN_SAVE_STEPS}
 
-Page format — begin every page with a short frontmatter block, then the body:
----
-summary: one line on what this page is
-aliases: [terms or synonyms someone might search for this by]
----
-(the markdown body)
+${BRAIN_PAGE_FORMAT}
 
 Decide for yourself. Don't reply to the user; just maintain memory. End with one short line of what you saved, or "nothing to save".`
 
@@ -681,6 +735,13 @@ export type RespondContext = {
   // Set on every run in a loop's session: the loop's standing brief in the
   // system prompt, plus complete_loop when the loop has an end condition.
   loop?: RunLoopContext
+  // Set on every run in a channel agent's conversation: binds send_message,
+  // the only way its words reach the channel chat.
+  agent?: RunAgentContext
+  // A code session the channel's agent started: code tools and read-only
+  // connectors, no writes to connectors or memory. It reports to the agent,
+  // which acts (reference/always-on-agents.md §6).
+  helper?: boolean
   // Set on a request spoken in a voice call: binds show_in_call and the call
   // framing. Results go to Lor's window, never the chat.
   voice?: RunVoiceContext
@@ -844,6 +905,12 @@ export type RespondResult = {
   // Set when a budget ceiling or an explicit user stop ended (or gracefully
   // forced the end of) the loop — recorded as the run's stop reason.
   stoppedFor?: RunStopCause
+  // A channel agent's turn (agent-loop.ts): what the worker files and
+  // schedules after it.
+  agent?: Omit<AgentTurnResult, "text" | "messages" | "stoppedFor"> & {
+    compacted?: boolean
+    memory?: MemoryPassResult | null
+  }
 }
 
 export type WriteBackContext = {
@@ -2521,40 +2588,38 @@ export function toolDetail(
 // as the durable step-0 context, so a recovered run replays the exact same
 // initial request. Brain pages are not injected: Lor retrieves them through
 // `search` when a question needs them.
+// Roster of teammates Lor can @-mention. Rendered with their exact <@id>
+// token so Lor's mentions fan out and highlight like a person's.
+async function loadMentionRoster(workspaceId: string): Promise<string> {
+  const roster = await db
+    .select({
+      id: schema.user.id,
+      name: schema.user.name,
+    })
+    .from(schema.workspaceMember)
+    .innerJoin(schema.user, eq(schema.workspaceMember.userId, schema.user.id))
+    .where(
+      and(
+        eq(schema.workspaceMember.workspaceId, workspaceId),
+        ne(schema.user.id, LOR_USER_ID),
+        // Keep anyone with a usable label.
+        sql`btrim(${schema.user.name}) <> ''`
+      )
+    )
+    .orderBy(asc(schema.user.name))
+    .limit(ROSTER_LIMIT)
+    .catch(() => [])
+  return roster.length > 0
+    ? `\n\nPeople you can mention (write the token exactly to @-mention them):\n${roster
+        .map((m) => `${sanitizeRosterLabel(userDisplayName(m))} <@${m.id}>`)
+        .join("\n")}`
+    : ""
+}
+
 async function buildRunContext(ctx: RespondContext): Promise<AgentRunContext> {
-  // Roster of teammates Lor can @-mention. Rendered with their exact
-  // <@id> token so Lor's mentions fan out and highlight like a person's.
-  // Voice runs get none: Lor's window can't notify anyone, so names stay
-  // plain text.
-  const roster = ctx.voice
-    ? []
-    : await db
-        .select({
-          id: schema.user.id,
-          name: schema.user.name,
-        })
-        .from(schema.workspaceMember)
-        .innerJoin(
-          schema.user,
-          eq(schema.workspaceMember.userId, schema.user.id)
-        )
-        .where(
-          and(
-            eq(schema.workspaceMember.workspaceId, ctx.workspaceId),
-            ne(schema.user.id, LOR_USER_ID),
-            // Keep anyone with a usable label.
-            sql`btrim(${schema.user.name}) <> ''`
-          )
-        )
-        .orderBy(asc(schema.user.name))
-        .limit(ROSTER_LIMIT)
-        .catch(() => [])
-  const rosterText =
-    roster.length > 0
-      ? `\n\nPeople you can mention (write the token exactly to @-mention them):\n${roster
-          .map((m) => `${sanitizeRosterLabel(userDisplayName(m))} <@${m.id}>`)
-          .join("\n")}`
-      : ""
+  // Voice runs get no roster: Lor's window can't notify anyone, so names
+  // stay plain text.
+  const rosterText = ctx.voice ? "" : await loadMentionRoster(ctx.workspaceId)
 
   // Channel name so workspace instructions can express per-channel behavior
   // ("In #engineering, ..."). DM channels have no name — omitted.
@@ -2716,10 +2781,23 @@ async function respondImpl(
     : EMPTY_LOR_RUN_SCOPE
 
   // Profile reads fail closed to core tools, including resumed runs.
-  const grants = await (ctx.channelId
+  const profileGrants = await (ctx.channelId
     ? resolveChannelCapabilities(ctx.channelId, ctx.workspaceId)
     : resolveWorkspaceCapabilities(ctx.workspaceId)
   ).catch(() => EMPTY_TOOL_GRANTS)
+  // A helper session keeps the read side: custom and MCP tools can't be told
+  // apart, so they stay out.
+  const grants = ctx.helper
+    ? {
+        ...profileGrants,
+        connectorTools: profileGrants.connectorTools.filter((name) =>
+          READ_ONLY_CONNECTOR_TOOLS.has(name)
+        ),
+        customTools: [],
+        mcpServers: [],
+        mcpTools: {},
+      }
+    : profileGrants
   const selectedBuiltinTools = new Set(grants.builtinTools)
   const selectedConnectorTools = new Set(grants.connectorTools)
   const needsConnector = (provider: keyof typeof CONNECTOR_TOOLS) =>
@@ -2829,7 +2907,7 @@ async function respondImpl(
       ...brainWriteTools,
       ...instructionsTools,
       // Reactions only inside a session: Lor has no presence in channel chat.
-      ...(ctx.channelId && ctx.threadRootId && !ctx.voice
+      ...(ctx.channelId && ctx.threadRootId && !ctx.voice && !ctx.agent
         ? messageActionTools
         : {}),
       // Claude Code brings its own web tools and task list, so a Claude Code
@@ -2840,14 +2918,30 @@ async function respondImpl(
       ...(shareFileEnabled ? shareFileTool : {}),
       // Codex has its own plan tool too; its web search is off, so it keeps
       // Lor's web tools.
-      ...((ctx.plan || ctx.threadRootId) && !ctx.claudeCode && !ctx.codex
+      ...((ctx.plan || ctx.threadRootId) &&
+      !ctx.claudeCode &&
+      !ctx.codex &&
+      !ctx.agent
         ? planTools
+        : {}),
+      ...(ctx.agent
+        ? {
+            ...sendMessageTool,
+            ...readAgentHistoryTool,
+            ...(ctx.agent.sessions ? agentSessionTools : {}),
+            ...(ctx.agent.completeLoop ? agentLoopTools : {}),
+            ...(ctx.agent.wakeUps ? agentWakeUpTools : {}),
+          }
         : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.code ? sessionChangesTool : {}),
       ...(ctx.code && ctx.threadRootId ? sessionSetupTool : {}),
       ...(ctx.voice ? voiceTools : {}),
-      ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
+      ...(ctx.proposeLoop && ctx.channelId
+        ? ctx.agent
+          ? agentProposeLoopTool
+          : proposeLoopTool
+        : {}),
       ...(ctx.proposeChange && ctx.channelId ? proposeChangeTool : {}),
       ...(linear ? linearTools : {}),
       ...(linear ? linearWriteTools : {}),
@@ -2858,6 +2952,10 @@ async function respondImpl(
       ...(datadogMcp ? datadogMcp.tools : {}),
       ...(betterstackMcp ? betterstackMcp.tools : {}),
       ...(cloudwatch ? cloudwatchTools : {}),
+    }
+    if (ctx.helper) {
+      for (const name of HELPER_WRITE_TOOLS)
+        delete (builtinTools as ToolSet)[name]
     }
     const takenBuiltinNames = new Set(Object.keys(builtinTools))
     for (const name of takenBuiltinNames) {
@@ -3036,6 +3134,29 @@ async function respondImpl(
       ...(ctx.loop?.completeLoop
         ? { complete_loop: { completeLoop: ctx.loop.completeLoop } }
         : {}),
+      ...(ctx.agent
+        ? {
+            send_message: { sendMessage: ctx.agent.sendMessage },
+            read_agent_history: { channelId: ctx.channelId },
+            ...(ctx.agent.sessions
+              ? {
+                  start_session: { sessions: ctx.agent.sessions },
+                  check_session: { sessions: ctx.agent.sessions },
+                  message_session: { sessions: ctx.agent.sessions },
+                  stop_session: { sessions: ctx.agent.sessions },
+                }
+              : {}),
+            ...(ctx.agent.completeLoop
+              ? { complete_loop: { completeLoop: ctx.agent.completeLoop } }
+              : {}),
+            ...(ctx.agent.wakeUps
+              ? {
+                  wake_up: { wakeUps: ctx.agent.wakeUps },
+                  cancel_wake_up: { wakeUps: ctx.agent.wakeUps },
+                }
+              : {}),
+          }
+        : {}),
       ...(ctx.voice
         ? {
             show_in_call: { show: ctx.voice.show },
@@ -3123,11 +3244,14 @@ async function respondImpl(
 
     // Only describe the connectors actually bound for this channel.
     const connectorPromptLines = [
-      sandboxPromptLine(
-        sandboxBuiltins,
-        shareFileEnabled,
-        Boolean(ctx.claudeCode || ctx.codex)
-      ),
+      // The channel agent has no sandbox.
+      ctx.agent
+        ? null
+        : sandboxPromptLine(
+            sandboxBuiltins,
+            shareFileEnabled,
+            Boolean(ctx.claudeCode || ctx.codex)
+          ),
       hasToolGroup(webTools) ? WEB_PROMPT_LINE : null,
       hasToolGroup(githubTools) ? GITHUB_PROMPT_LINE : null,
       hasToolGroup(cloneRepoTool) ? CODE_PROMPT_LINE : null,
@@ -3140,8 +3264,16 @@ async function respondImpl(
       hasToolGroup(notionTools) ? NOTION_PROMPT_LINE : null,
       hasToolGroup(notionWriteTools) ? NOTION_WRITE_PROMPT_LINE : null,
       ctx.channelId ? EXPORT_PROMPT_LINE : null,
-      ctx.proposeLoop && ctx.channelId ? LOOPS_PROMPT_LINE : null,
-      ctx.proposeChange && ctx.channelId ? PROPOSALS_PROMPT_LINE : null,
+      ctx.proposeLoop && ctx.channelId
+        ? ctx.agent
+          ? AGENT_LOOPS_PROMPT_LINE
+          : LOOPS_PROMPT_LINE
+        : null,
+      ctx.proposeChange && ctx.channelId
+        ? ctx.agent
+          ? AGENT_PROPOSALS_PROMPT_LINE
+          : PROPOSALS_PROMPT_LINE
+        : null,
       betterstackMcp && hasToolGroup(betterstackMcp.tools)
         ? BETTERSTACK_PROMPT_LINE
         : null,
@@ -3157,6 +3289,126 @@ async function respondImpl(
           }. Other connector tools mentioned in guidance are unavailable.`
         : null,
     ].filter((line): line is string => line !== null)
+
+    // The channel's agent runs on its own loop, with no sandbox
+    // (reference/always-on-agents.md §4).
+    if (ctx.agent) {
+      if (!run || !ctx.channelId) {
+        throw new Error("A channel agent turn needs a run and a channel")
+      }
+      const agentModel = ctx.turn?.model ?? LOR_MODEL
+      const agentTools = guardTools(
+        withTouchHints(tools, {
+          workspaceId: ctx.workspaceId,
+          privateContainerChannelId: runScope.privateContainerChannelId,
+          threadRootId: null,
+        }),
+        { store: run.toolResults }
+      ).tools
+      const agentApproval: Record<string, ToolApprovalStatus> = {}
+      for (const name of Object.keys(agentTools)) {
+        const target = toolTargets.targetFor(name)
+        if (target !== null && approvalGates.has(target)) {
+          agentApproval[name] = "user-approval"
+        }
+      }
+      if (Object.hasOwn(agentTools, "request_approval")) {
+        agentApproval.request_approval = "user-approval"
+      }
+      if (ctx.agent.mode === "memory") {
+        const ledger = usageLedger({
+          workspaceId: ctx.workspaceId,
+          runId: run.runId,
+          model: agentModel,
+          label: "memory",
+          ...(onUsage ? { onUsage } : {}),
+        })
+        let calls = 0
+        const memory = await agentMemoryPass({
+          workspaceId: ctx.workspaceId,
+          channelId: ctx.channelId,
+          turnRunId: run.runId,
+          model: agentModel,
+          tools: agentTools,
+          toolsContext,
+          gated: new Set(Object.keys(agentApproval)),
+          record: (usage) => {
+            calls += 1
+            ledger.add(usage)
+          },
+          ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
+        }).finally(() => ledger.charge(calls))
+        return {
+          text: "",
+          messages: [],
+          agent: { approvals: [], promptTokens: 0, sentMessages: 0, memory },
+        }
+      }
+      if (ctx.agent.mode === "compact") {
+        const ledger = usageLedger({
+          workspaceId: ctx.workspaceId,
+          runId: run.runId,
+          model: agentModel,
+          label: "compact",
+          ...(onUsage ? { onUsage } : {}),
+        })
+        const agent = ctx.agent
+        const compacted = await compactAgentConversation({
+          workspaceId: ctx.workspaceId,
+          channelId: ctx.channelId,
+          model: agentModel,
+          tools: agentTools,
+          record: async (usage) => {
+            const counters = await agent.recordUsage(usage, "compaction")
+            ledger.add(usage, counters.costUsd)
+          },
+          ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
+        }).finally(() => ledger.charge(0))
+        return {
+          text: "",
+          messages: [],
+          agent: {
+            approvals: [],
+            promptTokens: 0,
+            sentMessages: 0,
+            compacted: Boolean(compacted),
+          },
+        }
+      }
+      // The profile and log are read here but only used when the epoch's
+      // prompt is frozen: later changes arrive as change notes.
+      const [workspaceInstructions, rosterText, profile, agentLog] =
+        await Promise.all([
+          loadWorkspaceInstructions(ctx.workspaceId),
+          loadMentionRoster(ctx.workspaceId),
+          loadChannelProfile(ctx.channelId),
+          channelAgentLog(ctx.channelId),
+        ])
+      const turn = await runAgentTurn({
+        workspaceId: ctx.workspaceId,
+        channelId: ctx.channelId,
+        agent: ctx.agent,
+        run,
+        model: agentModel,
+        instructions: `${buildSystemPrompt(connectorPromptLines, ANSWERING)}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}\n\n${channelAgentPromptSection(ctx.agent)}\n\n${channelProfileSection(profile)}${agentLog ? `\n\n${agentLog}` : ""}${rosterText}`,
+        tools: agentTools,
+        toolsContext,
+        approval: agentApproval,
+        targetFor: (name) => toolTargets.targetFor(name),
+        describe: toolLabel,
+        ...(onUsage ? { onUsage } : {}),
+      })
+      return {
+        text: turn.text,
+        messages: turn.messages,
+        ...(turn.stoppedFor ? { stoppedFor: turn.stoppedFor } : {}),
+        agent: {
+          approvals: turn.approvals,
+          promptTokens: turn.promptTokens,
+          sentMessages: turn.sentMessages,
+        },
+      }
+    }
 
     const harness = run?.harness
     if (!run || !harness) {
@@ -3181,7 +3433,7 @@ async function respondImpl(
       : null
     const instructions = agentHarness
       ? `${[agentHarness === "claude_code" ? CLAUDE_CODE_PROMPT_HEAD : CODEX_PROMPT_HEAD, ...connectorPromptLines].join("\n")}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceSection}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, agentHarness, codeLinear)}` : ""}`
-      : `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceSection}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, "pi", codeLinear)}` : ""}`
+      : `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceSection}${(ctx.plan || ctx.threadRootId) && !ctx.agent ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.agent ? `\n\n${channelAgentPromptSection(ctx.agent)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, "pi", codeLinear)}` : ""}`
 
     // The turn's request. A retried attempt sends the saved one again. A run
     // that only finishes a paused turn sends none; its empty request still

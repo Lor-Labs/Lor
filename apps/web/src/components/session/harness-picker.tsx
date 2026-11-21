@@ -3,17 +3,19 @@ import { useMemo, useState } from "react"
 import { useBetaAvailability } from "@/hooks/use-beta-availability"
 
 // Which agent runs a code session, fixed at its start
-// (reference/planned/code-sessions-runbook.md chunks 7 and 8f): Lor's own,
-// Claude Code on each sender's own Claude subscription, or Codex on their own
-// ChatGPT plan. Picked with its model in the New session view's ModelPicker.
+// (reference/planned/code-sessions-runbook.md chunks 7 and 8f): Claude Code
+// on each sender's own Claude subscription, or Codex on their own ChatGPT
+// plan. Lor's own agent ("pi") no longer starts sessions
+// (reference/always-on-agents.md, decision 34); older sessions keep it. Picked with its model in the New session view's ModelPicker.
 // Hosted beta hides any harness outside `HOSTED_BETA_HARNESSES`; the server
 // enforces the same set in `assertHostedHarness`.
 
 export type SessionHarness = "pi" | "claude_code" | "codex"
 
-export const HARNESSES = (["pi", "claude_code", "codex"] as const).filter(
+export const HARNESSES = (["claude_code", "codex"] as const).filter(
   isHarnessEnabled
 )
+const DEFAULT_HARNESS: SessionHarness = HARNESSES[0] ?? "claude_code"
 
 export const HARNESS_LABELS: Record<SessionHarness, string> = {
   pi: "Lor",
@@ -42,23 +44,24 @@ export function useAvailableHarnesses(): readonly SessionHarness[] {
   return useMemo(() => availableHarnesses(betaEnabled), [betaEnabled])
 }
 
-// `start` opens on that harness (Continue with Lor) without changing the
-// saved choice; picking still saves.
+// `start` opens on that harness without changing the saved choice; picking
+// still saves.
 export function useSessionHarness(
   start?: SessionHarness
 ): [SessionHarness, (harness: SessionHarness) => void] {
   const { data: beta } = useBetaAvailability()
   const betaEnabled = beta?.enabled === true
   const allowed = (harness: SessionHarness) =>
+    HARNESSES.some((candidate) => candidate === harness) &&
     isHarnessEnabled(harness) &&
     (!betaEnabled || isHarnessAllowedInBeta(harness))
   const [harness, setHarness] = useState<SessionHarness>(() => {
-    if (start && isHarnessEnabled(start)) return start
+    if (start && HARNESSES.some((harness) => harness === start)) return start
     try {
       const saved = localStorage.getItem(HARNESS_KEY)
-      return HARNESSES.find((harness) => harness === saved) ?? "pi"
+      return HARNESSES.find((harness) => harness === saved) ?? DEFAULT_HARNESS
     } catch {
-      return "pi"
+      return DEFAULT_HARNESS
     }
   })
   const change = (next: SessionHarness) => {
@@ -68,7 +71,9 @@ export function useSessionHarness(
       localStorage.setItem(HARNESS_KEY, next)
     } catch {}
   }
-  // A saved pick (or a `?harness=` link) the beta doesn't offer falls back to
-  // Lor once the beta is known to be on; the state itself is left alone.
-  return [allowed(harness) ? harness : "pi", change]
+  // A saved pick (or a `?harness=` link) that isn't offered falls back to the
+  // first one that is; the state itself is left alone.
+  const fallback =
+    HARNESSES.find((candidate) => allowed(candidate)) ?? DEFAULT_HARNESS
+  return [allowed(harness) ? harness : fallback, change]
 }

@@ -2,9 +2,21 @@ import {
   approvalResolverSpecFor,
   canResolveApproval,
 } from "@repo/auth/permissions"
-import { and, db, desc, eq, inArray, isNull, schema, sql } from "@repo/db"
+import {
+  and,
+  db,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  LOR_USER_ID,
+  schema,
+  sql,
+} from "@repo/db"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import {
+  type AgentNeed,
   type ChannelActivity,
   type SidebarSessionState,
   uncommittedLinesOf,
@@ -13,6 +25,17 @@ import {
 // Bounds the sidebar payload; older sessions stay reachable from the
 // channel's session list and search.
 const SESSION_LIMIT = 200
+// The channel agent's questions count for a week, unanswered.
+const QUESTION_DAYS = 7
+const QUESTION_LIMIT = 20
+const NEED_TEXT_CHARS = 160
+
+function clipNeedText(text: string | null): string {
+  const flat = (text ?? "").replace(/\s+/g, " ").trim()
+  return flat.length > NEED_TEXT_CHARS
+    ? `${flat.slice(0, NEED_TEXT_CHARS)}…`
+    : flat
+}
 
 // The sidebar's session rows: the user's subscribed sessions in channels they
 // can access, grouped by channel, each with its own state.
@@ -59,7 +82,7 @@ export async function getWorkspaceActivity(
       schema.agentSession.createdAt
     )
 
-  const [runs, plans, approvals, sessions] = await Promise.all([
+  const [runs, plans, approvals, sessions, questions] = await Promise.all([
     db
       .select({ threadRootId: schema.agentRun.threadRootId })
       .from(schema.agentRun)
@@ -89,6 +112,11 @@ export async function getWorkspaceActivity(
       .select({
         planThreadRootId: schema.plan.threadRootId,
         runThreadRootId: schema.agentRun.threadRootId,
+        runScopeKey: schema.agentRun.scopeKey,
+        runChannelId: schema.agentRun.channelId,
+        runMessageId: schema.agentRun.messageId,
+        description: schema.approval.description,
+        createdAt: schema.approval.createdAt,
         target: schema.approval.target,
         resolverKind: schema.approvalPolicy.resolverKind,
         resolverRole: schema.approvalPolicy.resolverRole,
@@ -154,6 +182,33 @@ export async function getWorkspaceActivity(
       )
       .orderBy(desc(lastActivityAt))
       .limit(SESSION_LIMIT),
+    // The channel agent's posts that mention the user, with nothing from
+    // the user in that place since (the chat, or the thread it is in or
+    // started).
+    db
+      .select({
+        id: schema.message.id,
+        channelId: schema.message.channelId,
+        threadRootId: schema.message.threadRootId,
+        content: schema.message.content,
+        createdAt: schema.message.createdAt,
+      })
+      .from(schema.message)
+      .where(
+        and(
+          inArray(schema.message.channelId, channelIds),
+          eq(schema.message.type, "agent_post"),
+          eq(schema.message.authorId, LOR_USER_ID),
+          gt(
+            schema.message.createdAt,
+            sql`now() - make_interval(days => ${QUESTION_DAYS})`
+          ),
+          sql`${schema.message.content} like ${`%<@${userId}>%`}`,
+          sql`not exists (select 1 from message r where r.channel_id = ${schema.message.channelId} and r.author_id = ${userId}::uuid and r.created_at > ${schema.message.createdAt} and (r.thread_root_id is not distinct from ${schema.message.threadRootId} or r.thread_root_id = ${schema.message.id}))`
+        )
+      )
+      .orderBy(desc(schema.message.createdAt))
+      .limit(QUESTION_LIMIT),
   ])
 
   // Session state is keyed by the session's thread root.
@@ -162,6 +217,7 @@ export async function getWorkspaceActivity(
   for (const run of runs) {
     if (run.threadRootId) running.add(run.threadRootId)
   }
+  const agentApprovals: { channelId: string; need: AgentNeed }[] = []
   // "Needs you": a question from Lor needs anyone in the session; an
   // approval needs only the people allowed to resolve it.
   for (const plan of plans) {
@@ -183,14 +239,51 @@ export async function getWorkspaceActivity(
       ? canResolveApproval(authority, spec, userId)
       : authority.isOwner
     if (threadRootId && canResolve) needsYou.add(threadRootId)
+    // A channel agent's turn: its run holds the channel, with no thread.
+    const agentTurn =
+      !threadRootId &&
+      approval.runChannelId !== null &&
+      approval.runScopeKey === approval.runChannelId
+    if (
+      agentTurn &&
+      canResolve &&
+      approval.runMessageId &&
+      approval.runChannelId &&
+      accessible.has(approval.runChannelId)
+    ) {
+      agentApprovals.push({
+        channelId: approval.runChannelId,
+        need: {
+          kind: "approval",
+          messageId: approval.runMessageId,
+          threadRootId: null,
+          text: clipNeedText(approval.description),
+          createdAt: approval.createdAt.toISOString(),
+        },
+      })
+    }
   }
   const channels = new Map<string, ChannelActivity>()
-  for (const session of sessions) {
-    let activity = channels.get(session.channelId)
+  const activityOf = (channelId: string) => {
+    let activity = channels.get(channelId)
     if (!activity) {
-      activity = { channelId: session.channelId, sessions: [] }
-      channels.set(session.channelId, activity)
+      activity = { channelId, sessions: [], agentNeeds: [] }
+      channels.set(channelId, activity)
     }
+    return activity
+  }
+  for (const question of questions) {
+    if (!accessible.has(question.channelId)) continue
+    activityOf(question.channelId).agentNeeds.push({
+      kind: "question",
+      messageId: question.id,
+      threadRootId: question.threadRootId,
+      text: clipNeedText(question.content),
+      createdAt: question.createdAt.toISOString(),
+    })
+  }
+  for (const session of sessions) {
+    const activity = activityOf(session.channelId)
     const state: SidebarSessionState = needsYou.has(session.threadRootId)
       ? "needs_you"
       : running.has(session.threadRootId)
@@ -209,6 +302,13 @@ export async function getWorkspaceActivity(
       uncommitted: uncommittedLinesOf(session),
       lastActivityAt: session.lastActivityAt.toISOString(),
     })
+  }
+  for (const { channelId, need } of agentApprovals) {
+    activityOf(channelId).agentNeeds.push(need)
+  }
+  // Newest first. ISO timestamps sort as strings.
+  for (const activity of channels.values()) {
+    activity.agentNeeds.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   }
   return [...channels.values()].sort((a, b) =>
     a.channelId.localeCompare(b.channelId)

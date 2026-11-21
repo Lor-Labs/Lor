@@ -1195,7 +1195,7 @@ function SortableChannelItem({
             {canEdit && canManage && (
               <ContextMenuItem onClick={() => openEdit("profile")}>
                 <HugeiconsIcon icon={Layers01Icon} strokeWidth={2} />
-                Agent Profile
+                Agent Settings
               </ContextMenuItem>
             )}
             {canEdit && canManage && ch.type === "text" && (

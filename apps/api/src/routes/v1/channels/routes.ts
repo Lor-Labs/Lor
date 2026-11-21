@@ -2,6 +2,7 @@ import { createRoute } from "@hono/zod-openapi"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import jsonContent from "@/lib/helpers/openapi/json-content"
 import {
+  badRequestSchema,
   conflictSchema,
   forbiddenSchema,
   internalServerErrorSchema,
@@ -12,6 +13,10 @@ import {
 import { connectorLookupRateLimit } from "@/middleware/rate-limit"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
+  agentFactParamsSchema,
+  agentFactSchema,
+  agentWakeUpParamsSchema,
+  cancelAgentWakeUpResponseSchema,
   channelAudienceResponseSchema,
   channelConnectorParamsSchema,
   channelParamsSchema,
@@ -24,11 +29,14 @@ import {
   connectorSearchResponseSchema,
   createChannelRequestSchema,
   createChannelResponseSchema,
+  deleteAgentFactResponseSchema,
   deleteChannelResponseSchema,
   linearIssueParamsSchema,
   linearIssuePromptResponseSchema,
   linearIssuesQuerySchema,
   linearIssuesResponseSchema,
+  listAgentFactsResponseSchema,
+  listAgentWakeUpsResponseSchema,
   listChannelConnectorsResponseSchema,
   listChannelsResponseSchema,
   listConnectorScopesResponseSchema,
@@ -47,6 +55,7 @@ import {
   reorderChannelsResponseSchema,
   threadReadParamsSchema,
   togglePinResponseSchema,
+  updateAgentFactRequestSchema,
   updateChannelRequestSchema,
   updateChannelResponseSchema,
   workspaceSlugParamsSchema,
@@ -189,10 +198,115 @@ export const updateChannel = createRoute({
       schema: updateChannelResponseSchema,
       description: "Updated channel",
     }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const listAgentFacts = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/agent-facts",
+  method: "get",
+  summary: "List the channel agent's facts",
+  description:
+    "The facts the channel's agent keeps about the channel, each with its source and date (reference/always-on-agents.md §7).",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: channelParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listAgentFactsResponseSchema,
+      description: "The channel agent's facts",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export const updateAgentFact = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/agent-facts/{factId}",
+  method: "patch",
+  summary: "Edit one of the channel agent's facts",
+  description: "Anyone who can see the channel can edit a fact.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: agentFactParamsSchema,
+    body: jsonContent({
+      schema: updateAgentFactRequestSchema,
+      description: "The fact's new text",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: agentFactSchema,
+      description: "The edited fact",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export const deleteAgentFact = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/agent-facts/{factId}",
+  method: "delete",
+  summary: "Delete one of the channel agent's facts",
+  description: "Anyone who can see the channel can delete a fact.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: agentFactParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: deleteAgentFactResponseSchema,
+      description: "The fact was deleted",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export const listAgentWakeUps = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/agent-wake-ups",
+  method: "get",
+  summary: "List the channel agent's pending wake-ups",
+  description:
+    "The follow-ups the channel's agent set for itself with wake_up (reference/always-on-agents.md, decision 10).",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: channelParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listAgentWakeUpsResponseSchema,
+      description: "Pending wake-ups, soonest first",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export const cancelAgentWakeUp = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/agent-wake-ups/{wakeUpId}",
+  method: "delete",
+  summary: "Cancel one of the channel agent's wake-ups",
+  description: "Anyone who can see the channel can cancel a wake-up.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: agentWakeUpParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: cancelAgentWakeUpResponseSchema,
+      description: "The wake-up was cancelled",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
   },
 })
 
@@ -601,6 +715,11 @@ export type GetMessageLocationRoute = typeof getMessageLocation
 export type ListChannelConnectorsRoute = typeof listChannelConnectors
 export type SearchChannelConnectorRoute = typeof searchChannelConnector
 export type ListConnectorScopesRoute = typeof listConnectorScopes
+export type ListAgentFactsRoute = typeof listAgentFacts
+export type UpdateAgentFactRoute = typeof updateAgentFact
+export type DeleteAgentFactRoute = typeof deleteAgentFact
+export type ListAgentWakeUpsRoute = typeof listAgentWakeUps
+export type CancelAgentWakeUpRoute = typeof cancelAgentWakeUp
 export type SearchConnectorFilesRoute = typeof searchConnectorFiles
 export type ListLinearIssuesRoute = typeof listLinearIssues
 export type GetLinearIssuePromptRoute = typeof getLinearIssuePrompt

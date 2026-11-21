@@ -95,6 +95,24 @@ omits the transcriber because voice is hidden by default. Desktop requires
 the Tauri/Rust platform toolchain; mobile has its own
 [setup guide](../apps/mobile/README.md).
 
+### Inside a Lor session
+
+Lor can run inside one of its own code sessions, which is itself a Blaxel
+sandbox (checked 2026-11-20):
+
+- **Environment file.** Put each multi-line key on one line with `\n`
+  escapes (`GITHUB_APP_PRIVATE_KEY`, `CODE_STORAGE_PRIVATE_KEY`). A value
+  that spans lines arrives as its first line only, and GitHub or checkpoints
+  fail with key decoding errors.
+- **Blaxel.** The sandbox's egress proxy strips every `x-blaxel-*` header,
+  which is where the Blaxel SDK puts its credential. Inside a Blaxel sandbox
+  (`BL_CLOUD=true`), `packages/lor/src/sandbox/blaxel.ts` also sends it as
+  `Authorization`, which Blaxel accepts, so the worker can create and drive
+  session sandboxes.
+- **The worker** has no port, so `.lor/environment.json` does not list it.
+  Start it yourself: `pnpm --filter @repo/worker dev`. Without it, Lor and
+  the channel agents never answer.
+
 ## Repository map
 
 | Location | Purpose |

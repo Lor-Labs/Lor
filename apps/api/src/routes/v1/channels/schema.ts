@@ -5,6 +5,7 @@ import {
   selectChannelSchema,
   updateChannelSchema,
 } from "@repo/db/schema"
+import { CREATURES, type CreatureId } from "@repo/utils/bestiary"
 import {
   listMessagesQuerySchema,
   listMessagesResponseSchema,
@@ -53,12 +54,24 @@ export const listChannelsResponseSchema = z.object({
 // Narrow the create endpoint to workspace-creatable types only.
 // DMs / group DMs are created via the /dms route, not generic create-channel.
 // `audience`/`memberIds` create a standalone private channel (same membership
-// mechanics as a project, minus the lifecycle row).
-export const createChannelRequestSchema = insertChannelSchema.extend({
-  type: z.enum(["text", "voice", "category"]).default("text"),
-  audience: z.enum(["workspace", "members"]).default("workspace"),
-  memberIds: z.array(z.string().uuid()).max(200).optional(),
-})
+// mechanics as a project, minus the lifecycle row). The channel agent's
+// settings are set only through update, with its authority and validation.
+export const createChannelRequestSchema = insertChannelSchema
+  .omit({
+    agentModel: true,
+    agentWakeMode: true,
+    agentBrief: true,
+    agentBriefUpdatedAt: true,
+    agentCheckInAt: true,
+    agentName: true,
+    agentCreature: true,
+    agentIdentityUpdatedAt: true,
+  })
+  .extend({
+    type: z.enum(["text", "voice", "category"]).default("text"),
+    audience: z.enum(["workspace", "members"]).default("workspace"),
+    memberIds: z.array(z.string().uuid()).max(200).optional(),
+  })
 
 export const createChannelResponseSchema = selectChannelSchema
 
@@ -70,6 +83,25 @@ const updateChannelRequestBaseSchema = updateChannelSchema
     topic: true,
     rateLimitPerUser: true,
     agentProfileId: true,
+    agentModel: true,
+    agentWakeMode: true,
+  })
+  .extend({
+    // The channel agent's brief (reference/always-on-agents.md §7). Empty
+    // or null removes it.
+    agentBrief: z.string().max(4_000).nullable().optional(),
+    // Its name and creature (decisions 32 and 33). Null goes back to the
+    // ones derived from the channel id.
+    agentName: z.string().max(100).nullable().optional(),
+    agentCreature: z
+      .enum(
+        CREATURES.map((creature) => creature.id) as [
+          CreatureId,
+          ...CreatureId[],
+        ]
+      )
+      .nullable()
+      .optional(),
   })
   .strict()
 
@@ -83,6 +115,67 @@ export const updateChannelRequestSchema = updateChannelRequestBaseSchema.refine(
 export const updateChannelResponseSchema = selectChannelSchema
 
 export const deleteChannelResponseSchema = z.object({
+  success: z.literal(true),
+})
+
+// ── Channel agent facts ──────────────────────────────────────────
+
+export const agentFactParamsSchema = channelParamsSchema.extend({
+  factId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "factId", in: "path", required: true },
+      example: "00000000-0000-0000-0000-000000000000",
+    }),
+})
+
+export const agentFactSchema = z.object({
+  id: z.string().uuid(),
+  text: z.string(),
+  source: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  // The person who last edited it in settings; null when the agent did.
+  editedBy: z.object({ id: z.string(), name: z.string() }).nullable(),
+})
+
+export const listAgentFactsResponseSchema = z.object({
+  facts: z.array(agentFactSchema),
+})
+
+export const updateAgentFactRequestSchema = z
+  .object({ text: z.string().trim().min(1).max(300) })
+  .strict()
+
+export const deleteAgentFactResponseSchema = z.object({
+  success: z.literal(true),
+})
+
+// ── Channel agent wake-ups (Follow-ups) ──────────────────────────────
+
+export const agentWakeUpParamsSchema = channelParamsSchema.extend({
+  wakeUpId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "wakeUpId", in: "path", required: true },
+      example: "00000000-0000-0000-0000-000000000000",
+    }),
+})
+
+export const listAgentWakeUpsResponseSchema = z.object({
+  wakeUps: z.array(
+    z.object({
+      id: z.string().uuid(),
+      dueAt: z.string(),
+      note: z.string(),
+      createdAt: z.string(),
+    })
+  ),
+})
+
+export const cancelAgentWakeUpResponseSchema = z.object({
   success: z.literal(true),
 })
 

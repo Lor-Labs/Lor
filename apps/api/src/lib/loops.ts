@@ -67,11 +67,18 @@ function getLoopRunQueue(): Queue<LoopRunJobData> {
 
 // At activation the loop's session exists right away: the session its draft
 // card sits in, or a new one. The creator and the person who activated it
-// follow it, so it is in their sidebars before the first run.
+// follow it, so it is in their sidebars before the first run. A text
+// channel's Loop has no session: its fires wake the channel's agent
+// (reference/always-on-agents.md §3).
 export async function openLoopSession(
   loop: Loop,
   activatorId: string
 ): Promise<void> {
+  const [channel] = await db
+    .select({ type: schema.channel.type })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, loop.channelId))
+  if (channel?.type === "text") return
   await adoptCardSession(loop)
   const session = await ensureLoopSession(loop)
   await subscribeToThread(session.threadRootId, [

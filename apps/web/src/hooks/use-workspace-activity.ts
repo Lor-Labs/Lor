@@ -182,7 +182,10 @@ export function patchSidebarSession(
       (channel) => channel.channelId === target.channelId
     )
       ? channels
-      : [...channels, { channelId: target.channelId, sessions: [] }]
+      : [
+          ...channels,
+          { channelId: target.channelId, sessions: [], agentNeeds: [] },
+        ]
     return withChannel.map((channel) => {
       if (channel.channelId !== target.channelId) return channel
       const listed = channel.sessions.some(

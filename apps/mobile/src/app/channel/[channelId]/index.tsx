@@ -1,6 +1,7 @@
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import { LOR_USER_ID } from "@repo/db/constants"
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
@@ -38,7 +39,7 @@ import { useMemberModeration } from "@/hooks/use-member-moderation"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
-import { useSessionStart } from "@/hooks/use-session-start"
+import { useChannelProposals } from "@/hooks/use-proposals"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import type { ChannelSearchResult, Message } from "@/lib/api-types"
@@ -66,6 +67,14 @@ export default function ChannelRoute() {
   return <ChannelScreen />
 }
 
+function writeAskDraft(
+  composer: MessageComposerMentionHandle | null,
+  prompt?: string
+) {
+  if (prompt) composer?.replaceDraft(`${prompt} `)
+  composer?.insertMention({ id: LOR_USER_ID, label: "Lor" })
+}
+
 function ChannelScreen() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
@@ -78,6 +87,15 @@ function ChannelScreen() {
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
   const hasFocusedRef = useRef(false)
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
+  // Leaving an edit restores the draft from before it, so a question asked
+  // mid-edit waits until the composer has done that.
+  const pendingAskRef = useRef<{ prompt?: string } | null>(null)
+  useEffect(() => {
+    const pending = pendingAskRef.current
+    if (editingMessage || !pending) return
+    pendingAskRef.current = null
+    writeAskDraft(composerMentionRef.current, pending.prompt)
+  }, [editingMessage])
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
@@ -88,6 +106,8 @@ function ChannelScreen() {
   }>()
   const { data: session } = authClient.useSession()
   const permissions = useChannelPermissions(workspace?.id)
+  // The channel agent's proposal cards in the chat stay live.
+  useChannelProposals(channelId)
   const channelState = useChannelDetail({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
@@ -96,10 +116,7 @@ function ChannelScreen() {
   // open composer flips to the archived notice without a reload.
   useProjectUpdates(workspace?.slug)
 
-  const sessionStart = useSessionStart({
-    id: channelId ?? "",
-    name: channelState.channel?.name ?? null,
-  })
+  // `@Lor` here wakes the channel agent, which answers in the chat.
   const chat = useChannelMessages({
     source: {
       kind: "channel",
@@ -108,7 +125,6 @@ function ChannelScreen() {
     },
     socket,
     currentUser: session?.user,
-    sessionStart,
   })
   // Chat is people only: Lor's runs, plans, approvals, proposals and queues
   // live in sessions.
@@ -250,6 +266,18 @@ function ChannelScreen() {
   const startReply = (message: Message) => {
     setEditingMessage(null)
     setReplyingTo(message)
+  }
+  // A question about a message goes to the channel's agent in the chat: a
+  // reply to it with @Lor in the composer (reference/always-on-agents.md,
+  // step 3.4).
+  const askLorAbout = (message: Message, prompt?: string) => {
+    const editing = Boolean(editingMessage)
+    startReply(message)
+    if (editing) {
+      pendingAskRef.current = { prompt }
+      return
+    }
+    writeAskDraft(composerMentionRef.current, prompt)
   }
   const openProfileFromMemberList = (member: MemberListItem) => {
     setIsMembersOpen(false)
@@ -456,12 +484,7 @@ function ChannelScreen() {
               messages={chat.messages}
               onLoadAround={chat.loadAround}
               onOpenThread={openThread}
-              onAskLor={(message) =>
-                router.push({
-                  pathname: "/session/new",
-                  params: { channelId, aboutMessageId: message.id },
-                })
-              }
+              onAskLor={askLorAbout}
               onDelete={confirmDelete}
               onEdit={startEditing}
               onPressAuthor={openAuthorProfile}

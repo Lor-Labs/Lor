@@ -3,6 +3,7 @@ import {
   GitBranchIcon,
   HashtagIcon,
   Link01Icon,
+  LockedIcon,
   MoreHorizontalIcon,
   PencilEdit02Icon,
   Settings02Icon,
@@ -345,7 +346,9 @@ function SessionConversation({
       ? "Loop"
       : session.origin === "trigger"
         ? "Started by an automation"
-        : `Started by ${nameOf(session.creatorId)}`
+        : session.origin === "agent"
+          ? "Started by the channel's agent"
+          : `Started by ${nameOf(session.creatorId)}`
   const starter =
     people.find((person) => person.userId === session.creatorId) ?? null
   const [renaming, setRenaming] = useState(false)
@@ -381,25 +384,13 @@ function SessionConversation({
         !harnessEnabled ? (
           <p className="text-sm text-muted-foreground">
             This agent is temporarily unavailable. Messages here go to the
-            people in this session. Start a new session with Lor to keep
-            working.
+            people in this session. Start a new session to keep working.
           </p>
         ) : withoutSubscription ? (
           <>
             <SubscriptionNote
               harness={session.harness === "codex" ? "codex" : "claude_code"}
               onConnect={() => setConnecting(true)}
-              onContinueWithLor={() =>
-                void navigate({
-                  to: "/$workspaceSlug/session/new",
-                  params: { workspaceSlug },
-                  search: {
-                    channelId: session.channelId,
-                    continueFrom: session.id,
-                    harness: "pi",
-                  },
-                })
-              }
             />
             {session.harness === "codex" ? (
               <ChatgptConnectDialog
@@ -435,11 +426,14 @@ function SessionConversation({
       onShowChat={() => tabs.select(null)}
       onRead={markSidebarRead}
       targetMessageId={targetMessageId}
-      onFork={(message) =>
-        fork.mutateAsync({ sessionId: session.id, messageId: message.id })
+      onFork={
+        code
+          ? (message) =>
+              fork.mutateAsync({ sessionId: session.id, messageId: message.id })
+          : undefined
       }
       onRewind={
-        session.archivedAt
+        session.archivedAt || !code
           ? undefined
           : (message) => rewind.mutateAsync(message.id)
       }
@@ -494,7 +488,33 @@ function SessionConversation({
         ) : undefined
       }
       archivedBar={
-        session.archivedAt ? (
+        !session.archivedAt && !code ? (
+          // Chat sessions are history: questions go to the channel's agent
+          // in the chat (reference/always-on-agents.md, step 3.4).
+          <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
+            <HugeiconsIcon
+              icon={LockedIcon}
+              className="size-3.5 shrink-0"
+              strokeWidth={2}
+            />
+            <span className="min-w-0 flex-1 truncate">
+              Chat sessions are read-only. Ask Lor in #
+              {channel.name ?? "the channel"}.
+            </span>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() =>
+                void navigate({
+                  to: "/$workspaceSlug/$channelId",
+                  params: { workspaceSlug, channelId: session.channelId },
+                })
+              }
+            >
+              Open chat
+            </Button>
+          </div>
+        ) : session.archivedAt ? (
           <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
             <HugeiconsIcon
               icon={Archive02Icon}
@@ -670,11 +690,9 @@ function SessionStrip({
 function SubscriptionNote({
   harness,
   onConnect,
-  onContinueWithLor,
 }: {
   harness: "claude_code" | "codex"
   onConnect: () => void
-  onContinueWithLor: () => void
 }) {
   const plan = harness === "codex" ? "ChatGPT plan" : "Claude subscription"
   return (
@@ -683,9 +701,6 @@ function SubscriptionNote({
         {harness === "codex" ? "Codex" : "Claude Code"} answers people on their
         own {plan}. Your messages here go to the people in the session.
       </span>
-      <Button size="xs" variant="ghost" onClick={onContinueWithLor}>
-        Continue with Lor
-      </Button>
       <Button size="xs" onClick={onConnect}>
         Connect your {plan}
       </Button>

@@ -20,6 +20,7 @@ import {
   dowToDays,
   formatLoopSchedule,
   formatScheduleTime,
+  INTERVAL_EVERY_OPTIONS,
   type LoopScheduleShape,
   parseLoopSchedule,
 } from "@repo/realtime-types/loops"
@@ -76,7 +77,6 @@ import {
   useRunLoopNow,
   useUpdateLoop,
 } from "@/components/loops/loop-actions"
-import { SavedModelPicker } from "@/components/session/model-picker"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { LoopSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -108,6 +108,7 @@ function formatRunTime(iso: string): string {
 }
 
 const REPEAT_OPTIONS = [
+  { label: "Through the day", value: "interval" },
   { label: "Hourly", value: "hourly" },
   { label: "Daily", value: "daily" },
   { label: "Weekly", value: "weekly" },
@@ -128,7 +129,7 @@ const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 // Trigger summary for the multi-day picker: presets collapse to a word,
 // otherwise short names ("Mon, Thu & Sat").
 function dowSummary(dow: string): string {
-  const days = dowToDays(dow)
+  const days = dow === "*" ? [0, 1, 2, 3, 4, 5, 6] : dowToDays(dow)
   if (days.length === 7) return "Every day"
   if (daysToDow(days) === "1-5") return "Weekdays"
   if (days.join(",") === "0,6") return "Weekends"
@@ -697,9 +698,18 @@ function ScheduleEditor({
   const apply = (next: LoopScheduleShape) => onApply(formatLoopSchedule(next))
 
   const hour = "hour" in shape ? shape.hour : 9
-  const minute = shape.minute
+  const minute = "minute" in shape ? shape.minute : 0
   const changeKind = (kind: string) => {
     if (kind === shape.kind) return
+    if (kind === "interval") {
+      apply({
+        kind: "interval",
+        every: 30,
+        fromHour: 9,
+        toHour: 18,
+        dow: "1-5",
+      })
+    }
     if (kind === "hourly") apply({ kind: "hourly", minute })
     if (kind === "daily") apply({ kind: "daily", hour, minute })
     if (kind === "weekly") apply({ kind: "weekly", dow: "1", hour, minute })
@@ -740,7 +750,7 @@ function ScheduleEditor({
         </Select>
       </DetailRow>
 
-      {shape.kind === "weekly" && (
+      {(shape.kind === "weekly" || shape.kind === "interval") && (
         <DetailRow label="Days">
           {/* Multi-day picker — checkbox menu dressed as a Select so the row
               matches its neighbors. At least one day stays checked. */}
@@ -754,7 +764,10 @@ function ScheduleEditor({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               {DOW_LABELS.map((label, day) => {
-                const days = dowToDays(shape.dow)
+                const days =
+                  shape.dow === "*"
+                    ? [0, 1, 2, 3, 4, 5, 6]
+                    : dowToDays(shape.dow)
                 const checked = days.includes(day)
                 return (
                   <DropdownMenuCheckboxItem
@@ -799,7 +812,9 @@ function ScheduleEditor({
         </DetailRow>
       )}
 
-      {shape.kind === "hourly" ? (
+      {shape.kind === "interval" ? (
+        <IntervalRows shape={shape} onApply={apply} />
+      ) : shape.kind === "hourly" ? (
         <DetailRow label="At minute">
           <Select
             items={minuteItems}
@@ -853,6 +868,66 @@ function ScheduleEditor({
   )
 }
 
+const EVERY_ITEMS = INTERVAL_EVERY_OPTIONS.map((minutes) => ({
+  label: minutes === 60 ? "Every hour" : `Every ${minutes} minutes`,
+  value: String(minutes),
+}))
+
+// Through the day: how often, and the hours it runs between.
+function IntervalRows({
+  shape,
+  onApply,
+}: {
+  shape: Extract<LoopScheduleShape, { kind: "interval" }>
+  onApply: (next: LoopScheduleShape) => void
+}) {
+  const fromItems = Array.from({ length: 24 }, (_, h) => ({
+    label: formatScheduleTime(h, 0),
+    value: String(h),
+  })).filter((item) => Number(item.value) < shape.toHour)
+  const untilItems = Array.from({ length: 24 }, (_, i) => i + 1)
+    .filter((h) => h > shape.fromHour)
+    .map((h) => ({ label: formatScheduleTime(h % 24, 0), value: String(h) }))
+  const row = (
+    label: string,
+    items: { label: string; value: string }[],
+    value: number,
+    onChange: (next: number) => void
+  ) => (
+    <DetailRow label={label}>
+      <Select
+        items={items}
+        value={String(value)}
+        onValueChange={(v) => v && onChange(Number(v))}
+      >
+        <SelectTrigger aria-label={label} className="h-8 w-40">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {items.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value}>
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </DetailRow>
+  )
+  return (
+    <>
+      {row("How often", EVERY_ITEMS, shape.every, (every) =>
+        onApply({ ...shape, every })
+      )}
+      {row("From", fromItems, shape.fromHour, (fromHour) =>
+        onApply({ ...shape, fromHour })
+      )}
+      {row("Until", untilItems, shape.toHour, (toHour) =>
+        onApply({ ...shape, toHour })
+      )}
+    </>
+  )
+}
+
 export function LoopPanel({ view }: { view: LoopSidebarView }) {
   const { setView } = useRightSidebar()
   const { data } = useChannelLoops(view.channelId)
@@ -876,7 +951,7 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
   // autosave-on-change model made it unclear anything was saved at all.
   type StagedEdits = Pick<
     UpdateLoopInput,
-    "instructions" | "schedule" | "endAt" | "endCondition" | "model"
+    "instructions" | "schedule" | "endAt" | "endCondition"
   >
   const [staged, setStaged] = useState<StagedEdits>({})
   const stage = (input: StagedEdits) =>
@@ -898,7 +973,6 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
       ...(staged.endCondition !== undefined
         ? { endCondition: staged.endCondition }
         : {}),
-      ...(staged.model !== undefined ? { model: staged.model } : {}),
     }
   }, [loop, staged])
 
@@ -925,9 +999,6 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
       staged.endCondition !== loop.endCondition
     ) {
       diff.endCondition = staged.endCondition
-    }
-    if (staged.model !== undefined && staged.model !== loop.model) {
-      diff.model = staged.model
     }
     return Object.keys(diff).length > 0 ? diff : null
   }, [loop, staged])
@@ -1124,18 +1195,6 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                 />
               )}
               <EndRepeatRows loop={effective} onUpdate={stage} />
-              <DetailRow label="Model">
-                {loop.status === "completed" ? (
-                  <span className="truncate">{loop.model ?? "Default"}</span>
-                ) : (
-                  <SavedModelPicker
-                    workspaceSlug={view.workspaceSlug}
-                    value={effective.model}
-                    onChange={(model) => stage({ model })}
-                    className="w-48"
-                  />
-                )}
-              </DetailRow>
               {loop.status === "paused" && (
                 <DetailRow label="Paused">
                   {(loop.pausedReason &&

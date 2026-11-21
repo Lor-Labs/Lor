@@ -5,9 +5,9 @@ import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { AnimatePresence, motion } from "motion/react"
 import type { ReactNode, RefObject } from "react"
 
-// Where the composer's message goes: channel chat and human threads start a
-// session on @Lor; inside a session a message goes to Lor or to people; the
-// New session view always starts one.
+// Where the composer's message goes: @Lor in channel chat or a human thread
+// wakes the channel agent, which answers there; inside a session a message
+// goes to Lor or to people; the New session view always starts one.
 export type ComposerDestination = "channel" | "thread" | "session" | "new"
 
 export type PingedPerson = { id: string; name: string; image: string | null }
@@ -27,7 +27,6 @@ const swap = {
 
 export function DestinationBar({
   destination,
-  channelName,
   toLor,
   pinged,
   subscribers = [],
@@ -36,7 +35,6 @@ export function DestinationBar({
   lorPillRef,
 }: {
   destination: ComposerDestination
-  channelName: string
   toLor: boolean
   pinged: PingedPerson[]
   // Session only: who a message to people reaches, without you.
@@ -51,12 +49,6 @@ export function DestinationBar({
   // it: the people state's exit would clear the ref after the swap.
   lorPillRef?: RefObject<HTMLSpanElement | null>
 }) {
-  const lorLabel =
-    destination === "session"
-      ? "To Lor"
-      : destination === "thread"
-        ? "New session from this thread"
-        : `New session in #${channelName}`
   const isSession = destination === "session"
   // A session message reaches its subscribers, and the people it mentions
   // follow once it sends: mentioned first, so "+N" never hides them.
@@ -95,16 +87,13 @@ export function DestinationBar({
                   }
                 >
                   <img src="/lor-mark.svg" alt="" className="size-3.5" />
-                  {lorLabel}
+                  To Lor
                 </DestinationPill>
               </span>
             )}
             {leadingTools}
             {pinged.length > 0 && (
-              <PingedPeople
-                people={pinged}
-                label={isSession ? "Notifies" : "Adds"}
-              />
+              <PingedPeople people={pinged} label="Notifies" />
             )}
           </motion.div>
         ) : (

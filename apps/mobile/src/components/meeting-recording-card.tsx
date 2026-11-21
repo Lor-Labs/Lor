@@ -2,7 +2,6 @@ import ArrowDown01Icon from "@hugeicons/core-free-icons/ArrowDown01Icon"
 import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon"
 import ExternalLinkIcon from "@hugeicons/core-free-icons/ExternalLinkIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
-import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { useState } from "react"
 import { Pressable, ScrollView, Text, View } from "react-native"
@@ -21,11 +20,12 @@ export function isAttioRecording(embed: Embed): boolean {
 export function MeetingRecordingCard({
   embed,
   message,
-  onOpenThread,
+  onAskLor,
 }: {
   embed: Embed
   message: Message
-  onOpenThread?: (message: Message) => void
+  // Asks the channel's agent in the chat, about this recording.
+  onAskLor?: (message: Message, prompt?: string) => void
 }) {
   const muted = useThemeColor("muted")
   const [transcriptExpanded, setTranscriptExpanded] = useState(false)
@@ -38,16 +38,8 @@ export function MeetingRecordingCard({
   const recordingUrl =
     embed.url && /^https?:\/\//i.test(embed.url) ? embed.url : null
 
-  // Opens a new session about this recording with the question prefilled.
   function ask(prompt: string) {
-    router.push({
-      pathname: "/session/new",
-      params: {
-        channelId: message.channelId,
-        aboutMessageId: message.id,
-        draft: prompt || undefined,
-      },
-    })
+    onAskLor?.(message, prompt || undefined)
   }
 
   return (
@@ -133,7 +125,7 @@ export function MeetingRecordingCard({
           </View>
         ) : null}
       </View>
-      {onOpenThread && !message.threadRootId ? (
+      {onAskLor && !message.threadRootId ? (
         <View className="gap-2.5 border-t border-border bg-surface-secondary px-four py-three">
           <Text className="text-[11px] font-medium text-muted">
             Explore with Lor

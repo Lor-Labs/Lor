@@ -300,9 +300,15 @@ Better Stack specs were `null` until its MCP input names were known; added
 
 5b (~250 lines): `CONNECTOR_URL_HOSTS` and `itemFromUrl` in `item-keys.ts`
 (GitHub PR, issue, repo; Linear issue; Notion page; Attio record), now also
-used by the web tool trail. Reply links are `cited` only when the URL appears
-in the run's tool results; links people paste are `mentioned`; unknown hosts
-become `url` touches. Backfill: `packages/lor/src/scripts/backfill-touches.ts`
+used by the web tool trail. Links people paste are `mentioned`; unknown hosts
+become `url` touches. Plain `url` touches come only from people (2026-11-21):
+a reply link to an unknown host is `cited` only when someone pasted it in the
+session, and `fetch_web` / Claude Code's `WebFetch` record only connector
+links. Docs Lor finds itself repeat the reply's sources and would link
+unrelated sessions through "Also in" and touch hints. A connector link in the
+reply is `cited` when the session's tool results or fetches named it or the
+session touched it before. Links compare by item key (no hash, trailing slash
+ignored). Backfill: `packages/lor/src/scripts/backfill-touches.ts`
 (command in its header). Deviation: `mentioned` covers pasted links only, not
 bare `LOR-123` or `owner/repo#n` text, which can't be told apart from noise or
 from PR vs issue without a lookup.

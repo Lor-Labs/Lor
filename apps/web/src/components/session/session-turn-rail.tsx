@@ -20,8 +20,9 @@ import { jumpScrollBehavior } from "@/components/chat/message-scroller-controls"
 import type { Message } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/search-preview"
 
-// A loop fire or an Act event opens a turn like a person's message does.
-const RUN_EVENTS = new Set(["loop_run", "trigger_run"])
+// A loop fire, an Act event or a channel agent's task opens a turn like a
+// person's message does.
+const RUN_EVENTS = new Set(["loop_run", "trigger_run", "agent_task"])
 
 type Turn = {
   // The turn's first message, which a click scrolls to.
@@ -72,7 +73,9 @@ function preview(message: Message) {
 
 function turnTitle(turn: Turn) {
   const { start } = turn
-  if (start.type !== "event") return preview(start) || "Attachment"
+  if (start.type !== "event" || start.eventType === "agent_task") {
+    return preview(start) || "Attachment"
+  }
   const payload = start.eventPayload as {
     loopName?: string
     label?: string

@@ -1,4 +1,4 @@
-import { Archive02Icon } from "@hugeicons/core-free-icons"
+import { Archive02Icon, DiscordIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { LOR_USER_ID } from "@repo/db/constants"
@@ -6,8 +6,16 @@ import { toast } from "@repo/ui/components/toast"
 import { isChannelFeatureEnabled } from "@repo/utils/features"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { useDropzone } from "react-dropzone"
+import { ChannelAgentProvider } from "@/components/agent/channel-agent"
 import { ChatSkeleton } from "@/components/chat/chat-skeleton"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
@@ -18,12 +26,12 @@ import {
   scrollToMessage,
 } from "@/components/chat/message-list"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
-import { useLorStartMode } from "@/components/session/lor-start-mode"
-import { SessionStartedNote } from "@/components/session/session-started-note"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { VoiceChannelView } from "@/components/voice/voice-channel-view"
 import { useSocket } from "@/context/socket-context"
+import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
+import { useChannelDiscord } from "@/hooks/use-channel-discord"
 import { useChannelEntry } from "@/hooks/use-channel-entry"
 import { useChannelFilesRealtime } from "@/hooks/use-channel-files"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
@@ -40,9 +48,9 @@ import {
 } from "@/hooks/use-message-search-navigation"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useOpenNewSession } from "@/hooks/use-open-new-session"
+import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { useReplyState } from "@/hooks/use-reply-state"
-import { useSessionStart } from "@/hooks/use-session-start"
 import { useStableCallback } from "@/hooks/use-stable-callback"
 import { useThreadActivity } from "@/hooks/use-thread-activity"
 import { useThreadPanelUrlSync } from "@/hooks/use-thread-panel-url-sync"
@@ -77,6 +85,10 @@ type ChannelSearchParams = {
   // Prefills the composer with "@Lor <draft>" without sending (setup's Ask
   // Lor suggestions). Cleared once applied.
   draft?: string
+  // Replies to this message with "@Lor" in the composer ("Ask Lor about
+  // this", a meeting card's questions); `draft` follows the mention.
+  // Cleared once applied.
+  about?: string
   // Opens the channel's Sessions list in the right panel (the channel menus'
   // "View Sessions"). Cleared once applied.
   panel?: "sessions"
@@ -104,6 +116,7 @@ export const Route = createFileRoute(
     upload: typeof search.upload === "string" ? search.upload : undefined,
     draft:
       typeof search.draft === "string" ? search.draft.slice(0, 500) : undefined,
+    about: typeof search.about === "string" ? search.about : undefined,
     panel: search.panel === "sessions" ? "sessions" : undefined,
   }),
 })
@@ -162,13 +175,23 @@ function ChannelRoute() {
 
 function ChannelView() {
   const { workspaceSlug, channelId } = Route.useParams()
-  const { msgId, threadId, threadMessageId, draft, panel } = Route.useSearch()
+  const { msgId, threadId, threadMessageId, draft, about, panel } =
+    Route.useSearch()
   const navigate = Route.useNavigate()
+  // A pending `about` question belongs to the channel it was asked in.
+  const [askDraft, setAskDraft] = useState<{
+    id: string
+    text: string
+    channelId: string
+  }>()
   const composerDraft = useMemo(
-    () => (draft ? { id: draft, text: draft } : undefined),
-    [draft]
+    () =>
+      (askDraft?.channelId === channelId ? askDraft : undefined) ??
+      (draft && !about ? { id: draft, text: draft } : undefined),
+    [askDraft, channelId, draft, about]
   )
   const consumeComposerDraft = useCallback(() => {
+    setAskDraft(undefined)
     void navigate({
       search: (prev) => ({ ...prev, draft: undefined }),
       replace: true,
@@ -215,23 +238,23 @@ function ChannelView() {
     [workspaceSlug, channelId]
   )
 
-  const sessionStart = useSessionStart({
-    workspaceSlug,
-    channel: { id: channelId, name: data?.name ?? null },
-  })
+  // Keeps the channel agent's approval cards live in the chat.
+  useChannelApprovals(channelId)
+  useChannelProposals(channelId)
+  // `@Lor` here wakes the channel agent, which answers in the chat. Sessions
+  // start from New session.
   const { handleSend, pendingNonces } = useMessageSending({
     socket,
     queryClient,
     channelId,
     currentUser: session?.user,
-    sessionStart: sessionStart.handlers,
   })
-  const lorStart = useLorStartMode({ workspaceSlug, channelId })
 
   const {
     messages,
     isLoading: messagesLoading,
     isAnchorMissing,
+    isAnchorWindowLoaded,
     fetchOlder,
     fetchNewer,
     hasOlder,
@@ -352,14 +375,15 @@ function ChannelView() {
     (msg: Message) => handleOpenThread(msg.id),
     [handleOpenThread]
   )
+  // A question about a message goes to the channel's agent in the chat
+  // (reference/always-on-agents.md, step 3.4).
   const handleAskLor = useCallback(
     (msg: Message) =>
       void navigate({
-        to: "/$workspaceSlug/session/new",
-        params: { workspaceSlug },
-        search: { channelId, about: msg.id },
+        search: (prev) => ({ ...prev, about: msg.id }),
+        replace: true,
       }),
-    [navigate, workspaceSlug, channelId]
+    [navigate]
   )
   const openNewSession = useOpenNewSession()
 
@@ -427,6 +451,46 @@ function ChannelView() {
   })
 
   const { replyingTo, setReplyingTo, clearReply } = useReplyState()
+
+  // Clear reply state when switching channels. Runs before the `about`
+  // effect below so it never clears the target that effect sets. The ask
+  // draft goes too: it is a question about the reply target.
+  useEffect(() => {
+    clearReply()
+    setAskDraft(undefined)
+  }, [channelId, clearReply])
+
+  useEffect(() => {
+    if (!about || messagesLoading) return
+    const target = messages.find((message) => message.id === about)
+    // Not on the loaded page: load around it first, so the mention keeps it
+    // as the reply target. Once that window has loaded, go on either way.
+    if (!target && msgId !== about) {
+      void navigate({
+        search: (prev) => ({ ...prev, msgId: about }),
+        replace: true,
+      })
+      return
+    }
+    if (!target && !isAnchorMissing && !isAnchorWindowLoaded) return
+    setReplyingTo(target ?? null)
+    setAskDraft({ id: crypto.randomUUID(), text: draft ?? "", channelId })
+    void navigate({
+      search: (prev) => ({ ...prev, about: undefined, draft: undefined }),
+      replace: true,
+    })
+  }, [
+    about,
+    draft,
+    messages,
+    messagesLoading,
+    msgId,
+    isAnchorMissing,
+    isAnchorWindowLoaded,
+    setReplyingTo,
+    navigate,
+    channelId,
+  ])
 
   const { data: threadActivityData } = useQuery({
     queryKey: ["thread-activity", channelId],
@@ -511,12 +575,18 @@ function ChannelView() {
     currentUserId,
   })
 
-  // Clear reply state when switching channels
-  useEffect(() => {
-    clearReply()
-  }, [channelId, clearReply])
-
   const fileUpload = useFileUpload(channelId)
+  // A chat that lives in Discord is read-only here (decision 22). The
+  // composer shows only once Lor knows the chat isn't linked: loading or a
+  // failed check is not "unlinked".
+  const discordEnabled = data?.type === "text"
+  const discordQuery = useChannelDiscord(
+    workspaceSlug,
+    channelId,
+    discordEnabled
+  )
+  const discord = discordQuery.data
+  const discordUnknown = discordEnabled && !discord
 
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
@@ -531,6 +601,9 @@ function ChannelView() {
     onDrop,
     noClick: true,
     noKeyboard: true,
+    // Only while a composer is there to take the files.
+    noDrag:
+      Boolean(data?.archivedAt) || discordUnknown || Boolean(discord?.link),
   })
 
   const mentionCandidates = useMentionCandidates(workspaceSlug, channelId)
@@ -557,17 +630,7 @@ function ChannelView() {
       handleSend(content, {
         mentions: [],
         ...options,
-        ...lorStart.sendOptions,
       })
-  )
-  const composerNotice = useMemo(
-    () => (
-      <SessionStartedNote
-        session={sessionStart.started}
-        workspaceSlug={workspaceSlug}
-      />
-    ),
-    [sessionStart.started, workspaceSlug]
   )
 
   if (isPending) {
@@ -597,96 +660,141 @@ function ChannelView() {
       {...getRootProps()}
       className="relative flex h-full flex-col overflow-hidden"
     >
-      <DropZoneOverlay isDragActive={isDragActive} />
-      <ChatHeader context={context} channelId={channelId} />
-      <MessageList
-        key={channelId}
-        context={context}
-        messages={messages}
-        hasOlder={hasOlder}
-        onLoadOlder={() => fetchOlder()}
-        isFetchingOlder={isFetchingOlder}
-        hasNewer={hasNewer}
-        onLoadNewer={() => fetchNewer()}
-        isFetchingNewer={isFetchingNewer}
-        pendingCount={pendingCount}
-        onJumpToPresent={isAtPresent ? undefined : handleJumpToPresent}
-        scrollTargetId={msgId ?? entry.anchor}
-        firstUnreadMessageId={entry.firstUnreadMessageId}
-        highlightScrollTarget={Boolean(msgId)}
-        onJumpToMessage={handleJumpToMessage}
-        onReplyInThread={handleReplyInThread}
-        onAskLor={data.type === "text" ? handleAskLor : undefined}
-        onNewSession={
-          data.type === "text" && !data.archivedAt ? openNewSession : undefined
-        }
-        onOpenThread={handleOpenThread}
-        threadActivities={threadActivities}
-        onOpenThreadActivity={handleOpenThreadActivity}
-        onDismissThreadActivity={handleDismissThreadActivity}
-        replyingToId={replyingTo?.id ?? null}
-        currentUserId={currentUserId}
-        onReact={handleReact}
-        onReply={setReplyingTo}
-        onDelete={handleDelete}
-        onEdit={handleEdit}
-        onTogglePin={handleTogglePin}
-        canPin={canPin}
-        mentionCandidates={mentionCandidates}
-        isLoading={messagesLoading}
-      />
-      <TypingIndicator users={typingUsers} />
-      {data.archivedAt ? (
-        // Archived: no composer — a terminal divider marks when it closed.
-        <div className="px-4 pt-1 pb-5">
-          <div className="relative flex items-center">
-            <div className="h-px w-full bg-border/70" />
-            <span className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+      <ChannelAgentProvider workspaceSlug={workspaceSlug} channelId={channelId}>
+        <DropZoneOverlay isDragActive={isDragActive} />
+        <ChatHeader context={context} channelId={channelId} />
+        <MessageList
+          key={channelId}
+          context={context}
+          messages={messages}
+          hasOlder={hasOlder}
+          onLoadOlder={() => fetchOlder()}
+          isFetchingOlder={isFetchingOlder}
+          hasNewer={hasNewer}
+          onLoadNewer={() => fetchNewer()}
+          isFetchingNewer={isFetchingNewer}
+          pendingCount={pendingCount}
+          onJumpToPresent={isAtPresent ? undefined : handleJumpToPresent}
+          scrollTargetId={msgId ?? entry.anchor}
+          firstUnreadMessageId={entry.firstUnreadMessageId}
+          highlightScrollTarget={Boolean(msgId)}
+          onJumpToMessage={handleJumpToMessage}
+          onReplyInThread={handleReplyInThread}
+          onAskLor={data.type === "text" ? handleAskLor : undefined}
+          onNewSession={
+            data.type === "text" && !data.archivedAt
+              ? openNewSession
+              : undefined
+          }
+          onOpenThread={handleOpenThread}
+          threadActivities={threadActivities}
+          onOpenThreadActivity={handleOpenThreadActivity}
+          onDismissThreadActivity={handleDismissThreadActivity}
+          replyingToId={replyingTo?.id ?? null}
+          currentUserId={currentUserId}
+          onReact={handleReact}
+          onReply={setReplyingTo}
+          onDelete={handleDelete}
+          onEdit={handleEdit}
+          onTogglePin={handleTogglePin}
+          canPin={canPin}
+          mentionCandidates={mentionCandidates}
+          isLoading={messagesLoading}
+        />
+        <TypingIndicator users={typingUsers} />
+        {data.archivedAt ? (
+          // Archived: no composer — a terminal divider marks when it closed.
+          <div className="px-4 pt-1 pb-5">
+            <div className="relative flex items-center">
+              <div className="h-px w-full bg-border/70" />
+              <span className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                <HugeiconsIcon
+                  icon={Archive02Icon}
+                  className="size-3.5 shrink-0"
+                  strokeWidth={2}
+                />
+                Archived{" "}
+                {new Date(data.archivedAt).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </span>
+            </div>
+          </div>
+        ) : discordUnknown ? (
+          discordQuery.isError ? (
+            <div className="px-4 pt-1 pb-5">
+              <div className="flex items-center gap-3 rounded-xl border bg-muted/40 px-4 py-3 text-muted-foreground text-sm">
+                <span className="min-w-0 flex-1">
+                  Couldn't check whether this chat lives in Discord.
+                </span>
+                <button
+                  type="button"
+                  disabled={discordQuery.isFetching}
+                  onClick={() => void discordQuery.refetch()}
+                  className="shrink-0 cursor-pointer font-medium text-primary underline-offset-2 hover:underline disabled:cursor-default disabled:opacity-60"
+                >
+                  Try again
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="h-[72px]" />
+          )
+        ) : discord?.link ? (
+          <div className="px-4 pt-1 pb-5">
+            <div className="flex items-center gap-3 rounded-xl border bg-muted/40 px-4 py-3 text-sm">
               <HugeiconsIcon
-                icon={Archive02Icon}
-                className="size-3.5 shrink-0"
+                icon={DiscordIcon}
+                className="size-5 shrink-0 text-[#5865F2]"
                 strokeWidth={2}
               />
-              Archived{" "}
-              {new Date(data.archivedAt).toLocaleDateString(undefined, {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}
-            </span>
+              <span className="min-w-0 flex-1 text-muted-foreground">
+                This chat lives in Discord, in #
+                {discord.link.channelName ?? "channel"}
+                {discord.link.guildName ? ` on ${discord.link.guildName}` : ""}.
+                Write there.
+              </span>
+              <a
+                href={discord.link.url}
+                target="_blank"
+                rel="noreferrer"
+                className="shrink-0 font-medium text-primary underline-offset-2 hover:underline"
+              >
+                Open in Discord
+              </a>
+            </div>
           </div>
-        </div>
-      ) : (
-        <MessageInput
-          // One editor, draft and undo history per channel. Prefixed: the
-          // sibling MessageList is keyed by the same id, and duplicate keys
-          // leave every visited channel's message list mounted.
-          key={`composer:${channelId}`}
-          draftKey={`channel:${channelId}`}
-          composerDraft={composerDraft}
-          onComposerDraftConsumed={consumeComposerDraft}
-          lorIntro
-          destination="channel"
-          notice={composerNotice}
-          context={context}
-          channelId={channelId}
-          leadingTools={lorStart.tools}
-          lorSendBlocked={lorStart.sendBlocked}
-          onSend={onComposerSend}
-          currentUserId={currentUserId}
-          mentionCandidates={mentionCandidates}
-          replyingTo={replyingTo}
-          onCancelReply={clearReply}
-          pendingAttachments={fileUpload.attachments}
-          addFiles={fileUpload.addFiles}
-          removeAttachment={fileUpload.removeAttachment}
-          clearAttachments={fileUpload.clearAttachments}
-          getUploadedAttachments={fileUpload.getUploadedAttachments}
-          isUploading={fileUpload.isUploading}
-          onTyping={emitTyping}
-          onEditLast={editLastOwnMessage}
-        />
-      )}
+        ) : (
+          <MessageInput
+            // One editor, draft and undo history per channel. Prefixed: the
+            // sibling MessageList is keyed by the same id, and duplicate keys
+            // leave every visited channel's message list mounted.
+            key={`composer:${channelId}`}
+            draftKey={`channel:${channelId}`}
+            composerDraft={composerDraft}
+            onComposerDraftConsumed={consumeComposerDraft}
+            lorIntro
+            destination="channel"
+            context={context}
+            channelId={channelId}
+            onSend={onComposerSend}
+            currentUserId={currentUserId}
+            mentionCandidates={mentionCandidates}
+            replyingTo={replyingTo}
+            onCancelReply={clearReply}
+            pendingAttachments={fileUpload.attachments}
+            addFiles={fileUpload.addFiles}
+            removeAttachment={fileUpload.removeAttachment}
+            clearAttachments={fileUpload.clearAttachments}
+            getUploadedAttachments={fileUpload.getUploadedAttachments}
+            isUploading={fileUpload.isUploading}
+            onTyping={emitTyping}
+            onEditLast={editLastOwnMessage}
+          />
+        )}
+      </ChannelAgentProvider>
     </div>
   )
 }

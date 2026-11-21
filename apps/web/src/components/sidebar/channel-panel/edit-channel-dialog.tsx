@@ -27,9 +27,20 @@ import {
 import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
+import {
+  AGENT_NAME_MAX,
+  CREATURES,
+  type CreatureId,
+  channelAgentIdentity,
+  isCreatureId,
+} from "@repo/utils/bestiary"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
+import { AgentCreature } from "@/components/agent/agent-creature"
+import { DiscordChatSection } from "@/components/agent/discord-chat-section"
+import { AgentFactsList } from "@/components/sidebar/channel-panel/agent-facts-list"
+import { AgentModelSelect } from "@/components/sidebar/channel-panel/agent-model-select"
 import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
 import { MorphText } from "@/components/ui/morph-text"
 import { GrantedChips } from "@/components/workspace/agent-profiles-section"
@@ -48,11 +59,17 @@ import { channelQueryOptions } from "@/lib/channel-query"
 
 const INHERIT = "__inherit__"
 
+// When the channel's agent takes a turn (reference/always-on-agents.md §3).
+const WAKE_MODES = [
+  { value: "mention", label: "When mentioned or replied to" },
+  { value: "every_message", label: "To every message" },
+] as const
+
 export type EditChannelTab = "overview" | "profile" | "webhooks"
 type Tab = EditChannelTab
 const TABS: { id: Tab; label: string; icon: IconSvgElement }[] = [
   { id: "overview", label: "Overview", icon: Settings01Icon },
-  { id: "profile", label: "Agent profile", icon: Layers01Icon },
+  { id: "profile", label: "Agent", icon: Layers01Icon },
   { id: "webhooks", label: "Webhooks", icon: WebhookIcon },
 ]
 
@@ -85,7 +102,7 @@ export function EditChannelDialog({
   onOpenChange: (open: boolean) => void
   /** The channel's creator without channel:update: name and topic only. */
   overviewOnly?: boolean
-  // The tab it opens on (the channel menu's Agent Profile and Webhooks).
+  // The tab it opens on (the channel menu's Agent Settings and Webhooks).
   initialTab?: Tab
 }) {
   const { workspaceSlug } = useParams({ strict: false })
@@ -97,22 +114,46 @@ export function EditChannelDialog({
   const [name, setName] = useState(channel.name ?? "")
   const [topic, setTopic] = useState(channel.topic ?? "")
   const [profileId, setProfileId] = useState(channel.agentProfileId ?? INHERIT)
+  const [agentModel, setAgentModel] = useState(channel.agentModel ?? null)
+  const [wakeMode, setWakeMode] = useState(channel.agentWakeMode ?? "mention")
+  const [brief, setBrief] = useState(channel.agentBrief ?? "")
+  const [agentName, setAgentName] = useState(channel.agentName ?? "")
+  const [agentCreature, setAgentCreature] = useState<CreatureId | null>(
+    isCreatureId(channel.agentCreature) ? channel.agentCreature : null
+  )
+  // Only edited agent fields are sent, so a stale draft never overwrites a
+  // change someone else saved while the dialog was open.
+  const [edited, setEdited] = useState<{
+    model?: boolean
+    wakeMode?: boolean
+    brief?: boolean
+    agentName?: boolean
+    agentCreature?: boolean
+  }>({})
 
+  // Drafts start from the channel when the dialog opens or switches channel,
+  // not on every cache update, so an unsaved edit survives a rename's
+  // optimistic update or its rollback.
   useEffect(() => {
     if (open) {
-      setTab(overviewOnly ? "overview" : initialTab)
+      setTab(
+        overviewOnly && !(initialTab === "profile" && channel.type === "text")
+          ? "overview"
+          : initialTab
+      )
       setName(channel.name ?? "")
       setTopic(channel.topic ?? "")
       setProfileId(channel.agentProfileId ?? INHERIT)
+      setAgentModel(channel.agentModel ?? null)
+      setWakeMode(channel.agentWakeMode ?? "mention")
+      setBrief(channel.agentBrief ?? "")
+      setAgentName(channel.agentName ?? "")
+      setAgentCreature(
+        isCreatureId(channel.agentCreature) ? channel.agentCreature : null
+      )
+      setEdited({})
     }
-  }, [
-    open,
-    overviewOnly,
-    initialTab,
-    channel.name,
-    channel.topic,
-    channel.agentProfileId,
-  ])
+  }, [open, channel.id])
 
   const { data: profilesData } = useQuery({
     queryKey: ["agent-profiles", workspaceSlug],
@@ -144,6 +185,20 @@ export function EditChannelDialog({
           ...(overviewOnly
             ? {}
             : { agentProfileId: profileId === INHERIT ? null : profileId }),
+          ...(overviewOnly || isCategory
+            ? {}
+            : {
+                ...(edited.model ? { agentModel } : {}),
+                ...(edited.wakeMode ? { agentWakeMode: wakeMode } : {}),
+                ...(edited.brief ? { agentBrief: brief.trim() || null } : {}),
+              }),
+          // The channel's creator may name its agent too.
+          ...(channel.type === "text" && edited.agentName
+            ? { agentName: agentName.trim() || null }
+            : {}),
+          ...(channel.type === "text" && edited.agentCreature
+            ? { agentCreature }
+            : {}),
         },
       })
       if (!res.ok) {
@@ -222,8 +277,24 @@ export function EditChannelDialog({
   const hasChanges =
     name !== (channel.name ?? "") ||
     (!isCategory && topic !== (channel.topic ?? "")) ||
-    profileId !== (channel.agentProfileId ?? INHERIT)
+    profileId !== (channel.agentProfileId ?? INHERIT) ||
+    agentModel !== (channel.agentModel ?? null) ||
+    wakeMode !== (channel.agentWakeMode ?? "mention") ||
+    brief !== (channel.agentBrief ?? "") ||
+    agentName !== (channel.agentName ?? "") ||
+    agentCreature !== (channel.agentCreature ?? null)
   const isValid = name.trim().length > 0
+  // What the agent will be called and look like once saved: a blank name
+  // takes the creature's default (reference/always-on-agents.md, decision 32).
+  const identity = channelAgentIdentity({
+    id: channel.id,
+    agentName: agentName.trim() || null,
+    agentCreature,
+  })
+  const defaultName = channelAgentIdentity({
+    id: channel.id,
+    agentCreature,
+  }).name
 
   const selectedProfile =
     profileId === INHERIT
@@ -235,8 +306,13 @@ export function EditChannelDialog({
     profilesData?.profiles.filter((p) => !p.isDefault) ?? []
 
   // Webhooks post into the channel feed — text channels only.
+  // A creator without channel:update sees the Agent tab for its name and
+  // creature only.
   const visibleTabs = overviewOnly
-    ? TABS.filter((t) => t.id === "overview")
+    ? TABS.filter(
+        (t) =>
+          t.id === "overview" || (t.id === "profile" && channel.type === "text")
+      )
     : channel.type === "text"
       ? TABS
       : TABS.filter((t) => t.id !== "webhooks")
@@ -354,7 +430,159 @@ export function EditChannelDialog({
                   ) : null
                 ) : (
                   <div className="space-y-3">
-                    {customProfiles.length > 0 && (
+                    {channel.type === "text" && workspaceSlug && (
+                      <>
+                        <div className="flex gap-4">
+                          <div className="flex size-24 shrink-0 items-center justify-center rounded-lg bg-muted/60">
+                            <AgentCreature
+                              creature={identity.creature}
+                              size={72}
+                              label={identity.name}
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <Label htmlFor="channel-agent-name">Name</Label>
+                            <Input
+                              id="channel-agent-name"
+                              value={agentName}
+                              onChange={(e) => {
+                                setAgentName(e.target.value)
+                                setEdited((prev) => ({
+                                  ...prev,
+                                  agentName: true,
+                                }))
+                              }}
+                              maxLength={AGENT_NAME_MAX}
+                              placeholder={defaultName}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              What the channel calls its agent. People mention
+                              it as @{identity.name}.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Creature</Label>
+                          <div className="grid grid-cols-5 gap-1.5">
+                            {CREATURES.map((creature) => (
+                              <button
+                                key={creature.id}
+                                type="button"
+                                title={creature.label}
+                                aria-label={creature.label}
+                                aria-pressed={identity.creature === creature.id}
+                                onClick={() => {
+                                  setAgentCreature(creature.id)
+                                  setEdited((prev) => ({
+                                    ...prev,
+                                    agentCreature: true,
+                                  }))
+                                }}
+                                className={cn(
+                                  "flex cursor-pointer flex-col items-center gap-0.5 rounded-md border px-1 pt-1.5 pb-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/60",
+                                  identity.creature === creature.id
+                                    ? "border-primary bg-accent text-foreground"
+                                    : "border-transparent"
+                                )}
+                              >
+                                <AgentCreature
+                                  creature={creature.id}
+                                  size={48}
+                                  still
+                                />
+                                <span className="truncate">
+                                  {creature.label}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {!overviewOnly && (
+                          <>
+                            <DiscordChatSection
+                              key={channel.id}
+                              workspaceSlug={workspaceSlug}
+                              channelId={channel.id}
+                              agentName={identity.name}
+                            />
+                            <div className="space-y-2">
+                              <Label htmlFor="channel-agent-model">Model</Label>
+                              <AgentModelSelect
+                                id="channel-agent-model"
+                                workspaceSlug={workspaceSlug}
+                                value={agentModel}
+                                onChange={(model) => {
+                                  setAgentModel(model)
+                                  setEdited((e) => ({ ...e, model: true }))
+                                }}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="channel-agent-wake">
+                                Answers
+                              </Label>
+                              <Select
+                                items={WAKE_MODES}
+                                value={wakeMode}
+                                onValueChange={(v) => {
+                                  if (!v) return
+                                  setWakeMode(v as typeof wakeMode)
+                                  setEdited((e) => ({ ...e, wakeMode: true }))
+                                }}
+                              >
+                                <SelectTrigger
+                                  id="channel-agent-wake"
+                                  className="w-full"
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {WAKE_MODES.map((mode) => (
+                                    <SelectItem
+                                      key={mode.value}
+                                      value={mode.value}
+                                    >
+                                      {mode.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-muted-foreground">
+                                {identity.name} reads every message here either
+                                way. This sets which ones it answers right away.
+                              </p>
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="channel-agent-brief">Brief</Label>
+                              <Textarea
+                                id="channel-agent-brief"
+                                value={brief}
+                                onChange={(e) => {
+                                  setBrief(e.target.value)
+                                  setEdited((prev) => ({
+                                    ...prev,
+                                    brief: true,
+                                  }))
+                                }}
+                                maxLength={4000}
+                                rows={4}
+                                placeholder={`What ${identity.name} should know and do here, e.g. “Watch deploys and tell us in two lines when one fails. Zoe owns the pipeline.”`}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Standing instructions for {identity.name} in
+                                this channel. Only people write the brief.
+                              </p>
+                            </div>
+                          </>
+                        )}
+                        {/* Any member may edit facts, as the API allows. */}
+                        <AgentFactsList
+                          workspaceSlug={workspaceSlug}
+                          channelId={channel.id}
+                        />
+                      </>
+                    )}
+                    {!overviewOnly && customProfiles.length > 0 && (
                       <div className="space-y-2">
                         <Label htmlFor="channel-agent-profile">Profile</Label>
                         <Select
@@ -395,14 +623,14 @@ export function EditChannelDialog({
                       </div>
                     )}
 
-                    {previewProfile && profilesData && (
+                    {!overviewOnly && previewProfile && profilesData && (
                       <ProfileCapabilities
                         profile={previewProfile}
                         groups={profilesData.availableToolGroups}
                       />
                     )}
 
-                    {customProfiles.length === 0 && (
+                    {!overviewOnly && customProfiles.length === 0 && (
                       <p className="text-xs text-muted-foreground">
                         Add agent profiles in workspace settings to give
                         channels different tools.
