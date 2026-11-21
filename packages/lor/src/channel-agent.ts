@@ -1,4 +1,4 @@
-import { and, asc, db, eq, inArray, schema, sql } from "@repo/db"
+import { and, asc, db, eq, inArray, LOR_USER_ID, schema, sql } from "@repo/db"
 import type { AgentInboxLane } from "@repo/db/schema"
 import { tool } from "ai"
 import { z } from "zod"
@@ -18,7 +18,8 @@ const MAX_MESSAGE_CHARS = 8000
 
 export type SendMessageExecutor = (input: {
   content: string
-}) => Promise<{ messageId: string }>
+  // Set when the channel's chat lives in Discord and the post there failed.
+}) => Promise<{ messageId: string; discordError?: string }>
 
 // Code sessions the agent runs as helpers (reference/always-on-agents.md §6).
 // The worker implements them; each returns what the model reads.
@@ -28,6 +29,7 @@ export type AgentSessionTools = {
     baseBranch?: string
     title: string
     task: string
+    harness?: "claude_code" | "codex"
   }) => Promise<unknown>
   check: (input: { sessionId: string }) => Promise<unknown>
   message: (input: { sessionId: string; message: string }) => Promise<unknown>
@@ -55,6 +57,9 @@ export type CompleteAgentLoop = (input: {
 // it owns the run's lease and billing.
 export type RunAgentContext = {
   channelName: string | null
+  // The name the channel gave its agent, and its creature (decisions 32, 33).
+  agentName: string
+  creature: string
   sendMessage: SendMessageExecutor
   // "compact" summarizes the conversation instead of running a turn;
   // "memory" runs the memory pass after a turn.
@@ -88,8 +93,16 @@ export const sendMessageTool = {
     }),
     contextSchema: sendMessageContext,
     execute: async ({ content }, { context }) => {
-      const { messageId } = await context.sendMessage({ content })
-      return { ok: true as const, messageId }
+      const { messageId, discordError } = await context.sendMessage({
+        content,
+      })
+      return discordError
+        ? {
+            ok: false as const,
+            messageId,
+            error: `Saved in Lor, but Discord, where this channel's chat lives, rejected it: ${discordError}`,
+          }
+        : { ok: true as const, messageId }
     },
   }),
 }
@@ -103,7 +116,7 @@ const sessionId = z.string().uuid().describe("the session's id")
 export const agentSessionTools = {
   start_session: tool({
     description:
-      "Start a code session: a coding agent working on one branch of one repository, with its own computer, while you go on. Give it a short title and a complete task: what to change and why, the issue or messages it came from, and what done looks like. It can read the team's tools but cannot write to them or post in the chat; it reports back to you. When its turn ends you are woken with its report. Call without `repo` to list the repositories you can use. A piece of work across repositories is one session per repository.",
+      "Start a code session: a coding agent (Claude Code or Codex, on the plan of the person who asked you, or for a Loop or event of the person who set it up) working on one branch of one repository, with its own computer, while you go on. Give it a short title and a complete task: what to change and why, the issue or messages it came from, and what done looks like. It can read the team's tools but cannot write to them or post in the chat; it reports back to you. When its turn ends you are woken with its report. Call without `repo` to list the repositories you can use. A piece of work across repositories is one session per repository.",
     inputSchema: z.object({
       repo: z
         .string()
@@ -117,6 +130,12 @@ export const agentSessionTools = {
         ),
       title: z.string().min(1).max(120).describe("a short title for people"),
       task: z.string().min(1).max(20_000),
+      harness: z
+        .enum(["claude_code", "codex"])
+        .optional()
+        .describe(
+          "Claude Code or Codex; leave out to use whichever plan the person has connected"
+        ),
     }),
     contextSchema: sessionContext,
     execute: async (input, { context }) => context.sessions.start(input),
@@ -201,9 +220,10 @@ export const agentLoopTools = {
 // Stable per channel, so it is safe in the system prompt.
 export function channelAgentPromptSection(agent: RunAgentContext): string {
   const channel = agent.channelName ? `#${agent.channelName}` : "this channel"
-  return `## You are ${channel}'s agent
+  const name = sanitizeInlineLabel(agent.agentName)
+  return `## You are ${name}, ${channel}'s agent
 
-You are the always-on agent for ${channel}: one teammate the whole channel shares. People and you talk in the channel's chat.
+You are ${name}, the always-on agent for ${channel}: one teammate the whole channel shares, shown in the app as a pixel-art ${agent.creature.toLowerCase()}. The team picked your name and can change it. Lor is the app you live in: its mentions of you (<@${LOR_USER_ID}>) appear to people as @${name}. Call yourself ${name}. People and you talk in the channel's chat.
 
 - Each turn starts from your inbox, after the time. "Since you last looked" lists what people said in the chat that was not for you: read it as context and do not answer it line by line. "What woke you" is what you are asked to handle now.
 - Nothing you write here reaches anyone. This conversation is your private working notes. To speak, call send_message: it posts in the channel's chat for everyone.

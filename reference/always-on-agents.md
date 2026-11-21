@@ -86,6 +86,11 @@ proposal that he has not objected to and should confirm.
 | 28 | Compaction as in Lee Robinson's talk: the history grows until it passes about 100k tokens, then is summarized about 10 minutes after a turn, on the warm cache, unless other work is about to wake the agent. The latest messages stay word for word. Every step stays stored, and the agent can read its history, a thread or a session back in full | Jacob, 11-18 |
 | 29 | The agent's computer is its own: for installing things and using websites, not for writing code. Planned, not built now. A tool starts it, a turn never does | Jacob, 11-18 |
 | 30 | The chat never shows what woke the agent. A Loop's or a `wake_up`'s turn reads as the agent noticing something itself: no "ran on schedule" line, no line when the agent completes a Loop (the card shows it), no failure notice on a turn no person asked for, and the agent doesn't narrate the Loop. `wake_up` and Loops stay separate | Jacob, 11-20 |
+| 31 | Loops and triggers have no model of their own: the channel's agent receives them and runs on the channel's model (decision 15). The per-Loop and per-trigger model pickers on `dev` (785d3ec) go when it is merged in | Jacob, 11-20 |
+| 32 | Each channel names its agent, and the name replaces "Lor" wherever that agent appears: its posts, mentions, the working indicator, Needs you, settings. Names are the team's to choose, not the channel's name | Jacob, 11-21 |
+| 33 | Each channel's agent has a creature from a bestiary of 8 to 10 high-quality pixel-art creatures, animated by its real state (asleep, working, needs you) | Jacob, 11-21 |
+| 34 | Code sessions run on Claude Code or Codex only; Lor's own agent (Pi) is no longer a session harness. Sessions are the channel agent's tools, or ones a person starts | Jacob, 11-21 |
+| 35 | Discord ships in this batch (slice 6), with the chat-location choice in the channel's Agent settings | Jacob, 11-21 |
 
 Considered and dropped, so they are not added back by accident:
 
@@ -573,6 +578,17 @@ it. The cached share per call was 0 at first, then 85 to 99%, see below.
   when a person asked (decision 30). A Loop's or an event's failed turn
   shows in its run history.
 
+**Decided for this batch (2026-11-21)**
+
+- Where a channel's chat lives: a "Chat" choice at the top of the channel's
+  Agent settings, Lor (the default) or a linked Discord channel (Slack
+  later). Linking shows the Discord conversation read-only in Lor, locks the
+  composer behind "This chat lives in Discord", and sends the agent's posts
+  there (decision 22). Built in this batch (decision 35, step 7.5).
+- How the agent looks: a creature from a pixel-art bestiary, with its own
+  name per channel (decisions 32 and 33, steps 7.2 and 7.3). Mock:
+  `shared-team-agents/mock/bestiary.html` in the 2026-11-20 session.
+
 **Owed before the batch ships**
 
 - `db:push` on each environment. The dev database got this work's tables,
@@ -967,12 +983,109 @@ cadence costs nothing on a quiet channel.
 
 **Slice 6: Discord**
 
-Not now (Jacob, 2026-11-18). After it: the team talks to the agent in its
-Discord channel.
+In this batch (Jacob, 2026-11-21; parked on 11-18). After it: the team
+talks to the agent in its Discord channel. Jacob tests on his own server.
 
-- [ ] 6.1 The bot, linking a channel, and one-way sync.
-- [ ] 6.2 `send_message` to the linked channel. The Lor composer locks.
-- [ ] 6.3 Account linking, and approvals as buttons.
+Built 2026-11-21; not yet tried against a real Discord server (waiting on
+the bot's token in the session env).
+
+- [x] 6.1 The bot, linking a channel, and one-way sync. One gateway
+  connection, held by one API process through a Redis lease
+  (`apps/api/src/lib/discord/gateway.ts`; intents: guilds, guild messages,
+  message content). No interactions endpoint: slash commands and buttons
+  arrive over the gateway, so nothing public is needed. Linking: the Agent
+  tab's Chat section makes a one-time code (15 minutes, Redis), and someone
+  with Manage Channels runs `/lor link code:…` in the Discord channel, which
+  proves they can manage it. The bot then makes a webhook there wearing the
+  creature, stores `channel_discord_link` (token encrypted) and says hello.
+  `/lor unlink` or "Move back to Lor" removes it. Messages there mirror into
+  the Lor channel (`inbound.ts`): a linked person posts as themselves,
+  anyone else as the app user with their Discord name and avatar (a DISCORD
+  badge in Lor); the bot's mention becomes Lor's, replies map through
+  `discord_message`, and the message goes to the agent's inbox like a chat
+  message (a mention or a reply to the agent wakes it).
+- [x] 6.2 `send_message` posts in Discord too, through the webhook under
+  the agent's name (split at 2,000 characters; Lor mentions become Discord
+  mentions for linked people, names otherwise; citations drop). A failed
+  Discord post is told to the agent. Typing shows in Discord while it works.
+  The Lor composer becomes "This chat lives in Discord" with a link, and
+  realtime refuses chat messages there; sessions stay in Lor.
+- [x] 6.3 Account linking with `/lor connect`: a private link to
+  `/discord/connect` signed for that Discord account (15 minutes), opened
+  while signed in to Lor (`discord_account`). Approvals the agent parks get
+  Approve and Reject buttons in Discord; a click by a linked person goes
+  through the same `resolveApproval` as Lor's card.
+
+Deviations: the agent posts through a webhook, so its messages can't use
+Discord's reply (webhooks can't); it mentions the person instead. The
+webhook avatar follows the creature (re-uploaded on change), since a
+per-message avatar needs a public image URL. Not done: mobile's composer
+lock (the server refuses the send), Discord threads, DMs to the bot, edits
+and deletes in Discord, and attachments beyond links.
+
+**Slice 7: before the batch ships** (Jacob, 2026-11-21)
+
+After it: each channel's agent has its own name and creature, code
+sessions run on people's own Claude or ChatGPT plans, and the batch can be
+deployed.
+
+- [x] 7.1 `dev` merged in (2026-11-21, left staged): one conflict, and the
+  per-Loop and per-trigger model pickers removed (decision 31).
+- [x] 7.2 Named agents (decision 32, built 2026-11-21). The agent stays
+  one Lor user per workspace. `channel.agent_name` and `agent_creature`
+  (null: derived from the channel id by `channelAgentIdentity` in
+  `@repo/utils/bestiary`, a creature and one of its default names), and
+  `agent_identity_updated_at` for the change note. Clients swap the name in
+  at render time under `ChannelAgentProvider` (web) or the channel layout's
+  provider (mobile): posts, replies, @mentions, the mention picker, the
+  composer's placeholder and hint, typing, the member list, Needs you and
+  the header. Session views have no provider, so Lor stays Lor there.
+  Notifications for its posts carry the name (`speaksAsAgent` in the
+  worker). The agent's prompt names it, and a rename reaches it as a change
+  note at its next turn. The channel's creator may set the name and
+  creature too, like its name and topic.
+- [x] 7.3 The bestiary (decision 33, built 2026-11-21): 10 creatures
+  (dragon whelp, owl, golem, wisp, slime, fox spirit, mushroom, automaton,
+  kraken, mimic), 24x24 pixel art with an eyes-shut frame, in
+  `@repo/utils/bestiary`. The web `AgentCreature` draws them as SVG and
+  animates the real state in whole sprite pixels: asleep (eyes shut, a
+  breath, floating z), working on every turn (hops, sparkles; the worker
+  beats `agent:working`), needs you (a "!" badge), a blink otherwise; old
+  posts stay still and reduced motion stops it all. Picked in the Agent
+  tab with the name. `creaturePng` renders a PNG for Discord, emails and
+  push. Mobile draws them still for now.
+- [x] 7.4 Sessions on Claude Code and Codex only (decision 34, built
+  2026-11-21). New session offers only those two, and the server refuses a
+  start on any other harness or without a repository. The agent's
+  `start_session` takes an optional harness and runs the session on a
+  person's plan: who asked, else the Loop's creator, the person behind the
+  wake-up, or whoever saved the trigger. Claude Code is picked when they
+  have Claude connected, else Codex; with neither, the agent is told to ask
+  someone. Its turns in that session run on that person's plan (the
+  session's `creatorId`); a person writing in it uses their own. "Continue
+  with Lor" is gone. Older sessions on Lor's own agent keep working, and
+  Loop and Act sessions on voice channels still run on it.
+- [x] 7.5 Discord (slice 6, decision 35) with the chat-location choice
+  (built; live test owed with Jacob's bot).
+- [ ] 7.6 The rollout checklist (written 2026-11-21; run at deploy):
+  1. `db:push` on each environment, answering No to the `brain_node`
+     truncate prompt. It adds `agent_inbox`, `agent_step`, `agent_context`,
+     `agent_wake_up`, `channel_agent_fact`, `channel_discord_link`,
+     `discord_message`, `discord_account`, the channel agent columns
+     (`agent_model`, `agent_wake_mode`, `agent_brief*`, `agent_check_in_at`,
+     `agent_name`, `agent_creature`, `agent_identity_updated_at`) and the
+     Loop `kind`, and drops `loop.model` and `connector_trigger.act_model`
+     (decision 31).
+  2. Optional env: `DISCORD_BOT_TOKEN` and `DISCORD_APPLICATION_ID` on the
+     API and worker (Message Content intent on, no interactions endpoint).
+     Without them Discord stays hidden.
+  3. Redeploy API, realtime, worker, web/desktop and mobile together; drain
+     the worker first so no old-code turn runs.
+  4. What existing data sees: every text channel gets a derived name and
+     creature, and its check-in Loop on its next message. Old Lor chat
+     sessions stay readable; older sessions on Lor's own agent keep working.
+     Loops and triggers lose their model picks and run on the channel's
+     model.
 
 **Later**
 

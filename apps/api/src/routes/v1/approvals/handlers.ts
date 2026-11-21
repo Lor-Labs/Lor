@@ -255,7 +255,7 @@ function approvalScope(
   return null
 }
 
-async function resolveApproval(
+export async function resolveApproval(
   approvalId: string,
   userId: string,
   resolution: "approved" | "rejected",

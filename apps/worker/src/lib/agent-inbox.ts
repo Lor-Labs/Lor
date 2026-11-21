@@ -10,6 +10,7 @@ import {
   LOR_USER_ID,
   notInArray,
   schema,
+  sql,
 } from "@repo/db"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import { env } from "@repo/env/server"
@@ -32,6 +33,7 @@ import {
   type RunAgentContext,
 } from "@repo/lor/channel-agent"
 import { openBlock, profileChangeNotes } from "@repo/lor/channel-profile"
+import { postAgentToDiscord, showDiscordTyping } from "@repo/lor/discord"
 import { LoopProposalError, type ProposeLoopExecutor } from "@repo/lor/loops"
 import {
   ProposalRefusedError,
@@ -52,6 +54,7 @@ import {
   threadRoom,
   workspaceRoom,
 } from "@repo/realtime-types/rooms"
+import { channelAgentIdentity, creatureById } from "@repo/utils/bestiary"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
@@ -114,18 +117,22 @@ const TYPING_EVERY_MS = 3_000
 function showTyping(
   deps: AgentDeps,
   channelId: string,
-  threadRootId: string | null
+  threadRootId: string | null,
+  name: string
 ) {
   let pausedUntil = 0
+  let beats = 0
   const emit = () => {
     if (Date.now() < pausedUntil) return
+    // Discord's typing lasts about 10s a call.
+    if (!threadRootId && beats++ % 3 === 0) void showDiscordTyping(channelId)
     deps.emitter
       .to(threadRootId ? threadRoom(threadRootId) : channelRoom(channelId))
       .emit("typing:update", {
         channelId,
         threadRootId,
         userId: LOR_USER_ID,
-        name: "Lor",
+        name,
       })
   }
   emit()
@@ -136,6 +143,23 @@ function showTyping(
       pausedUntil = Date.now() + 2 * TYPING_EVERY_MS
     },
     stop: () => clearInterval(timer),
+  }
+}
+
+// The agent's creature works on every turn, quiet ones too, unlike typing:
+// clients drop the state 15s after the last beat.
+const WORKING_EVERY_MS = 10_000
+
+function showWorking(deps: AgentDeps, channelId: string) {
+  const emit = (working: boolean) =>
+    deps.emitter
+      .to(channelRoom(channelId))
+      .emit("agent:working", { channelId, working })
+  emit(true)
+  const timer = setInterval(() => emit(true), WORKING_EVERY_MS)
+  return () => {
+    clearInterval(timer)
+    emit(false)
   }
 }
 
@@ -394,6 +418,53 @@ async function claim(job: Job, token: string | undefined, runId: string) {
   return outcome.kind === "claimed" ? outcome.execution : null
 }
 
+// The person behind a turn no person started: the Loop's creator, whoever
+// woke the turn that set the wake-up, or whoever last saved the trigger.
+// Sessions the agent starts run on their plan (decision 34).
+async function setUpBy(runId: string): Promise<string | null> {
+  const [loop] = await db
+    .select({ userId: schema.loop.creatorId })
+    .from(schema.agentRun)
+    .innerJoin(schema.loop, eq(schema.loop.id, schema.agentRun.loopId))
+    .where(eq(schema.agentRun.id, runId))
+  if (loop?.userId) return loop.userId
+  const [wakeUp] = await db
+    .select({ userId: schema.agentWakeUp.askedById })
+    .from(schema.agentInbox)
+    .innerJoin(
+      schema.agentWakeUp,
+      sql`${schema.agentWakeUp.id}::text = ${schema.agentInbox.sourceId}`
+    )
+    .where(
+      and(
+        eq(schema.agentInbox.runId, runId),
+        eq(schema.agentInbox.source, "wake_up"),
+        isNotNull(schema.agentWakeUp.askedById)
+      )
+    )
+    .limit(1)
+  if (wakeUp?.userId) return wakeUp.userId
+  const [trigger] = await db
+    .select({ userId: schema.connectorTrigger.configuredById })
+    .from(schema.agentInbox)
+    .innerJoin(
+      schema.triggerDelivery,
+      eq(schema.triggerDelivery.id, schema.agentInbox.deliveryId)
+    )
+    .innerJoin(
+      schema.connectorTrigger,
+      eq(schema.connectorTrigger.id, schema.triggerDelivery.triggerId)
+    )
+    .where(
+      and(
+        eq(schema.agentInbox.runId, runId),
+        isNotNull(schema.connectorTrigger.configuredById)
+      )
+    )
+    .limit(1)
+  return trigger?.userId ?? null
+}
+
 // propose_loop for the agent: a draft card in the chat, only in a turn a
 // person started (a trigger or a Loop must not schedule more Loops).
 function agentProposeLoop(
@@ -443,23 +514,39 @@ function agentProposeChange(
 function agentHooks(
   deps: AgentDeps,
   execution: RunExecution,
-  channel: { id: string; name: string | null; workspaceId: string },
+  channel: {
+    id: string
+    name: string | null
+    workspaceId: string
+    agentName: string | null
+    agentCreature: string | null
+  },
   mode: RunAgentContext["mode"],
   onSent: () => void,
-  // Who woke the turn, and the human thread it answers in (null: the chat).
-  turn: { askerId: string | null; threadRootId: string | null } = {
+  // Who woke the turn, whose plan runs the sessions it starts, and the human
+  // thread it answers in (null: the chat).
+  turn: {
+    askerId: string | null
+    planUserId: string | null
+    threadRootId: string | null
+  } = {
     askerId: null,
+    planUserId: null,
     threadRootId: null,
   }
 ): RunAgentContext {
+  const identity = channelAgentIdentity(channel)
   return {
     channelName: channel.name,
+    agentName: identity.name,
+    creature: creatureById(identity.creature).label,
     mode,
     sessions: agentSessionExecutors(deps, {
       workspaceId: channel.workspaceId,
       channelId: channel.id,
       channelName: channel.name,
       askerId: turn.askerId,
+      planUserId: turn.planUserId,
     }),
     completeLoop: agentCompleteLoop(deps, channel.id),
     wakeUps: agentWakeUpExecutors(deps, {
@@ -476,7 +563,20 @@ function agentHooks(
         ...(turn.threadRootId ? { threadRootId: turn.threadRootId } : {}),
       })
       onSent()
-      return posted
+      // A chat that lives in Discord gets the post there too (decision 22).
+      if (turn.threadRootId) return posted
+      const discordError = await postAgentToDiscord({
+        channelId: channel.id,
+        messageId: posted.messageId,
+        content,
+      }).then(
+        () => undefined,
+        (err: unknown) => {
+          logger.warn({ err, channelId: channel.id }, "Discord post failed")
+          return err instanceof Error ? err.message : "unknown error"
+        }
+      )
+      return discordError ? { ...posted, discordError } : posted
     },
     recordUsage: (usage, kind) => execution.recordUsage(usage, kind),
     loadDecisions: async (pausedRunId) =>
@@ -501,6 +601,8 @@ export async function runAgentTurnJob(
       name: schema.channel.name,
       workspaceId: schema.channel.workspaceId,
       agentModel: schema.channel.agentModel,
+      agentName: schema.channel.agentName,
+      agentCreature: schema.channel.agentCreature,
       agentWakeMode: schema.channel.agentWakeMode,
     })
     .from(schema.channel)
@@ -536,7 +638,17 @@ export async function runAgentTurnJob(
       content,
       type: "agent_post",
       ...(threadRootId ? { threadRootId } : {}),
-    }).catch((err) => logger.error({ err, runId }, "Agent notice failed"))
+    })
+      .then((posted) =>
+        threadRootId
+          ? undefined
+          : postAgentToDiscord({
+              channelId,
+              messageId: posted.messageId,
+              content,
+            })
+      )
+      .catch((err) => logger.error({ err, runId }, "Agent notice failed"))
   // A Loop fire's turn counts toward the Loop's health: five failures in a
   // row pause it, with a line in the chat.
   const settleLoop = async (
@@ -571,8 +683,14 @@ export async function runAgentTurnJob(
       (channel.agentWakeMode === "mention" ||
         Boolean(run?.triggerContent?.includes(`<@${LOR_USER_ID}>`)))
     const typing = addressed
-      ? showTyping(deps, channelId, threadRootId)
+      ? showTyping(
+          deps,
+          channelId,
+          threadRootId,
+          channelAgentIdentity(channel).name
+        )
       : { pause: () => {}, stop: () => {} }
+    const stopWorking = showWorking(deps, channelId)
     // The memory pass reuses this context, so its tools and prompt match
     // the turn's and it reads the turn's cache.
     const turnContext = {
@@ -597,7 +715,11 @@ export async function runAgentTurnJob(
         userId ?? null
       ),
     }
-    const turnPlace = { askerId: userId ?? null, threadRootId }
+    const turnPlace = {
+      askerId: userId ?? null,
+      planUserId: userId ?? (await setUpBy(runId)),
+      threadRootId,
+    }
     const result = await respond(
       {
         ...turnContext,
@@ -623,7 +745,10 @@ export async function runAgentTurnJob(
           }),
       },
       execution.handle
-    ).finally(() => typing.stop())
+    ).finally(() => {
+      typing.stop()
+      stopWorking()
+    })
     const agent = result.agent
 
     // A turn paused on approvals: the set is filed under a message in the
@@ -663,9 +788,37 @@ export async function runAgentTurnJob(
               planId: null,
             }))
           )
-          .returning({ id: schema.approval.id })
+          .returning({
+            id: schema.approval.id,
+            description: schema.approval.description,
+          })
       })
       parkedApprovalId = inserted[0]?.id ?? null
+      // In a chat that lives in Discord, each approval gets buttons there.
+      for (const approval of inserted) {
+        await postAgentToDiscord({
+          channelId,
+          messageId: null,
+          content: `Approval needed: ${approval.description}`,
+          buttons: [
+            {
+              customId: `lor-approval:${approval.id}:approved`,
+              label: "Approve",
+              style: "success",
+            },
+            {
+              customId: `lor-approval:${approval.id}:rejected`,
+              label: "Reject",
+              style: "danger",
+            },
+          ],
+        }).catch((err) =>
+          logger.warn(
+            { err, approvalId: approval.id },
+            "Discord approval post failed"
+          )
+        )
+      }
     }
 
     const stoppedByUser = result.stoppedFor === "stopped_by_user"
@@ -808,6 +961,8 @@ export async function runAgentCompactJob(
       name: schema.channel.name,
       workspaceId: schema.channel.workspaceId,
       agentModel: schema.channel.agentModel,
+      agentName: schema.channel.agentName,
+      agentCreature: schema.channel.agentCreature,
     })
     .from(schema.channel)
     .where(eq(schema.channel.id, channelId))

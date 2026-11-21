@@ -182,6 +182,17 @@ const serverSchema = z.object({
   ATTIO_CLIENT_SECRET: z.string().min(1).optional(),
   NOTION_CLIENT_ID: z.string().min(1).optional(),
   NOTION_CLIENT_SECRET: z.string().min(1).optional(),
+  // Lor's Discord bot (reference/always-on-agents.md §10). Optional: without
+  // them a channel's chat stays in Lor. The bot needs the Message Content
+  // intent; button clicks arrive over its gateway connection.
+  DISCORD_BOT_TOKEN: z.preprocess(
+    blankToUndefined,
+    z.string().min(1).optional()
+  ),
+  DISCORD_APPLICATION_ID: z.preprocess(
+    blankToUndefined,
+    z.string().min(1).optional()
+  ),
   NEXT_PUBLIC_SELF_HOSTED: z
     .preprocess((v) => v === "true" || v === "1", z.boolean())
     .default(false),

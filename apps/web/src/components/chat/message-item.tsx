@@ -27,6 +27,8 @@ import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime, timeAgo } from "@repo/utils/date"
 import { isLorStoppedStockText } from "@repo/utils/lor"
 import { memo, useCallback, useEffect, useRef, useState } from "react"
+import { AgentCreature } from "@/components/agent/agent-creature"
+import { useChannelAgentContext } from "@/components/agent/channel-agent"
 import { MessageApprovalCard } from "@/components/chat/approval-card"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
@@ -141,6 +143,7 @@ function ReplyPreview({
   // Document layout: the curve starts at the 28px gutter avatar's center.
   compact?: boolean
 }) {
+  const channelAgent = useChannelAgentContext()
   const connector = (
     <div
       className={cn(
@@ -164,7 +167,10 @@ function ReplyPreview({
   }
 
   const author = referencedMessage.author
-  const referencedName = referencedMessage.overrideName ?? author.name
+  const referencedName =
+    (author.id === LOR_USER_ID ? channelAgent?.name : undefined) ??
+    referencedMessage.overrideName ??
+    author.name
   const referencedAvatar = referencedMessage.overrideAvatarUrl ?? author.image
   const referencedConnector = referencedMessage.overrideAvatarUrl
     ? null
@@ -353,10 +359,26 @@ export const MessageItem = memo(function MessageItem({
   readOnly = false,
 }: MessageItemProps) {
   const author = message.author
+  // Lor in a channel's chat or thread is the channel's agent: its name and
+  // creature (reference/always-on-agents.md, decisions 32 and 33).
+  const channelAgent = useChannelAgentContext()
+  const agent =
+    message.authorId === LOR_USER_ID && layout !== "document"
+      ? channelAgent
+      : null
+  const agentInFlight =
+    !!agent && (!!message.streaming || message.status === "pending")
   // Webhook/connector messages render an overridden identity and aren't a
   // real user — no profile popover.
-  const isApp = !!message.overrideName || !!message.overrideAvatarUrl
-  const displayName = message.overrideName ?? author.name
+  const isApp =
+    !agent && (!!message.overrideName || !!message.overrideAvatarUrl)
+  const plainAuthor = isApp || !!agent
+  // Mirrored from a linked Discord channel, by someone who hasn't linked
+  // their Lor account (reference/always-on-agents.md §10).
+  const fromDiscord =
+    isApp &&
+    !!message.overrideAvatarUrl?.startsWith("https://cdn.discordapp.com/")
+  const displayName = agent?.name ?? message.overrideName ?? author.name
   const avatarUrl = message.overrideAvatarUrl ?? author.image
   // Connector-named bot posts ("GitHub", "Linear") wear the provider mark
   // when no uploaded avatar is set.
@@ -619,7 +641,16 @@ export const MessageItem = memo(function MessageItem({
       <div data-message-id={message.id} className="group px-4 py-0.5">
         <div className="flex gap-3">
           {showHeader ? (
-            isApp ? (
+            agent ? (
+              <div className="mt-0.5 self-start">
+                <AgentCreature
+                  creature={agent.creature}
+                  size={48}
+                  still
+                  className="-m-1"
+                />
+              </div>
+            ) : isApp ? (
               <div className="mt-0.5 self-start">{planAvatar}</div>
             ) : (
               <UserProfilePopover
@@ -642,7 +673,7 @@ export const MessageItem = memo(function MessageItem({
           <div className="min-w-0 flex-1">
             {showHeader && (
               <div className="flex items-baseline gap-2">
-                {isApp ? (
+                {plainAuthor ? (
                   <span className="text-sm font-semibold leading-snug">
                     {displayName}
                   </span>
@@ -742,7 +773,23 @@ export const MessageItem = memo(function MessageItem({
         {isDocument ? (
           documentGutter
         ) : showHeader ? (
-          isApp ? (
+          agent ? (
+            <div
+              className={cn(
+                "mt-0.5 self-start",
+                canWrapUnderAvatar && "float-left mr-3"
+              )}
+            >
+              <AgentCreature
+                creature={agent.creature}
+                size={48}
+                state={agentInFlight ? "working" : "idle"}
+                still={!agentInFlight}
+                label={agent.name}
+                className="-m-1"
+              />
+            </div>
+          ) : isApp ? (
             <div
               className={cn(
                 "mt-0.5 self-start",
@@ -826,7 +873,7 @@ export const MessageItem = memo(function MessageItem({
         >
           {showHeader && !isDocument && (
             <div className="flex items-baseline gap-2">
-              {isApp ? (
+              {plainAuthor ? (
                 <span className="text-sm font-semibold leading-snug">
                   {displayName}
                 </span>
@@ -847,7 +894,7 @@ export const MessageItem = memo(function MessageItem({
               )}
               {isApp && (
                 <span className="self-center rounded-sm bg-primary/15 px-1 py-px text-[10px] font-semibold text-primary">
-                  APP
+                  {fromDiscord ? "DISCORD" : "APP"}
                 </span>
               )}
               <span className="text-xs text-muted-foreground">

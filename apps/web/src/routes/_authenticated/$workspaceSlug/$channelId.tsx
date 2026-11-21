@@ -1,4 +1,4 @@
-import { Archive02Icon } from "@hugeicons/core-free-icons"
+import { Archive02Icon, DiscordIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { LOR_USER_ID } from "@repo/db/constants"
@@ -15,6 +15,7 @@ import {
   useState,
 } from "react"
 import { useDropzone } from "react-dropzone"
+import { ChannelAgentProvider } from "@/components/agent/channel-agent"
 import { ChatSkeleton } from "@/components/chat/chat-skeleton"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
@@ -30,6 +31,7 @@ import { VoiceChannelView } from "@/components/voice/voice-channel-view"
 import { useSocket } from "@/context/socket-context"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
+import { useChannelDiscord } from "@/hooks/use-channel-discord"
 import { useChannelEntry } from "@/hooks/use-channel-entry"
 import { useChannelFilesRealtime } from "@/hooks/use-channel-files"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
@@ -560,6 +562,12 @@ function ChannelView() {
   })
 
   const mentionCandidates = useMentionCandidates(workspaceSlug, channelId)
+  // A chat that lives in Discord is read-only here (decision 22).
+  const { data: discord } = useChannelDiscord(
+    workspaceSlug,
+    channelId,
+    data?.type === "text"
+  )
 
   const channelName = data?.name ?? channelId
   const channelTopic = data?.topic ?? undefined
@@ -613,93 +621,121 @@ function ChannelView() {
       {...getRootProps()}
       className="relative flex h-full flex-col overflow-hidden"
     >
-      <DropZoneOverlay isDragActive={isDragActive} />
-      <ChatHeader context={context} channelId={channelId} />
-      <MessageList
-        key={channelId}
-        context={context}
-        messages={messages}
-        hasOlder={hasOlder}
-        onLoadOlder={() => fetchOlder()}
-        isFetchingOlder={isFetchingOlder}
-        hasNewer={hasNewer}
-        onLoadNewer={() => fetchNewer()}
-        isFetchingNewer={isFetchingNewer}
-        pendingCount={pendingCount}
-        onJumpToPresent={isAtPresent ? undefined : handleJumpToPresent}
-        scrollTargetId={msgId ?? entry.anchor}
-        firstUnreadMessageId={entry.firstUnreadMessageId}
-        highlightScrollTarget={Boolean(msgId)}
-        onJumpToMessage={handleJumpToMessage}
-        onReplyInThread={handleReplyInThread}
-        onAskLor={data.type === "text" ? handleAskLor : undefined}
-        onNewSession={
-          data.type === "text" && !data.archivedAt ? openNewSession : undefined
-        }
-        onOpenThread={handleOpenThread}
-        threadActivities={threadActivities}
-        onOpenThreadActivity={handleOpenThreadActivity}
-        onDismissThreadActivity={handleDismissThreadActivity}
-        replyingToId={replyingTo?.id ?? null}
-        currentUserId={currentUserId}
-        onReact={handleReact}
-        onReply={setReplyingTo}
-        onDelete={handleDelete}
-        onEdit={handleEdit}
-        onTogglePin={handleTogglePin}
-        canPin={canPin}
-        mentionCandidates={mentionCandidates}
-        isLoading={messagesLoading}
-      />
-      <TypingIndicator users={typingUsers} />
-      {data.archivedAt ? (
-        // Archived: no composer — a terminal divider marks when it closed.
-        <div className="px-4 pt-1 pb-5">
-          <div className="relative flex items-center">
-            <div className="h-px w-full bg-border/70" />
-            <span className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+      <ChannelAgentProvider workspaceSlug={workspaceSlug} channelId={channelId}>
+        <DropZoneOverlay isDragActive={isDragActive} />
+        <ChatHeader context={context} channelId={channelId} />
+        <MessageList
+          key={channelId}
+          context={context}
+          messages={messages}
+          hasOlder={hasOlder}
+          onLoadOlder={() => fetchOlder()}
+          isFetchingOlder={isFetchingOlder}
+          hasNewer={hasNewer}
+          onLoadNewer={() => fetchNewer()}
+          isFetchingNewer={isFetchingNewer}
+          pendingCount={pendingCount}
+          onJumpToPresent={isAtPresent ? undefined : handleJumpToPresent}
+          scrollTargetId={msgId ?? entry.anchor}
+          firstUnreadMessageId={entry.firstUnreadMessageId}
+          highlightScrollTarget={Boolean(msgId)}
+          onJumpToMessage={handleJumpToMessage}
+          onReplyInThread={handleReplyInThread}
+          onAskLor={data.type === "text" ? handleAskLor : undefined}
+          onNewSession={
+            data.type === "text" && !data.archivedAt
+              ? openNewSession
+              : undefined
+          }
+          onOpenThread={handleOpenThread}
+          threadActivities={threadActivities}
+          onOpenThreadActivity={handleOpenThreadActivity}
+          onDismissThreadActivity={handleDismissThreadActivity}
+          replyingToId={replyingTo?.id ?? null}
+          currentUserId={currentUserId}
+          onReact={handleReact}
+          onReply={setReplyingTo}
+          onDelete={handleDelete}
+          onEdit={handleEdit}
+          onTogglePin={handleTogglePin}
+          canPin={canPin}
+          mentionCandidates={mentionCandidates}
+          isLoading={messagesLoading}
+        />
+        <TypingIndicator users={typingUsers} />
+        {data.archivedAt ? (
+          // Archived: no composer — a terminal divider marks when it closed.
+          <div className="px-4 pt-1 pb-5">
+            <div className="relative flex items-center">
+              <div className="h-px w-full bg-border/70" />
+              <span className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                <HugeiconsIcon
+                  icon={Archive02Icon}
+                  className="size-3.5 shrink-0"
+                  strokeWidth={2}
+                />
+                Archived{" "}
+                {new Date(data.archivedAt).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </span>
+            </div>
+          </div>
+        ) : discord?.link ? (
+          <div className="px-4 pt-1 pb-5">
+            <div className="flex items-center gap-3 rounded-xl border bg-muted/40 px-4 py-3 text-sm">
               <HugeiconsIcon
-                icon={Archive02Icon}
-                className="size-3.5 shrink-0"
+                icon={DiscordIcon}
+                className="size-5 shrink-0 text-[#5865F2]"
                 strokeWidth={2}
               />
-              Archived{" "}
-              {new Date(data.archivedAt).toLocaleDateString(undefined, {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}
-            </span>
+              <span className="min-w-0 flex-1 text-muted-foreground">
+                This chat lives in Discord, in #
+                {discord.link.channelName ?? "channel"}
+                {discord.link.guildName ? ` on ${discord.link.guildName}` : ""}.
+                Write there.
+              </span>
+              <a
+                href={discord.link.url}
+                target="_blank"
+                rel="noreferrer"
+                className="shrink-0 font-medium text-primary underline-offset-2 hover:underline"
+              >
+                Open in Discord
+              </a>
+            </div>
           </div>
-        </div>
-      ) : (
-        <MessageInput
-          // One editor, draft and undo history per channel. Prefixed: the
-          // sibling MessageList is keyed by the same id, and duplicate keys
-          // leave every visited channel's message list mounted.
-          key={`composer:${channelId}`}
-          draftKey={`channel:${channelId}`}
-          composerDraft={composerDraft}
-          onComposerDraftConsumed={consumeComposerDraft}
-          lorIntro
-          destination="channel"
-          context={context}
-          channelId={channelId}
-          onSend={onComposerSend}
-          currentUserId={currentUserId}
-          mentionCandidates={mentionCandidates}
-          replyingTo={replyingTo}
-          onCancelReply={clearReply}
-          pendingAttachments={fileUpload.attachments}
-          addFiles={fileUpload.addFiles}
-          removeAttachment={fileUpload.removeAttachment}
-          clearAttachments={fileUpload.clearAttachments}
-          getUploadedAttachments={fileUpload.getUploadedAttachments}
-          isUploading={fileUpload.isUploading}
-          onTyping={emitTyping}
-          onEditLast={editLastOwnMessage}
-        />
-      )}
+        ) : (
+          <MessageInput
+            // One editor, draft and undo history per channel. Prefixed: the
+            // sibling MessageList is keyed by the same id, and duplicate keys
+            // leave every visited channel's message list mounted.
+            key={`composer:${channelId}`}
+            draftKey={`channel:${channelId}`}
+            composerDraft={composerDraft}
+            onComposerDraftConsumed={consumeComposerDraft}
+            lorIntro
+            destination="channel"
+            context={context}
+            channelId={channelId}
+            onSend={onComposerSend}
+            currentUserId={currentUserId}
+            mentionCandidates={mentionCandidates}
+            replyingTo={replyingTo}
+            onCancelReply={clearReply}
+            pendingAttachments={fileUpload.attachments}
+            addFiles={fileUpload.addFiles}
+            removeAttachment={fileUpload.removeAttachment}
+            clearAttachments={fileUpload.clearAttachments}
+            getUploadedAttachments={fileUpload.getUploadedAttachments}
+            isUploading={fileUpload.isUploading}
+            onTyping={emitTyping}
+            onEditLast={editLastOwnMessage}
+          />
+        )}
+      </ChannelAgentProvider>
     </div>
   )
 }

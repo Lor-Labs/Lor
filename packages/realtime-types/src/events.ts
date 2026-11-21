@@ -995,6 +995,10 @@ export interface ServerToClientEvents {
   // The channel agent's wake-ups changed (set, fired or cancelled): clients
   // refetch the channel's Follow-ups.
   "agent:wake-ups:updated": (payload: { channelId: string }) => void
+  // A channel's Discord link was made or removed: refetch its status.
+  "channel:discord:updated": (payload: { channelId: string }) => void
+  // A channel agent's turn started (beats every 10s) or ended.
+  "agent:working": (payload: { channelId: string; working: boolean }) => void
   "message:pin:toggled": (payload: RealtimeMessagePinToggled) => void
   "message:thread:updated": (payload: RealtimeMessageThreadUpdated) => void
   "notification:bootstrap": (payload: NotificationBootstrap) => void
@@ -1257,9 +1261,6 @@ export type RealtimeLoop = {
   endCondition: string | null
   // Hard end date (sweep-enforced); null = no date end.
   endAt: string | null
-  // Lor's model for each run ("key:<provider>/…" runs on the workspace's
-  // key); null: Lor's default model.
-  model: string | null
   status: RealtimeLoopStatus
   pausedReason: "manual" | "failures" | "out_of_credits" | null
   nextRunAt: string | null

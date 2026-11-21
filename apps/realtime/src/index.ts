@@ -16,6 +16,7 @@ import {
 import { env } from "@repo/env/server"
 import { enterContext, flushErrorReports } from "@repo/logger"
 import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
+import { discordLinkFor } from "@repo/lor/discord"
 import { setRepoCacheStore } from "@repo/lor/github"
 import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/lor/plans"
 import {
@@ -675,6 +676,20 @@ io.on("connection", (socket) => {
             "Chat sessions are read-only. Ask Lor in the channel's chat."
           )
         }
+      }
+
+      // A chat that lives in Discord takes no messages from Lor; sessions
+      // stay in Lor (reference/always-on-agents.md §10, decision 22).
+      if (
+        !parsed.startSession &&
+        accessibleChannel.type === "text" &&
+        (await discordLinkFor(parsed.channelId)) &&
+        !(
+          parsed.threadRootId &&
+          (await findAgentSessionByThreadRoot(parsed.threadRootId))
+        )
+      ) {
+        throw new Error("This channel's chat lives in Discord. Write there.")
       }
 
       delivery = await claimMessageDelivery(

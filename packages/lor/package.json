@@ -11,6 +11,7 @@
     "./channel-agent": "./src/channel-agent.ts",
     "./channel-profile": "./src/channel-profile.ts",
     "./check-in": "./src/check-in.ts",
+    "./discord": "./src/discord.ts",
     "./ai-observability": "./src/ai-observability.ts",
     "./artifacts": "./src/artifacts/service.ts",
     "./attachments": "./src/attachments/index.ts",
