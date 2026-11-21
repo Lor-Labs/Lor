@@ -14,6 +14,7 @@ import {
   lt,
   ne,
   notInArray,
+  or,
   schema,
   sql,
 } from "@repo/db"
@@ -298,6 +299,17 @@ async function createTurnRun(args: {
             { kind: "inbox", message: { role: "user", content: opening } },
           ],
         })
+        // The opening's createdAt is its notes watermark: returnBatchToPending
+        // restores the cursor from it when a later opening is dropped.
+        await tx
+          .update(schema.agentStep)
+          .set({ createdAt: notedAt })
+          .where(
+            and(
+              eq(schema.agentStep.runId, run.id),
+              eq(schema.agentStep.kind, "inbox")
+            )
+          )
         await tx
           .update(schema.agentContext)
           .set({ notesThrough: notedAt })
@@ -544,7 +556,7 @@ async function setUpBy(runId: string): Promise<string | null> {
         isNotNull(schema.agentWakeUp.askedById)
       )
     )
-    .orderBy(asc(schema.agentInbox.createdAt))
+    .orderBy(asc(schema.agentInbox.createdAt), asc(schema.agentInbox.id))
     .limit(1)
   if (wakeUp?.userId) return wakeUp.userId
   const [trigger] = await db
@@ -566,7 +578,7 @@ async function setUpBy(runId: string): Promise<string | null> {
       )
     )
     // The earliest event that woke the turn.
-    .orderBy(asc(schema.agentInbox.createdAt))
+    .orderBy(asc(schema.agentInbox.createdAt), asc(schema.agentInbox.id))
     .limit(1)
   return trigger?.userId ?? null
 }
@@ -1277,6 +1289,11 @@ export async function sweepStrandedInboxes(
       and not exists (
         select 1 from agent_run later
         where later.scope_key = r.scope_key and later.created_at > r.created_at
+          -- A continuation that failed before writing a step leaves the pause open.
+          and not (
+            later.state = 'failed'
+            and not exists (select 1 from agent_step s where s.run_id = later.id)
+          )
       )
     order by random()
     limit 200
@@ -1292,24 +1309,25 @@ export async function sweepStrandedInboxes(
         logger.error({ err, channelId }, "Stranded inbox flush failed")
       )
   }
-  // A turn run that read its batch but was never claimed: the process died
-  // between the run's commit and its job's enqueue. Same jobId, so a turn
-  // job that still exists is not added twice.
+  // A turn run that read its batch, or went on after a pause on approvals,
+  // but was never claimed: the process died between the run's commit and its
+  // job's enqueue. Same jobId, so a turn job that still exists is not added
+  // twice. Compaction runs are neither and are left alone.
   const unclaimed = await db
-    .selectDistinct({
+    .select({
       runId: schema.agentRun.id,
       channelId: schema.agentRun.channelId,
     })
     .from(schema.agentRun)
-    .innerJoin(
-      schema.agentInbox,
-      eq(schema.agentInbox.runId, schema.agentRun.id)
-    )
     .where(
       and(
         eq(schema.agentRun.state, "queued"),
         isNull(schema.agentRun.deadlineAt),
-        lt(schema.agentRun.createdAt, before)
+        lt(schema.agentRun.createdAt, before),
+        or(
+          sql`exists (select 1 from agent_inbox i where i.run_id = ${schema.agentRun.id})`,
+          sql`(select p.stop_reason from agent_run p where p.scope_key = ${schema.agentRun.scopeKey} and p.created_at < ${schema.agentRun.createdAt} order by p.created_at desc limit 1) = 'awaiting_approval'`
+        )
       )
     )
     .limit(200)

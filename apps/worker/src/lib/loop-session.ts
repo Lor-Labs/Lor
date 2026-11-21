@@ -393,9 +393,16 @@ export function agentCompleteLoop(
       return { ok: false, error: `This Loop is ${loop.status}, not active` }
     }
     const conditions = await judged
-    const endCondition = conditions
-      ? (conditions.get(loopId) ?? null)
-      : loop.endCondition
+    // Without the snapshot the judged condition is unknown: the Loop stays
+    // active for a later turn.
+    if (!conditions) {
+      return {
+        ok: false,
+        error:
+          "Couldn't confirm the end condition this turn judged. Judge it again on the Loop's next run.",
+      }
+    }
+    const endCondition = conditions.get(loopId) ?? null
     if (endCondition !== loop.endCondition) {
       return {
         ok: false,

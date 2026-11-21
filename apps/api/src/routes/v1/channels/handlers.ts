@@ -22,6 +22,7 @@ import {
   threadReadState,
   user,
 } from "@repo/db/schema"
+import { channelProfileLock } from "@repo/lor/channel-profile"
 import { ensureCheckInLoop } from "@repo/lor/check-in"
 import { channelCodeRepo, listRepoBranches } from "@repo/lor/code-repo"
 import {
@@ -730,17 +731,20 @@ export const updateAgentFact: AppRouteHandler<UpdateAgentFactRoute> = async (
       HttpStatusCodes.NOT_FOUND
     )
   }
-  const updated = await db
-    .update(schema.channelAgentFact)
-    .set({ text, updatedAt: new Date(), editedById: c.var.user.id })
-    .where(
-      and(
-        eq(schema.channelAgentFact.id, factId),
-        eq(schema.channelAgentFact.channelId, channelId),
-        isNull(schema.channelAgentFact.deletedAt)
+  const updated = await db.transaction(async (tx) => {
+    await tx.execute(channelProfileLock(channelId))
+    return tx
+      .update(schema.channelAgentFact)
+      .set({ text, updatedAt: new Date(), editedById: c.var.user.id })
+      .where(
+        and(
+          eq(schema.channelAgentFact.id, factId),
+          eq(schema.channelAgentFact.channelId, channelId),
+          isNull(schema.channelAgentFact.deletedAt)
+        )
       )
-    )
-    .returning({ id: schema.channelAgentFact.id })
+      .returning({ id: schema.channelAgentFact.id })
+  })
   const row = updated[0] ? await loadAgentFact(channelId, factId) : null
   if (!row) {
     return c.json(
@@ -762,17 +766,20 @@ export const deleteAgentFact: AppRouteHandler<DeleteAgentFactRoute> = async (
     )
   }
   const now = new Date()
-  const deleted = await db
-    .update(schema.channelAgentFact)
-    .set({ deletedAt: now, updatedAt: now, editedById: c.var.user.id })
-    .where(
-      and(
-        eq(schema.channelAgentFact.id, factId),
-        eq(schema.channelAgentFact.channelId, channelId),
-        isNull(schema.channelAgentFact.deletedAt)
+  const deleted = await db.transaction(async (tx) => {
+    await tx.execute(channelProfileLock(channelId))
+    return tx
+      .update(schema.channelAgentFact)
+      .set({ deletedAt: now, updatedAt: now, editedById: c.var.user.id })
+      .where(
+        and(
+          eq(schema.channelAgentFact.id, factId),
+          eq(schema.channelAgentFact.channelId, channelId),
+          isNull(schema.channelAgentFact.deletedAt)
+        )
       )
-    )
-    .returning({ id: schema.channelAgentFact.id })
+      .returning({ id: schema.channelAgentFact.id })
+  })
   if (!deleted[0]) {
     return c.json(
       { success: false, message: "Fact not found" },

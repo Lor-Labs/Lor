@@ -55,25 +55,32 @@ function DiscordConnect() {
   const link = async () => {
     if (!token) return
     setLinking(true)
-    const res = await apiClient.v1.discord.connect
-      .$post({ json: { token } })
-      .catch(() => null)
-    if (res?.ok) {
-      const { account } = await res.json()
-      if (leftRef.current) return
-      toast.success(`Linked Discord account ${account?.username ?? ""}`)
-    } else {
-      const message = res
-        ? (
-            (await res.json().catch(() => null)) as {
-              message?: string
-            } | null
-          )?.message
-        : null
-      if (leftRef.current) return
-      toast.error(message ?? "Couldn't link your Discord account")
+    try {
+      const res = await apiClient.v1.discord.connect
+        .$post({ json: { token } })
+        .catch(() => null)
+      if (res?.ok) {
+        // The link is made even if its body can't be read.
+        const body = await res.json().catch(() => null)
+        if (leftRef.current) return
+        toast.success(
+          `Linked Discord account ${body?.account?.username ?? ""}`.trim()
+        )
+      } else {
+        const message = res
+          ? (
+              (await res.json().catch(() => null)) as {
+                message?: string
+              } | null
+            )?.message
+          : null
+        if (leftRef.current) return
+        toast.error(message ?? "Couldn't link your Discord account")
+      }
+      router.history.replace("/")
+    } finally {
+      if (!leftRef.current) setLinking(false)
     }
-    router.history.replace("/")
   }
 
   if (!token || !discordUsername) {

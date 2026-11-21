@@ -259,6 +259,8 @@ export function startDiscordGateway() {
   let running = false
   // When the last confirmed lease runs out.
   let leaseUntil = 0
+  let lastTick = 0
+  let appliedTick = 0
   const stopGateway = (reason: string) => {
     running = false
     gateway.stop()
@@ -271,6 +273,7 @@ export function startDiscordGateway() {
       stopGateway("Discord gateway lease not renewed in time")
     }
     const checkedAt = Date.now()
+    const generation = ++lastTick
     try {
       const redis = await getRedisClient()
       const renewed = await redis.eval(RENEW_LEASE, {
@@ -280,6 +283,11 @@ export function startDiscordGateway() {
       const held =
         renewed === 1 ||
         (await redis.set(LEASE_KEY, owner, { PX: LEASE_MS, NX: true })) !== null
+      // Ticks overlap when Redis stalls: a result a newer tick already
+      // applied over, or a renewal too late to trust, changes nothing.
+      if (generation < appliedTick) return
+      appliedTick = generation
+      if (held && Date.now() >= checkedAt + LEASE_MS - LEASE_MS / 3) return
       if (held) {
         leaseUntil = checkedAt + LEASE_MS
         if (!running) {

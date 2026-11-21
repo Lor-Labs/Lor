@@ -1,4 +1,4 @@
-import { db, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
+import { db, eq, inArray, LOR_USER_ID, schema, sql } from "@repo/db"
 import { env } from "@repo/env/server"
 import { type CreatureId, channelAgentIdentity } from "@repo/utils/bestiary"
 import { creaturePng } from "@repo/utils/bestiary-png"
@@ -134,6 +134,30 @@ export async function discordLinkByDiscordChannel(
     .from(schema.channelDiscordLink)
     .where(eq(schema.channelDiscordLink.discordChannelId, discordChannelId))
   return link ?? null
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+// Discord mapping writes (discord_message, discord_thread) and unlink hold
+// one lock per Lor channel and run only while their link is still current
+// (each link gets a new webhook), so work from an unlinked link can't leave
+// mappings a relink would reuse. Null when the link changed.
+export async function withDiscordLinkLock<T>(
+  channelId: string,
+  webhookId: string,
+  run: (tx: Tx) => Promise<T>
+): Promise<T | null> {
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`discord-link:${channelId}`}, 0))`
+    )
+    const [current] = await tx
+      .select({ webhookId: schema.channelDiscordLink.webhookId })
+      .from(schema.channelDiscordLink)
+      .where(eq(schema.channelDiscordLink.channelId, channelId))
+    if (current?.webhookId !== webhookId) return null
+    return run(tx)
+  })
 }
 
 // The webhook the agent posts through, wearing its creature.
@@ -376,15 +400,15 @@ export async function postAgentToDiscord(input: {
     )
     first ??= posted.id
   }
-  if (first && input.messageId) {
-    await db
-      .insert(schema.discordMessage)
-      .values({
-        discordMessageId: first,
-        messageId: input.messageId,
-        channelId: input.channelId,
-      })
-      .onConflictDoNothing()
+  const messageId = input.messageId
+  if (first && messageId) {
+    const discordMessageId = first
+    await withDiscordLinkLock(input.channelId, link.webhookId, (tx) =>
+      tx
+        .insert(schema.discordMessage)
+        .values({ discordMessageId, messageId, channelId: input.channelId })
+        .onConflictDoNothing()
+    )
   }
   return first ? { discordMessageId: first } : null
 }
@@ -444,15 +468,17 @@ export async function startDiscordThread(input: {
       return existing.id
     }
   )
-  await db
-    .insert(schema.discordThread)
-    .values({
-      discordThreadId: threadId,
-      channelId: input.channelId,
-      threadRootId: input.threadRootId,
-    })
-    .onConflictDoNothing()
-  return threadId
+  return withDiscordLinkLock(input.channelId, link.webhookId, async (tx) => {
+    await tx
+      .insert(schema.discordThread)
+      .values({
+        discordThreadId: threadId,
+        channelId: input.channelId,
+        threadRootId: input.threadRootId,
+      })
+      .onConflictDoNothing()
+    return threadId
+  })
 }
 
 export async function discordThreadForRoot(

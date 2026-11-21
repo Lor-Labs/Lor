@@ -323,7 +323,7 @@ async function candidateRequester(
         isNotNull(schema.agentWakeUp.askedById)
       )
     )
-    .orderBy(asc(schema.agentInbox.createdAt))
+    .orderBy(asc(schema.agentInbox.createdAt), asc(schema.agentInbox.id))
     .limit(1)
   if (wokeUp?.userId) return wokeUp.userId
   const [setUp] = await db
@@ -344,7 +344,7 @@ async function candidateRequester(
         isNotNull(schema.connectorTrigger.configuredById)
       )
     )
-    .orderBy(asc(schema.agentInbox.createdAt))
+    .orderBy(asc(schema.agentInbox.createdAt), asc(schema.agentInbox.id))
     .limit(1)
   return setUp?.userId ?? null
 }

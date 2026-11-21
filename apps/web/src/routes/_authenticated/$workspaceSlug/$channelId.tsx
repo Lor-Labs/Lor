@@ -453,9 +453,11 @@ function ChannelView() {
   const { replyingTo, setReplyingTo, clearReply } = useReplyState()
 
   // Clear reply state when switching channels. Runs before the `about`
-  // effect below so it never clears the target that effect sets.
+  // effect below so it never clears the target that effect sets. The ask
+  // draft goes too: it is a question about the reply target.
   useEffect(() => {
     clearReply()
+    setAskDraft(undefined)
   }, [channelId, clearReply])
 
   useEffect(() => {

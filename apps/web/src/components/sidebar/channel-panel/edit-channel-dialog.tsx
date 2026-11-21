@@ -127,6 +127,8 @@ export function EditChannelDialog({
     model?: boolean
     wakeMode?: boolean
     brief?: boolean
+    agentName?: boolean
+    agentCreature?: boolean
   }>({})
 
   // Drafts start from the channel when the dialog opens or switches channel,
@@ -191,11 +193,10 @@ export function EditChannelDialog({
                 ...(edited.brief ? { agentBrief: brief.trim() || null } : {}),
               }),
           // The channel's creator may name its agent too.
-          ...(channel.type === "text" && agentName !== (channel.agentName ?? "")
+          ...(channel.type === "text" && edited.agentName
             ? { agentName: agentName.trim() || null }
             : {}),
-          ...(channel.type === "text" &&
-          agentCreature !== (channel.agentCreature ?? null)
+          ...(channel.type === "text" && edited.agentCreature
             ? { agentCreature }
             : {}),
         },
@@ -444,7 +445,13 @@ export function EditChannelDialog({
                             <Input
                               id="channel-agent-name"
                               value={agentName}
-                              onChange={(e) => setAgentName(e.target.value)}
+                              onChange={(e) => {
+                                setAgentName(e.target.value)
+                                setEdited((prev) => ({
+                                  ...prev,
+                                  agentName: true,
+                                }))
+                              }}
                               maxLength={AGENT_NAME_MAX}
                               placeholder={defaultName}
                             />
@@ -464,7 +471,13 @@ export function EditChannelDialog({
                                 title={creature.label}
                                 aria-label={creature.label}
                                 aria-pressed={identity.creature === creature.id}
-                                onClick={() => setAgentCreature(creature.id)}
+                                onClick={() => {
+                                  setAgentCreature(creature.id)
+                                  setEdited((prev) => ({
+                                    ...prev,
+                                    agentCreature: true,
+                                  }))
+                                }}
                                 className={cn(
                                   "flex cursor-pointer flex-col items-center gap-0.5 rounded-md border px-1 pt-1.5 pb-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/60",
                                   identity.creature === creature.id

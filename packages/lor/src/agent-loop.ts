@@ -20,6 +20,7 @@ import {
   type ModelMessage,
   type ToolApprovalResponse,
   type ToolApprovalStatus,
+  type ToolResultPart,
   type ToolSet,
   tool,
 } from "ai"
@@ -476,6 +477,51 @@ function awaitingApprovedResults(messages: ModelMessage[]): boolean {
   )
 }
 
+// Sends that ran: each result is in the response messages once. A denied
+// call has no result.
+function sentIn(messages: ModelMessage[]): number {
+  return messages
+    .flatMap((message) => (message.role === "tool" ? message.content : []))
+    .filter(
+      (part) =>
+        part.type === "tool-result" &&
+        part.toolName === "send_message" &&
+        part.output.type === "json" &&
+        (part.output.value as { ok?: unknown } | null)?.ok === true
+    ).length
+}
+
+// The results of approved calls that ran before an aborted model call. The
+// approval answers for calls that did not run are repeated after them, so
+// only those run on a retry; the SDK reads answers from the last message.
+function approvedResultsCheckpoint(
+  messages: ModelMessage[],
+  ran: ToolResultPart[]
+): ModelMessage {
+  const ranIds = new Set(ran.map((part) => part.toolCallId))
+  const callOf = new Map(
+    messages.flatMap((message) =>
+      message.role === "assistant" && Array.isArray(message.content)
+        ? message.content.flatMap((part) =>
+            part.type === "tool-approval-request"
+              ? [[part.approvalId, part.toolCallId] as const]
+              : []
+          )
+        : []
+    )
+  )
+  const last = messages.at(-1)
+  const notRun =
+    last?.role === "tool"
+      ? last.content.filter(
+          (part) =>
+            part.type === "tool-approval-response" &&
+            !ranIds.has(callOf.get(part.approvalId) ?? "")
+        )
+      : []
+  return { role: "tool", content: [...notRun, ...ran] }
+}
+
 function lastAssistantText(messages: ModelMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]
@@ -634,9 +680,12 @@ async function turnLoop(
       ? await agent.loadDecisions(pausedRunId)
       : []
   // An earlier attempt of this run saved the requests but stopped before
-  // filing their approvals: file them now rather than deny them unseen.
+  // filing their approvals: file them now rather than deny them unseen. A
+  // stopped run files nothing.
   const unfiled =
-    pausedRunId === run.runId && decisions.length === 0
+    pausedRunId === run.runId &&
+    decisions.length === 0 &&
+    !run.stopRequested?.()
       ? open.map((request) => pendingApproval({ ...request, reason: null }))
       : []
   if (open.length > 0 && unfiled.length === 0) {
@@ -736,6 +785,18 @@ async function turnLoop(
       stoppedFor = "budget_spend"
       break
     }
+    // A slow call must not outlive the turn's wall-clock budget.
+    const deadline = AbortSignal.timeout(
+      Math.max(0, run.budgets.deadlineAt.getTime() - Date.now())
+    )
+    const abortSignal = AbortSignal.any([
+      ...(run.abortSignal ? [run.abortSignal] : []),
+      deadline,
+    ])
+    // A lease loss or a user stop keeps its own handling.
+    const rethrowUnlessDeadline = (err: unknown) => {
+      if (!deadline.aborted || run.abortSignal?.aborted) throw err
+    }
     // A turn that filled most of the window compacts before its next call,
     // but not while approved calls still wait for their results: the
     // provider needs those right after the decision.
@@ -753,9 +814,16 @@ async function turnLoop(
           ledgerSpend.credits = counters.creditsSpent
           ledger.add(usage, counters.costUsd)
         },
-        ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
+        abortSignal,
         inTurn: true,
+      }).catch((err: unknown) => {
+        rethrowUnlessDeadline(err)
+        return "deadline" as const
       })
+      if (compacted === "deadline") {
+        stoppedFor = "budget_wall_clock"
+        break
+      }
       if (compacted) {
         context = await loadAgentContext(workspaceId, channelId)
         await freeze()
@@ -768,10 +836,19 @@ async function turnLoop(
       }
     }
 
-    // A slow call must not outlive the turn's wall-clock budget.
-    const deadline = AbortSignal.timeout(
-      Math.max(0, run.budgets.deadlineAt.getTime() - Date.now())
+    // Approved calls run inside generateText before its model call. Their
+    // results are kept so a deadline abort during that call saves them
+    // instead of losing them (and resending on a retry).
+    const savedCalls = new Set(
+      messages.flatMap((message) =>
+        message.role === "assistant" && Array.isArray(message.content)
+          ? message.content.flatMap((part) =>
+              part.type === "tool-call" ? [part.toolCallId] : []
+            )
+          : []
+      )
     )
+    const ranApproved: ToolResultPart[] = []
     const result = await generateText({
       model: lorGatewayModel(args.model),
       // The epoch's own prompt: after an in-turn compaction, the new one.
@@ -786,18 +863,46 @@ async function turnLoop(
         args.model,
         conversationId(channelId, context.epoch)
       ),
-      abortSignal: AbortSignal.any([
-        ...(run.abortSignal ? [run.abortSignal] : []),
-        deadline,
-      ]),
+      abortSignal,
+      onToolExecutionEnd: ({ toolCall, toolOutput }) => {
+        if (!savedCalls.has(toolCall.toolCallId)) return
+        ranApproved.push({
+          type: "tool-result",
+          toolCallId: toolCall.toolCallId,
+          toolName: toolCall.toolName,
+          output:
+            toolOutput.type === "tool-error"
+              ? {
+                  type: "error-text",
+                  value:
+                    toolOutput.error instanceof Error
+                      ? toolOutput.error.message
+                      : String(toolOutput.error),
+                }
+              : typeof toolOutput.output === "string"
+                ? { type: "text", value: toolOutput.output }
+                : {
+                    type: "json",
+                    value: JSON.parse(
+                      JSON.stringify(toolOutput.output ?? null)
+                    ),
+                  },
+        })
+      },
       runtimeContext: aiRuntimeContext(),
       telemetry: aiTelemetry("lor.agent"),
     }).catch((err: unknown) => {
-      // A lease loss or a user stop keeps its own handling.
-      if (deadline.aborted && !run.abortSignal?.aborted) return null
-      throw err
+      rethrowUnlessDeadline(err)
+      return null
     })
     if (!result) {
+      if (ranApproved.length > 0) {
+        const checkpoint = approvedResultsCheckpoint(messages, ranApproved)
+        await save([checkpoint])
+        messages = [...messages, checkpoint]
+        turnMessages.push(checkpoint)
+        sentMessages += sentIn([checkpoint])
+      }
       stoppedFor = "budget_wall_clock"
       break
     }
@@ -892,17 +997,8 @@ async function turnLoop(
     turnMessages.push(...replies)
     const calls = result.content.filter((part) => part.type === "tool-call")
     countToolCalls(calls.length)
-    // Sends that ran, including approved ones run before this call: each
-    // result is in the response messages once. A denied call has no result.
-    sentMessages += replies
-      .flatMap((message) => (message.role === "tool" ? message.content : []))
-      .filter(
-        (part) =>
-          part.type === "tool-result" &&
-          part.toolName === "send_message" &&
-          part.output.type === "json" &&
-          (part.output.value as { ok?: unknown } | null)?.ok === true
-      ).length
+    // Includes approved sends run before this call.
+    sentMessages += sentIn(replies)
 
     for (const part of result.content) {
       if (part.type !== "tool-approval-request" || part.isAutomatic) continue

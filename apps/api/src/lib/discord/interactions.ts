@@ -12,6 +12,7 @@ import {
   LINKABLE_CHANNEL_TYPES,
   postAgentToDiscord,
   syncAgentRole,
+  withDiscordLinkLock,
 } from "@repo/lor/discord"
 import { channelRoom } from "@repo/realtime-types"
 import { channelAgentIdentity } from "@repo/utils/bestiary"
@@ -213,17 +214,23 @@ export async function unlinkDiscord(channelId: string) {
   if (!link) return false
   // Message and thread mappings belong to the old Discord channel: a later
   // link must not reuse them. The Lor messages stay.
-  await db.transaction(async (tx) => {
-    await tx
-      .delete(schema.channelDiscordLink)
-      .where(eq(schema.channelDiscordLink.channelId, channelId))
-    await tx
-      .delete(schema.discordThread)
-      .where(eq(schema.discordThread.channelId, channelId))
-    await tx
-      .delete(schema.discordMessage)
-      .where(eq(schema.discordMessage.channelId, channelId))
-  })
+  const removed = await withDiscordLinkLock(
+    channelId,
+    link.webhookId,
+    async (tx) => {
+      await tx
+        .delete(schema.channelDiscordLink)
+        .where(eq(schema.channelDiscordLink.channelId, channelId))
+      await tx
+        .delete(schema.discordThread)
+        .where(eq(schema.discordThread.channelId, channelId))
+      await tx
+        .delete(schema.discordMessage)
+        .where(eq(schema.discordMessage.channelId, channelId))
+      return true
+    }
+  )
+  if (!removed) return false
   await deleteLinkResources(link)
   await notifyLinkChanged(channelId)
   return true

@@ -270,6 +270,12 @@ export const factChangesSchema = z.object({
 
 export type FactChanges = z.infer<typeof factChangesSchema>
 
+// Serializes a channel's profile fact writes (memory pass and settings), so
+// the pass's total-size cap reads a count no other write can change.
+export function channelProfileLock(channelId: string) {
+  return sql`select pg_advisory_xact_lock(hashtextextended(${`channel-profile:${channelId}`}, 0))`
+}
+
 // The memory pass's changes, applied within the caps. It may rewrite or
 // remove only facts it was shown (short ids); over a cap, extra additions
 // are dropped.
@@ -283,6 +289,7 @@ export async function applyFactChanges(input: {
     text.trim().replace(/\s+/g, " ").slice(0, max)
   const now = new Date()
   return db.transaction(async (tx) => {
+    await tx.execute(channelProfileLock(input.channelId))
     const live = new Map(
       (
         await tx

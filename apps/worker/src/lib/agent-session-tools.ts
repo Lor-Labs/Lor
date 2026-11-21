@@ -5,7 +5,6 @@ import {
   db,
   desc,
   eq,
-  gt,
   inArray,
   isNotNull,
   LOR_USER_ID,
@@ -602,12 +601,11 @@ export async function reportHelperRun(
 }
 
 const UNREPORTED_AFTER_MS = 2 * 60_000
-const UNREPORTED_WITHIN_MS = 24 * 60 * 60_000
 
 // Helper runs that ended without a report note (the insert failed, or the
-// worker died between the run's end and the report).
+// worker died between the run's end and the report). No age limit: a run
+// stays eligible until its note exists.
 export async function sweepUnreportedHelperRuns(): Promise<void> {
-  const now = Date.now()
   const runs = await db
     .select({ id: schema.agentRun.id })
     .from(schema.agentSession)
@@ -620,8 +618,10 @@ export async function sweepUnreportedHelperRuns(): Promise<void> {
         eq(schema.agentSession.origin, "agent"),
         inArray(schema.agentRun.state, ["complete", "failed", "stopped"]),
         isNotNull(schema.agentRun.messageId),
-        gt(schema.agentRun.finishedAt, new Date(now - UNREPORTED_WITHIN_MS)),
-        lt(schema.agentRun.finishedAt, new Date(now - UNREPORTED_AFTER_MS)),
+        lt(
+          schema.agentRun.finishedAt,
+          new Date(Date.now() - UNREPORTED_AFTER_MS)
+        ),
         notExists(
           db
             .select({ id: schema.agentInbox.id })

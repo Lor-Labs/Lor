@@ -1,18 +1,11 @@
-import {
-  APP_USER_ID,
-  and,
-  db,
-  eq,
-  inArray,
-  LOR_USER_ID,
-  schema,
-} from "@repo/db"
+import { APP_USER_ID, db, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
 import { addInboxMessage, agentInThread } from "@repo/lor/channel-agent"
 import { ensureCheckInLoop } from "@repo/lor/check-in"
 import {
   type DiscordLink,
   discordLinkByDiscordChannel,
   discordLinkFor,
+  withDiscordLinkLock,
 } from "@repo/lor/discord"
 import {
   buildMessageFanout,
@@ -32,6 +25,8 @@ import { threadInfo } from "@/lib/discord/threads"
 import { logger } from "@/lib/logger"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import { getRedisClient } from "@/lib/redis"
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 // The parts of a Discord MESSAGE_CREATE event Lor reads.
 export type DiscordMessageEvent = {
@@ -157,15 +152,16 @@ async function threadParentLink(threadId: string): Promise<DiscordLink | null> {
 // copy of its starter message (a thread started from a message shares its
 // id). Null when neither exists: the first message becomes the root.
 async function threadRootFor(
+  tx: Tx,
   threadId: string,
   channelId: string
 ): Promise<string | null> {
-  const [known] = await db
+  const [known] = await tx
     .select({ rootId: schema.discordThread.threadRootId })
     .from(schema.discordThread)
     .where(eq(schema.discordThread.discordThreadId, threadId))
   if (known) return known.rootId
-  const [starter] = await db
+  const [starter] = await tx
     .select({ id: schema.message.id })
     .from(schema.discordMessage)
     .innerJoin(
@@ -174,16 +170,15 @@ async function threadRootFor(
     )
     .where(eq(schema.discordMessage.discordMessageId, threadId))
   if (!starter) return null
-  await db
+  await tx
     .insert(schema.discordThread)
     .values({ discordThreadId: threadId, channelId, threadRootId: starter.id })
     .onConflictDoNothing()
   return starter.id
 }
 
-// Messages in one Discord thread are stored one at a time, so when its
-// starter was never mirrored only the first becomes the Lor thread's root.
-// One process holds the gateway, so an in-memory queue is enough.
+// Keeps one Discord thread's messages in arrival order in this process. The
+// link lock in persist is what makes only one message a thread's root.
 const threadQueues = new Map<string, Promise<unknown>>()
 function inThreadOrder<T>(threadId: string, run: () => Promise<T>) {
   const next = (threadQueues.get(threadId) ?? Promise.resolve()).then(run)
@@ -267,69 +262,61 @@ async function mirrorInto(
         overrideName: displayName({ ...event.author, member: event.member }),
         overrideAvatarUrl: avatarUrl(event.author),
       }
-  const clientKey = `discord:${event.id}`
-  const persist = async () => {
-    const rootId = threadId
-      ? await threadRootFor(threadId, link.channelId)
-      : null
-    const [inserted] = await db
-      .insert(schema.message)
-      .values({
-        channelId: link.channelId,
-        authorId,
-        content,
-        type: referenced ? "reply" : "default",
-        referencedMessageId: referenced?.id ?? null,
-        threadRootId: rootId,
-        clientKey,
-        ...(override ?? {}),
-      })
-      .onConflictDoNothing()
-      .returning({
-        id: schema.message.id,
-        createdAt: schema.message.createdAt,
-        threadRootId: schema.message.threadRootId,
-      })
-    // A redelivered event finishes what a failed first try left undone.
-    const saved =
-      inserted ??
-      (await db
-        .select({
-          id: schema.message.id,
-          createdAt: schema.message.createdAt,
-          threadRootId: schema.message.threadRootId,
-        })
-        .from(schema.message)
-        .where(
-          and(
-            eq(schema.message.authorId, authorId),
-            eq(schema.message.channelId, link.channelId),
-            eq(schema.message.clientKey, clientKey)
-          )
+  const savedColumns = {
+    id: schema.message.id,
+    createdAt: schema.message.createdAt,
+    threadRootId: schema.message.threadRootId,
+    authorId: schema.message.authorId,
+  }
+  // Message, its Discord mapping and a new thread root commit together under
+  // the channel's link lock, so the root is the same across processes and
+  // nothing is written for a link that was unlinked meanwhile.
+  const persist = () =>
+    withDiscordLinkLock(link.channelId, link.webhookId, async (tx) => {
+      // A redelivered event keeps its first copy and author, even if the
+      // author linked their account since.
+      const [known] = await tx
+        .select(savedColumns)
+        .from(schema.discordMessage)
+        .innerJoin(
+          schema.message,
+          eq(schema.message.id, schema.discordMessage.messageId)
         )
-        .then((rows) => rows[0]))
-    if (!saved) return null
-    await db
-      .insert(schema.discordMessage)
-      .values({
+        .where(eq(schema.discordMessage.discordMessageId, event.id))
+      if (known) return { ...known, fresh: false }
+      const rootId = threadId
+        ? await threadRootFor(tx, threadId, link.channelId)
+        : null
+      const [saved] = await tx
+        .insert(schema.message)
+        .values({
+          channelId: link.channelId,
+          authorId,
+          content,
+          type: referenced ? "reply" : "default",
+          referencedMessageId: referenced?.id ?? null,
+          threadRootId: rootId,
+          clientKey: `discord:${event.id}`,
+          ...(override ?? {}),
+        })
+        .onConflictDoNothing()
+        .returning(savedColumns)
+      if (!saved) return null
+      await tx.insert(schema.discordMessage).values({
         discordMessageId: event.id,
         messageId: saved.id,
         channelId: link.channelId,
       })
-      .onConflictDoNothing()
-    // A thread whose starter was never mirrored: this message is its root.
-    if (threadId && !saved.threadRootId) {
-      await db
-        .insert(schema.discordThread)
-        .values({
+      // A thread whose starter was never mirrored: this message is its root.
+      if (threadId && !saved.threadRootId) {
+        await tx.insert(schema.discordThread).values({
           discordThreadId: threadId,
           channelId: link.channelId,
           threadRootId: saved.id,
         })
-        .onConflictDoNothing()
-    }
-    return { ...saved, fresh: Boolean(inserted) }
-  }
+      }
+      return { ...saved, fresh: true }
+    })
   const inserted = threadId
     ? await inThreadOrder(threadId, persist)
     : await persist()
@@ -343,7 +330,7 @@ async function mirrorInto(
       image: schema.user.image,
     })
     .from(schema.user)
-    .where(eq(schema.user.id, authorId))
+    .where(eq(schema.user.id, inserted.authorId))
   if (!author) return
 
   // Notifications and realtime only for a newly stored message.
