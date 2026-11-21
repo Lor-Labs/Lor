@@ -1,9 +1,10 @@
 # Always-on agents: one agent and one chat per channel
 
 **Status:** Plan for LOR-169, decided with Jacob between 2026-11-16 and
-2026-11-19. Building started 2026-11-18: slice 1 is partly built, with
-`db:push` and a live run owed (§13). There is no launch flag: the work ships
-in one batch when it is all done (Jacob, 11-19). It replaces the proposal in `planned/team-agents.md`, which stays
+2026-11-21. Built 2026-11-18 to 2026-11-21 (slices 1 to 7) and merged into
+`dev` on 2026-11-21 (PR #273). Owed: the production rollout (step 7.6) and a
+brief QA. What comes after is under "Next" in §13. There is no launch flag:
+the work ships in one batch (Jacob, 11-19). It replaces the proposal in `planned/team-agents.md`, which stays
 as the record of how the design was reached. Where the two differ, this doc
 wins.
 
@@ -91,6 +92,7 @@ proposal that he has not objected to and should confirm.
 | 33 | Each channel's agent has a creature from a bestiary of 8 to 10 high-quality pixel-art creatures, animated by its real state (asleep, working, needs you) | Jacob, 11-21 |
 | 34 | Code sessions run on Claude Code or Codex only; Lor's own agent (Pi) is no longer a session harness. Sessions are the channel agent's tools, or ones a person starts | Jacob, 11-21 |
 | 35 | Discord ships in this batch (slice 6), with the chat-location choice in the channel's Agent settings | Jacob, 11-21 |
+| 36 | Next, after a brief QA of this batch: each agent gets its own computer (decisions 25 and 29), and people can watch what it is doing on it, as Grok Bot and Dots show theirs. Still to decide: whether channels become "agents" with the agent in the sidebar, and a better visual style for the creatures (§13, Next) | Jacob, 11-21 |
 
 Considered and dropped, so they are not added back by accident:
 
@@ -419,7 +421,7 @@ Discord's approval once an app is in 100 or more servers.
 | Brain pages, search | Built | Unchanged. For the agent, the write-back pass becomes the memory pass on the warm cache (§7) |
 | Approval rules | Per tool, per workspace | Unchanged. Add the order for who is asked, and record who set up a trigger |
 | Discord | Only the webhook payload format | New: a bot, one-way sync, account linking |
-| A persistent computer and repo per agent | None | Later |
+| A persistent computer and repo per agent | None | The computer is next, and watchable (decision 36). The repo is later |
 
 ## 12. Locked docs this changes
 
@@ -986,8 +988,10 @@ cadence costs nothing on a quiet channel.
 In this batch (Jacob, 2026-11-21; parked on 11-18). After it: the team
 talks to the agent in its Discord channel. Jacob tests on his own server.
 
-Built 2026-11-21; not yet tried against a real Discord server (waiting on
-the bot's token in the session env).
+Built 2026-11-21. Tried the same day on Jacob's test server with the dev
+bot: linking, the mirrored chat and mentions of the agent worked. Not yet
+tried live: `/lor connect`, the approval buttons, and a thread the agent
+starts.
 
 - [x] 6.1 The bot, linking a channel, and one-way sync. One gateway
   connection, held by one API process through a Redis lease
@@ -1098,7 +1102,8 @@ deployed.
   with Lor" is gone. Older sessions on Lor's own agent keep working, and
   Loop and Act sessions on voice channels still run on it.
 - [x] 7.5 Discord (slice 6, decision 35) with the chat-location choice
-  (built; live test owed with Jacob's bot).
+  (built; tried on Jacob's test server, with the live checks still owed
+  listed in §10).
 - [ ] 7.6 The rollout checklist (written 2026-11-21; run at deploy, in
   this order):
   1. Stop or drain every API, worker and realtime process on the old code.
@@ -1125,9 +1130,39 @@ deployed.
      Loops and triggers lose their model picks and run on the channel's
      model.
 
+**Next** (Jacob, 2026-11-21, decision 36; none of it designed yet)
+
+First a brief QA of this batch: the rollout (7.6) and the live checks still
+owed (`/lor connect`, approval buttons and an agent-started thread in
+Discord, a session the agent starts on a person's real plan). Then:
+
+1. **A computer for each agent, that people can watch.** The main focus.
+   Each channel's agent gets its own computer, and the team can watch what
+   it is doing on it while it works, the way Grok Bot and Dots show theirs.
+   Decisions 25 and 29 are the starting point: the computer is the agent's
+   own, for installing things and using websites, code still goes to
+   sessions, and a tool starts it, never a turn. Step 1.6 (no sandbox on a
+   turn) holds until this is built.
+2. **To decide: channels or agents.** Whether these stay "channels" or are
+   called "agents", with the agent itself in the sidebar as Grok Bot has
+   it. In Jacob's screenshots each agent is a row in the sidebar: its face,
+   its name, a small status badge on the face, and its latest line beside
+   it; with the sidebar collapsed, the face alone with a tooltip. It
+   touches decision 24 (the sidebar's two tabs) and decision 32 (the name
+   is the agent's, not the channel's).
+3. **A better visual style for the creatures.** The bestiary (decision 33,
+   step 7.3) does not have the charm of the reference: very simple flat
+   faces, a round shape with two eyes, whose eyes follow the cursor when it
+   comes near, in a cute way. Ours don't feel like that, and the visual
+   style can be better overall. Not picked yet: simplify the creatures we
+   have, or draw a new style.
+
+The screenshots are in the 2026-11-21 session (Grok Bot and "pump" in a
+sidebar).
+
 **Later**
 
-- A persistent computer and its own repo per agent.
+- Its own repo per agent.
 - Agents messaging each other.
 - Slack, in the same shape as Discord.
 
