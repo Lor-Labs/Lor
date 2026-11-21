@@ -1,10 +1,8 @@
 import {
   ArrowDown01Icon,
-  BubbleChatIcon,
   GitBranchIcon,
   GithubIcon,
   PlusSignIcon,
-  SourceCodeIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
@@ -13,7 +11,6 @@ import { Combobox, ComboboxPrimitive } from "@repo/ui/components/combobox"
 import { GitHubLogo } from "@repo/ui/components/logos/github"
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
-import { ToggleGroup, ToggleGroupItem } from "@repo/ui/components/toggle-group"
 import { cn } from "@repo/ui/lib/utils"
 import { isValidNewBranchName } from "@repo/utils/github"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -23,13 +20,11 @@ import { isAppFocused, subscribeAppFocus } from "@/lib/app-focus"
 import { openGithubConnect } from "@/lib/github-connect"
 import { integrationsQueryOptions } from "@/lib/integrations-query"
 
-// New session in Code mode: one repo and base branch, fixed for the session
+// A new code session's repo and base branch, fixed for the session
 // (reference/planned/code-sessions-runbook.md, chunk 1).
 
-export type SessionMode = "chat" | "code"
 export type CodeTarget = { repo: string; branch: string }
 
-const MODE_KEY = "lor:new-session-mode"
 const repoKey = (workspaceSlug: string) => `lor:code-repo:${workspaceSlug}`
 const branchKey = (workspaceSlug: string, repo: string) =>
   `lor:code-branch:${workspaceSlug}:${repo}`
@@ -53,50 +48,6 @@ function writeStored(key: string, value: string) {
   try {
     localStorage.setItem(key, value)
   } catch {}
-}
-
-// `start` opens on that mode (Continue in Code) without changing the saved
-// choice; switching still saves.
-export function useSessionMode(
-  start?: SessionMode
-): [SessionMode, (mode: SessionMode) => void] {
-  const [mode, setMode] = useState<SessionMode>(
-    () => start ?? (readStored(MODE_KEY) === "code" ? "code" : "chat")
-  )
-  const change = (next: SessionMode) => {
-    setMode(next)
-    writeStored(MODE_KEY, next)
-  }
-  return [mode, change]
-}
-
-export function SessionModeSwitch({
-  mode,
-  onChange,
-}: {
-  mode: SessionMode
-  onChange: (mode: SessionMode) => void
-}) {
-  return (
-    <ToggleGroup
-      size="sm"
-      aria-label="Session mode"
-      value={[mode]}
-      onValueChange={(value) => {
-        const next = value[0]
-        if (next === "chat" || next === "code") onChange(next)
-      }}
-    >
-      <ToggleGroupItem value="chat" className="h-7 px-2 text-xs">
-        <HugeiconsIcon icon={BubbleChatIcon} className="size-3.5" />
-        Chat
-      </ToggleGroupItem>
-      <ToggleGroupItem value="code" className="h-7 px-2 text-xs">
-        <HugeiconsIcon icon={SourceCodeIcon} className="size-3.5" />
-        Code
-      </ToggleGroupItem>
-    </ToggleGroup>
-  )
 }
 
 type CodeRepos = { available: false } | { available: true; repos: string[] }

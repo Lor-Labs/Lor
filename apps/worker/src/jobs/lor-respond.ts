@@ -17,6 +17,7 @@ import {
 } from "@repo/db/queries/beta-access"
 import {
   EMPTY_LOR_RUN_SCOPE,
+  resolveChannelAccess,
   resolveLorRunScope,
 } from "@repo/db/queries/channel-access"
 import type {
@@ -66,6 +67,7 @@ import type {
   RealtimeMessageMention,
 } from "@repo/realtime-types"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
+import type { AgentInboxFlushJobData } from "@repo/realtime-types/queues"
 import {
   channelRoom,
   threadRoom,
@@ -81,6 +83,7 @@ import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
 import { claimAgentRun, delayJobUntil, LeaseLostError } from "@/lib/agent-run"
+import { type HelperOutcome, reportHelperTurn } from "@/lib/agent-session-tools"
 import {
   notifyApprovalParked,
   scheduleApprovalEscalation,
@@ -136,7 +139,8 @@ const SANDBOX_STARTING_MESSAGE =
 export function createLorRespondProcessor(
   emitter: Emitter<ServerToClientEvents>,
   redis: RedisClient,
-  respondQueue: Queue<LorRespondJobData>
+  respondQueue: Queue<LorRespondJobData>,
+  agentInboxQueue: Queue<AgentInboxFlushJobData>
 ) {
   return (job: Job<LorRespondJobData>, token?: string) =>
     withContext(
@@ -551,6 +555,30 @@ export function createLorRespondProcessor(
           // attempt's text; the trail reseeded from it has offsets into that
           // discarded text.
           let regenerated = false
+          // A session the channel's agent started: each turn's end reports
+          // to the agent's inbox (reference/always-on-agents.md §6).
+          let helperSession: {
+            id: string
+            title: string
+            newBranch: string | null
+          } | null = null
+          const reportToAgent = (outcome: HelperOutcome, reply: string) =>
+            helperSession && execution
+              ? reportHelperTurn(agentInboxQueue, {
+                  workspaceId: execution.workspaceId,
+                  channelId,
+                  runId: execution.runId,
+                  session: helperSession,
+                  outcome,
+                  reply,
+                  replyMessageId: lorMessageId,
+                }).catch((err) =>
+                  logger.error(
+                    { err, lorMessageId },
+                    "Helper session report failed"
+                  )
+                )
+              : Promise.resolve()
           // Tools Lor consults while answering — accumulated for the durable
           // trail persisted on the message, and streamed live via lor:tool.
           const toolCalls: LorToolCall[] = trail ? [...trail.toolCalls] : []
@@ -689,12 +717,22 @@ export function createLorRespondProcessor(
                       schema.agentSession.forkedFromMessageId,
                     harness: schema.agentSession.harness,
                     harnessCommands: schema.agentSession.harnessCommands,
+                    origin: schema.agentSession.origin,
+                    creatorId: schema.agentSession.creatorId,
+                    title: schema.agentSession.title,
                   })
                   .from(schema.agentSession)
                   .where(eq(schema.agentSession.threadRootId, threadRootId))
                   .then((rows) => rows[0])
               : undefined
             if (!session) throw new Error("This Lor run has no session")
+            if (session.origin === "agent") {
+              helperSession = {
+                id: session.id,
+                title: session.title ?? "Session",
+                newBranch: session.newBranch,
+              }
+            }
             assertHostedHarness(session.harness)
             assertHarnessEnabled(session.harness)
             const owner = { sessionId: session.id }
@@ -942,6 +980,23 @@ export function createLorRespondProcessor(
               channelId,
               userId: triggerUserId,
             }
+            // Whose plan runs the turn: its sender, or for the channel agent's
+            // own messages in a session it started, the person it started it
+            // for (reference/always-on-agents.md, decision 34).
+            // The creator's plan only while they can still see the channel.
+            const creatorPlan =
+              session.origin === "agent" &&
+              triggerUserId === LOR_USER_ID &&
+              session.creatorId &&
+              (await resolveChannelAccess(session.creatorId, channelId)
+                .then((access) => access.ok)
+                .catch(() => false))
+                ? session.creatorId
+                : null
+            const planUserId =
+              triggerUserId && triggerUserId !== LOR_USER_ID
+                ? triggerUserId
+                : creatorPlan
 
             // A Claude Code turn runs only on its sender's own subscription,
             // in the mode they picked: never a Loop fire, an Act event or
@@ -962,9 +1017,9 @@ export function createLorRespondProcessor(
                       .from(schema.agentRun)
                       .where(eq(schema.agentRun.id, harnessState.lastRunId))
                       .then((rows) => rows[0] ?? null)
-                  : triggerUserId && triggerUserId !== LOR_USER_ID
+                  : planUserId
                     ? {
-                        userId: triggerUserId,
+                        userId: planUserId,
                         ...(triggerMessageId
                           ? await db
                               .select({ mode: schema.message.claudeCodeMode })
@@ -993,9 +1048,7 @@ export function createLorRespondProcessor(
                       .from(schema.agentRun)
                       .where(eq(schema.agentRun.id, harnessState.lastRunId))
                       .then((rows) => rows[0]?.userId ?? null)
-                  : triggerUserId && triggerUserId !== LOR_USER_ID
-                    ? triggerUserId
-                    : null
+                  : planUserId
             const codexSignIn = codexUserId
               ? await chatgptCredential(codexUserId).catch((err: unknown) => {
                   if (err instanceof ChatgptSignInError) return err
@@ -1008,13 +1061,13 @@ export function createLorRespondProcessor(
               session.harness === "claude_code" && !claudeToken
                 ? automated
                   ? "Claude Code sessions only run on a person's own messages."
-                  : "This message needs its sender's Claude subscription. Connect it in Settings → Linked accounts, or continue in a Lor session."
+                  : "This message needs its sender's Claude subscription. Connect it in Settings → Linked accounts."
                 : session.harness === "codex" && !codexCredential
                   ? automated
                     ? "Codex sessions only run on a person's own messages."
                     : codexSignIn instanceof ChatgptSignInError
                       ? codexSignIn.message
-                      : "This message needs its sender's ChatGPT plan. Connect it in Settings → Linked accounts, or continue in a Lor session."
+                      : "This message needs its sender's ChatGPT plan. Connect it in Settings → Linked accounts."
                   : null
             // The model, effort and fast mode the turn's sender picked, for
             // any harness; a run that continues a paused turn keeps that
@@ -1081,6 +1134,7 @@ export function createLorRespondProcessor(
               emit(refusal, true, "failed")
               await runWriter.transition("failed", { stopReason: "error" })
               execution.stop()
+              await reportToAgent("failed", refusal)
               await settlePlan("failed")
               await emitThreadSummary()
               drainQueue()
@@ -1204,6 +1258,7 @@ export function createLorRespondProcessor(
                 conversation,
                 backgroundConversation,
                 channelId,
+                ...(session.origin === "agent" ? { helper: true } : {}),
                 ...(threadRootId ? { threadRootId } : {}),
                 triggerMessageId,
                 ...(triggerUserId ? { userId: triggerUserId } : {}),
@@ -1498,6 +1553,7 @@ export function createLorRespondProcessor(
                 await persistFailure(LOR_ERROR_FALLBACK)
                 await runWriter.transition("failed", { stopReason: "error" })
                 execution.stop()
+                await reportToAgent("failed", LOR_ERROR_FALLBACK)
                 await settlePlan("failed")
                 await emitThreadSummary()
                 drainQueue()
@@ -1515,6 +1571,7 @@ export function createLorRespondProcessor(
                 stopReason: "stopped_by_user",
               })
               execution.stop()
+              await reportToAgent("stopped", empty ? "" : content)
               await settlePlan("stopped")
               await emitThreadSummary()
               drainQueue()
@@ -1541,6 +1598,7 @@ export function createLorRespondProcessor(
                   : "error",
             })
             execution?.stop()
+            await reportToAgent("failed", failureText)
             await settlePlan("failed")
             await emitThreadSummary()
             drainQueue()
@@ -1692,6 +1750,7 @@ export function createLorRespondProcessor(
             await persistFailure(LOR_ERROR_FALLBACK)
             await runWriter.transition("failed", { stopReason: "error" })
             execution?.stop()
+            await reportToAgent("failed", LOR_ERROR_FALLBACK)
             await settlePlan("failed")
             await emitThreadSummary()
             drainQueue()
@@ -1790,6 +1849,14 @@ export function createLorRespondProcessor(
           })
           // Heartbeat off: the run is terminal; write-back needs no lease.
           execution?.stop()
+          await reportToAgent(
+            stoppedByUser
+              ? "stopped"
+              : awaitingApproval
+                ? "approval"
+                : "finished",
+            finalText
+          )
           await settlePlan(stoppedByUser ? "stopped" : "complete")
           await emitThreadSummary()
           drainQueue()

@@ -48,6 +48,15 @@ export type CatalogHarness = "pi" | "claude_code" | "codex"
 
 const GATEWAY_PROVIDER = "vercel-ai-gateway"
 
+// A model Lor can run on its own credits: what a channel's agent may pick.
+// Batch-only models can't answer live.
+export function isLorCreditModel(id: string): boolean {
+  return (
+    !id.endsWith("-batch") &&
+    getBuiltinModels(GATEWAY_PROVIDER).some((model) => model.id === id)
+  )
+}
+
 const piEfforts = (levels: string[]) => (levels.length > 1 ? levels : [])
 
 // Lor's own agent: each provider the workspace has a key for lists its
@@ -213,17 +222,4 @@ export async function agentModelCatalog(
   if (harness === "codex") return codexCatalog(userId)
   const keys = await workspaceInferenceKeys(workspaceId)
   return lorCatalog(keys.map((key) => key.provider))
-}
-
-// Whether a Loop's or Act trigger's saved model is one Lor's agent offers
-// this workspace now (a "key:" model needs that provider's key). Runs still
-// fall back to Lor's default when a saved model later goes away.
-export async function isLorModelAvailable(
-  workspaceId: string,
-  model: string
-): Promise<boolean> {
-  const keys = await workspaceInferenceKeys(workspaceId)
-  return lorCatalog(keys.map((key) => key.provider)).models.some(
-    (option) => option.id === model
-  )
 }

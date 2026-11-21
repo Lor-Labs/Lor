@@ -29,6 +29,11 @@ export const loopStatusEnum = pgEnum("loop_status", [
   "completed",
 ])
 
+// "check_in": the Loop every text channel's agent comes with, which wakes it
+// in active hours when something is unread (reference/always-on-agents.md,
+// decision 7).
+export const loopKindEnum = pgEnum("loop_kind", ["custom", "check_in"])
+
 export const loopPausedReasonEnum = pgEnum("loop_paused_reason", [
   "manual",
   "failures",
@@ -53,6 +58,7 @@ export const loop = pgTable(
     creatorId: uuid("creator_id").references(() => user.id, {
       onDelete: "set null",
     }),
+    kind: loopKindEnum("kind").notNull().default("custom"),
     // The loop card message (message type `loop_card`) — the card renders
     // from this row, looked up by cardMessageId like plan.cardMessageId.
     // Nullable: rows created before the card posts (or via future API paths).
@@ -78,9 +84,6 @@ export const loop = pgTable(
     //   fire past it completes the loop instead of running.
     endCondition: text("end_condition"),
     endAt: timestamp("end_at"),
-    // The model each run uses, as Lor's composer names it ("key:<provider>/…"
-    // runs on the workspace's key). Null: Lor's default model on credits.
-    model: text("model"),
     status: loopStatusEnum("status").notNull().default("draft"),
     pausedReason: loopPausedReasonEnum("paused_reason"),
     // Null unless active. Catch-up policy: a missed schedule fires once and

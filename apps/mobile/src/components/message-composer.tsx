@@ -146,8 +146,9 @@ export function MessageComposer({
   // Main channel composer only: teaches @Lor through the placeholder and the
   // lor_intro hint.
   lorIntro?: boolean
-  // Chat and human threads, where @Lor starts a session instead of posting
-  // here, and sessions, where a message goes to Lor or its subscribers.
+  // Chat, where @Lor wakes the channel agent; human threads, where @Lor
+  // starts a session instead of posting here; and sessions, where a message
+  // goes to Lor or its subscribers.
   destination?: ComposerDestination
   // Session only: every message goes to people, with no switch to Lor.
   peopleOnly?: boolean
@@ -240,7 +241,7 @@ export function MessageComposer({
     routing.toLor &&
     hasMessage
   // A session always shows where the message goes; chat and threads only
-  // once @Lor makes it start a session.
+  // once the message mentions @Lor.
   const showDestination =
     Boolean(destination) && !isEditing && (isSession || routing.toLor)
   // A command reaches the harness only in a message that goes to Lor.
@@ -589,7 +590,7 @@ export function MessageComposer({
       ) : null}
       {showLorIntro && !isEditing ? (
         <HintCard onDismiss={lorHint.dismiss}>
-          Mention @Lor to start a session. Lor works there, next to the chat.
+          Mention @Lor and it answers here in the chat.
         </HintCard>
       ) : null}
       {showSessionReplyHint ? (
@@ -693,7 +694,7 @@ export function MessageComposer({
               ? "Edit message"
               : (placeholder ??
                 (showLorIntro
-                  ? `Message #${channelName}, or @Lor to start a session`
+                  ? `Message #${channelName}, or ask @Lor`
                   : `Message #${channelName}`))
           }
           placeholderTextColor={placeholderColor}
@@ -750,7 +751,6 @@ export function MessageComposer({
                   />
                 ) : null}
                 <DestinationBar
-                  channelName={channelName}
                   destination={destination}
                   onSwitch={
                     routing.canSwitch

@@ -51,7 +51,6 @@ import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
 import { ChannelActivityProvider } from "@/components/sidebar/channel-panel/channel-activity"
-import { ChannelList } from "@/components/sidebar/channel-panel/channel-list"
 import {
   CreateChannelProvider,
   useCreateChannel,
@@ -67,6 +66,7 @@ import {
   sidebarMenuSubTrigger,
   sidebarMenuSurface,
 } from "@/components/sidebar/sidebar-menu-styles"
+import { SidebarTabs } from "@/components/sidebar/sidebar-tabs"
 import { InstructionsApprovalAlert } from "@/components/workspace/instructions-approval-alert"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import {
@@ -492,7 +492,7 @@ function WorkspaceSidebarInner() {
                 workspaceSlug={activeWorkspace?.slug}
                 workspaceId={activeWorkspace?.id}
               >
-                <ChannelList />
+                <SidebarTabs />
               </VoicePresenceProvider>
             </ChannelActivityProvider>
           </div>

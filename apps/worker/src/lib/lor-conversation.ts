@@ -17,7 +17,7 @@ import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import { userDisplayName } from "@repo/lor"
 import { cardEmbedsText } from "./embed-context"
 import { meetingThreadContext } from "./meeting-context"
-import { LOOP_SCHEDULE_SPEAKER } from "./run-continuation"
+import { agentTaskSpeaker, LOOP_SCHEDULE_SPEAKER } from "./run-continuation"
 
 const CONTEXT_LIMIT = 30
 const THREAD_CONTEXT_LIMIT = 1000
@@ -176,11 +176,13 @@ export async function loadConversation(args: {
     const authorName =
       r.eventType === "loop_run"
         ? LOOP_SCHEDULE_SPEAKER
-        : r.eventType === "trigger_run" &&
-            r.eventPayload &&
-            "label" in r.eventPayload
-          ? r.eventPayload.label
-          : userDisplayName({ name: r.authorName })
+        : r.eventType === "agent_task"
+          ? agentTaskSpeaker(r.eventPayload)
+          : r.eventType === "trigger_run" &&
+              r.eventPayload &&
+              "label" in r.eventPayload
+            ? r.eventPayload.label
+            : userDisplayName({ name: r.authorName })
     return {
       messageId: r.messageId,
       authorName,

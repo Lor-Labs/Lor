@@ -2,6 +2,7 @@ import "./instrumentation"
 import { serve } from "@hono/node-server"
 import { env } from "@repo/env/server"
 import app from "@/app"
+import { startDiscordGateway } from "@/lib/discord/gateway"
 import { installGithubCaches } from "@/lib/github-repo-cache"
 import { logger } from "@/lib/logger"
 import { installVoiceNotifier } from "@/lib/voice/notify"
@@ -13,6 +14,7 @@ process.on("unhandledRejection", (reason) => {
 
 installGithubCaches()
 installVoiceNotifier()
+startDiscordGateway()
 
 logger.info(`API server running on port ${env.PORT}`)
 posthogLogCapture.info("api_server_started")

@@ -174,8 +174,6 @@ export type UpdateLoopInput = {
   // End modes, mutually exclusive; explicit null clears (both null = never).
   endAt?: string | null
   endCondition?: string | null
-  // Lor's model for each run; null: Lor's default.
-  model?: string | null
   confirm?: boolean
 }
 
@@ -201,7 +199,6 @@ export function useUpdateLoop(loop: ChannelLoop | null) {
           ...(input.endCondition !== undefined
             ? { endCondition: input.endCondition }
             : {}),
-          ...(input.model !== undefined ? { model: input.model } : {}),
           ...(input.confirm ? { confirmHighFrequency: true } : {}),
         },
       })
@@ -240,7 +237,6 @@ export function useUpdateLoop(loop: ChannelLoop | null) {
                   ...(input.endCondition !== undefined
                     ? { endCondition: input.endCondition }
                     : {}),
-                  ...(input.model !== undefined ? { model: input.model } : {}),
                 }
               : l
           )

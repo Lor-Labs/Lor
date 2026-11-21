@@ -55,7 +55,7 @@ export type SessionStartHandlers = {
   failed: (start: SessionStart) => void
 }
 
-// @Lor in chat or a human thread, or the New session view, starts a session
+// @Lor in a human thread, or the New session view, starts a session
 // optimistically: its page, sidebar row and first turn exist before the
 // server confirms, under ids the client chose. Enter opens it at once;
 // Cmd+Enter keeps you where you are, so several can start in a row.

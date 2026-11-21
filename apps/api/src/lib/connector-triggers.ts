@@ -9,9 +9,16 @@ import type {
   TriggerSourceMessage,
 } from "@repo/db/schema"
 import { ACT_DELIVERY_PAYLOAD_MAX } from "@repo/lor/act-runs"
+import {
+  addInboxNote,
+  triggerInboxNote,
+  triggerWakeCounts,
+} from "@repo/lor/channel-agent"
 import { enrichMeetingEmbed } from "@repo/lor/meeting-insights"
 import { channelRoom, threadRoom } from "@repo/realtime-types"
+import { AGENT_INBOX_BATCH_MS } from "@repo/realtime-types/queues"
 import { startActRun } from "@/lib/act-runs"
+import { flushAgentInbox } from "@/lib/agent-inbox-queue"
 import { getEmitter, postBotMessage } from "@/lib/bot-messages"
 import { logger } from "@/lib/logger"
 
@@ -109,6 +116,8 @@ export async function dispatchConnectorEvent(input: {
         id: schema.connectorTrigger.id,
         post: schema.connectorTrigger.post,
         actInstructions: schema.connectorTrigger.actInstructions,
+        actRepoFullName: schema.connectorTrigger.actRepoFullName,
+        actBaseBranch: schema.connectorTrigger.actBaseBranch,
         actWindowSeconds: schema.connectorTrigger.actWindowSeconds,
         hourlyRunCap: schema.connectorTrigger.hourlyRunCap,
         dailyRunCap: schema.connectorTrigger.dailyRunCap,
@@ -122,7 +131,9 @@ export async function dispatchConnectorEvent(input: {
         id: schema.channel.id,
         workspaceId: schema.channel.workspaceId,
         name: schema.channel.name,
+        type: schema.channel.type,
       },
+      setUpBy: schema.user.name,
     })
     .from(schema.connectorTrigger)
     .innerJoin(
@@ -132,6 +143,10 @@ export async function dispatchConnectorEvent(input: {
     .innerJoin(
       schema.channel,
       eq(schema.connectorTrigger.channelId, schema.channel.id)
+    )
+    .leftJoin(
+      schema.user,
+      eq(schema.connectorTrigger.configuredById, schema.user.id)
     )
     .where(
       and(
@@ -217,7 +232,10 @@ export async function dispatchConnectorEvent(input: {
   // copy of its run payload, so a flush minutes later can rebuild the turn for
   // whatever a burst (or an in-flight run) left waiting.
   const actOn = target.trigger.actInstructions !== null
-  const actText = actOn ? actPayload(input) : null
+  // A text channel has an always-on agent: its events go to the agent's
+  // inbox, not to a session of their own (reference/always-on-agents.md §3).
+  const toInbox = target.channel.type === "text"
+  const actText = actOn && !toInbox ? actPayload(input) : null
   const delivery = await db
     .insert(schema.triggerDelivery)
     .values({
@@ -226,8 +244,8 @@ export async function dispatchConnectorEvent(input: {
         ? input.payload.slice(0, DELIVERY_PAYLOAD_MAX)
         : null,
       actPayload: actText ? actText.slice(0, ACT_DELIVERY_PAYLOAD_MAX) : null,
-      actLabel: actOn ? input.label : null,
-      sourceMessage: actOn ? capSourceMessage(sourceMessage) : null,
+      actLabel: actText ? input.label : null,
+      sourceMessage: actText ? capSourceMessage(sourceMessage) : null,
       subject: input.subject ?? input.item?.url ?? null,
       posted: postedMessageId !== null,
     })
@@ -241,6 +259,25 @@ export async function dispatchConnectorEvent(input: {
   // Act: the worker turns the run into a new session whose first turn is the
   // payload. Anchored on the delivery row — no delivery log, no run.
   let actOutcome = "off"
+  if (delivery && toInbox && (actOn || postedMessageId)) {
+    actOutcome = await deliverToInbox({
+      deliveryId: delivery.id,
+      workspaceId: target.connection.workspaceId,
+      channelId: target.channel.id,
+      trigger: target.trigger,
+      setUpBy: target.setUpBy,
+      label: input.label,
+      event: input.event,
+      body: inboxBody(input),
+      cardMessageId: postedMessageId,
+    }).catch((err) => {
+      logger.error(
+        { err, triggerId: target.trigger.id, deliveryId: delivery.id },
+        "Trigger inbox delivery failed"
+      )
+      return "error"
+    })
+  }
   if (delivery && actText !== null) {
     const started = await startActRun({
       triggerId: target.trigger.id,
@@ -269,6 +306,96 @@ export async function dispatchConnectorEvent(input: {
     "Dispatched connector event"
   )
   return { posted: postedMessageId, acted }
+}
+
+// The event as the agent reads it: its text, then what the item adds. A
+// plain webhook's item only repeats its text.
+function inboxBody(input: {
+  text: string
+  item?: EventItem
+  payload?: string
+}): string {
+  const text = input.text.trim()
+  const item = input.item
+  const details = item
+    ? [
+        item.title && !text.includes(item.title)
+          ? `Title: ${item.title}`
+          : null,
+        item.url ? `Link: ${item.url}` : null,
+        item.author ? `Author: ${item.author}` : null,
+        item.content.trim() && item.content.trim() !== text
+          ? item.content
+          : null,
+      ].filter((line): line is string => line !== null)
+    : []
+  const parts = [text, details.join("\n")].filter(Boolean)
+  // A payload with no readable text is all there is to go on.
+  if (parts.length === 0 && input.payload) {
+    parts.push(`Raw payload:\n${input.payload}`)
+  }
+  return parts.join("\n\n")
+}
+
+// One event into the channel agent's inbox. A trigger with instructions
+// wakes the agent, unless its hourly or daily cap is spent: then the event
+// waits unread, like a trigger that only posts a card.
+async function deliverToInbox(input: {
+  deliveryId: string
+  workspaceId: string
+  channelId: string
+  trigger: {
+    id: string
+    actInstructions: string | null
+    actRepoFullName: string | null
+    actBaseBranch: string | null
+    hourlyRunCap: number
+    dailyRunCap: number
+  }
+  setUpBy: string | null
+  label: string
+  event: string
+  body: string
+  cardMessageId: string | null
+}): Promise<string> {
+  const { trigger } = input
+  let lane: "wake" | "wait" = "wait"
+  let outcome = "wait"
+  if (trigger.actInstructions !== null) {
+    const counts = await triggerWakeCounts(trigger.id)
+    if (counts.hourly >= trigger.hourlyRunCap) outcome = "hourly_cap"
+    else if (counts.daily >= trigger.dailyRunCap) outcome = "daily_cap"
+    else {
+      lane = "wake"
+      outcome = "wake"
+    }
+  }
+  const added = await addInboxNote({
+    workspaceId: input.workspaceId,
+    channelId: input.channelId,
+    source: "trigger",
+    sourceId: input.deliveryId,
+    deliveryId: input.deliveryId,
+    lane,
+    note: triggerInboxNote({
+      label: input.label,
+      event: input.event,
+      body: input.body,
+      cardMessageId: input.cardMessageId,
+      instructions: trigger.actInstructions,
+      setUpBy: input.setUpBy,
+      code: trigger.actRepoFullName
+        ? {
+            repoFullName: trigger.actRepoFullName,
+            baseBranch: trigger.actBaseBranch,
+          }
+        : null,
+    }),
+  })
+  if (added && lane === "wake") {
+    await flushAgentInbox(input.channelId, AGENT_INBOX_BATCH_MS)
+  }
+  return outcome
 }
 
 // Follow-up to the POST effect: run meeting-insight enrichment after the base

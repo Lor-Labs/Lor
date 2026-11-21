@@ -279,7 +279,8 @@ function selectMentionIds({ editor }: EditorStateSnapshot<Editor | null>) {
 // Mirrors the server's session routing rule (realtime routeLor): in a session
 // Lor runs unless the message addresses only people (a mention, or a reply to
 // someone else) or is switched to people; addressing Lor always wins. In chat
-// and human threads only an @Lor mention starts a session.
+// an @Lor mention wakes the channel agent; in a human thread it starts a
+// session.
 function resolveRouting({
   destination,
   mentionedIds,
@@ -446,11 +447,15 @@ export const MessageInput = memo(function MessageInput({
   const lorHint = useHint("lor_intro", lorIntro && !disabled)
   const dismissLorHint = lorHint.dismiss
 
+  // The channel agent's name, when the candidates carry it (decision 32).
+  const lorLabel =
+    mentionCandidates.find((candidate) => candidate.id === LOR_USER_ID)
+      ?.label ?? "Lor"
   const placeholder =
     placeholderOverride ??
     (context.type === "channel"
       ? lorIntro && !lorHint.dismissed
-        ? `Message #${context.name}, or @Lor to start a session`
+        ? `Message #${context.name}, or ask @${lorLabel}`
         : `Message #${context.name}`
       : `Message ${context.name}`)
 
@@ -469,6 +474,7 @@ export const MessageInput = memo(function MessageInput({
         search: candidate.search,
         name: candidate.name,
         image: candidate.image,
+        creature: candidate.creature,
       })
     }
     return Array.from(uniqueCandidates.values())
@@ -683,7 +689,7 @@ export const MessageInput = memo(function MessageInput({
         chain.insertContent({
           type: "paragraph",
           content: [
-            { type: "mention", attrs: { id: LOR_USER_ID, label: "Lor" } },
+            { type: "mention", attrs: { id: LOR_USER_ID, label: lorLabel } },
             { type: "text", text: lines ? " " : ` ${text}` },
           ],
         })
@@ -715,7 +721,7 @@ export const MessageInput = memo(function MessageInput({
       editor.off("create", applyDraft)
       editor.off("mount", applyDraft)
     }
-  }, [editor, composerDraft, onComposerDraftConsumed, destination])
+  }, [editor, composerDraft, onComposerDraftConsumed, destination, lorLabel])
 
   const appliedFileReferenceRef = useRef<string | null>(null)
   useEffect(() => {
@@ -1055,7 +1061,7 @@ export const MessageInput = memo(function MessageInput({
         align="start"
         onDismiss={dismissLorHint}
       >
-        {`Mention @Lor${isTauri ? " or press ⌘N" : ""} to start a session. Lor works there, next to the chat.`}
+        {`Mention @${lorLabel} and it answers here in the chat.${isTauri ? " Press ⌘N to start a session." : ""}`}
       </HintPopover>
       <div
         ref={composerRef}
@@ -1217,7 +1223,6 @@ export const MessageInput = memo(function MessageInput({
               <div className="min-w-0 flex-1">
                 <DestinationBar
                   destination={destination}
-                  channelName={context.name}
                   toLor={routing.toLor}
                   pinged={routing.pinged}
                   subscribers={subscribers}

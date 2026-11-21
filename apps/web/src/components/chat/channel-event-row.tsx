@@ -64,6 +64,12 @@ type LoopPayload = {
   reason?: "failures" | "out_of_credits"
   via?: "proposal"
 }
+type AgentSessionStartedPayload = {
+  sessionId: string
+  title: string
+  repoFullName: string | null
+}
+
 type SessionContinuedPayload = {
   sessionId: string
   repoFullName: string | null
@@ -510,6 +516,22 @@ function eventText(
         </>
       )
     }
+    case "agent_session_started": {
+      if (!payload) break
+      const p = payload as AgentSessionStartedPayload
+      return (
+        <>
+          {actor} started the code session{" "}
+          <SessionTitleLink sessionId={p.sessionId} fallback={p.title} />
+          {p.repoFullName ? (
+            <>
+              {" "}
+              on <Name>{p.repoFullName}</Name>
+            </>
+          ) : null}
+        </>
+      )
+    }
     case "session_continued": {
       if (!payload) break
       const p = payload as SessionContinuedPayload
@@ -826,6 +848,9 @@ export function ChannelEventRow({
   if (first.eventType === "trigger_run" && events.length === 1) {
     return <TriggerMessage message={first} />
   }
+  if (first.eventType === "agent_task" && events.length === 1) {
+    return <AgentTaskMessage message={first} />
+  }
 
   if (layout === "document" && events.length === 1 && isReviewedEvent(first)) {
     return <ReviewCard message={first} />
@@ -889,6 +914,35 @@ export function ChannelEventRow({
         )
       })}
     </HeightTransition>
+  )
+}
+
+function agentTaskAuthor(message: Message): string {
+  const payload = message.eventPayload as { channelName?: string | null } | null
+  return payload?.channelName
+    ? `#${payload.channelName}'s agent`
+    : "The channel's agent"
+}
+
+// The channel agent's brief or follow-up in a session it runs, shown as a
+// message from it (reference/always-on-agents.md §6).
+function AgentTaskMessage({ message }: { message: Message }) {
+  const { data: auth } = authClient.useSession()
+  return (
+    <MessageItem
+      message={{
+        ...message,
+        type: "default",
+        eventType: null,
+        eventPayload: null,
+        overrideName: agentTaskAuthor(message),
+      }}
+      showHeader
+      wrapContentAroundAvatar
+      layout="chat"
+      currentUserId={auth?.user.id}
+      readOnly
+    />
   )
 }
 
