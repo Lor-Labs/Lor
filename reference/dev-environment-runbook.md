@@ -290,6 +290,12 @@ first load). The client behavior is the same.
     `ttyd -W -a -p 7681 lor-terminal`; the launcher attaches tmux session
     `main-<user id>` in the repo folder, so each person has their own shell
     and it outlives disconnects. Private port, 15-minute token.
+  - Rewind (LOR-135, 2026-11-14): a rewind swaps the work folder for a
+    rebuilt one, which left shells in the deleted folder (no branch in the
+    starship prompt, git failing). The launcher writes
+    `/usr/local/share/lor-terminal.zsh`, sourced from `.zshrc`, whose
+    precmd/preexec hook sends such a shell back to the same path. Process
+    renamed `terminal-3` so running sandboxes pick it up.
   - API: `POST /sessions/{id}/terminal` (code sessions, channel write
     access) returns the `wss` URL.
   - Web: `terminal` tab kind, `TerminalTab` (xterm.js 6, WebGL with DOM

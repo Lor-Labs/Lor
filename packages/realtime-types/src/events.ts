@@ -727,7 +727,7 @@ export type RealtimeLorToolCall = {
     sandboxMemoryMb?: number
     reason: string
   }
-  status?: "ok" | "error"
+  status?: "ok" | "error" | "stopped"
 }
 
 // Payloads for the lor:* streaming events.
@@ -917,6 +917,9 @@ export interface ServerToClientEvents {
     model?: string
     effort?: string
     fast?: boolean
+    // On the terminal chunk of a run someone stopped: who pressed Stop (null
+    // when unknown), so the reply reads as stopped, not failed.
+    stopped?: { by: string | null }
   }) => void
   // Lor's summarized extended-thinking, streamed before/between the answer.
   // `at` and `order` place each segment among answer text and tool calls.
@@ -1254,6 +1257,9 @@ export type RealtimeLoop = {
   endCondition: string | null
   // Hard end date (sweep-enforced); null = no date end.
   endAt: string | null
+  // Lor's model for each run ("key:<provider>/…" runs on the workspace's
+  // key); null: Lor's default model.
+  model: string | null
   status: RealtimeLoopStatus
   pausedReason: "manual" | "failures" | "out_of_credits" | null
   nextRunAt: string | null

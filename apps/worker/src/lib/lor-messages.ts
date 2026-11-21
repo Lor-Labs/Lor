@@ -131,6 +131,9 @@ export async function postLorMessage(
     silent?: boolean
     // A run's message: clients show the run's approval card under it.
     lorTriggerMessageId?: string
+    // A Loop's or Act trigger's model for the turn this event line starts,
+    // read like a person's composer pick (null: Lor's default model).
+    turnModel?: string | null
   }
 ): Promise<{ messageId: string }> {
   const author = await loadLorAuthor()
@@ -148,6 +151,7 @@ export async function postLorMessage(
       referencedMessageId: input.referencedMessageId ?? null,
       threadRootId: input.threadRootId ?? null,
       excludedFromMemory: input.type === "event",
+      turnModel: input.turnModel ?? null,
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
     .then((rows) => rows[0])

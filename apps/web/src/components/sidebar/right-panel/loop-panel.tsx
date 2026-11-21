@@ -77,6 +77,7 @@ import {
   useRunLoopNow,
   useUpdateLoop,
 } from "@/components/loops/loop-actions"
+import { SavedModelPicker } from "@/components/session/model-picker"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { LoopSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -951,7 +952,7 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
   // autosave-on-change model made it unclear anything was saved at all.
   type StagedEdits = Pick<
     UpdateLoopInput,
-    "instructions" | "schedule" | "endAt" | "endCondition"
+    "instructions" | "schedule" | "endAt" | "endCondition" | "model"
   >
   const [staged, setStaged] = useState<StagedEdits>({})
   const stage = (input: StagedEdits) =>
@@ -973,6 +974,7 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
       ...(staged.endCondition !== undefined
         ? { endCondition: staged.endCondition }
         : {}),
+      ...(staged.model !== undefined ? { model: staged.model } : {}),
     }
   }, [loop, staged])
 
@@ -999,6 +1001,9 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
       staged.endCondition !== loop.endCondition
     ) {
       diff.endCondition = staged.endCondition
+    }
+    if (staged.model !== undefined && staged.model !== loop.model) {
+      diff.model = staged.model
     }
     return Object.keys(diff).length > 0 ? diff : null
   }, [loop, staged])
@@ -1029,12 +1034,29 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
     : ""
   const isDraft = loop?.status === "draft"
 
+  // A real save drops the staged edits it carried, so a later change by
+  // someone else isn't shadowed by a stale staged value. Edits staged while
+  // the request ran differ from what it sent and stay; a failure keeps all.
+  const save = async (input: UpdateLoopInput) => {
+    const result = await updateLoop.updateAsync(input)
+    if (result.kind === "updated") {
+      setStaged((prev) => {
+        const next = { ...prev }
+        for (const key of Object.keys(prev) as (keyof StagedEdits)[]) {
+          if (key in input && prev[key] === input[key]) delete next[key]
+        }
+        return next
+      })
+    }
+    return result
+  }
+
   // Create Loop persists staged edits first — activation reads the server
   // snapshot, so anything unsaved would silently vanish.
   const createLoop = async () => {
     if (dirtyInput) {
       try {
-        const result = await updateLoop.updateAsync(dirtyInput)
+        const result = await save(dirtyInput)
         // Sub-hourly re-consent — the confirm dialog is up; activate after.
         if (result.kind === "needs_confirmation") return
       } catch {
@@ -1178,6 +1200,18 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                 />
               )}
               <EndRepeatRows loop={effective} onUpdate={stage} />
+              <DetailRow label="Model">
+                {loop.status === "completed" ? (
+                  <span className="truncate">{loop.model ?? "Default"}</span>
+                ) : (
+                  <SavedModelPicker
+                    workspaceSlug={view.workspaceSlug}
+                    value={effective.model}
+                    onChange={(model) => stage({ model })}
+                    className="w-48"
+                  />
+                )}
+              </DetailRow>
               {loop.status === "paused" && (
                 <DetailRow label="Paused">
                   {(loop.pausedReason &&
@@ -1239,7 +1273,10 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                 size="sm"
                 variant={isDraft ? "outline" : "default"}
                 loading={updateLoop.isPending}
-                onClick={() => dirtyInput && updateLoop.update(dirtyInput)}
+                onClick={() => {
+                  // Failures are toasted by the hook; staged edits stay.
+                  if (dirtyInput) save(dirtyInput).catch(() => {})
+                }}
                 className="fade-in slide-in-from-bottom-1 animate-in duration-200"
               >
                 Save changes
@@ -1249,6 +1286,9 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
               <Button
                 size="sm"
                 loading={isPending}
+                // The save writes the cache optimistically, so dirtyInput is
+                // empty while it runs; activating then reads the old snapshot.
+                disabled={updateLoop.isPending}
                 onClick={() => void createLoop()}
               >
                 Create Loop
@@ -1274,10 +1314,9 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
         firesPerDay={updateLoop.confirmState?.firesPerDay ?? null}
         onConfirm={() => {
           if (updateLoop.confirmState) {
-            updateLoop.update({
-              ...updateLoop.confirmState.input,
-              confirm: true,
-            })
+            save({ ...updateLoop.confirmState.input, confirm: true }).catch(
+              () => {}
+            )
           }
         }}
         onDismiss={updateLoop.dismissConfirm}

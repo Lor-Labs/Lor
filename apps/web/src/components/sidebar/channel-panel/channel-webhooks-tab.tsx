@@ -365,6 +365,7 @@ export function ChannelWebhooksTab({
       actInstructions?: string | null
       actSessionMode?: TriggerEffectsValue["actSessionMode"]
       actCode?: TriggerEffectsValue["actCode"]
+      actModel?: TriggerEffectsValue["actModel"]
       actWindowSeconds?: number
       hourlyRunCap?: number
       dailyRunCap?: number
@@ -380,6 +381,7 @@ export function ChannelWebhooksTab({
           actInstructions: input.actInstructions,
           actSessionMode: input.actSessionMode,
           actCode: input.actCode,
+          actModel: input.actModel,
           actWindowSeconds: input.actWindowSeconds,
           hourlyRunCap: input.hourlyRunCap,
           dailyRunCap: input.dailyRunCap,
@@ -575,6 +577,7 @@ export function ChannelWebhooksTab({
               actInstructions: open.actInstructions,
               actSessionMode: open.actSessionMode,
               actCode: open.actCode,
+              actModel: open.actModel,
               actWindowSeconds: open.actWindowSeconds,
               hourlyRunCap: open.hourlyRunCap,
               dailyRunCap: open.dailyRunCap,

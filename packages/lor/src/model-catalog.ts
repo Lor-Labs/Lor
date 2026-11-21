@@ -223,3 +223,16 @@ export async function agentModelCatalog(
   const keys = await workspaceInferenceKeys(workspaceId)
   return lorCatalog(keys.map((key) => key.provider))
 }
+
+// Whether a Loop's or Act trigger's saved model is one Lor's agent offers
+// this workspace now (a "key:" model needs that provider's key). Runs still
+// fall back to Lor's default when a saved model later goes away.
+export async function isLorModelAvailable(
+  workspaceId: string,
+  model: string
+): Promise<boolean> {
+  const keys = await workspaceInferenceKeys(workspaceId)
+  return lorCatalog(keys.map((key) => key.provider)).models.some(
+    (option) => option.id === model
+  )
+}

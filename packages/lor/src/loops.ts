@@ -34,6 +34,7 @@ export function toRealtimeLoop(row: LoopRow): RealtimeLoop {
     timezone: row.timezone,
     endCondition: row.endCondition,
     endAt: row.endAt ? row.endAt.toISOString() : null,
+    model: row.model,
     status: row.status,
     pausedReason: row.pausedReason,
     nextRunAt: row.nextRunAt ? row.nextRunAt.toISOString() : null,

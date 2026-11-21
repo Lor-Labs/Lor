@@ -205,6 +205,7 @@ export async function fireLoop(
     eventType: "loop_run",
     eventPayload: { loopId: loop.id, loopName: loop.name },
     silent: true,
+    turnModel: loop.model,
   })
   const start = () =>
     startScopeRun(deps, {

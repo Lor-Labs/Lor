@@ -299,6 +299,7 @@ function SandboxRow({
             Failed
           </span>
         )}
+        {toolCall.status === "stopped" && <StoppedBadge />}
         {expandable && (
           <HugeiconsIcon
             icon={ArrowRight01Icon}
@@ -401,6 +402,15 @@ function BrowserShowCard({
   )
 }
 
+// A call the person's Stop cut short: neutral, not a failure.
+function StoppedBadge() {
+  return (
+    <span className="shrink-0 rounded bg-muted px-1 text-muted-foreground">
+      Stopped
+    </span>
+  )
+}
+
 // `status` is absent while a call is in flight. During streaming that means
 // "running"; on a settled message it's a legacy row from before status was
 // recorded, so it must not sit forever as pending.
@@ -463,6 +473,11 @@ export function LorToolTrail({
             >
               <ChainOfThoughtStepTitle icon={<Icon className="size-3.5" />}>
                 {t.label}
+                {t.status === "stopped" && (
+                  <span className="ml-1.5 text-[11px]">
+                    <StoppedBadge />
+                  </span>
+                )}
               </ChainOfThoughtStepTitle>
               {drillable && (
                 <ChainOfThoughtStepContent className="space-y-1">

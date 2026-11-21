@@ -116,7 +116,7 @@ export const lorToolCallSchema = z.object({
       reason: z.string(),
     })
     .optional(),
-  status: z.enum(["ok", "error"]).optional(),
+  status: z.enum(["ok", "error", "stopped"]).optional(),
 })
 
 export const lorReasoningSegmentSchema = z.object({
@@ -200,6 +200,8 @@ export const messageWithAuthorSchema = selectMessageSchema
         model: z.string().nullable().optional(),
         effort: z.string().nullable().optional(),
         fast: z.boolean().optional(),
+        // Set when someone pressed Stop; by is their name.
+        stopped: z.object({ by: z.string().nullable() }).nullable().optional(),
       })
       .nullable()
       .optional(),

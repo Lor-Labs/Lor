@@ -12,6 +12,7 @@ import { Pressable, Text, View } from "react-native"
 export function LorActivity({
   active,
   failed,
+  stopped = false,
   toolCount,
   errorCount,
   workedMs = null,
@@ -19,6 +20,8 @@ export function LorActivity({
 }: {
   active: boolean
   failed: boolean
+  // Someone pressed Stop: the work ended on purpose.
+  stopped?: boolean
   toolCount: number
   errorCount: number
   // The run's wall-clock time once it settled; null for older replies.
@@ -42,13 +45,17 @@ export function LorActivity({
       ? took
         ? `Work interrupted after ${took}`
         : "Work interrupted"
-      : toolCount > 0
+      : stopped
         ? took
-          ? `Worked for ${took}`
-          : "Worked"
-        : took
-          ? `Thought for ${took}`
-          : "Thought process"
+          ? `Stopped after ${took}`
+          : "Stopped"
+        : toolCount > 0
+          ? took
+            ? `Worked for ${took}`
+            : "Worked"
+          : took
+            ? `Thought for ${took}`
+            : "Thought process"
 
   const accessibilityLabel = [
     label,

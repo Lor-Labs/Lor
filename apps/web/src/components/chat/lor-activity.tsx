@@ -19,6 +19,7 @@ import { MorphText } from "@/components/ui/morph-text"
 export function LorActivity({
   active,
   failed,
+  stopped = false,
   toolCount,
   errorCount,
   workedMs = null,
@@ -26,6 +27,8 @@ export function LorActivity({
 }: {
   active: boolean
   failed: boolean
+  // Someone pressed Stop: the work ended on purpose.
+  stopped?: boolean
   toolCount: number
   errorCount: number
   // The run's wall-clock time once it settled; null for older replies.
@@ -57,13 +60,17 @@ export function LorActivity({
       ? took
         ? `Work interrupted after ${took}`
         : "Work interrupted"
-      : toolCount > 0
+      : stopped
         ? took
-          ? `Worked for ${took}`
-          : "Worked"
-        : took
-          ? `Thought for ${took}`
-          : "Thought process"
+          ? `Stopped after ${took}`
+          : "Stopped"
+        : toolCount > 0
+          ? took
+            ? `Worked for ${took}`
+            : "Worked"
+          : took
+            ? `Thought for ${took}`
+            : "Thought process"
 
   return (
     <Collapsible
@@ -105,6 +112,10 @@ export function LorActivity({
           )}
         </span>
       </CollapsibleTrigger>
+      {/* Only for runs seen live, so loading history announces nothing. */}
+      <span aria-live="polite" className="sr-only">
+        {live && stopped ? label : ""}
+      </span>
       <CollapsibleContent>
         <div className="relative mt-3 mb-5 min-w-0 pl-5">
           <span

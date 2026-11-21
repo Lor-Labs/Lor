@@ -553,7 +553,8 @@ export type LorToolCall = {
     sandboxMemoryMb?: number
     reason: string
   }
-  status?: "ok" | "error"
+  // "stopped": cut off by the person's Stop, not a failure.
+  status?: "ok" | "error" | "stopped"
 }
 
 // Streamed tool-trail frame: a start/result frame carries the full row, a
