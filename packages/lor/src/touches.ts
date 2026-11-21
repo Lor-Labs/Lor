@@ -318,9 +318,14 @@ const callTouches = (call: PiToolCallRecord) =>
 
 const MARKDOWN_LINK = /\]\((https?:\/\/[^\s)]+)\)|<(https?:\/\/[^\s>]+)>/g
 const BARE_URL = /https?:\/\/[^\s<>()[\]"']+/g
+const ANY_URL = new RegExp(`${MARKDOWN_LINK.source}|${BARE_URL.source}`, "g")
 
+// A Markdown or <…> link keeps its whole destination, as reply links do; only
+// a URL in prose drops trailing sentence punctuation.
 const bareUrls = (text: string) =>
-  [...text.matchAll(BARE_URL)].map((m) => m[0].replace(/[.,;:!?]+$/, ""))
+  [...text.matchAll(ANY_URL)].map(
+    (m) => m[1] ?? m[2] ?? m[0].replace(/[.,;:!?]+$/, "")
+  )
 
 // Hash and host case are already dropped by the item key; a trailing slash
 // often differs between a pasted link and the one Lor writes.
