@@ -8,8 +8,8 @@ export type ItemRef = { kind: TouchKind; value: string }
 
 // Which hosts belong to each connector. Shared with the web tool trail.
 export const CONNECTOR_URL_HOSTS: Record<IntegrationProvider, RegExp> = {
-  github: /(^|\.)github\.com\b/i,
-  linear: /(^|\.)linear\.app\b/i,
+  github: /(^|\.)github\.com$/i,
+  linear: /(^|\.)linear\.app$/i,
   datadog: /(^|\.)datadoghq\.(com|eu)$/i,
   attio: /(^|\.)attio\.com$/i,
   notion: /(^|\.)notion\.(so|site|com)$/i,
