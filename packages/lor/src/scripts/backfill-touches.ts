@@ -46,16 +46,8 @@ async function main() {
     runCount += runs.length
     if (dryRun) continue
 
-    for (const run of runs) {
-      await recordRunTouches({
-        workspaceId: session.workspaceId,
-        channelId: session.channelId,
-        threadRootId: session.threadRootId,
-        runId: run.id,
-        replyText: run.reply ?? "",
-      })
-    }
-    // Pasted links and the starting context, once per session.
+    // Pasted links and the starting context, once per session, first so a
+    // reply citing a pasted link counts it.
     const prompts = await db
       .select({ content: message.content })
       .from(message)
@@ -75,6 +67,15 @@ async function main() {
       },
       prompts.map((p) => p.content ?? "")
     )
+    for (const run of runs) {
+      await recordRunTouches({
+        workspaceId: session.workspaceId,
+        channelId: session.channelId,
+        threadRootId: session.threadRootId,
+        runId: run.id,
+        replyText: run.reply ?? "",
+      })
+    }
   }
 
   console.log(
