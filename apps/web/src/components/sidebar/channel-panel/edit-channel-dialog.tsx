@@ -459,7 +459,7 @@ export function EditChannelDialog({
                         </div>
                         <div className="space-y-2">
                           <Label>Creature</Label>
-                          <div className="grid grid-cols-6 gap-1.5">
+                          <div className="grid grid-cols-5 gap-1.5">
                             {CREATURES.map((creature) => (
                               <button
                                 key={creature.id}

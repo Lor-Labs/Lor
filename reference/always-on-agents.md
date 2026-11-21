@@ -1047,9 +1047,8 @@ deployed.
 - [x] 7.3 The bestiary (decision 33, built 2026-11-21; touched up the
   same day at Jacob's ask to stay playful but look less childlike: no
   blush, smaller eyes under short brows, smirks instead of wide smiles):
-  12 creatures (dragon, griffin, owl, golem, ghost, wisp, slime, fox
-  spirit, mushroom, automaton, kraken, mimic), 24x24 pixel art with an
-  eyes-shut frame, in
+  10 creatures (dragon, griffin, owl, golem, ghost, slime, fox, mushroom,
+  clanker, kraken), 24x24 pixel art with an eyes-shut frame, in
   `@repo/utils/bestiary`. The web `AgentCreature` draws them as SVG and
   animates the real state in whole sprite pixels: asleep (eyes shut, a
   breath, floating z), working on every turn (hops, sparkles; the worker
