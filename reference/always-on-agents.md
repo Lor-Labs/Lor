@@ -639,8 +639,8 @@ reports back in the chat.
   the code session <title> on <repo>", the title linking to the session
   (event `agent_session_started`, the one Lor-authored event the chat feed
   shows). The session also shows under the channel in the sidebar.
-- [ ] A coding agent on the asker's Claude or ChatGPT plan (decision 16).
-  Sessions the agent starts run on Lor's own agent for now.
+- [x] A coding agent on the asker's Claude or ChatGPT plan (decision 16).
+  Done in step 7.4 (2026-11-21).
 
 Checked 2026-11-19 and 11-20 in a test channel on the dev database: the
 tool listing and its reasons, sessions started on a real repository
@@ -1016,6 +1016,13 @@ the bot's token in the session env).
   Approve and Reject buttons in Discord; a click by a linked person goes
   through the same `resolveApproval` as Lor's card.
 
+People mention the agent by its own name (2026-11-21, Jacob): linking also
+makes a mentionable role named after the agent (@Inky), held only by the
+bot so it pings no one, renamed with the agent and deleted on unlink
+(`syncAgentRole`). Mentioning the bot itself (@Lor) still works. This adds
+Manage Roles to the bot's permissions; a server that added it before must
+add it again, and until then only the bot's mention works.
+
 Deviations: the agent posts through a webhook, so its messages can't use
 Discord's reply (webhooks can't); it mentions the person instead. The
 webhook avatar follows the creature (re-uploaded on change), since a
@@ -1080,6 +1087,7 @@ deployed.
      (decision 31).
   2. Optional env: `DISCORD_BOT_TOKEN` and `DISCORD_APPLICATION_ID` on the
      API and worker (Message Content intent on, no interactions endpoint).
+     The invite asks for seven permissions, `805391424`.
      Without them Discord stays hidden.
   3. Redeploy API, realtime, worker, web/desktop and mobile together; drain
      the worker first so no old-code turn runs.

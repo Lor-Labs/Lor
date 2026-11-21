@@ -31,6 +31,7 @@ import {
   searchConnector,
   searchConnectorFiles as searchFiles,
 } from "@repo/lor/connector-search"
+import { syncAgentRole } from "@repo/lor/discord"
 import { isLorCreditModel } from "@repo/lor/model-catalog"
 import {
   channelRoom,
@@ -606,6 +607,13 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
     )
   }
   const { prior, updated } = result
+
+  // A Discord-linked channel's @mention role follows the agent's new name.
+  if (body.agentName !== undefined || body.agentCreature !== undefined) {
+    void syncAgentRole(channelId).catch((err: unknown) =>
+      logger.warn({ err, channelId }, "Discord agent role rename failed")
+    )
+  }
 
   if (
     updated.type !== "category" &&

@@ -11,13 +11,15 @@ import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 const API = "https://discord.com/api/v10"
 
 // What the bot asks for when it is added to a server: read and write the
-// channel, and make the webhook the agent posts through.
+// channel, make the webhook the agent posts through, and the role people
+// mention the agent by.
 const INVITE_PERMISSIONS =
   (1n << 6n) | // add reactions
   (1n << 10n) | // view channels
   (1n << 11n) | // send messages
   (1n << 14n) | // embed links
   (1n << 16n) | // read message history
+  (1n << 28n) | // manage roles
   (1n << 29n) // manage webhooks
 
 export const DISCORD_ADMINISTRATOR = 1n << 3n
@@ -154,10 +156,80 @@ export async function createAgentWebhook(input: {
   }
 }
 
-export async function deleteAgentWebhook(link: DiscordLink) {
+// What linking made in the Discord server: the webhook and the agent's role.
+export async function deleteLinkResources(link: DiscordLink) {
   await discordRequest(`/webhooks/${link.webhookId}`, {
     method: "DELETE",
   }).catch(() => {})
+  if (link.agentRoleId) {
+    await discordRequest(`/guilds/${link.guildId}/roles/${link.agentRoleId}`, {
+      method: "DELETE",
+    }).catch(() => {})
+  }
+}
+
+const ROLE_RETRY_MS = 10 * 60_000
+const roleFailures = new Map<string, number>()
+
+let botUser: Promise<string> | null = null
+function botUserId() {
+  botUser ??= discordRequest<{ id: string }>("/users/@me").then(
+    (me) => me.id,
+    (err: unknown) => {
+      botUser = null
+      throw err
+    }
+  )
+  return botUser
+}
+
+// The role people mention the agent by in Discord (@Inky): made when the
+// channel links, given to the bot so it pings no one, renamed with the
+// agent. Mentioning the bot itself works too. Returns the role id, or null
+// when the server didn't grant Manage Roles.
+export async function syncAgentRole(channelId: string): Promise<string | null> {
+  if (!discordConfigured()) return null
+  const link = await discordLinkFor(channelId)
+  if (!link) return null
+  const [channel] = await db
+    .select({
+      id: schema.channel.id,
+      agentName: schema.channel.agentName,
+      agentCreature: schema.channel.agentCreature,
+    })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, channelId))
+  if (!channel) return null
+  const name = channelAgentIdentity(channel).name.slice(0, 100)
+  if (link.agentRoleId && link.agentRoleName === name) return link.agentRoleId
+  // A server that didn't grant Manage Roles is asked again at most every
+  // 10 minutes, not on every post.
+  const failedAt = roleFailures.get(channelId) ?? 0
+  if (!link.agentRoleId && Date.now() - failedAt < ROLE_RETRY_MS) return null
+  if (link.agentRoleId) {
+    await discordRequest(`/guilds/${link.guildId}/roles/${link.agentRoleId}`, {
+      method: "PATCH",
+      body: { name },
+    })
+  } else {
+    const role = await discordRequest<{ id: string }>(
+      `/guilds/${link.guildId}/roles`,
+      { method: "POST", body: { name, mentionable: true, permissions: "0" } }
+    ).catch((err: unknown) => {
+      roleFailures.set(channelId, Date.now())
+      throw err
+    })
+    await discordRequest(
+      `/guilds/${link.guildId}/members/${await botUserId()}/roles/${role.id}`,
+      { method: "PUT" }
+    ).catch(() => {})
+    link.agentRoleId = role.id
+  }
+  await db
+    .update(schema.channelDiscordLink)
+    .set({ agentRoleId: link.agentRoleId, agentRoleName: name })
+    .where(eq(schema.channelDiscordLink.channelId, channelId))
+  return link.agentRoleId
 }
 
 // Lor's text for Discord: people mentioned by id become Discord mentions
@@ -247,6 +319,7 @@ export async function postAgentToDiscord(input: {
     .where(eq(schema.channel.id, input.channelId))
   if (!channel) return null
   const identity = channelAgentIdentity(channel)
+  await syncAgentRole(input.channelId).catch(() => {})
   // Discord's webhook avatar can't be set per message without a public URL,
   // so the webhook's own avatar follows the creature.
   if (link.webhookCreature !== identity.creature) {

@@ -5,12 +5,13 @@ import {
   createAgentWebhook,
   DISCORD_ADMINISTRATOR,
   DISCORD_MANAGE_CHANNELS,
-  deleteAgentWebhook,
+  deleteLinkResources,
   discordLinkByDiscordChannel,
   discordLinkFor,
   discordRequest,
   LINKABLE_CHANNEL_TYPES,
   postAgentToDiscord,
+  syncAgentRole,
 } from "@repo/lor/discord"
 import { channelRoom } from "@repo/realtime-types"
 import { channelAgentIdentity } from "@repo/utils/bestiary"
@@ -213,7 +214,7 @@ export async function unlinkDiscord(channelId: string) {
   await db
     .delete(schema.channelDiscordLink)
     .where(eq(schema.channelDiscordLink.channelId, channelId))
-  await deleteAgentWebhook(link)
+  await deleteLinkResources(link)
   await notifyLinkChanged(channelId)
   return true
 }
@@ -293,14 +294,20 @@ async function handleLink(
     linkedById: data.userId,
   })
   await notifyLinkChanged(channel.id)
+  const roleId = await syncAgentRole(channel.id).catch((err: unknown) => {
+    logger.warn({ err, channelId: channel.id }, "Discord agent role failed")
+    return null
+  })
   await reply(
     interaction,
-    `Linked to #${channel.name ?? "channel"} in Lor. Its chat lives here now, and ${identity.name} answers when someone mentions @${botName} or replies to it.`
+    roleId
+      ? `Linked to #${channel.name ?? "channel"} in Lor. Its chat lives here now, and ${identity.name} answers when someone mentions @${identity.name} or @${botName}, or replies to it.`
+      : `Linked to #${channel.name ?? "channel"} in Lor. Its chat lives here now, and ${identity.name} answers when someone mentions @${botName} or replies to it. To mention it as @${identity.name}, add Lor to this server again with its Manage Roles permission.`
   )
   await postAgentToDiscord({
     channelId: channel.id,
     messageId: null,
-    content: `Hi, I'm ${identity.name}, this channel's agent from Lor. Mention @${botName} or reply to me, and I'll answer here.`,
+    content: `Hi, I'm ${identity.name}, this channel's agent from Lor. Mention ${roleId ? `<@&${roleId}>` : `@${botName}`} or reply to me, and I'll answer here.`,
   }).catch((err) =>
     logger.warn({ err, channelId: channel.id }, "Discord hello failed")
   )

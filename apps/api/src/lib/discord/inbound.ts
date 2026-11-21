@@ -82,6 +82,7 @@ async function lorUsersFor(discordUserIds: string[]) {
 function fromDiscordContent(
   event: DiscordMessageEvent,
   botUserId: string,
+  agentRoleId: string | null,
   lorIds: Map<string, string>
 ) {
   const names = new Map(
@@ -93,7 +94,9 @@ function fromDiscordContent(
       const lorId = lorIds.get(id)
       return lorId ? `<@${lorId}>` : `@${names.get(id) ?? "someone"}`
     })
-    .replace(/<@&\d+>/g, "@role")
+    .replace(/<@&(\d+)>/g, (_, id: string) =>
+      id === agentRoleId ? `<@${LOR_USER_ID}>` : "@role"
+    )
     .replace(/<#(\d+)>/g, "#channel")
     .replace(/<a?:(\w+):\d+>/g, ":$1:")
   for (const file of event.attachments ?? []) {
@@ -142,7 +145,7 @@ async function mirrorInto(
     (await userCanAccessChannel(link.channelId, linkedAuthor))
       ? linkedAuthor
       : null
-  const content = fromDiscordContent(event, botUserId, lorIds)
+  const content = fromDiscordContent(event, botUserId, link.agentRoleId, lorIds)
   if (!content) return
 
   const referenced = event.message_reference?.message_id

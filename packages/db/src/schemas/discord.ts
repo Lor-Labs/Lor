@@ -32,6 +32,10 @@ export const channelDiscordLink = pgTable(
     webhookToken: text("webhook_token").notNull(),
     // The creature the webhook's avatar shows, so a change re-uploads it.
     webhookCreature: text("webhook_creature"),
+    // A mentionable role named after the agent, held by the bot, so people
+    // can write @Inky; and the name it has, so a rename follows.
+    agentRoleId: text("agent_role_id"),
+    agentRoleName: text("agent_role_name"),
     linkedById: uuid("linked_by_id").references(() => user.id, {
       onDelete: "set null",
     }),
