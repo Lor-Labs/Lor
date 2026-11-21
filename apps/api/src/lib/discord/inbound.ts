@@ -4,19 +4,23 @@ import { ensureCheckInLoop } from "@repo/lor/check-in"
 import {
   type DiscordLink,
   discordLinkByDiscordChannel,
+  discordLinkFor,
 } from "@repo/lor/discord"
 import {
   buildMessageFanout,
+  loadThreadSummary,
   sendMessagePushNotifications,
 } from "@repo/messaging"
 import {
   channelRoom,
   type RealtimeMessage,
+  threadRoom,
   userRoom,
 } from "@repo/realtime-types"
 import { AGENT_INBOX_BATCH_MS } from "@repo/realtime-types/queues"
 import { flushAgentInbox } from "@/lib/agent-inbox-queue"
 import { getEmitter } from "@/lib/bot-messages"
+import { threadInfo } from "@/lib/discord/threads"
 import { logger } from "@/lib/logger"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import { getRedisClient } from "@/lib/redis"
@@ -115,10 +119,12 @@ export async function mirrorDiscordMessage(
 ) {
   if (event.type !== 0 && event.type !== 19) return
   if (event.author.id === botUserId) return
-  const link = await discordLinkByDiscordChannel(event.channel_id)
+  const direct = await discordLinkByDiscordChannel(event.channel_id)
+  const link = direct ?? (await threadParentLink(event.channel_id))
   if (!link) return
   if (event.webhook_id && event.webhook_id === link.webhookId) return
-  await mirrorInto(link, event, botUserId).catch((err) =>
+  const threadId = direct ? null : event.channel_id
+  await mirrorInto(link, event, botUserId, threadId).catch((err) =>
     logger.error(
       { err, channelId: link.channelId, discordMessageId: event.id },
       "Discord message mirror failed"
@@ -126,10 +132,51 @@ export async function mirrorDiscordMessage(
   )
 }
 
+// The linked channel above a Discord thread: from the gateway's thread list,
+// else from a thread already mirrored.
+async function threadParentLink(threadId: string): Promise<DiscordLink | null> {
+  const info = threadInfo(threadId)
+  if (info) return discordLinkByDiscordChannel(info.parentId)
+  const [known] = await db
+    .select({ channelId: schema.discordThread.channelId })
+    .from(schema.discordThread)
+    .where(eq(schema.discordThread.discordThreadId, threadId))
+  return known ? discordLinkFor(known.channelId) : null
+}
+
+// The Lor thread a Discord thread maps to: one mirrored before, or the Lor
+// copy of its starter message (a thread started from a message shares its
+// id). Null when neither exists: the first message becomes the root.
+async function threadRootFor(
+  threadId: string,
+  channelId: string
+): Promise<string | null> {
+  const [known] = await db
+    .select({ rootId: schema.discordThread.threadRootId })
+    .from(schema.discordThread)
+    .where(eq(schema.discordThread.discordThreadId, threadId))
+  if (known) return known.rootId
+  const [starter] = await db
+    .select({ id: schema.message.id })
+    .from(schema.discordMessage)
+    .innerJoin(
+      schema.message,
+      eq(schema.message.id, schema.discordMessage.messageId)
+    )
+    .where(eq(schema.discordMessage.discordMessageId, threadId))
+  if (!starter) return null
+  await db
+    .insert(schema.discordThread)
+    .values({ discordThreadId: threadId, channelId, threadRootId: starter.id })
+    .onConflictDoNothing()
+  return starter.id
+}
+
 async function mirrorInto(
   link: DiscordLink,
   event: DiscordMessageEvent,
-  botUserId: string
+  botUserId: string,
+  threadId: string | null
 ) {
   const discordIds = [
     event.author.id,
@@ -174,6 +221,10 @@ async function mirrorInto(
         .then((rows) => rows[0] ?? null)
     : null
 
+  const threadRootId = threadId
+    ? await threadRootFor(threadId, link.channelId)
+    : null
+
   const authorId = asPerson ?? APP_USER_ID
   const override = asPerson
     ? null
@@ -189,6 +240,7 @@ async function mirrorInto(
       content,
       type: referenced ? "reply" : "default",
       referencedMessageId: referenced?.id ?? null,
+      threadRootId,
       clientKey: `discord:${event.id}`,
       ...(override ?? {}),
     })
@@ -203,6 +255,17 @@ async function mirrorInto(
       channelId: link.channelId,
     })
     .onConflictDoNothing()
+  // A thread whose starter was never mirrored: this message is its root.
+  if (threadId && !threadRootId) {
+    await db
+      .insert(schema.discordThread)
+      .values({
+        discordThreadId: threadId,
+        channelId: link.channelId,
+        threadRootId: inserted.id,
+      })
+      .onConflictDoNothing()
+  }
 
   const [author] = await db
     .select({
@@ -242,6 +305,7 @@ async function mirrorInto(
           image: override?.overrideAvatarUrl ?? author.image,
         },
         attachments: [],
+        threadRootId,
       },
       redis,
     })
@@ -295,16 +359,40 @@ async function mirrorInto(
           overrideAvatarUrl: referenced.overrideAvatarUrl,
         }
       : null,
-    threadRootId: null,
+    threadRootId,
   }
-  io.to(channelRoom(link.channelId)).emit("message:created", message)
+  if (threadRootId) {
+    // A reply reaches the thread's room; the chat learns of it through the
+    // thread summary.
+    io.to(threadRoom(threadRootId)).emit("message:created", message)
+    await loadThreadSummary(link.channelId, threadRootId)
+      .then((summary) =>
+        io
+          .to(channelRoom(link.channelId))
+          .emit("message:thread:updated", summary)
+      )
+      .catch(() => {})
+  } else {
+    io.to(channelRoom(link.channelId)).emit("message:created", message)
+  }
 
   // Into the agent's inbox: a mention of the bot or a reply to the agent
   // wakes it, anything else waits unless the channel wakes it every time.
   void ensureCheckInLoop(link.channelId).catch(() => {})
+  // In a thread only a mention, a reply to the agent, or a thread under one
+  // of its messages reaches it, as in Lor's own threads.
+  const rootIsAgent = threadRootId
+    ? await db
+        .select({ authorId: schema.message.authorId })
+        .from(schema.message)
+        .where(eq(schema.message.id, threadRootId))
+        .then((rows) => rows[0]?.authorId === LOR_USER_ID)
+    : false
   const addressed =
     content.includes(`<@${LOR_USER_ID}>`) ||
-    referenced?.authorId === LOR_USER_ID
+    referenced?.authorId === LOR_USER_ID ||
+    rootIsAgent
+  if (threadRootId && !addressed) return
   const everyMessage = addressed
     ? false
     : await db

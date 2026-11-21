@@ -125,7 +125,7 @@ function showTyping(
   const emit = () => {
     if (Date.now() < pausedUntil) return
     // Discord's typing lasts about 10s a call.
-    if (!threadRootId && beats++ % 3 === 0) void showDiscordTyping(channelId)
+    if (beats++ % 3 === 0) void showDiscordTyping(channelId, threadRootId)
     deps.emitter
       .to(threadRootId ? threadRoom(threadRootId) : channelRoom(channelId))
       .emit("typing:update", {
@@ -564,11 +564,11 @@ function agentHooks(
       })
       onSent()
       // A chat that lives in Discord gets the post there too (decision 22).
-      if (turn.threadRootId) return posted
       const discordError = await postAgentToDiscord({
         channelId: channel.id,
         messageId: posted.messageId,
         content,
+        threadRootId: turn.threadRootId,
       }).then(
         () => undefined,
         (err: unknown) => {
@@ -640,13 +640,12 @@ export async function runAgentTurnJob(
       ...(threadRootId ? { threadRootId } : {}),
     })
       .then((posted) =>
-        threadRootId
-          ? undefined
-          : postAgentToDiscord({
-              channelId,
-              messageId: posted.messageId,
-              content,
-            })
+        postAgentToDiscord({
+          channelId,
+          messageId: posted.messageId,
+          content,
+          threadRootId,
+        })
       )
       .catch((err) => logger.error({ err, runId }, "Agent notice failed"))
   // A Loop fire's turn counts toward the Loop's health: five failures in a
@@ -800,6 +799,7 @@ export async function runAgentTurnJob(
           channelId,
           messageId: null,
           content: `Approval needed: ${approval.description}`,
+          threadRootId,
           buttons: [
             {
               customId: `lor-approval:${approval.id}:approved`,

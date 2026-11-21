@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto"
 import { env } from "@repo/env/server"
-import { discordConfigured, discordRequest } from "@repo/lor/discord"
+import {
+  discordConfigured,
+  discordLinkByDiscordChannel,
+  discordRequest,
+} from "@repo/lor/discord"
 import {
   type DiscordMessageEvent,
   mirrorDiscordMessage,
@@ -10,6 +14,12 @@ import {
   handleDiscordInteraction,
   LOR_COMMANDS,
 } from "@/lib/discord/interactions"
+import {
+  type DiscordThreadEvent,
+  forgetThread,
+  joinThread,
+  rememberThread,
+} from "@/lib/discord/threads"
 import { logger } from "@/lib/logger"
 import { getRedisClient } from "@/lib/redis"
 
@@ -176,6 +186,35 @@ class DiscordGateway {
           logger.error({ err }, "Discord command registration failed")
         )
       }
+      return
+    }
+    if (type === "GUILD_CREATE") {
+      for (const thread of (data as { threads?: DiscordThreadEvent[] })
+        .threads ?? []) {
+        rememberThread(thread)
+      }
+      return
+    }
+    if (type === "THREAD_LIST_SYNC") {
+      for (const thread of (data as { threads?: DiscordThreadEvent[] })
+        .threads ?? []) {
+        rememberThread(thread)
+      }
+      return
+    }
+    if (type === "THREAD_CREATE" || type === "THREAD_UPDATE") {
+      const thread = data as DiscordThreadEvent
+      rememberThread(thread)
+      // Joined in linked channels, so every message there reaches the bot.
+      if (type === "THREAD_CREATE" && thread.parent_id) {
+        void discordLinkByDiscordChannel(thread.parent_id).then((link) => {
+          if (link) void joinThread(thread.id)
+        })
+      }
+      return
+    }
+    if (type === "THREAD_DELETE") {
+      forgetThread((data as { id: string }).id)
       return
     }
     if (type === "MESSAGE_CREATE") {

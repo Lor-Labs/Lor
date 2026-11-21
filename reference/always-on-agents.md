@@ -390,7 +390,7 @@ there.
   Lor account. Approvals can be buttons on the agent's message.
 - **Unlinking** unlocks the Lor composer. The Discord-era messages stay.
 
-Left out at first: typing in Lor while Discord is linked, Discord threads,
+Left out at first: typing in Lor while Discord is linked,
 and direct messages to the bot.
 
 A Discord bot gets message text in direct messages and when mentioned with
@@ -1027,8 +1027,21 @@ Deviations: the agent posts through a webhook, so its messages can't use
 Discord's reply (webhooks can't); it mentions the person instead. The
 webhook avatar follows the creature (re-uploaded on change), since a
 per-message avatar needs a public image URL. Not done: mobile's composer
-lock (the server refuses the send), Discord threads, DMs to the bot, edits
+lock (the server refuses the send), private threads, DMs to the bot, edits
 and deletes in Discord, and attachments beyond links.
+
+Discord threads (2026-11-21, Jacob, before the batch ships): a public thread
+under a linked channel mirrors as a Lor thread (`discord_thread`). Its root
+is the Lor copy of the thread's starter message, or the thread's first
+message when the starter was never mirrored. The API keeps the bot's public
+threads from GUILD_CREATE and THREAD_* events (`apps/api/src/lib/discord/
+threads.ts`) and joins new ones in linked channels. In a thread the agent
+wakes by Lor's own thread rule (a mention or @role, a reply to it, or a
+thread under one of its messages) and answers there: its posts, typing,
+notices and approval buttons go to that Discord thread. It doesn't start
+threads itself. Lor's thread panel shows "This thread lives in Discord"
+where the composer was. Typing in threads adds Send Messages in Threads to
+the bot's permissions.
 
 **Slice 7: before the batch ships** (Jacob, 2026-11-21)
 
@@ -1087,7 +1100,7 @@ deployed.
      (decision 31).
   2. Optional env: `DISCORD_BOT_TOKEN` and `DISCORD_APPLICATION_ID` on the
      API and worker (Message Content intent on, no interactions endpoint).
-     The invite asks for seven permissions, `805391424`.
+     The invite asks for eight permissions, `275683298368`.
      Without them Discord stays hidden.
   3. Redeploy API, realtime, worker, web/desktop and mobile together; drain
      the worker first so no old-code turn runs.

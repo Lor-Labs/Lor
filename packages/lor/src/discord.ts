@@ -20,7 +20,8 @@ const INVITE_PERMISSIONS =
   (1n << 14n) | // embed links
   (1n << 16n) | // read message history
   (1n << 28n) | // manage roles
-  (1n << 29n) // manage webhooks
+  (1n << 29n) | // manage webhooks
+  (1n << 38n) // send messages in threads (typing there)
 
 export const DISCORD_ADMINISTRATOR = 1n << 3n
 export const DISCORD_MANAGE_CHANNELS = 1n << 4n
@@ -305,10 +306,17 @@ export async function postAgentToDiscord(input: {
   messageId: string | null
   content: string
   buttons?: DiscordButton[]
+  // The Lor thread the agent answers in: the post goes to its Discord
+  // thread. Skipped when that thread isn't one Discord has.
+  threadRootId?: string | null
 }): Promise<{ discordMessageId: string } | null> {
   if (!discordConfigured()) return null
   const link = await discordLinkFor(input.channelId)
   if (!link) return null
+  const threadId = input.threadRootId
+    ? await discordThreadForRoot(input.threadRootId)
+    : null
+  if (input.threadRootId && !threadId) return null
   const [channel] = await db
     .select({
       id: schema.channel.id,
@@ -339,7 +347,7 @@ export async function postAgentToDiscord(input: {
   for (const [index, part] of parts.entries()) {
     const last = index === parts.length - 1
     const posted = await discordRequest<{ id: string }>(
-      `/webhooks/${link.webhookId}/${token}?wait=true&with_components=true`,
+      `/webhooks/${link.webhookId}/${token}?wait=true&with_components=true${threadId ? `&thread_id=${threadId}` : ""}`,
       {
         method: "POST",
         bot: false,
@@ -380,14 +388,32 @@ export async function postAgentToDiscord(input: {
   return first ? { discordMessageId: first } : null
 }
 
-// "Lor is typing" in Discord, which lasts about 10 seconds a call.
-export async function showDiscordTyping(channelId: string) {
+// "Lor is typing" in Discord, in the chat or the thread the turn answers in.
+// It lasts about 10 seconds a call.
+export async function showDiscordTyping(
+  channelId: string,
+  threadRootId: string | null = null
+) {
   if (!discordConfigured()) return
   const link = await discordLinkFor(channelId)
   if (!link) return
-  await discordRequest(`/channels/${link.discordChannelId}/typing`, {
+  const target = threadRootId
+    ? await discordThreadForRoot(threadRootId)
+    : link.discordChannelId
+  if (!target) return
+  await discordRequest(`/channels/${target}/typing`, {
     method: "POST",
   }).catch(() => {})
+}
+
+export async function discordThreadForRoot(
+  threadRootId: string
+): Promise<string | null> {
+  const [row] = await db
+    .select({ id: schema.discordThread.discordThreadId })
+    .from(schema.discordThread)
+    .where(eq(schema.discordThread.threadRootId, threadRootId))
+  return row?.id ?? null
 }
 
 export function isLorMention(content: string) {

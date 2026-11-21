@@ -1,6 +1,7 @@
 import {
   Copy01Icon,
   CornerUpRightIcon,
+  DiscordIcon,
   MoreHorizontalIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -61,6 +62,7 @@ import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useCallSummary } from "@/hooks/use-call-summary"
+import { useChannelDiscord } from "@/hooks/use-channel-discord"
 import { useConversationScroll } from "@/hooks/use-conversation-scroll"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
@@ -436,6 +438,12 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
     view.channelId,
     { broadcasts: true }
   )
+  // A chat that lives in Discord keeps its threads there too.
+  const { data: discord } = useChannelDiscord(
+    view.workspaceSlug,
+    view.channelId,
+    channel?.type === "text"
+  )
   const channelPeople = useChannelPeople(view.workspaceSlug, view.channelId)
   // The writer and the people they mention join the subscribers before the
   // server answers. @Lor starts a new session instead, so it skips this.
@@ -575,7 +583,28 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
     )
   }
 
-  const composer = (
+  const composer = discord?.link ? (
+    <div className="px-3 pt-1 pb-4">
+      <div className="flex items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2.5 text-sm">
+        <HugeiconsIcon
+          icon={DiscordIcon}
+          className="size-4 shrink-0 text-[#5865F2]"
+          strokeWidth={2}
+        />
+        <span className="min-w-0 flex-1 text-muted-foreground text-xs">
+          This thread lives in Discord.
+        </span>
+        <a
+          href={discord.link.url}
+          target="_blank"
+          rel="noreferrer"
+          className="shrink-0 font-medium text-primary text-xs underline-offset-2 hover:underline"
+        >
+          Open in Discord
+        </a>
+      </div>
+    </div>
+  ) : (
     <>
       <TypingIndicator users={typingUsers} className="from-sidebar" />
       <MessageInput

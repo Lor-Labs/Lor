@@ -72,3 +72,18 @@ export const discordAccount = pgTable("discord_account", {
   username: text("username").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 })
+
+// A Discord thread under a linked channel and the Lor thread that mirrors
+// it: its root is the Lor copy of the thread's starter message, or of its
+// first message when the starter was never mirrored.
+export const discordThread = pgTable("discord_thread", {
+  discordThreadId: text("discord_thread_id").primaryKey(),
+  channelId: uuid("channel_id")
+    .notNull()
+    .references(() => channel.id, { onDelete: "cascade" }),
+  threadRootId: uuid("thread_root_id")
+    .notNull()
+    .unique()
+    .references(() => message.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+})
