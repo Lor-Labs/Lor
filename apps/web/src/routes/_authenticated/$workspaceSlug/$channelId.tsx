@@ -566,14 +566,17 @@ function ChannelView() {
   }, [channelId, clearReply])
 
   const fileUpload = useFileUpload(channelId)
-  // A chat that lives in Discord is read-only here (decision 22).
-  // Until its status loads, the composer waits rather than offer a chat
-  // that may live in Discord.
-  const { data: discord, isLoading: discordLoading } = useChannelDiscord(
+  // A chat that lives in Discord is read-only here (decision 22). The
+  // composer shows only once Lor knows the chat isn't linked: loading or a
+  // failed check is not "unlinked".
+  const discordEnabled = data?.type === "text"
+  const discordQuery = useChannelDiscord(
     workspaceSlug,
     channelId,
-    data?.type === "text"
+    discordEnabled
   )
+  const discord = discordQuery.data
+  const discordUnknown = discordEnabled && !discord
 
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
@@ -590,7 +593,7 @@ function ChannelView() {
     noKeyboard: true,
     // Only while a composer is there to take the files.
     noDrag:
-      Boolean(data?.archivedAt) || discordLoading || Boolean(discord?.link),
+      Boolean(data?.archivedAt) || discordUnknown || Boolean(discord?.link),
   })
 
   const mentionCandidates = useMentionCandidates(workspaceSlug, channelId)
@@ -709,8 +712,26 @@ function ChannelView() {
               </span>
             </div>
           </div>
-        ) : discordLoading ? (
-          <div className="h-[72px]" />
+        ) : discordUnknown ? (
+          discordQuery.isError ? (
+            <div className="px-4 pt-1 pb-5">
+              <div className="flex items-center gap-3 rounded-xl border bg-muted/40 px-4 py-3 text-muted-foreground text-sm">
+                <span className="min-w-0 flex-1">
+                  Couldn't check whether this chat lives in Discord.
+                </span>
+                <button
+                  type="button"
+                  disabled={discordQuery.isFetching}
+                  onClick={() => void discordQuery.refetch()}
+                  className="shrink-0 cursor-pointer font-medium text-primary underline-offset-2 hover:underline disabled:cursor-default disabled:opacity-60"
+                >
+                  Try again
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="h-[72px]" />
+          )
         ) : discord?.link ? (
           <div className="px-4 pt-1 pb-5">
             <div className="flex items-center gap-3 rounded-xl border bg-muted/40 px-4 py-3 text-sm">
