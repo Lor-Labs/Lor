@@ -134,15 +134,14 @@ function SetupPage() {
     ? (textChannelIdNamed(channels, "engineering") ??
       firstTextChannelId(channels))
     : null
-  // A question for Lor opens the New session view with it filled in.
+  // A question for Lor opens the channel with "@Lor <question>" in the
+  // composer: the channel's agent answers in the chat.
   const askLor = (question: string) => {
+    if (!askChannelId) return
     void navigate({
-      to: "/$workspaceSlug/session/new",
-      params: { workspaceSlug },
-      search: {
-        draft: question,
-        ...(askChannelId ? { channelId: askChannelId } : {}),
-      },
+      to: "/$workspaceSlug/$channelId",
+      params: { workspaceSlug, channelId: askChannelId },
+      search: { draft: question },
     })
   }
 

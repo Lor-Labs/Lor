@@ -115,7 +115,7 @@ export const updateLoop = createRoute({
   method: "patch",
   summary: "Edit a loop",
   description:
-    "Updates the schedule, instructions, name, or the model its runs use (a key: model runs on the workspace's own key). Schedule edits re-validate; on active loops the next run is recomputed, and a sub-hourly cadence that got tighter needs confirmHighFrequency again. Completed loops are immutable.",
+    "Updates the schedule, instructions, or name. Schedule edits re-validate; on active loops the next run is recomputed, and a sub-hourly cadence that got tighter needs confirmHighFrequency again. Completed loops are immutable.",
   tags: ["Loops"],
   middleware: [sessionAuthMiddleware] as const,
   request: {

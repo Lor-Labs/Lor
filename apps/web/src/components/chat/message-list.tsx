@@ -152,8 +152,8 @@ function EmptyState({
         {onNewSession && (
           <div className="mt-2 flex max-w-md flex-col items-start gap-3">
             <p className="text-sm text-pretty text-muted-foreground">
-              This chat is for your team. Lor works in sessions, next to the
-              chat. Mention @Lor in a message, or start a session here.
+              This chat is for your team and Lor. Mention @Lor to ask it
+              something, or start a code session here.
             </p>
             <Button variant="secondary" size="sm" onClick={onNewSession}>
               <img src="/lor-mark.svg" alt="" className="size-3.5" />

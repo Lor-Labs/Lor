@@ -329,6 +329,8 @@ export function createExportToolResultTool(opts: {
         return { error: "the file couldn't be stored; try again" }
       }
     },
-    strict: true,
+    // Not strict: `args` is free-form, which strict mode can't express, and
+    // Anthropic's API rejects the tool (and the whole request) when it is.
+    strict: false,
   })
 }

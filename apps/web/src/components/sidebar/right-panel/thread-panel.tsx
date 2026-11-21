@@ -1,6 +1,7 @@
 import {
   Copy01Icon,
   CornerUpRightIcon,
+  DiscordIcon,
   MoreHorizontalIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -37,6 +38,7 @@ import {
   useSyncExternalStore,
 } from "react"
 import { useDropzone } from "react-dropzone"
+import { ChannelAgentProvider } from "@/components/agent/channel-agent"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { ConversationMessages } from "@/components/chat/conversation-messages"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
@@ -48,7 +50,6 @@ import {
 } from "@/components/chat/message-scroller-controls"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
-import { SessionStartedNote } from "@/components/session/session-started-note"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type {
@@ -61,6 +62,7 @@ import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useCallSummary } from "@/hooks/use-call-summary"
+import { useChannelDiscord } from "@/hooks/use-channel-discord"
 import { useConversationScroll } from "@/hooks/use-conversation-scroll"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
@@ -73,7 +75,6 @@ import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useReplyState } from "@/hooks/use-reply-state"
-import { useSessionStart } from "@/hooks/use-session-start"
 import { useStableCallback } from "@/hooks/use-stable-callback"
 import {
   type FetchPageParams,
@@ -151,7 +152,14 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       </>
     )
   }
-  return <EnabledThreadPanel view={view} />
+  return (
+    <ChannelAgentProvider
+      workspaceSlug={view.workspaceSlug}
+      channelId={view.channelId}
+    >
+      <EnabledThreadPanel view={view} />
+    </ChannelAgentProvider>
+  )
 }
 
 function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
@@ -224,11 +232,6 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
   const { data: channel } = useQuery(
     channelQueryOptions(view.workspaceSlug, view.channelId)
   )
-  // @Lor in a human thread starts a session seeded with the thread.
-  const sessionStart = useSessionStart({
-    workspaceSlug: view.workspaceSlug,
-    channel: { id: view.channelId, name: channel?.name ?? null },
-  })
   const { handleSend, pendingNonces } = useMessageSending({
     socket,
     queryClient,
@@ -240,7 +243,6 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
       void queryClient.invalidateQueries({
         queryKey: threadSubscribersKey(view.threadRootId),
       }),
-    sessionStart: channel?.type === "text" ? sessionStart.handlers : undefined,
   })
 
   const {
@@ -436,6 +438,14 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
     view.channelId,
     { broadcasts: true }
   )
+  // A chat that lives in Discord keeps its threads there too.
+  // Until its status loads, the composer waits rather than offer a chat
+  // that may live in Discord.
+  const { data: discord, isLoading: discordLoading } = useChannelDiscord(
+    view.workspaceSlug,
+    view.channelId,
+    channel?.type === "text"
+  )
   const channelPeople = useChannelPeople(view.workspaceSlug, view.channelId)
   // The writer and the people they mention join the subscribers before the
   // server answers. @Lor starts a new session instead, so it skips this.
@@ -485,15 +495,6 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
       if (nonce) showSendEffects(options)
       scroll.scrollAfterSend()
     }
-  )
-  const composerNotice = useMemo(
-    () => (
-      <SessionStartedNote
-        session={sessionStart.started}
-        workspaceSlug={view.workspaceSlug}
-      />
-    ),
-    [sessionStart.started, view.workspaceSlug]
   )
 
   const channelContext = useMemo(
@@ -584,7 +585,30 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
     )
   }
 
-  const composer = (
+  const composer = discordLoading ? (
+    <div className="h-16" />
+  ) : discord?.link ? (
+    <div className="px-3 pt-1 pb-4">
+      <div className="flex items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2.5 text-sm">
+        <HugeiconsIcon
+          icon={DiscordIcon}
+          className="size-4 shrink-0 text-[#5865F2]"
+          strokeWidth={2}
+        />
+        <span className="min-w-0 flex-1 text-muted-foreground text-xs">
+          This thread lives in Discord.
+        </span>
+        <a
+          href={discord.link.url}
+          target="_blank"
+          rel="noreferrer"
+          className="shrink-0 font-medium text-primary text-xs underline-offset-2 hover:underline"
+        >
+          Open in Discord
+        </a>
+      </div>
+    </div>
+  ) : (
     <>
       <TypingIndicator users={typingUsers} className="from-sidebar" />
       <MessageInput
@@ -597,7 +621,6 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
         contextScopeKey={view.threadRootId}
         placeholder={composerPlaceholder}
         destination={channel?.type === "text" ? "thread" : undefined}
-        notice={composerNotice}
         onSend={onComposerSend}
         currentUserId={currentUserId}
         replyingTo={replyingTo}

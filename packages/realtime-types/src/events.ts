@@ -37,10 +37,24 @@ export type SessionUncommittedUpdated = UncommittedLines & {
   sessionId: string
 }
 
+// Something the channel's agent is waiting on this person for
+// (reference/always-on-agents.md §9): an approval they can decide, or a
+// question it asked them that they haven't answered.
+export type AgentNeed = {
+  kind: "approval" | "question"
+  // The chat message to open: the approval's line or the agent's post.
+  messageId: string
+  threadRootId: string | null
+  text: string
+  createdAt: string
+}
+
 export type ChannelActivity = {
   channelId: string
   // The caller's subscribed, unarchived sessions here, newest activity first.
   sessions: SidebarSession[]
+  // What the channel's agent is waiting on the caller for, newest first.
+  agentNeeds: AgentNeed[]
 }
 
 export type WorkspaceActivityAck = (
@@ -286,6 +300,7 @@ export type RealtimeMessageType =
   | "call_summary"
   | "agent_session"
   | "forward"
+  | "agent_post"
 
 // Mirrors channel_event_type / ChannelEventPayload in @repo/db (messages.ts) —
 // hand-copied like RealtimeMessageType so clients don't pull in drizzle.
@@ -309,8 +324,12 @@ export type RealtimeChannelEventType =
   | "session_pr_opened"
   | "session_pr_merged"
   | "session_setup_changed"
+  | "agent_task"
+  | "agent_session_started"
 
 export type RealtimeChannelEventPayload =
+  | { channelName: string | null }
+  | { sessionId: string; title: string; repoFullName: string | null }
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
   | { from: string; to: string }
   | { userIds: string[] }
@@ -973,6 +992,13 @@ export interface ServerToClientEvents {
   "loop:updated": (payload: LoopUpdatedEvent) => void
   // Loop hard-deleted (its card message goes separately via message:deleted).
   "loop:deleted": (payload: { loopId: string; channelId: string }) => void
+  // The channel agent's wake-ups changed (set, fired or cancelled): clients
+  // refetch the channel's Follow-ups.
+  "agent:wake-ups:updated": (payload: { channelId: string }) => void
+  // A channel's Discord link was made or removed: refetch its status.
+  "channel:discord:updated": (payload: { channelId: string }) => void
+  // A channel agent's turn started (beats every 10s) or ended.
+  "agent:working": (payload: { channelId: string; working: boolean }) => void
   "message:pin:toggled": (payload: RealtimeMessagePinToggled) => void
   "message:thread:updated": (payload: RealtimeMessageThreadUpdated) => void
   "notification:bootstrap": (payload: NotificationBootstrap) => void
@@ -1073,7 +1099,12 @@ export type PlanUpdatedEvent = {
   plan: RealtimePlan
 }
 
-export type RealtimeAgentSessionOrigin = "chat" | "new" | "loop" | "trigger"
+export type RealtimeAgentSessionOrigin =
+  | "chat"
+  | "new"
+  | "loop"
+  | "trigger"
+  | "agent"
 export type RealtimeAgentSessionMode = "chat" | "code"
 
 // Snapshot of a Lor session row. Mirrors agent_session in @repo/db; guarded
@@ -1219,6 +1250,8 @@ export type RealtimeLoop = {
   channelId: string
   cardMessageId: string | null
   creatorId: string | null
+  // "check_in": the one every channel's agent comes with (decision 7).
+  kind: "custom" | "check_in"
   name: string
   instructions: string
   schedule: string
@@ -1228,9 +1261,6 @@ export type RealtimeLoop = {
   endCondition: string | null
   // Hard end date (sweep-enforced); null = no date end.
   endAt: string | null
-  // Lor's model for each run ("key:<provider>/…" runs on the workspace's
-  // key); null: Lor's default model.
-  model: string | null
   status: RealtimeLoopStatus
   pausedReason: "manual" | "failures" | "out_of_credits" | null
   nextRunAt: string | null

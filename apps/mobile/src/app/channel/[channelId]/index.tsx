@@ -1,6 +1,7 @@
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import { LOR_USER_ID } from "@repo/db/constants"
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
@@ -38,7 +39,7 @@ import { useMemberModeration } from "@/hooks/use-member-moderation"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
-import { useSessionStart } from "@/hooks/use-session-start"
+import { useChannelProposals } from "@/hooks/use-proposals"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import type { ChannelSearchResult, Message } from "@/lib/api-types"
@@ -88,6 +89,8 @@ function ChannelScreen() {
   }>()
   const { data: session } = authClient.useSession()
   const permissions = useChannelPermissions(workspace?.id)
+  // The channel agent's proposal cards in the chat stay live.
+  useChannelProposals(channelId)
   const channelState = useChannelDetail({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
@@ -96,10 +99,7 @@ function ChannelScreen() {
   // open composer flips to the archived notice without a reload.
   useProjectUpdates(workspace?.slug)
 
-  const sessionStart = useSessionStart({
-    id: channelId ?? "",
-    name: channelState.channel?.name ?? null,
-  })
+  // `@Lor` here wakes the channel agent, which answers in the chat.
   const chat = useChannelMessages({
     source: {
       kind: "channel",
@@ -108,7 +108,6 @@ function ChannelScreen() {
     },
     socket,
     currentUser: session?.user,
-    sessionStart,
   })
   // Chat is people only: Lor's runs, plans, approvals, proposals and queues
   // live in sessions.
@@ -250,6 +249,14 @@ function ChannelScreen() {
   const startReply = (message: Message) => {
     setEditingMessage(null)
     setReplyingTo(message)
+  }
+  // A question about a message goes to the channel's agent in the chat: a
+  // reply to it with @Lor in the composer (reference/always-on-agents.md,
+  // step 3.4).
+  const askLorAbout = (message: Message, prompt?: string) => {
+    startReply(message)
+    if (prompt) composerMentionRef.current?.replaceDraft(`${prompt} `)
+    composerMentionRef.current?.insertMention({ id: LOR_USER_ID, label: "Lor" })
   }
   const openProfileFromMemberList = (member: MemberListItem) => {
     setIsMembersOpen(false)
@@ -456,12 +463,7 @@ function ChannelScreen() {
               messages={chat.messages}
               onLoadAround={chat.loadAround}
               onOpenThread={openThread}
-              onAskLor={(message) =>
-                router.push({
-                  pathname: "/session/new",
-                  params: { channelId, aboutMessageId: message.id },
-                })
-              }
+              onAskLor={askLorAbout}
               onDelete={confirmDelete}
               onEdit={startEditing}
               onPressAuthor={openAuthorProfile}

@@ -1,21 +1,14 @@
-import {
-  type RealtimeMessage,
-  type RealtimeMessageThreadUpdated,
-  type SendMessagePayload,
-  type ServerToClientEvents,
-  sessionTitleFromPrompt,
+import type {
+  RealtimeMessage,
+  RealtimeMessageThreadUpdated,
+  SendMessagePayload,
+  ServerToClientEvents,
 } from "@repo/realtime-types"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useChannelRoom } from "@/hooks/use-channel-room"
-import {
-  newSessionIds,
-  type SessionStart,
-  type SessionStartHandlers,
-} from "@/hooks/use-session-start"
 import { api } from "@/lib/api"
 import type { Message, ThreadMessageList } from "@/lib/api-types"
-import { lorMention, mentionsLor } from "@/lib/mentions"
 import {
   applyReactionUpdate,
   applyThreadSummaryUpdate,
@@ -83,7 +76,6 @@ export function useThreadMessages({
   currentUser,
   isSession = false,
   deferLoad = false,
-  sessionStart,
 }: {
   workspaceSlug: string
   channelId: string
@@ -94,11 +86,7 @@ export function useThreadMessages({
   // A session start the server hasn't confirmed: show the seeded snapshot
   // and wait, since the thread doesn't exist yet.
   deferLoad?: boolean
-  // A human thread: @Lor starts a session seeded with the thread.
-  sessionStart?: SessionStartHandlers
 }) {
-  const sessionStartRef = useRef(sessionStart)
-  sessionStartRef.current = sessionStart
   useChannelRoom(socket, channelId)
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<Message[]>([])
@@ -801,56 +789,32 @@ export function useThreadMessages({
       }
 
       const nonce = `mobile-${Date.now()}-${Math.random().toString(36).slice(2)}`
-      const handlers = sessionStartRef.current
-      const startIds = handlers && mentionsLor(trimmed) ? newSessionIds() : null
-      const start: SessionStart | null = startIds
-        ? {
-            ...startIds,
-            origin: "chat",
-            title: sessionTitleFromPrompt(trimmed),
-            message: {
-              ...createOptimisticMessage({
-                nonce,
-                channelId,
-                content: trimmed || null,
-                author: currentUser,
-                attachments,
-                threadRootId: startIds.threadRootId,
-              }),
-              mentions: [lorMention],
-            },
-          }
-        : null
       sendingRef.current = true
-      if (start) {
-        handlers?.starting(start)
-      } else {
-        const optimistic = {
-          ...createOptimisticMessage({
-            nonce,
-            channelId,
-            content: trimmed || null,
-            author: currentUser,
-            attachments,
-            threadRootId,
-            referencedMessage: referencedMessage
-              ? {
-                  id: referencedMessage.id,
-                  content: referencedMessage.content,
-                  author: referencedMessage.author,
-                  overrideName: referencedMessage.overrideName,
-                  overrideAvatarUrl: referencedMessage.overrideAvatarUrl,
-                  mentions: referencedMessage.mentions,
-                }
-              : null,
-          }),
-          // Muted at once; the server decides the rest of the routing.
-          routedToLor: toPeople ? false : null,
-        }
-        updateMessages((current) => mergeMessages([optimistic], current))
-        setTotalReplyCount((current) => current + 1)
-        onOptimistic?.(nonce)
+      const optimistic = {
+        ...createOptimisticMessage({
+          nonce,
+          channelId,
+          content: trimmed || null,
+          author: currentUser,
+          attachments,
+          threadRootId,
+          referencedMessage: referencedMessage
+            ? {
+                id: referencedMessage.id,
+                content: referencedMessage.content,
+                author: referencedMessage.author,
+                overrideName: referencedMessage.overrideName,
+                overrideAvatarUrl: referencedMessage.overrideAvatarUrl,
+                mentions: referencedMessage.mentions,
+              }
+            : null,
+        }),
+        // Muted at once; the server decides the rest of the routing.
+        routedToLor: toPeople ? false : null,
       }
+      updateMessages((current) => mergeMessages([optimistic], current))
+      setTotalReplyCount((current) => current + 1)
+      onOptimistic?.(nonce)
       setIsSending(true)
 
       try {
@@ -863,22 +827,12 @@ export function useThreadMessages({
             nonce,
             threadRootId,
             referencedMessageId: referencedMessage?.id,
-            newSession: startIds ?? undefined,
             toPeople: toPeople || undefined,
             ...turn,
           })
         if (!result.ok) throw new Error(result.error)
 
         const confirmed = realtimeMessageToMessage(result.message)
-        if (start) {
-          // The server moved the message into a new Lor session.
-          if (confirmed.threadRootId !== threadRootId && result.session) {
-            handlers?.started(start, result.session, confirmed)
-            return
-          }
-          handlers?.failed(start)
-          setTotalReplyCount((current) => current + 1)
-        }
         updateMessages((current) => replaceMessage(current, nonce, confirmed))
         setParticipants((current) =>
           current.some((participant) => participant.id === confirmed.author.id)
@@ -886,23 +840,19 @@ export function useThreadMessages({
             : [...current, confirmed.author]
         )
       } catch (cause) {
-        if (start) {
-          handlers?.failed(start)
-        } else {
-          // If message:created already reconciled the optimistic reply (e.g.
-          // the ack timed out after delivery), the send succeeded — don't
-          // roll back.
-          if (!messagesRef.current.some((message) => message.id === nonce)) {
-            return
-          }
-          updateMessages(
-            (current) => rollbackOptimisticReply(current, nonce, 1).messages
-          )
-          setTotalReplyCount(
-            (current) =>
-              rollbackOptimisticReply([], nonce, current).totalReplyCount
-          )
+        // If message:created already reconciled the optimistic reply (e.g.
+        // the ack timed out after delivery), the send succeeded — don't roll
+        // back.
+        if (!messagesRef.current.some((message) => message.id === nonce)) {
+          return
         }
+        updateMessages(
+          (current) => rollbackOptimisticReply(current, nonce, 1).messages
+        )
+        setTotalReplyCount(
+          (current) =>
+            rollbackOptimisticReply([], nonce, current).totalReplyCount
+        )
         const errorMessage =
           cause instanceof Error && cause.message === "operation has timed out"
             ? "Message delivery timed out. Please try again."

@@ -19,6 +19,8 @@
     "./html": "./src/html.ts",
     "./short-code": "./src/short-code.ts",
     "./trigger-message": "./src/trigger-message.ts",
+    "./bestiary": "./src/bestiary.ts",
+    "./bestiary-png": "./src/bestiary-png.ts",
     "./inference": "./src/inference.ts",
     "./diff-hunks": "./src/diff-hunks.ts",
     "./linear-issue-block": "./src/linear-issue-block.ts"

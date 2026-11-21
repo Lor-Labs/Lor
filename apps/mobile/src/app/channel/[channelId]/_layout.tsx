@@ -5,6 +5,7 @@ import { View } from "react-native"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useWorkspace } from "@/context/workspace-context"
+import { ChannelAgentProvider } from "@/hooks/use-channel-agent"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 
 // Guard every channel destination, including saved call-chat and summary links.
@@ -42,5 +43,9 @@ export default function ChannelLayout() {
   }
   if (!channel || !isChannelFeatureEnabled(channel))
     return <Redirect href="/" />
-  return <Slot />
+  return (
+    <ChannelAgentProvider workspaceSlug={workspace.slug} channelId={channel.id}>
+      <Slot />
+    </ChannelAgentProvider>
+  )
 }

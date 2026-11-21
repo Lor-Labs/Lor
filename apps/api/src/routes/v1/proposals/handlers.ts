@@ -8,7 +8,9 @@ import {
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { ChangeProposal, ChangeProposalOperation } from "@repo/db/schema"
 import { proposalPermissions } from "@repo/db/schema"
+import { addInboxMessage } from "@repo/lor/channel-agent"
 import { channelRoom } from "@repo/realtime-types/rooms"
+import { flushAgentInbox } from "@/lib/agent-inbox-queue"
 import { getEmitter } from "@/lib/bot-messages"
 import {
   type ApproverSecrets,
@@ -234,10 +236,11 @@ async function emitProposalUpdated(proposal: ChangeProposal): Promise<void> {
 }
 
 // Post the resolution as the resolver and start the follow-up continuation
-// run in the session the card is in. A pre-session proposal gets the note in
-// the card's own thread but no run: Lor runs only in sessions. Best-effort by
-// design for approve (the config is already applied); reject un-resolves on
-// failure at its call site.
+// run in the session the card is in. A card in the channel chat (the
+// channel's agent filed it) gets the note in the card's own thread, which
+// wakes the agent there (reference/always-on-agents.md, step 3.4).
+// Best-effort by design for approve (the config is already applied); reject
+// un-resolves on failure at its call site.
 async function postResolutionAndContinue(args: {
   proposal: ChangeProposal
   authorId: string
@@ -253,7 +256,23 @@ async function postResolutionAndContinue(args: {
     content: args.content,
   }).catch(() => null)
   if (!messageId) return null
-  if (!proposal.threadRootId) return messageId
+  if (!proposal.threadRootId) {
+    try {
+      const added = await addInboxMessage({
+        workspaceId: proposal.workspaceId,
+        channelId: proposal.channelId,
+        messageId,
+        lane: "wake",
+      })
+      if (added) await flushAgentInbox(proposal.channelId)
+    } catch (err) {
+      logger.error(
+        { err, proposalId: proposal.id },
+        "Proposal decision did not reach the channel agent"
+      )
+    }
+    return messageId
+  }
   // Resolving joins the session, like resolving an approval does.
   await subscribeToThread(proposal.threadRootId, [args.authorId]).catch(
     () => {}

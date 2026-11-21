@@ -74,7 +74,17 @@ function refIssue(operations: ChangeOperation[]): string | null {
   return null
 }
 
-export const PROPOSALS_PROMPT_LINE = `- Workspace changes: propose_workspace_change is the ONLY way you change this workspace's configuration (channels, webhooks, loops, connector event routing, agent profiles, custom tools, MCP servers, approval gates, LOR.md). It files one reviewable card; a teammate with the right permissions approves it and everything applies together. Research before proposing: verify a custom tool's API (endpoint, method, body shape) with web search first. Never include secret VALUES — declare secret names and the approver types the values on the card. Treat LOR.md operations as a last resort; they shape every channel. After a proposal is approved, the results (created ids, setup notes) arrive as a message in the same conversation — finish any codebase integration from there using your code tools. Webhook URLs contain a secret and are never sent to you: a teammate copies one from the channel's Webhooks settings.`
+const PROPOSALS_PROMPT_HEAD = `- Workspace changes: propose_workspace_change is the ONLY way you change this workspace's configuration (channels, webhooks, loops, connector event routing, agent profiles, custom tools, MCP servers, approval gates, LOR.md). It files one reviewable card; a teammate with the right permissions approves it and everything applies together. Research before proposing: verify a custom tool's API (endpoint, method, body shape) with web search first. Never include secret VALUES — declare secret names and the approver types the values on the card. Treat LOR.md operations as a last resort; they shape every channel.`
+const PROPOSALS_PROMPT_TAIL = `Webhook URLs contain a secret and are never sent to you: a teammate copies one from the channel's Webhooks settings.`
+
+export const PROPOSALS_PROMPT_LINE = `${PROPOSALS_PROMPT_HEAD} After a proposal is approved, the results (created ids, setup notes) arrive as a message in the same conversation — finish any codebase integration from there using your code tools. ${PROPOSALS_PROMPT_TAIL}`
+
+// The channel agent's card posts in the chat, and the decision wakes it in
+// the card's thread.
+export const AGENT_PROPOSALS_PROMPT_LINE = `${PROPOSALS_PROMPT_HEAD} When a teammate decides, the decision and the results (created ids, setup notes) wake you in the card's thread; hand any codebase integration to a code session. ${PROPOSALS_PROMPT_TAIL}`
+
+// A refusal the model should read as written.
+export class ProposalRefusedError extends Error {}
 
 // Bound only on conversational runs, like propose_loop — unattended runs must
 // not reshape the workspace.
@@ -116,10 +126,16 @@ export const proposeChangeTool = {
         return {
           ok: true as const,
           proposalId,
-          note: "proposal card created — a teammate with the required permissions must approve it; point them at the card. You'll get the results (created ids, setup notes) as a message in this conversation once it's applied.",
+          note: "proposal card created — a teammate with the required permissions must approve it; point them at the card. You'll get the results (created ids, setup notes) once it's decided.",
         }
-      } catch {
-        return { ok: false as const, error: "Failed to file the proposal" }
+      } catch (err) {
+        return {
+          ok: false as const,
+          error:
+            err instanceof ProposalRefusedError
+              ? err.message
+              : "Failed to file the proposal",
+        }
       }
     },
   }),

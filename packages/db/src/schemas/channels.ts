@@ -36,6 +36,11 @@ export const channelAudienceEnum = pgEnum("channel_audience", [
   "members",
 ])
 
+export const channelAgentWakeModeEnum = pgEnum("channel_agent_wake_mode", [
+  "mention",
+  "every_message",
+])
+
 export const channel = pgTable(
   "channel",
   {
@@ -71,6 +76,28 @@ export const channel = pgTable(
       (): AnyPgColumn => agentProfile.id,
       { onDelete: "set null" }
     ),
+
+    // The channel agent's model, as Lor's own harness names it. Null = the
+    // default (reference/always-on-agents.md, decision 15).
+    agentModel: text("agent_model"),
+    // What wakes the channel agent: a mention or a reply to it, or every
+    // message. Other messages wait unread in its inbox.
+    agentWakeMode: channelAgentWakeModeEnum("agent_wake_mode")
+      .notNull()
+      .default("mention"),
+    // The channel agent's brief: standing instructions only people write,
+    // in its system prompt (reference/always-on-agents.md §7).
+    agentBrief: text("agent_brief"),
+    agentBriefUpdatedAt: timestamp("agent_brief_updated_at"),
+    // When the channel got its agent's check-in Loop: it is made once, so a
+    // check-in someone deleted stays deleted.
+    agentCheckInAt: timestamp("agent_check_in_at"),
+    // The channel agent's name and creature (reference/always-on-agents.md,
+    // decisions 32 and 33). Null = derived from the channel id
+    // (`channelAgentIdentity` in @repo/utils/bestiary).
+    agentName: text("agent_name"),
+    agentCreature: text("agent_creature"),
+    agentIdentityUpdatedAt: timestamp("agent_identity_updated_at"),
 
     // ordering within a category or workspace
     position: integer("position").default(0).notNull(),

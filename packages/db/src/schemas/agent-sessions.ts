@@ -26,6 +26,9 @@ export const agentSessionOriginEnum = pgEnum("agent_session_origin", [
   "new",
   "loop",
   "trigger",
+  // Started by the channel's agent with start_session; its turns report back
+  // to the agent's inbox (reference/always-on-agents.md §6).
+  "agent",
 ])
 
 // Fixed when the session starts (reference/planned/code-channels.md §2).

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { setTimeout as sleep } from "node:timers/promises"
-import type { SandboxInstance } from "@blaxel/core"
+import { type SandboxInstance, settings } from "@blaxel/core"
 import { env } from "@repo/env/server"
 
 // The one sandbox provider. Sandboxes are Firecracker microVMs booted from
@@ -9,6 +9,30 @@ import { env } from "@repo/env/server"
 export function blaxelConfigured(): boolean {
   return Boolean(env.BL_API_KEY && env.BL_WORKSPACE)
 }
+
+// Lor running inside a Blaxel sandbox (Lor developed in a Lor session): the
+// sandbox's egress proxy strips every x-blaxel-* header, so the SDK's
+// credential never arrives and Blaxel answers 401. Blaxel takes the same
+// credential as a standard Authorization header, on its API and on each
+// sandbox's endpoint (checked 2026-11-20), and every SDK request reads its
+// headers from settings.headers.
+function sendAuthorizationInsideBlaxel(): void {
+  if (process.env.BL_CLOUD !== "true") return
+  const read = Object.getOwnPropertyDescriptor(
+    Object.getPrototypeOf(settings),
+    "headers"
+  )?.get
+  if (!read) return
+  Object.defineProperty(settings, "headers", {
+    configurable: true,
+    get(): Record<string, string> {
+      const headers: Record<string, string> = read.call(this)
+      const authorization = headers["x-blaxel-authorization"]
+      return authorization ? { ...headers, authorization } : headers
+    },
+  })
+}
+sendAuthorizationInsideBlaxel()
 
 export const WORKSPACE_MOUNT = "/workspace"
 export const SANDBOX_PROCESS_ENV = {

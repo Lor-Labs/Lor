@@ -10,6 +10,7 @@ import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   ACT_FLUSH_JOB,
   type ActFlushJobData,
+  AGENT_INBOX_QUEUE,
   AGENT_RUN_STOP_CHANNEL,
   ATTACHMENT_INDEX_QUEUE,
   DELETE_SESSION_SANDBOX_JOB,
@@ -32,6 +33,7 @@ import {
 import { Emitter } from "@socket.io/redis-emitter"
 import { Queue, Worker } from "bullmq"
 import { createClient } from "redis"
+import { createAgentInboxProcessor } from "@/jobs/agent-inbox"
 import { createAttachmentIndexProcessor } from "@/jobs/attachment-index"
 import { createLinkUnfurlProcessor } from "@/jobs/link-unfurl"
 import { createLoopRunProcessor } from "@/jobs/loop-run"
@@ -60,7 +62,9 @@ import {
   VOICE_SESSION_AUDIT_EVERY_MS,
   VOICE_SESSION_SWEEP_EVERY_MS,
 } from "@/jobs/voice-sessions"
+import { type AgentQueueData, sweepStrandedInboxes } from "@/lib/agent-inbox"
 import { signalRunStop } from "@/lib/agent-run"
+import { sweepDueWakeUps } from "@/lib/agent-wake-ups"
 import {
   escalateApproval,
   MAINTENANCE_QUEUE,
@@ -223,9 +227,57 @@ async function bootstrap() {
     },
   })
 
+  // The channel agents: inbox flushes, turns and compactions
+  // (reference/always-on-agents.md §3). The realtime gateway adds flushes
+  // for chat messages; a finished turn adds one for what woke it meanwhile.
+  const agentInboxQueue = new Queue<AgentQueueData>(AGENT_INBOX_QUEUE, {
+    connection: {
+      ...redisOpts,
+      maxRetriesPerRequest: null,
+    },
+    // Flushes are added on every wake: keep Redis bounded.
+    defaultJobOptions: {
+      removeOnComplete: { age: 3600, count: 1000 },
+      removeOnFail: { age: 86400, count: 5000 },
+    },
+  })
+
+  const agentInboxWorker = new Worker(
+    AGENT_INBOX_QUEUE,
+    createAgentInboxProcessor({
+      emitter,
+      redis: redisEmitterClient,
+      queue: agentInboxQueue,
+      respondQueue: lorRespondQueue,
+    }),
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+      concurrency: 3,
+    }
+  )
+
+  agentInboxWorker.on("failed", (job, error) => {
+    logger.error({ jobId: job?.id, err: error }, "Agent-inbox job failed")
+  })
+
+  agentInboxWorker.on("error", (error) => {
+    logger.error(
+      { queue: AGENT_INBOX_QUEUE, workerId: agentInboxWorker.id, err: error },
+      "Agent-inbox worker error"
+    )
+  })
+
   const lorRespondWorker = new Worker(
     LOR_RESPOND_QUEUE,
-    createLorRespondProcessor(emitter, redisEmitterClient, lorRespondQueue),
+    createLorRespondProcessor(
+      emitter,
+      redisEmitterClient,
+      lorRespondQueue,
+      agentInboxQueue
+    ),
     {
       connection: {
         ...redisOpts,
@@ -307,7 +359,12 @@ async function bootstrap() {
 
   const loopRunWorker = new Worker(
     LOOP_RUN_QUEUE,
-    createLoopRunProcessor(emitter, redisEmitterClient, lorRespondQueue),
+    createLoopRunProcessor(
+      emitter,
+      redisEmitterClient,
+      lorRespondQueue,
+      agentInboxQueue
+    ),
     {
       connection: {
         ...redisOpts,
@@ -414,9 +471,13 @@ async function bootstrap() {
           triggeredRunQueue
         )
         await sweepOrphanedPlaceholders(emitter)
-      } else if (job.name === "sweep-due-loops")
+      } else if (job.name === "sweep-due-loops") {
         await sweepDueLoops(emitter, loopRunQueue)
-      else if (job.name === "sweep-voice-sessions") await sweepVoiceSessions()
+      } else if (job.name === "sweep-agent-inbox") {
+        // Its own job: a failing Loop sweep must not hold up wake-ups.
+        await sweepDueWakeUps({ emitter, agentInboxQueue })
+        await sweepStrandedInboxes(agentInboxQueue)
+      } else if (job.name === "sweep-voice-sessions") await sweepVoiceSessions()
       else if (job.name === "sweep-checkpoint-storage") {
         const swept = await sweepCheckpointStorage()
         logger.info(swept, "Checkpoint storage swept")
@@ -492,6 +553,9 @@ async function bootstrap() {
   await maintenanceQueue.upsertJobScheduler("sweep-due-loops", {
     every: LOOP_SWEEP_EVERY_MS,
   })
+  await maintenanceQueue.upsertJobScheduler("sweep-agent-inbox", {
+    every: 60_000,
+  })
   await maintenanceQueue.upsertJobScheduler("sweep-voice-sessions", {
     every: VOICE_SESSION_SWEEP_EVERY_MS,
   })
@@ -509,6 +573,7 @@ async function bootstrap() {
         ATTACHMENT_INDEX_QUEUE,
         SOURCE_INGEST_QUEUE,
         LOR_RESPOND_QUEUE,
+        AGENT_INBOX_QUEUE,
         TRIGGERED_RUN_QUEUE,
         LOOP_RUN_QUEUE,
         VOICE_REQUEST_QUEUE,
@@ -518,7 +583,7 @@ async function bootstrap() {
     },
     "Worker started"
   )
-  posthogLogCapture.info("worker_started", { queue_count: 9 })
+  posthogLogCapture.info("worker_started", { queue_count: 10 })
 
   const shutdown = async () => {
     logger.info("Shutting down...")
@@ -526,6 +591,7 @@ async function bootstrap() {
     await linkUnfurlWorker.close()
     await attachmentIndexWorker.close()
     await sourceIngestWorker.close()
+    await agentInboxWorker.close()
     await lorRespondWorker.close()
     await triggeredRunWorker.close()
     await loopRunWorker.close()
@@ -538,6 +604,7 @@ async function bootstrap() {
     // in flight before closing the queue they enqueue follow-up runs on.
     await awaitInflightDrains()
     await lorRespondQueue.close()
+    await agentInboxQueue.close()
     await triggeredRunQueue.close()
     await loopRunQueue.close()
     await maintenanceQueue.close()

@@ -7,13 +7,8 @@ import {
   inArray,
   isUniqueViolation,
   LOR_USER_ID,
-  ne,
   schema,
 } from "@repo/db"
-import {
-  chatFeedMessage,
-  findAgentSessionByThreadRoot,
-} from "@repo/db/queries/agent-sessions"
 import { assertHostedHarness } from "@repo/db/queries/beta-access"
 import { hasPersonalAccount } from "@repo/db/queries/personal-accounts"
 import { env } from "@repo/env/server"
@@ -29,43 +24,13 @@ import { assertHarnessEnabled } from "@repo/utils/features"
 import { isValidNewBranchName, lorBranchName } from "@repo/utils/github"
 import { logger } from "@/lib/logger"
 import type { AccessibleChannel } from "@/services/channel-access"
-import { isLorMentioned } from "@/services/lor-routing"
 import { createMessage, type NewSessionInput } from "@/services/messages"
 
-// How much chat a session started from `@Lor` carries as context; matches
-// the pre-thread background Lor read before sessions.
-const CHAT_CONTEXT_LIMIT = 10
-const THREAD_CONTEXT_LIMIT = 50
-
-async function loadChatContextIds(channelId: string) {
-  const rows = await db
-    .select({ id: schema.message.id })
-    .from(schema.message)
-    .where(
-      and(
-        eq(schema.message.channelId, channelId),
-        chatFeedMessage(),
-        ne(schema.message.type, "event")
-      )
-    )
-    .orderBy(desc(schema.message.createdAt))
-    .limit(CHAT_CONTEXT_LIMIT)
-  return rows.map((row) => row.id)
-}
-
-async function loadThreadContextIds(threadRootId: string) {
-  const replies = await db
-    .select({ id: schema.message.id })
-    .from(schema.message)
-    .where(eq(schema.message.threadRootId, threadRootId))
-    .orderBy(desc(schema.message.createdAt))
-    .limit(THREAD_CONTEXT_LIMIT)
-  return [threadRootId, ...replies.map((row) => row.id)]
-}
+// How much of a continued session's newest talk the new one carries.
+const CONTINUED_CONTEXT_LIMIT = 50
 
 // "Continue in Code": the source session's newest messages become the new
-// session's context, like `@Lor` in a human thread. Context must come from
-// the new session's own channel.
+// session's context. Context must come from the new session's own channel.
 async function continuedSession(sessionId: string, channelId: string) {
   const source = await db
     .select({
@@ -85,7 +50,7 @@ async function continuedSession(sessionId: string, channelId: string) {
     .from(schema.message)
     .where(eq(schema.message.threadRootId, source.threadRootId))
     .orderBy(desc(schema.message.createdAt))
-    .limit(THREAD_CONTEXT_LIMIT)
+    .limit(CONTINUED_CONTEXT_LIMIT)
   return { ...source, contextMessageIds: replies.map((row) => row.id) }
 }
 
@@ -135,16 +100,21 @@ async function codeSessionStart(
   }
 }
 
-// The repo and harness a session start asked for, checked: Code mode from
-// the New session view or `@Lor` with Code picked in the composer.
+// The repo and harness a session start from the New session view asked for,
+// checked.
 async function codeStartFor(
   payload: SendMessagePayload,
   workspaceId: string,
   senderId: string,
   session: { id: string; title: string }
 ) {
-  assertHostedHarness(payload.harness ?? "pi")
-  assertHarnessEnabled(payload.harness ?? "pi")
+  // Sessions run on Claude Code or Codex (reference/always-on-agents.md,
+  // decision 34); Lor's own agent no longer starts them.
+  if (payload.harness !== "claude_code" && payload.harness !== "codex") {
+    throw new Error("Code sessions run on Claude Code or Codex")
+  }
+  assertHostedHarness(payload.harness)
+  assertHarnessEnabled(payload.harness)
   const code = payload.code
     ? await codeSessionStart(
         workspaceId,
@@ -153,36 +123,30 @@ async function codeStartFor(
         session
       )
     : undefined
-  // Claude Code and Codex: code sessions only for now, on the starter's own
-  // Claude subscription or ChatGPT plan (code-sessions-runbook.md chunks 7
-  // and 8f).
+  // On the starter's own Claude subscription or ChatGPT plan
+  // (code-sessions-runbook.md chunks 7 and 8f).
   const claudeCode = payload.harness === "claude_code"
-  const codex = payload.harness === "codex"
-  if ((claudeCode || codex) && !code) {
+  if (!code) {
     throw new Error(
       `${claudeCode ? "Claude Code" : "Codex"} sessions need a repository`
     )
   }
-  if (claudeCode && !(await hasPersonalAccount(senderId, "claude"))) {
+  if (
+    !(await hasPersonalAccount(senderId, claudeCode ? "claude" : "chatgpt"))
+  ) {
     throw new Error(
-      "Connect your Claude subscription in Settings → Linked accounts to start a Claude Code session"
+      claudeCode
+        ? "Connect your Claude subscription in Settings → Linked accounts to start a Claude Code session"
+        : "Connect your ChatGPT plan in Settings → Linked accounts to start a Codex session"
     )
   }
-  if (codex && !(await hasPersonalAccount(senderId, "chatgpt"))) {
-    throw new Error(
-      "Connect your ChatGPT plan in Settings → Linked accounts to start a Codex session"
-    )
-  }
-  return {
-    ...(code ? { code } : {}),
-    ...(claudeCode ? { harness: "claude_code" as const } : {}),
-    ...(codex ? { harness: "codex" as const } : {}),
-  }
+  return { code, harness: payload.harness }
 }
 
-// `@Lor` in channel chat or a human thread starts a session seeded with what
-// led up to it, and nothing posts where it was sent
-// (reference/workspace-model.md). Undefined = a normal send.
+// A New session send starts a code session: one repository, one branch.
+// Anything else is a normal send: `@Lor` in the chat or a human thread wakes
+// the channel's agent (reference/always-on-agents.md, step 3.4). Undefined =
+// a normal send.
 export async function sessionStartFor(args: {
   payload: SendMessagePayload
   channel: AccessibleChannel
@@ -190,12 +154,14 @@ export async function sessionStartFor(args: {
 }): Promise<NewSessionInput | undefined> {
   const { payload, channel } = args
   if (!channel.workspaceId || channel.type !== "text") return undefined
-  // A forward into chat is a post, even if its note says @Lor.
-  if (payload.forward) return undefined
-  const subscriberIds = [
-    args.senderId,
-    ...extractDirectMentionUserIds(payload.content ?? ""),
-  ]
+  if (!payload.startSession || payload.threadRootId || payload.forward) {
+    return undefined
+  }
+  if (!payload.code) {
+    throw new Error(
+      "A session works on a repository. Ask Lor in the channel's chat for anything else."
+    )
+  }
   // Picked here when the client didn't, so an automatic branch's name
   // carries the session's own id.
   const ids = {
@@ -203,65 +169,34 @@ export async function sessionStartFor(args: {
     threadRootId: payload.newSession?.threadRootId,
   }
   const title = sessionTitleFromPrompt(payload.content ?? "")
-  if (payload.startSession && !payload.threadRootId) {
-    const start = await codeStartFor(
-      payload,
-      channel.workspaceId,
-      args.senderId,
-      { id: ids.id, title }
-    )
-    const source = payload.continueFrom
-      ? await continuedSession(payload.continueFrom, payload.channelId)
-      : null
-    return {
-      ...ids,
-      origin: "new",
-      ...start,
-      ...(source
-        ? {
-            sourceSessionId: source.id,
-            sourceThreadRootId: source.threadRootId,
-          }
-        : {}),
-      title,
-      // "Ask Lor about this": the quoted message is the only context.
-      contextMessageIds: [
-        ...(source?.contextMessageIds ?? []),
-        ...(payload.referencedMessageId ? [payload.referencedMessageId] : []),
-      ],
-      subscriberIds,
-    }
-  }
-  if (!payload.content || !isLorMentioned(payload.content)) return undefined
-  if (
-    payload.threadRootId &&
-    (await findAgentSessionByThreadRoot(payload.threadRootId))
-  ) {
-    return undefined
-  }
-
   const start = await codeStartFor(
     payload,
     channel.workspaceId,
     args.senderId,
-    {
-      id: ids.id,
-      title,
-    }
+    { id: ids.id, title }
   )
-  const contextMessageIds = payload.threadRootId
-    ? await loadThreadContextIds(payload.threadRootId)
-    : await loadChatContextIds(payload.channelId)
-  if (payload.referencedMessageId) {
-    contextMessageIds.push(payload.referencedMessageId)
-  }
+  const source = payload.continueFrom
+    ? await continuedSession(payload.continueFrom, payload.channelId)
+    : null
   return {
     ...ids,
-    origin: "chat",
+    origin: "new",
     ...start,
+    ...(source
+      ? {
+          sourceSessionId: source.id,
+          sourceThreadRootId: source.threadRootId,
+        }
+      : {}),
     title,
-    contextMessageIds,
-    subscriberIds,
+    contextMessageIds: [
+      ...(source?.contextMessageIds ?? []),
+      ...(payload.referencedMessageId ? [payload.referencedMessageId] : []),
+    ],
+    subscriberIds: [
+      args.senderId,
+      ...extractDirectMentionUserIds(payload.content ?? ""),
+    ],
   }
 }
 

@@ -6,11 +6,10 @@ import { useBetaAvailability } from "@/hooks/use-beta"
 import { api } from "@/lib/api"
 import { HARNESS_LABELS, type SessionHarness } from "@/lib/harness"
 
-// New session in Code mode: one repo and base branch, fixed for the session,
-// and the agent that runs it. Mirrors web's code-target-picker.tsx and
+// A new code session's repo and base branch, fixed for the session, and the
+// agent that runs it. Mirrors web's code-target-picker.tsx and
 // harness-picker.tsx; the picks are remembered on the device.
 
-export type SessionMode = "chat" | "code"
 // `newBranch`: a branch the session makes from `branch` at its start;
 // `autoBranch`: the server names that branch (lor/<place>-<id>).
 export type CodeTarget = {
@@ -20,7 +19,6 @@ export type CodeTarget = {
   autoBranch?: boolean
 }
 
-const MODE_KEY = "lor.new-session-mode"
 const HARNESS_KEY = "lor.new-session-harness"
 // SecureStore keys allow letters, digits, ".", "-" and "_" only.
 const repoKey = (workspaceSlug: string) =>
@@ -34,9 +32,10 @@ const autoBranchKey = (workspaceSlug: string, repo: string) =>
 const REPOS_STALE_MS = 5 * 60 * 1000
 const BRANCHES_STALE_MS = 30 * 1000
 
-const HARNESSES = (["pi", "claude_code", "codex"] as const).filter(
-  isHarnessEnabled
-)
+// Sessions run on Claude Code or Codex; Lor's own agent no longer starts
+// them (reference/always-on-agents.md, decision 34).
+const HARNESSES = (["claude_code", "codex"] as const).filter(isHarnessEnabled)
+const DEFAULT_HARNESS: SessionHarness = HARNESSES[0] ?? "claude_code"
 
 export const HARNESS_DETAILS: Record<SessionHarness, string> = {
   pi: "Lor's own agent, on Lor credits.",
@@ -94,10 +93,6 @@ function useStoredChoice<T extends string>(
   return [value, change]
 }
 
-export function useSessionMode() {
-  return useStoredChoice<SessionMode>(MODE_KEY, ["chat", "code"], "chat")
-}
-
 export function useSessionHarness(): [
   SessionHarness,
   (harness: SessionHarness) => void,
@@ -106,15 +101,15 @@ export function useSessionHarness(): [
   const [value, change] = useStoredChoice<SessionHarness>(
     HARNESS_KEY,
     options.map((option) => option.value),
-    "pi"
+    DEFAULT_HARNESS
   )
-  // A pick saved while the beta was off falls back to Lor once it is known to
-  // be on; the stored value itself is left alone.
+  // A pick that isn't offered falls back to the first that is; the stored
+  // value itself is left alone.
   const harness: SessionHarness = options.some(
     (option) => option.value === value
   )
     ? value
-    : "pi"
+    : (options[0]?.value ?? DEFAULT_HARNESS)
   return [harness, change]
 }
 

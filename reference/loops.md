@@ -1,5 +1,14 @@
 # Loops — scheduled headless Lor runs (execution runbook)
 
+> Since 2026-11-19 a Loop on a text channel has no session: each fire wakes
+> the channel's agent through its inbox, and the agent drafts Loops in the
+> chat (`always-on-agents.md` §13, step 3.2). The session flow below still
+> serves other channels.
+>
+> Since 2026-11-20 every text channel also has a `check_in` Loop that wakes
+> the agent every 30 minutes, only when something is unread
+> (`always-on-agents.md` §13, step 5.2).
+
 Status legend: `[ ]` todo · `[x]` done. Update checkboxes as phases land, and
 append to the **Decisions & deviations log** at the bottom when reality forces
 a change — this document is the source of truth across agent runs.
@@ -629,9 +638,3 @@ apps/realtime `services/lor.ts`, card rendering in web
   channel → 400; non-active → 409. Web: "Run now" item (Refresh01Icon) at
   the top of the panel's … menu, active loops only (`useRunLoopNow` in
   loop-actions.tsx, success toast).
-- 2026-11-14 — LOR-161: `loop.model` (nullable, additive `db:push`) saves Lor's
-  model for each run, picked in the loop panel from the composer's catalog
-  (`SavedModelPicker`). The fire stamps it on its `loop_run` line's
-  `turnModel`, so funding resolves as for a person's pick (a `key:` model runs
-  on the workspace key; a model that later goes away runs on Lor's default).
-  Act triggers got the same as `connector_trigger.act_model`.

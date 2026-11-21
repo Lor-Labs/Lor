@@ -806,3 +806,109 @@
   div:has(> [data-desktop-header-nav]) {
   min-height: calc(48px / var(--desktop-chrome-scale));
 }
+
+/* Channel agent creatures (apps/web agent-creature.tsx). Motion moves in
+   whole sprite pixels (--px) so the pixel art stays crisp. */
+@keyframes creature-blink {
+  0%,
+  94% {
+    opacity: 0;
+  }
+
+  95%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes creature-breathe {
+  0%,
+  49% {
+    transform: translateY(0);
+  }
+
+  50%,
+  100% {
+    transform: translateY(var(--px));
+  }
+}
+
+@keyframes creature-hop {
+  0%,
+  49% {
+    transform: translateY(0);
+  }
+
+  50%,
+  100% {
+    transform: translateY(calc(var(--px) * -1));
+  }
+}
+
+@keyframes creature-z {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+
+  25% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--px) * 4), calc(var(--px) * -7));
+  }
+}
+
+@keyframes creature-twinkle {
+  0%,
+  45%,
+  100% {
+    opacity: 0;
+  }
+
+  50%,
+  90% {
+    opacity: 1;
+  }
+}
+
+.creature-blink {
+  animation: creature-blink 5s steps(1, end) infinite;
+}
+
+.creature-breathe {
+  animation: creature-breathe 2.4s steps(1, end) infinite;
+}
+
+.creature-hop {
+  animation: creature-hop 0.5s steps(1, end) infinite;
+}
+
+.creature-alert {
+  animation: creature-hop 0.8s steps(1, end) infinite;
+}
+
+.creature-z {
+  animation: creature-z 2.6s linear infinite;
+}
+
+.creature-twinkle {
+  animation: creature-twinkle 1.4s steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .creature-breathe,
+  .creature-hop,
+  .creature-alert,
+  .creature-z,
+  .creature-twinkle {
+    animation: none;
+  }
+
+  .creature-blink {
+    animation: none;
+    opacity: 0;
+  }
+}

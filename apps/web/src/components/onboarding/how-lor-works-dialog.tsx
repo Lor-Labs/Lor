@@ -17,8 +17,8 @@ import { type ComponentType, useState } from "react"
 import { usePageHint } from "@/components/hints/hints-provider"
 import {
   ChannelAgentScene,
+  ChatAnswerScene,
   type SceneProps,
-  SessionStartScene,
   SharedSessionScene,
   WelcomeScene,
 } from "@/components/onboarding/how-lor-works-scenes"
@@ -36,16 +36,17 @@ const STEPS: [Step, ...Step[]] = [
     Scene: WelcomeScene,
   },
   {
-    title: "Lor works in sessions",
-    body: `Mention @Lor or ${isTauri ? "press ⌘N" : "click the pencil beside the search"} to start one. Each session belongs to a channel, and the chat stays for your team.`,
-    Scene: SessionStartScene,
+    title: "Lor answers in the chat",
+    body: "Mention @Lor in any channel and it answers there. It reads what everyone said, so it knows what's going on.",
+    Scene: ChatAnswerScene,
   },
   {
-    title: "Sessions are shared",
-    body: "Anyone in the channel can see the work, step in, or approve what Lor sends.",
+    title: "Code sessions",
+    body: `Lor starts a code session when work needs a change, or ${isTauri ? "press ⌘N" : "click the pencil beside the search"} to start one yourself. Anyone in the channel can see the work, step in, or approve what Lor sends.`,
     Scene: SharedSessionScene,
   },
-  // Last, once people know what a session is: a loop's runs land in one.
+  // Last: the channel's agent works for the channel, including on a
+  // schedule.
   {
     title: "Every channel has its own agent",
     body: "Choose which tools Lor can use in each channel, and give it work on a schedule, like finding leads in #gtm every weekday.",

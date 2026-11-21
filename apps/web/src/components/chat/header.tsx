@@ -15,6 +15,7 @@ import {
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { useParams } from "@tanstack/react-router"
 import { useState } from "react"
+import { AgentHeaderChip } from "@/components/agent/agent-header-chip"
 import { ChannelMuteMenu } from "@/components/chat/channel-mute-menu"
 import { HeaderSearch } from "@/components/chat/header-search"
 import { PinnedMessagesPopover } from "@/components/chat/pinned-messages-popover"
@@ -80,6 +81,12 @@ export function ChatHeader({
         </span>
       )}
       <div className="ml-auto flex items-center gap-1">
+        {context.type === "channel" && workspaceSlug && (
+          <AgentHeaderChip
+            workspaceSlug={workspaceSlug}
+            channelId={channelId}
+          />
+        )}
         <HeaderSearch
           mode={context.type === "channel" ? "workspace" : "dm"}
           channelId={channelId}

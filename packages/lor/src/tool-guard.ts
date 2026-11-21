@@ -39,6 +39,15 @@ export const SIDE_EFFECT_TOOLS = new Set([
   // Creates a draft loop row + card message; replay must not duplicate them.
   "propose_loop",
   "propose_workspace_change",
+  // The channel agent's post in the chat; a retried step must not repeat it.
+  "send_message",
+  // A retried step must not set the same wake-up twice.
+  "wake_up",
+  "cancel_wake_up",
+  // The agent's code sessions: a retry must not start or message one twice.
+  "start_session",
+  "message_session",
+  "stop_session",
 ])
 
 // Canonical JSON (sorted object keys) so the same logical input always hashes

@@ -61,7 +61,9 @@ export function MessageList({
   onRetry: () => void
   onOpenThread?: (message: Message) => void
   // Channel chat: start a session about the message.
-  onAskLor?: (message: Message) => void
+  // A question about the message for the channel's agent (the action menu,
+  // a meeting recording's questions).
+  onAskLor?: (message: Message, prompt?: string) => void
   onReply: (message: Message) => void
   onLoadAround?: (messageId: string) => Promise<boolean>
   onEdit?: (message: Message) => void
@@ -358,6 +360,7 @@ export function MessageList({
                       void jumpToMessage(messageId)
                     }
                     onOpenThread={onOpenThread}
+                    onAskLor={onAskLor}
                     onPressAuthor={onPressAuthor}
                     onToggleReaction={(message, emoji) =>
                       onToggleReaction?.(message.id, emoji)

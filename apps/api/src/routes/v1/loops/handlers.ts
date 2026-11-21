@@ -3,7 +3,6 @@ import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type { Loop } from "@repo/db/schema"
 import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
 import { toRealtimeLoop } from "@repo/lor/loops"
-import { isLorModelAvailable } from "@repo/lor/model-catalog"
 import { postLoopChannelEvent } from "@/lib/channel-events"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -213,9 +212,9 @@ export const discardDraftLoop: AppRouteHandler<DiscardDraftLoopRoute> = async (
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
-// Edit schedule/instructions/name/model. Completed loops are immutable.
-// Schedule edits re-validate with the pinned tz (UTC for unpinned drafts); on
-// active loops the next fire is recomputed; a sub-hourly cadence needs a fresh
+// Edit schedule/instructions/name. Completed loops are immutable. Schedule
+// edits re-validate with the pinned tz (UTC for unpinned drafts); on active
+// loops the next fire is recomputed; a sub-hourly cadence needs a fresh
 // confirmHighFrequency when it's new or got TIGHTER — loosening within an
 // already-confirmed sub-hourly band rides the existing consent.
 export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
@@ -228,7 +227,6 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
     name,
     endAt,
     endCondition,
-    model,
     confirmHighFrequency,
   } = c.req.valid("json")
 
@@ -247,24 +245,9 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
     )
   }
 
-  if (
-    model != null &&
-    model !== loop.model &&
-    !(await isLorModelAvailable(loop.workspaceId, model))
-  ) {
-    return c.json(
-      {
-        success: false as const,
-        message: "That model isn't available to this workspace",
-      },
-      HttpStatusCodes.BAD_REQUEST
-    )
-  }
-
   const values: Partial<typeof schema.loop.$inferInsert> = {
     ...(instructions !== undefined ? { instructions } : {}),
     ...(name !== undefined ? { name } : {}),
-    ...(model !== undefined ? { model } : {}),
   }
 
   // End modes are one-per-loop: setting either clears the other (the zod

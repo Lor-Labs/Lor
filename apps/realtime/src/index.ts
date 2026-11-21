@@ -7,7 +7,7 @@ import {
   type Session,
   USER_ACCESS_REVOKED_CHANNEL,
 } from "@repo/auth"
-import { and, db, eq, notExists, schema } from "@repo/db"
+import { and, db, eq, LOR_USER_ID, notExists, schema } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import {
   canSeeSessionChat,
@@ -16,6 +16,7 @@ import {
 import { env } from "@repo/env/server"
 import { enterContext, flushErrorReports } from "@repo/logger"
 import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
+import { discordLinkFor } from "@repo/lor/discord"
 import { setRepoCacheStore } from "@repo/lor/github"
 import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/lor/plans"
 import {
@@ -46,11 +47,13 @@ import {
   workspaceRoom,
 } from "@repo/realtime-types"
 import type {
+  AgentInboxFlushJobData,
   AttachmentIndexJobData,
   LinkUnfurlJobData,
   LorRespondJobData,
 } from "@repo/realtime-types/queues"
 import {
+  AGENT_INBOX_QUEUE,
   ATTACHMENT_INDEX_QUEUE,
   LINK_UNFURL_QUEUE,
   LOR_RESPOND_QUEUE,
@@ -61,6 +64,7 @@ import { createClient } from "redis"
 import { Server, type Socket } from "socket.io"
 import { toErrorMessage } from "@/lib/errors"
 import { logger } from "@/lib/logger"
+import { addChatMessageToAgentInbox } from "@/services/agent-inbox"
 import { assertUserCanAccessChannel } from "@/services/channel-access"
 import {
   createAgentRun,
@@ -663,6 +667,31 @@ io.on("connection", (socket) => {
         )
       }
 
+      // Chat sessions are history: questions go to the channel's agent in the
+      // chat (reference/always-on-agents.md, step 3.4).
+      if (parsed.threadRootId && !parsed.startSession) {
+        const target = await findAgentSessionByThreadRoot(parsed.threadRootId)
+        if (target?.mode === "chat") {
+          throw new Error(
+            "Chat sessions are read-only. Ask Lor in the channel's chat."
+          )
+        }
+      }
+
+      // A chat that lives in Discord takes no messages from Lor; sessions
+      // stay in Lor (reference/always-on-agents.md §10, decision 22).
+      if (
+        !parsed.startSession &&
+        accessibleChannel.type === "text" &&
+        (await discordLinkFor(parsed.channelId)) &&
+        !(
+          parsed.threadRootId &&
+          (await findAgentSessionByThreadRoot(parsed.threadRootId))
+        )
+      ) {
+        throw new Error("This channel's chat lives in Discord. Write there.")
+      }
+
       delivery = await claimMessageDelivery(
         redisPresenceClient,
         socket.data.user.id,
@@ -918,6 +947,42 @@ io.on("connection", (socket) => {
           .where(eq(schema.agentRunQueue.messageId, createdMessage.message.id))
           .limit(1)
         if (queued) return
+        // The channel's always-on agent: what people say in the channel chat
+        // lands in its inbox, and a mention or a reply to it wakes it, in the
+        // chat or in a human thread.
+        if (
+          accessibleChannel.type === "text" &&
+          !session &&
+          createdMessage.message.type !== "forward"
+        ) {
+          const lane = await addChatMessageToAgentInbox({
+            workspaceId,
+            channelId: parsed.channelId,
+            message: createdMessage.message,
+            queue: agentInboxQueue,
+            onCheckInMade: (loop) =>
+              io
+                .to(channelRoom(parsed.channelId))
+                .emit("loop:updated", { loop }),
+          })
+          // The agent's turn starts after a short batch delay; show it as
+          // typing from the moment someone addresses it (the worker keeps it
+          // up while the turn runs).
+          if (lane === "addressed") {
+            const threadRootId = createdMessage.message.threadRootId ?? null
+            io.to(
+              threadRootId
+                ? threadRoom(threadRootId)
+                : channelRoom(parsed.channelId)
+            ).emit("typing:update", {
+              channelId: parsed.channelId,
+              threadRootId,
+              userId: LOR_USER_ID,
+              name: "Lor",
+            })
+          }
+          return
+        }
         // Lor works only in sessions; chat and human threads are people only.
         // createMessage decided this message's route with the session rule
         // (lor-routing.ts) and stored it.
@@ -1457,6 +1522,17 @@ const attachmentIndexQueue = new Queue<AttachmentIndexJobData>(
     },
   }
 )
+
+const agentInboxQueue = new Queue<AgentInboxFlushJobData>(AGENT_INBOX_QUEUE, {
+  connection: {
+    ...parseRedisUrl(env.REDIS_URL),
+    maxRetriesPerRequest: null,
+  },
+  defaultJobOptions: {
+    removeOnComplete: true,
+    removeOnFail: { age: 86400, count: 1000 },
+  },
+})
 
 const lorRespondQueue = new Queue<LorRespondJobData>(LOR_RESPOND_QUEUE, {
   connection: {

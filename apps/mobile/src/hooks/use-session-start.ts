@@ -249,9 +249,8 @@ export function useSessionStart(
   return handlers
 }
 
-// The New session screen: the message starts a session in `channel` with no
-// chat context, @Lor or not. "Ask Lor about this" passes the asked-about
-// message as its only context.
+// The New session screen: the message starts a code session in `channel`
+// with no chat context, @Lor or not.
 export function useSendNewSession(channel: {
   id: string
   name: string | null
@@ -263,9 +262,7 @@ export function useSendNewSession(channel: {
   return async (
     content: string,
     attachments: NonNullable<Message["attachments"]>,
-    contextMessageId: string | undefined,
-    // Code mode: the session's repo, base branch (or a new branch from it)
-    // and agent.
+    // The session's repo, base branch (or a new branch from it) and agent.
     code?: SessionStart["code"],
     // The model, effort and fast mode for its first turn, and Claude Code's
     // mode.
@@ -309,7 +306,6 @@ export function useSendNewSession(channel: {
         nonce,
         startSession: true,
         newSession: ids,
-        referencedMessageId: contextMessageId,
         ...(code
           ? {
               code: {
