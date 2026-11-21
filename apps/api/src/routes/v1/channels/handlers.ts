@@ -38,6 +38,7 @@ import {
   threadRoom,
   userRoom,
 } from "@repo/realtime-types"
+import { normalizeAgentName } from "@repo/utils/bestiary"
 import { Emitter } from "@socket.io/redis-emitter"
 import {
   and,
@@ -492,8 +493,8 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
   const body = c.req.valid("json")
 
   // channel:update edits any channel. Without it, the channel's creator may
-  // still rename it and change its topic; slowmode and the agent's profile,
-  // model, wake mode and brief always need the permission.
+  // still rename it, change its topic and name its agent; slowmode and the
+  // agent's profile, model, wake mode and brief always need the permission.
   const canUpdateAny = hasWorkspaceAuthority(c.var.authority, {
     channel: ["update"],
   })
@@ -569,11 +570,19 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
       .for("update")
       .then((rows) => rows[0])
     if (!prior) return null
-    const { agentBrief, ...fields } = body
+    const { agentBrief, agentName, agentCreature, ...fields } = body
+    const identityChanged =
+      agentName !== undefined || agentCreature !== undefined
     const updated = await tx
       .update(channel)
       .set({
         ...fields,
+        // The agent learns its new name from a change note.
+        ...(agentName !== undefined
+          ? { agentName: agentName ? normalizeAgentName(agentName) : null }
+          : {}),
+        ...(agentCreature !== undefined ? { agentCreature } : {}),
+        ...(identityChanged ? { agentIdentityUpdatedAt: new Date() } : {}),
         // The agent learns of a new brief from a change note.
         ...(agentBrief !== undefined
           ? {

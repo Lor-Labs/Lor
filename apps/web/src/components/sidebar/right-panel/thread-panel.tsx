@@ -37,6 +37,7 @@ import {
   useSyncExternalStore,
 } from "react"
 import { useDropzone } from "react-dropzone"
+import { ChannelAgentProvider } from "@/components/agent/channel-agent"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { ConversationMessages } from "@/components/chat/conversation-messages"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
@@ -149,7 +150,14 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       </>
     )
   }
-  return <EnabledThreadPanel view={view} />
+  return (
+    <ChannelAgentProvider
+      workspaceSlug={view.workspaceSlug}
+      channelId={view.channelId}
+    >
+      <EnabledThreadPanel view={view} />
+    </ChannelAgentProvider>
+  )
 }
 
 function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {

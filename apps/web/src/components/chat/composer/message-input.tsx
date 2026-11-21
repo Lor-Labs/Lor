@@ -447,11 +447,15 @@ export const MessageInput = memo(function MessageInput({
   const lorHint = useHint("lor_intro", lorIntro && !disabled)
   const dismissLorHint = lorHint.dismiss
 
+  // The channel agent's name, when the candidates carry it (decision 32).
+  const lorLabel =
+    mentionCandidates.find((candidate) => candidate.id === LOR_USER_ID)
+      ?.label ?? "Lor"
   const placeholder =
     placeholderOverride ??
     (context.type === "channel"
       ? lorIntro && !lorHint.dismissed
-        ? `Message #${context.name}, or ask @Lor`
+        ? `Message #${context.name}, or ask @${lorLabel}`
         : `Message #${context.name}`
       : `Message ${context.name}`)
 
@@ -470,6 +474,7 @@ export const MessageInput = memo(function MessageInput({
         search: candidate.search,
         name: candidate.name,
         image: candidate.image,
+        creature: candidate.creature,
       })
     }
     return Array.from(uniqueCandidates.values())
@@ -684,7 +689,7 @@ export const MessageInput = memo(function MessageInput({
         chain.insertContent({
           type: "paragraph",
           content: [
-            { type: "mention", attrs: { id: LOR_USER_ID, label: "Lor" } },
+            { type: "mention", attrs: { id: LOR_USER_ID, label: lorLabel } },
             { type: "text", text: lines ? " " : ` ${text}` },
           ],
         })
@@ -716,7 +721,7 @@ export const MessageInput = memo(function MessageInput({
       editor.off("create", applyDraft)
       editor.off("mount", applyDraft)
     }
-  }, [editor, composerDraft, onComposerDraftConsumed, destination])
+  }, [editor, composerDraft, onComposerDraftConsumed, destination, lorLabel])
 
   const appliedFileReferenceRef = useRef<string | null>(null)
   useEffect(() => {
@@ -1056,7 +1061,7 @@ export const MessageInput = memo(function MessageInput({
         align="start"
         onDismiss={dismissLorHint}
       >
-        {`Mention @Lor and it answers here in the chat.${isTauri ? " Press ⌘N to start a session." : ""}`}
+        {`Mention @${lorLabel} and it answers here in the chat.${isTauri ? " Press ⌘N to start a session." : ""}`}
       </HintPopover>
       <div
         ref={composerRef}

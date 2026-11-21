@@ -5,6 +5,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { formatWorkspaceRole } from "@repo/auth/permissions"
+import { LOR_USER_ID } from "@repo/db/constants"
 import type {
   PresenceUserUpdate,
   WorkspaceMemberJoinedEvent,
@@ -43,6 +44,12 @@ import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
+import { AgentCreature } from "@/components/agent/agent-creature"
+import {
+  type ChannelAgent,
+  ChannelAgentProvider,
+  useChannelAgentContext,
+} from "@/components/agent/channel-agent"
 import { FollowUpsSection } from "@/components/sidebar/right-panel/follow-ups-section"
 import { LoopsOverviewSection } from "@/components/sidebar/right-panel/loops-overview-section"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -148,6 +155,10 @@ function MemberRow({
   const canKick = canKickPermission && canManageTarget
 
   const showActions = canUpdateRole || canKick
+  const channelAgent = useChannelAgentContext()
+  if (channelAgent && member.userId === LOR_USER_ID) {
+    return <AgentMemberRow agent={channelAgent} />
+  }
 
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1.5 hover:bg-foreground/[0.04]">
@@ -247,6 +258,37 @@ function MemberRow({
           </DropdownMenu>
         )}
       </div>
+    </div>
+  )
+}
+
+const AGENT_STATE_LABELS = {
+  asleep: "Resting",
+  idle: "Here",
+  working: "Working",
+  needs_you: "Needs you",
+} as const
+
+// In a channel's panel, Lor is that channel's agent: its creature in its
+// real state, and its name (reference/always-on-agents.md, decision 33).
+function AgentMemberRow({ agent }: { agent: ChannelAgent }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1.5">
+      <AgentCreature
+        creature={agent.creature}
+        state={agent.state}
+        size={24}
+        label={agent.name}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13px] font-medium">{agent.name}</div>
+        <div className="truncate text-[11px] text-muted-foreground">
+          Channel agent
+        </div>
+      </div>
+      <span className="max-w-16 shrink-0 truncate pl-2 text-[11px] text-muted-foreground">
+        {AGENT_STATE_LABELS[agent.state]}
+      </span>
     </div>
   )
 }
@@ -522,7 +564,10 @@ export function WorkspaceMembersPanel({
   const moderationActionLabel = "Kick member"
 
   return (
-    <>
+    <ChannelAgentProvider
+      workspaceSlug={view.workspaceSlug}
+      channelId={view.channelId}
+    >
       <div className="flex h-full w-full flex-col">
         {/* No title — the section labels (Loops / Online / Offline) say it;
             the attachments shortcut sits left, the collapse control keeps
@@ -696,6 +741,6 @@ export function WorkspaceMembersPanel({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
+    </ChannelAgentProvider>
   )
 }

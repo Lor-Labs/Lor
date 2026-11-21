@@ -139,6 +139,7 @@ function NewSessionComposer({
   const fileUpload = useFileUpload(channel.id)
   const mentionCandidates = useMentionCandidates(workspaceSlug, channel.id, {
     broadcasts: false,
+    agent: false,
   })
   const channelName = channel.name ?? "channel"
   const [composerDraft, setComposerDraft] = useState<

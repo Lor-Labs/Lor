@@ -8,6 +8,7 @@ import {
 import type { RealtimeMessage } from "@repo/realtime-types"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import { channelRoom, threadRoom, userRoom } from "@repo/realtime-types/rooms"
+import { channelAgentIdentity } from "@repo/utils/bestiary"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
@@ -38,6 +39,9 @@ async function loadChannel(channelId: string) {
       id: schema.channel.id,
       workspaceId: schema.channel.workspaceId,
       name: schema.channel.name,
+      type: schema.channel.type,
+      agentName: schema.channel.agentName,
+      agentCreature: schema.channel.agentCreature,
       workspaceName: schema.workspace.name,
     })
     .from(schema.channel)
@@ -47,6 +51,23 @@ async function loadChannel(channelId: string) {
     )
     .where(eq(schema.channel.id, channelId))
     .then((rows) => rows[0] ?? null)
+}
+
+// Lor in a text channel's chat or a human thread is the channel's agent, and
+// notifications carry its name (reference/always-on-agents.md, decision 32).
+// In a session thread it stays Lor.
+async function speaksAsAgent(
+  channel: { type: string },
+  threadRootId: string | undefined
+) {
+  if (channel.type !== "text") return false
+  if (!threadRootId) return true
+  const [session] = await db
+    .select({ id: schema.agentSession.id })
+    .from(schema.agentSession)
+    .where(eq(schema.agentSession.threadRootId, threadRootId))
+    .limit(1)
+  return !session
 }
 
 // Unread/mention/push fanout for an already-persisted Lor message — used
@@ -73,7 +94,12 @@ export async function fanoutLorMessage(
       message: {
         id: input.messageId,
         content: input.content,
-        author: { name: author.name, image: author.image },
+        author: {
+          name: (await speaksAsAgent(channel, input.threadRootId))
+            ? channelAgentIdentity(channel).name
+            : author.name,
+          image: author.image,
+        },
         attachments: [],
         threadRootId: input.threadRootId ?? null,
       },
@@ -131,9 +157,6 @@ export async function postLorMessage(
     silent?: boolean
     // A run's message: clients show the run's approval card under it.
     lorTriggerMessageId?: string
-    // A Loop's or Act trigger's model for the turn this event line starts,
-    // read like a person's composer pick (null: Lor's default model).
-    turnModel?: string | null
   }
 ): Promise<{ messageId: string }> {
   const author = await loadLorAuthor()
@@ -151,7 +174,6 @@ export async function postLorMessage(
       referencedMessageId: input.referencedMessageId ?? null,
       threadRootId: input.threadRootId ?? null,
       excludedFromMemory: input.type === "event",
-      turnModel: input.turnModel ?? null,
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
     .then((rows) => rows[0])

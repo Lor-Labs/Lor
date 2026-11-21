@@ -59,6 +59,9 @@ export const dmChannelSchema = selectChannelSchema
     agentBrief: true,
     agentBriefUpdatedAt: true,
     agentCheckInAt: true,
+    agentName: true,
+    agentCreature: true,
+    agentIdentityUpdatedAt: true,
   })
   .extend({
     members: z.array(dmMemberSchema),

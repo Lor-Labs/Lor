@@ -92,6 +92,12 @@ export const channel = pgTable(
     // When the channel got its agent's check-in Loop: it is made once, so a
     // check-in someone deleted stays deleted.
     agentCheckInAt: timestamp("agent_check_in_at"),
+    // The channel agent's name and creature (reference/always-on-agents.md,
+    // decisions 32 and 33). Null = derived from the channel id
+    // (`channelAgentIdentity` in @repo/utils/bestiary).
+    agentName: text("agent_name"),
+    agentCreature: text("agent_creature"),
+    agentIdentityUpdatedAt: timestamp("agent_identity_updated_at"),
 
     // ordering within a category or workspace
     position: integer("position").default(0).notNull(),

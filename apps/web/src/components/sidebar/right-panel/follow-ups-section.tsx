@@ -85,7 +85,14 @@ export function FollowUpsSection({
   const wakeUps = data ?? []
   if (wakeUps.length === 0) return null
   const readable = (note: string) =>
-    toSearchPreviewText(note, people, { dropUnresolvedMentions: true })
+    toSearchPreviewText(
+      note,
+      people.map((person) => ({
+        id: person.id,
+        name: person.name ?? person.label,
+      })),
+      { dropUnresolvedMentions: true }
+    )
   return (
     <section className="border-t border-border/60 pt-3">
       <div className="pb-1 pl-1">

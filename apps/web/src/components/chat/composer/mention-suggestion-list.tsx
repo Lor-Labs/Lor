@@ -1,6 +1,7 @@
 import { LOR_USER_ID } from "@repo/db/constants"
 import { cn } from "@repo/ui/lib/utils"
 import { forwardRef } from "react"
+import { AgentCreature } from "@/components/agent/agent-creature"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import {
   type SuggestionListRef,
@@ -42,7 +43,8 @@ function matchTier(
   return texts.some((text) => text.includes(query)) ? 2 : null
 }
 
-// @ menu order. Lor leads its tier, so "@l" + Enter picks Lor. A broadcast
+// @ menu order. Lor (the channel agent) leads its tier, so the first letter
+// of its name + Enter picks it. A broadcast
 // (@channel, @here, @everyone) shows only once the query starts its name,
 // and always last, so a stray Enter never notifies a whole channel.
 export function rankMentionCandidates(
@@ -113,11 +115,15 @@ export const MentionSuggestionList = forwardRef<
                 </div>
               ) : (
                 <>
-                  <UserAvatar
-                    src={item.image}
-                    name={item.name ?? item.label}
-                    size="sm"
-                  />
+                  {item.creature ? (
+                    <AgentCreature creature={item.creature} size={24} still />
+                  ) : (
+                    <UserAvatar
+                      src={item.image}
+                      name={item.name ?? item.label}
+                      size="sm"
+                    />
+                  )}
                   <span className="truncate">@{item.name ?? item.label}</span>
                 </>
               )}

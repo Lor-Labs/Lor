@@ -12,6 +12,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { channelAgentIdentity, creatureById } from "@repo/utils/bestiary"
 import { z } from "zod"
 import {
   BRAIN_PAGE_FORMAT,
@@ -145,8 +146,12 @@ export async function profileChangeNotes(
   const [[channel], facts] = await Promise.all([
     db
       .select({
+        id: schema.channel.id,
         brief: schema.channel.agentBrief,
         briefUpdatedAt: schema.channel.agentBriefUpdatedAt,
+        agentName: schema.channel.agentName,
+        agentCreature: schema.channel.agentCreature,
+        identityUpdatedAt: schema.channel.agentIdentityUpdatedAt,
       })
       .from(schema.channel)
       .where(eq(schema.channel.id, channelId)),
@@ -172,6 +177,12 @@ export async function profileChangeNotes(
       .orderBy(asc(schema.channelAgentFact.updatedAt)),
   ])
   const lines: string[] = []
+  if (channel?.identityUpdatedAt && channel.identityUpdatedAt > since) {
+    const identity = channelAgentIdentity(channel)
+    lines.push(
+      `- The team changed how you appear: your name is now ${sanitizeInlineLabel(identity.name)}, shown as a pixel-art ${creatureById(identity.creature).label.toLowerCase()}. Go by that name from now on.`
+    )
+  }
   if (channel?.briefUpdatedAt && channel.briefUpdatedAt > since) {
     lines.push(
       channel.brief?.trim()

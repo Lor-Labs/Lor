@@ -276,6 +276,7 @@ export function SessionDocument({
   const { replyingTo, setReplyingTo, clearReply } = useReplyState()
   const mentionCandidates = useMentionCandidates(workspaceSlug, channelId, {
     broadcasts: false,
+    agent: false,
   })
   const channelPeople = useChannelPeople(workspaceSlug, channelId)
 
@@ -375,7 +376,7 @@ export function SessionDocument({
         const member = mentionCandidates.find(
           (candidate) => candidate.id === user.userId
         )
-        const memberImage = member && "image" in member ? member.image : null
+        const memberImage = member?.image ?? null
         return {
           ...user,
           image: participant?.image ?? memberImage,

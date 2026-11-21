@@ -1,5 +1,8 @@
+import { LOR_USER_ID } from "@repo/db/constants"
+import { channelAgentIdentity } from "@repo/utils/bestiary"
 import { useQuery } from "@tanstack/react-query"
 import { useMemo } from "react"
+import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { apiClient } from "@/lib/api-client"
 import { broadcastMentionCandidates } from "@/lib/broadcast-mentions"
 import { channelQueryOptions } from "@/lib/channel-query"
@@ -39,32 +42,51 @@ function useChannelAudience(workspaceSlug: string, channelId: string) {
 // Broadcasts come last, as the @ menu lists them. Session composers pass
 // `broadcasts: false`: the server ignores @here, @channel and @everyone in
 // sessions.
+// In a text channel's chat and threads, Lor is the channel's agent and goes
+// by its name and creature (reference/always-on-agents.md, decision 32).
+// Session composers pass `agent: false`: there Lor is the session's agent.
 export function useMentionCandidates(
   workspaceSlug: string,
   channelId: string,
-  { broadcasts = true }: { broadcasts?: boolean } = {}
+  {
+    broadcasts = true,
+    agent = true,
+  }: { broadcasts?: boolean; agent?: boolean } = {}
 ) {
   const { members, channel, audience } = useChannelAudience(
     workspaceSlug,
     channelId
   )
 
-  return useMemo(() => {
+  return useMemo<MentionCandidate[]>(() => {
     const humanOnly = channel?.type === "voice"
+    const identity =
+      agent && channel?.type === "text" ? channelAgentIdentity(channel) : null
     const audienceIds = new Set(audience?.userIds ?? [])
     const people = (members ?? []).filter((member) =>
       member.isBot ? !humanOnly : audienceIds.has(member.userId)
     )
     return [
-      ...people.map((member) => ({
-        id: member.userId,
-        label: member.name,
-        name: member.name,
-        image: member.image,
-      })),
+      ...people.map((member) =>
+        identity && member.userId === LOR_USER_ID
+          ? {
+              id: member.userId,
+              label: identity.name,
+              name: identity.name,
+              search: "lor",
+              image: null,
+              creature: identity.creature,
+            }
+          : {
+              id: member.userId,
+              label: member.name,
+              name: member.name,
+              image: member.image,
+            }
+      ),
       ...(broadcasts ? broadcastMentionCandidates(audience?.audience) : []),
     ]
-  }, [members, channel?.type, audience, broadcasts])
+  }, [members, channel, audience, broadcasts, agent])
 }
 
 // People who can see the channel, so who can follow its threads. Bots never

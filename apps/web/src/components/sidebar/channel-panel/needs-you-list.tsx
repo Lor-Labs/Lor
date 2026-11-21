@@ -10,9 +10,11 @@ import type {
   SidebarSession,
 } from "@repo/realtime-types"
 import { cn } from "@repo/ui/lib/utils"
+import { channelAgentIdentity } from "@repo/utils/bestiary"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useEffect, useMemo } from "react"
+import { AgentCreature } from "@/components/agent/agent-creature"
 import {
   SessionStateIndicator,
   useActivityWorkspaceId,
@@ -78,17 +80,20 @@ export function NeedsYouList() {
   const { data: channels } = useQuery(
     workspaceChannelsQueryOptions(workspaceSlug ?? "")
   )
-  const names = useMemo(
+  const byId = useMemo(
     () =>
       new Map(
         (channels ? openTextChannels(channels) : []).map((channel) => [
           channel.id,
-          channel.name,
+          channel,
         ])
       ),
     [channels]
   )
-  const channelName = (channelId: string) => names.get(channelId) ?? "channel"
+  const channelName = (channelId: string) =>
+    byId.get(channelId)?.name ?? "channel"
+  const agentOf = (channelId: string) =>
+    channelAgentIdentity(byId.get(channelId) ?? { id: channelId })
 
   // A question leaves once the person writes where it was asked: the
   // snapshot doesn't refetch on every chat message, so their own does it.
@@ -152,20 +157,29 @@ export function NeedsYouList() {
               onClick={() => openNeed(need)}
               className={rowClass}
             >
-              <HugeiconsIcon
-                icon={
-                  need.kind === "approval"
-                    ? SecurityCheckIcon
-                    : BubbleChatQuestionIcon
-                }
-                className="mt-0.5 size-4 shrink-0 text-warning"
-                strokeWidth={2}
+              <AgentCreature
+                creature={agentOf(need.channelId).creature}
+                size={24}
+                still
+                className="-mt-0.5"
               />
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline gap-1.5">
                   <span className="min-w-0 flex-1 truncate font-medium">
-                    {need.kind === "approval" ? "Approval" : "Question"} in #
-                    {channelName(need.channelId)}
+                    <HugeiconsIcon
+                      icon={
+                        need.kind === "approval"
+                          ? SecurityCheckIcon
+                          : BubbleChatQuestionIcon
+                      }
+                      className="mr-1 inline size-3.5 -translate-y-px text-warning"
+                      strokeWidth={2}
+                    />
+                    {agentOf(need.channelId).name}{" "}
+                    {need.kind === "approval"
+                      ? "needs an approval"
+                      : "asked you"}{" "}
+                    in #{channelName(need.channelId)}
                   </span>
                   <span className="shrink-0 text-muted-foreground text-xs">
                     {timeAgo(need.createdAt)}

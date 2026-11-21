@@ -5,6 +5,7 @@ import {
   selectChannelSchema,
   updateChannelSchema,
 } from "@repo/db/schema"
+import { CREATURES, type CreatureId } from "@repo/utils/bestiary"
 import {
   listMessagesQuerySchema,
   listMessagesResponseSchema,
@@ -77,6 +78,18 @@ const updateChannelRequestBaseSchema = updateChannelSchema
     // The channel agent's brief (reference/always-on-agents.md §7). Empty
     // or null removes it.
     agentBrief: z.string().max(4_000).nullable().optional(),
+    // Its name and creature (decisions 32 and 33). Null goes back to the
+    // ones derived from the channel id.
+    agentName: z.string().max(100).nullable().optional(),
+    agentCreature: z
+      .enum(
+        CREATURES.map((creature) => creature.id) as [
+          CreatureId,
+          ...CreatureId[],
+        ]
+      )
+      .nullable()
+      .optional(),
   })
   .strict()
 

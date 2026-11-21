@@ -10,6 +10,7 @@ import { useThemeColor } from "heroui-native/hooks"
 import { type ReactNode, useMemo } from "react"
 import { Pressable, Text, View } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
+import { AgentCreature } from "@/components/agent-creature"
 import { MessageApprovalCard } from "@/components/approval-card"
 import { ConnectorIcon, connectorForName } from "@/components/connector-icon"
 import { ForwardedMessageCard } from "@/components/forwarded-message-card"
@@ -34,6 +35,7 @@ import { ProposalCard } from "@/components/proposal-card"
 import { ThinkingIndicator } from "@/components/thinking-indicator"
 import { Avatar } from "@/components/ui/avatar"
 import { CallSummaryCard } from "@/components/voice/call-summary-card"
+import { type ChannelAgent, useChannelAgent } from "@/hooks/use-channel-agent"
 import type { Message } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/message-markdown"
 import { isOptimisticMessage } from "@/lib/messages"
@@ -73,14 +75,25 @@ function MessageAvatar({
   className,
   message,
   size = "sm",
+  agent,
 }: {
   avatarColor?: string | null
   className?: string
   message: Message
   size?: "xs" | "sm" | "md"
+  // The channel agent wears its creature (decision 33).
+  agent?: ChannelAgent | null
 }) {
   const foreground = useThemeColor("foreground")
   const isLor = message.authorId === LOR_USER_ID
+  if (agent && isLor) {
+    return (
+      <AgentCreature
+        creature={agent.creature}
+        size={size === "md" ? 48 : size === "xs" ? 32 : 40}
+      />
+    )
+  }
   const connector = message.overrideAvatarUrl
     ? null
     : connectorForName(message.overrideName)
@@ -358,8 +371,11 @@ export function MessageRow({
     }),
     [isDocument, message.routedToLor]
   )
+  const channelAgent = useChannelAgent()
   if (message.type === "agent_session") return null
   const isLor = message.authorId === LOR_USER_ID
+  const agent = isLor && !isDocument ? channelAgent : null
+  const displayName = agent?.name ?? messageDisplayName(message)
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
   const authorPress = authorPressHandler(message, onPressAuthor)
   const time = new Date(message.createdAt).toLocaleTimeString([], {
@@ -449,7 +465,11 @@ export function MessageRow({
             importantForAccessibility="no-hide-descendants"
             onPress={authorPress}
           >
-            <MessageAvatar avatarColor={avatarColor} message={message} />
+            <MessageAvatar
+              agent={agent}
+              avatarColor={avatarColor}
+              message={message}
+            />
           </Pressable>
         ) : null}
       </View>
@@ -459,9 +479,7 @@ export function MessageRow({
           <View className="flex-row items-baseline gap-two">
             <Text
               accessibilityLabel={
-                authorPress
-                  ? `View ${messageDisplayName(message)}'s profile`
-                  : undefined
+                authorPress ? `View ${displayName}'s profile` : undefined
               }
               accessibilityRole={authorPress ? "button" : undefined}
               className={
@@ -472,7 +490,7 @@ export function MessageRow({
               onPress={authorPress}
               suppressHighlighting
             >
-              {messageDisplayName(message)}
+              {displayName}
             </Text>
             {isApp ? <AppBadge /> : null}
             <Text className="text-xs font-medium text-muted">{time}</Text>
@@ -507,8 +525,11 @@ export function ThreadRootMessage({
   onPressAuthor?: (message: Message) => void
   onToggleReaction?: (message: Message, emoji: string) => void
 }) {
+  const channelAgent = useChannelAgent()
   if (message.type === "agent_session") return null
   const isLor = message.authorId === LOR_USER_ID
+  const agent = isLor ? channelAgent : null
+  const displayName = agent?.name ?? messageDisplayName(message)
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
   const authorPress = authorPressHandler(message, onPressAuthor)
 
@@ -544,15 +565,14 @@ export function ThreadRootMessage({
             }
             message={message}
             size="md"
+            agent={agent}
           />
         </Pressable>
         <View className="min-w-0 flex-1 gap-px">
           <View className="flex-row items-center gap-two">
             <Text
               accessibilityLabel={
-                authorPress
-                  ? `View ${messageDisplayName(message)}'s profile`
-                  : undefined
+                authorPress ? `View ${displayName}'s profile` : undefined
               }
               accessibilityRole={authorPress ? "button" : undefined}
               className={
@@ -564,7 +584,7 @@ export function ThreadRootMessage({
               onPress={authorPress}
               suppressHighlighting
             >
-              {messageDisplayName(message)}
+              {displayName}
             </Text>
             {isApp ? <AppBadge /> : null}
           </View>
