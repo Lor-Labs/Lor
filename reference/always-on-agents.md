@@ -1038,10 +1038,20 @@ threads from GUILD_CREATE and THREAD_* events (`apps/api/src/lib/discord/
 threads.ts`) and joins new ones in linked channels. In a thread the agent
 wakes by Lor's own thread rule (a mention or @role, a reply to it, or a
 thread under one of its messages) and answers there: its posts, typing,
-notices and approval buttons go to that Discord thread. It doesn't start
-threads itself. Lor's thread panel shows "This thread lives in Discord"
-where the composer was. Typing in threads adds Send Messages in Threads to
-the bot's permissions.
+notices and approval buttons go to that Discord thread. Lor's thread panel
+shows "This thread lives in Discord" where the composer was. Typing in
+threads adds Send Messages in Threads to the bot's permissions.
+
+The agent starts threads (2026-11-21, Jacob): `send_message` takes
+`startThread` (a name). The reply goes into a new thread on the message the
+turn answers, the person who wrote it follows that thread, and the rest of
+the turn posts there; in a linked channel the bot starts the matching
+Discord thread (Create Public Threads), or posts in the chat when Discord
+refuses. The prompt says to use it for a back-and-forth and keep quick
+answers in the chat. Every message in a thread the agent is part of (it
+posted the root or a reply) now wakes it, in Lor and from Discord, and it
+may stay quiet (`agentInThread`). Only a mention or a reply to it shows
+typing right away.
 
 **Slice 7: before the batch ships** (Jacob, 2026-11-21)
 
@@ -1100,7 +1110,7 @@ deployed.
      (decision 31).
   2. Optional env: `DISCORD_BOT_TOKEN` and `DISCORD_APPLICATION_ID` on the
      API and worker (Message Content intent on, no interactions endpoint).
-     The invite asks for eight permissions, `275683298368`.
+     The invite asks for nine permissions, `310043036736`.
      Without them Discord stays hidden.
   3. Redeploy API, realtime, worker, web/desktop and mobile together; drain
      the worker first so no old-code turn runs.

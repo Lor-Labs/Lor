@@ -18,8 +18,13 @@ const MAX_MESSAGE_CHARS = 8000
 
 export type SendMessageExecutor = (input: {
   content: string
-  // Set when the channel's chat lives in Discord and the post there failed.
-}) => Promise<{ messageId: string; discordError?: string }>
+  // Starts a thread, with this name, on the message the turn answers; the
+  // rest of the turn posts there.
+  startThread?: string
+}) => Promise<
+  // discordError: the chat lives in Discord and the post there failed.
+  { messageId: string; discordError?: string } | { error: string }
+>
 
 // Code sessions the agent runs as helpers (reference/always-on-agents.md §6).
 // The worker implements them; each returns what the model reads.
@@ -83,19 +88,30 @@ const sendMessageContext = z.object({
 export const sendMessageTool = {
   send_message: tool({
     description:
-      "Post a message in this channel's chat, where the team reads it (on a turn woken in a thread, in that thread). This is the only way anything you write reaches people: your other text stays in your private working notes. Use it to answer whoever addressed you, to report a result, or to ask someone for a decision. Write for the whole channel and mention a person as <@id> when the message is for them. Do not call it when you have nothing worth saying: ending your turn without sending is fine.",
+      "Post a message in this channel's chat, where the team reads it (on a turn woken in a thread, in that thread). This is the only way anything you write reaches people: your other text stays in your private working notes. Use it to answer whoever addressed you, to report a result, or to ask someone for a decision. Write for the whole channel and mention a person as <@id> when the message is for them. Do not call it when you have nothing worth saying: ending your turn without sending is fine. Set startThread to answer in a new thread on the message you're answering instead of the chat, for a back-and-forth that would crowd the chat; the rest of your turn then posts in that thread.",
     inputSchema: z.object({
       content: z
         .string()
         .min(1)
         .max(MAX_MESSAGE_CHARS)
         .describe("the message, in Markdown"),
+      startThread: z
+        .string()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe(
+          "a short name for a new thread to answer in, shown in Discord when the chat lives there"
+        ),
     }),
     contextSchema: sendMessageContext,
-    execute: async ({ content }, { context }) => {
-      const { messageId, discordError } = await context.sendMessage({
+    execute: async ({ content, startThread }, { context }) => {
+      const sent = await context.sendMessage({
         content,
+        ...(startThread ? { startThread } : {}),
       })
+      if ("error" in sent) return { ok: false as const, error: sent.error }
+      const { messageId, discordError } = sent
       return discordError
         ? {
             ok: false as const,
@@ -230,6 +246,8 @@ You are ${name}, the always-on agent for ${channel}: one teammate the whole chan
 - Answer the person who addressed you with one send_message. Mention them as <@id> only when the message needs their attention.
 - You may stay quiet. When nothing needs saying, end the turn without send_message.
 - To follow up later, call wake_up. Never promise to come back otherwise.
+- For a back-and-forth that would crowd the chat (debugging, planning, anything long), answer with send_message's startThread: it starts a thread on the message you're answering. Keep quick answers in the chat.
+- In a thread you're part of (one under your message, or one you started or posted in), every message wakes you. Answer when you're addressed or have something useful to add; otherwise end the turn without sending.
 - You have no computer of your own yet: you can't run code, use a shell or make files yourself. Work on code goes to code sessions: start_session hands a task to a coding agent on one repository, and you are woken with its report when its turn ends. Tell people in the chat what you started and, when it reports, what came of it. People review the branch and open pull requests; you and the sessions never do.
 - A Loop is a schedule the team set for you: when one fires you are woken with its standing instructions, and you do its work then. propose_loop drafts a new one when a person asks for recurring work.
 - In the chat, never narrate what woke you: no "my Loop ran", "a scheduled check", "an event came in" or "my inbox". Say what you noticed and what it means, the way a teammate who was keeping an eye on things would.
@@ -351,6 +369,23 @@ export async function triggerWakeCounts(
       )
     )
   return { hourly: row?.hourly ?? 0, daily: row?.daily ?? 0 }
+}
+
+// Whether the channel agent is part of a thread: it posted the root or a
+// reply. Every message in such a thread wakes it (Jacob, 2026-11-21); it
+// may still stay quiet.
+export async function agentInThread(threadRootId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: schema.message.id })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.authorId, LOR_USER_ID),
+        sql`(${schema.message.id} = ${threadRootId} or ${schema.message.threadRootId} = ${threadRootId})`
+      )
+    )
+    .limit(1)
+  return Boolean(row)
 }
 
 export async function addInboxMessage(input: {

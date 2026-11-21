@@ -1,5 +1,6 @@
 import { checkCredits, recordUsage } from "@repo/billing"
 import {
+  APP_USER_ID,
   and,
   db,
   desc,
@@ -13,6 +14,7 @@ import {
   sql,
 } from "@repo/db"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
+import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import { env } from "@repo/env/server"
 import { type ModelMessage, respond } from "@repo/lor"
 import { saveHandoffNote } from "@repo/lor/act-runs"
@@ -33,7 +35,11 @@ import {
   type RunAgentContext,
 } from "@repo/lor/channel-agent"
 import { openBlock, profileChangeNotes } from "@repo/lor/channel-profile"
-import { postAgentToDiscord, showDiscordTyping } from "@repo/lor/discord"
+import {
+  postAgentToDiscord,
+  showDiscordTyping,
+  startDiscordThread,
+} from "@repo/lor/discord"
 import { LoopProposalError, type ProposeLoopExecutor } from "@repo/lor/loops"
 import {
   ProposalRefusedError,
@@ -117,13 +123,15 @@ const TYPING_EVERY_MS = 3_000
 function showTyping(
   deps: AgentDeps,
   channelId: string,
-  threadRootId: string | null,
+  // Read on every beat: a turn that starts a thread moves there.
+  place: { threadRootId: string | null },
   name: string
 ) {
   let pausedUntil = 0
   let beats = 0
   const emit = () => {
     if (Date.now() < pausedUntil) return
+    const threadRootId = place.threadRootId
     // Discord's typing lasts about 10s a call.
     if (beats++ % 3 === 0) void showDiscordTyping(channelId, threadRootId)
     deps.emitter
@@ -523,12 +531,14 @@ function agentHooks(
   },
   mode: RunAgentContext["mode"],
   onSent: () => void,
-  // Who woke the turn, whose plan runs the sessions it starts, and the human
-  // thread it answers in (null: the chat).
+  // Who woke the turn, whose plan runs the sessions it starts, the human
+  // thread it answers in (null: the chat; send_message's startThread sets
+  // it), and the message that woke it.
   turn: {
     askerId: string | null
     planUserId: string | null
     threadRootId: string | null
+    triggerMessageId?: string | null
   } = {
     askerId: null,
     planUserId: null,
@@ -555,7 +565,47 @@ function agentHooks(
       runId: execution.runId,
       askedById: turn.askerId,
     }),
-    sendMessage: async ({ content }) => {
+    sendMessage: async ({ content, startThread }) => {
+      let threadNote: string | undefined
+      if (startThread) {
+        if (turn.threadRootId) {
+          return {
+            error:
+              "This turn already answers in a thread. Send without startThread.",
+          }
+        }
+        const rootId = turn.triggerMessageId
+        if (!rootId) {
+          return {
+            error:
+              "No person's message woke this turn, so there is no message to start a thread on.",
+          }
+        }
+        turn.threadRootId = rootId
+        // Whoever wrote the message follows the thread started on it.
+        const [root] = await db
+          .select({ authorId: schema.message.authorId })
+          .from(schema.message)
+          .where(eq(schema.message.id, rootId))
+        if (
+          root &&
+          root.authorId !== LOR_USER_ID &&
+          root.authorId !== APP_USER_ID
+        ) {
+          await subscribeToThread(rootId, [root.authorId]).catch(() => {})
+        }
+        threadNote = await startDiscordThread({
+          channelId: channel.id,
+          threadRootId: rootId,
+          name: startThread,
+        }).then(
+          () => undefined,
+          (err: unknown) => {
+            logger.warn({ err, channelId: channel.id }, "Discord thread failed")
+            return err instanceof Error ? err.message : "unknown error"
+          }
+        )
+      }
       const posted = await postLorMessage(deps, {
         channelId: channel.id,
         content,
@@ -564,11 +614,12 @@ function agentHooks(
       })
       onSent()
       // A chat that lives in Discord gets the post there too (decision 22).
+      // A thread Discord refused to start leaves the post in its chat.
       const discordError = await postAgentToDiscord({
         channelId: channel.id,
         messageId: posted.messageId,
         content,
-        threadRootId: turn.threadRootId,
+        threadRootId: threadNote ? null : turn.threadRootId,
       }).then(
         () => undefined,
         (err: unknown) => {
@@ -576,7 +627,10 @@ function agentHooks(
           return err instanceof Error ? err.message : "unknown error"
         }
       )
-      return discordError ? { ...posted, discordError } : posted
+      const problem = threadNote
+        ? `couldn't start the thread there (${threadNote}), so it went to the chat`
+        : discordError
+      return problem ? { ...posted, discordError: problem } : posted
     },
     recordUsage: (usage, kind) => execution.recordUsage(usage, kind),
     loadDecisions: async (pausedRunId) =>
@@ -613,6 +667,9 @@ export async function runAgentTurnJob(
       triggerAuthorId: schema.message.authorId,
       triggerContent: schema.message.content,
       triggerThreadRootId: schema.message.threadRootId,
+      triggerReplyAuthorId: sql<
+        string | null
+      >`(select r.author_id from message r where r.id = ${schema.message.referencedMessageId})`,
       loopId: schema.agentRun.loopId,
     })
     .from(schema.agentRun)
@@ -630,21 +687,29 @@ export async function runAgentTurnJob(
   const userId = run?.triggerAuthorId ?? undefined
   // A turn woken in a human thread answers there (loadInboxBatch keeps a
   // turn to one place, and its trigger is the first message that woke it).
-  const threadRootId = run?.triggerThreadRootId ?? null
+  // send_message's startThread moves it into a new thread.
+  const turnPlace = {
+    askerId: userId ?? null,
+    planUserId: userId ?? null,
+    threadRootId: run?.triggerThreadRootId ?? null,
+    triggerMessageId: run?.triggerMessageId ?? null,
+  }
   let sent = false
   const notice = (content: string) =>
     postLorMessage(deps, {
       channelId,
       content,
       type: "agent_post",
-      ...(threadRootId ? { threadRootId } : {}),
+      ...(turnPlace.threadRootId
+        ? { threadRootId: turnPlace.threadRootId }
+        : {}),
     })
       .then((posted) =>
         postAgentToDiscord({
           channelId,
           messageId: posted.messageId,
           content,
-          threadRootId,
+          threadRootId: turnPlace.threadRootId,
         })
       )
       .catch((err) => logger.error({ err, runId }, "Agent notice failed"))
@@ -675,17 +740,21 @@ export async function runAgentTurnJob(
       return
     }
     // Typing only when a person addressed Lor: turns woken by an event, a
-    // session's report or "every message" often end quiet. A person's id
-    // marks a person's message (the trigger of a note-only turn is null).
+    // session's report, "every message" or a thread it's part of often end
+    // quiet. A person's id marks a person's message (the trigger of a
+    // note-only turn is null).
+    const explicit =
+      Boolean(run?.triggerContent?.includes(`<@${LOR_USER_ID}>`)) ||
+      run?.triggerReplyAuthorId === LOR_USER_ID
     const addressed =
       Boolean(userId) &&
-      (channel.agentWakeMode === "mention" ||
-        Boolean(run?.triggerContent?.includes(`<@${LOR_USER_ID}>`)))
+      (explicit ||
+        (channel.agentWakeMode === "mention" && !turnPlace.threadRootId))
     const typing = addressed
       ? showTyping(
           deps,
           channelId,
-          threadRootId,
+          turnPlace,
           channelAgentIdentity(channel).name
         )
       : { pause: () => {}, stop: () => {} }
@@ -714,11 +783,7 @@ export async function runAgentTurnJob(
         userId ?? null
       ),
     }
-    const turnPlace = {
-      askerId: userId ?? null,
-      planUserId: userId ?? (await setUpBy(runId)),
-      threadRootId,
-    }
+    turnPlace.planUserId = userId ?? (await setUpBy(runId))
     const result = await respond(
       {
         ...turnContext,
@@ -799,7 +864,7 @@ export async function runAgentTurnJob(
           channelId,
           messageId: null,
           content: `Approval needed: ${approval.description}`,
-          threadRootId,
+          threadRootId: turnPlace.threadRootId,
           buttons: [
             {
               customId: `lor-approval:${approval.id}:approved`,

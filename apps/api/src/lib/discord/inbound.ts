@@ -1,5 +1,5 @@
 import { APP_USER_ID, db, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
-import { addInboxMessage } from "@repo/lor/channel-agent"
+import { addInboxMessage, agentInThread } from "@repo/lor/channel-agent"
 import { ensureCheckInLoop } from "@repo/lor/check-in"
 import {
   type DiscordLink,
@@ -379,19 +379,12 @@ async function mirrorInto(
   // Into the agent's inbox: a mention of the bot or a reply to the agent
   // wakes it, anything else waits unless the channel wakes it every time.
   void ensureCheckInLoop(link.channelId).catch(() => {})
-  // In a thread only a mention, a reply to the agent, or a thread under one
-  // of its messages reaches it, as in Lor's own threads.
-  const rootIsAgent = threadRootId
-    ? await db
-        .select({ authorId: schema.message.authorId })
-        .from(schema.message)
-        .where(eq(schema.message.id, threadRootId))
-        .then((rows) => rows[0]?.authorId === LOR_USER_ID)
-    : false
+  // In a thread a mention or a reply to the agent reaches it, and so does
+  // every message in a thread it's part of, as in Lor's own threads.
   const addressed =
     content.includes(`<@${LOR_USER_ID}>`) ||
     referenced?.authorId === LOR_USER_ID ||
-    rootIsAgent
+    (threadRootId ? await agentInThread(threadRootId) : false)
   if (threadRootId && !addressed) return
   const everyMessage = addressed
     ? false

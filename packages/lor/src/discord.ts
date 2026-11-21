@@ -21,6 +21,7 @@ const INVITE_PERMISSIONS =
   (1n << 16n) | // read message history
   (1n << 28n) | // manage roles
   (1n << 29n) | // manage webhooks
+  (1n << 35n) | // create public threads (the agent's own)
   (1n << 38n) // send messages in threads (typing there)
 
 export const DISCORD_ADMINISTRATOR = 1n << 3n
@@ -404,6 +405,42 @@ export async function showDiscordTyping(
   await discordRequest(`/channels/${target}/typing`, {
     method: "POST",
   }).catch(() => {})
+}
+
+// A Discord thread the agent starts on the Discord copy of the message it
+// answers, paired with the Lor thread on the same message. Null when the
+// channel isn't linked or the message never came from Discord.
+export async function startDiscordThread(input: {
+  channelId: string
+  threadRootId: string
+  name: string
+}): Promise<string | null> {
+  if (!discordConfigured()) return null
+  const link = await discordLinkFor(input.channelId)
+  if (!link) return null
+  const existing = await discordThreadForRoot(input.threadRootId)
+  if (existing) return existing
+  const [root] = await db
+    .select({ id: schema.discordMessage.discordMessageId })
+    .from(schema.discordMessage)
+    .where(eq(schema.discordMessage.messageId, input.threadRootId))
+  if (!root) return null
+  const thread = await discordRequest<{ id: string }>(
+    `/channels/${link.discordChannelId}/messages/${root.id}/threads`,
+    {
+      method: "POST",
+      body: { name: input.name.slice(0, 100), auto_archive_duration: 1440 },
+    }
+  )
+  await db
+    .insert(schema.discordThread)
+    .values({
+      discordThreadId: thread.id,
+      channelId: input.channelId,
+      threadRootId: input.threadRootId,
+    })
+    .onConflictDoNothing()
+  return thread.id
 }
 
 export async function discordThreadForRoot(
