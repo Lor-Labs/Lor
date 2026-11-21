@@ -118,14 +118,21 @@ export function channelProfileSection(profile: ChannelProfile): string {
 }
 
 // Facts with short ids for the memory pass, which may change only these.
+// A fact as the memory pass saw it: a person's edit since then wins.
+type ShownFact = { id: string; updatedAt: Date }
+
+// Postgres keeps microseconds and a JS Date milliseconds.
+const sameRevision = (at: Date) =>
+  sql`date_trunc('milliseconds', ${schema.channelAgentFact.updatedAt}) = ${at}`
+
 export function factsForMemoryPass(facts: ProfileFact[]): {
   text: string
-  ids: Map<string, string>
+  ids: Map<string, ShownFact>
 } {
-  const ids = new Map<string, string>()
+  const ids = new Map<string, ShownFact>()
   const lines = facts.map((fact, index) => {
     const label = `f${index + 1}`
-    ids.set(label, fact.id)
+    ids.set(label, { id: fact.id, updatedAt: fact.updatedAt })
     return factLine(fact, label)
   })
   const chars = facts.reduce((sum, fact) => sum + fact.text.length, 0)
@@ -269,32 +276,39 @@ export type FactChanges = z.infer<typeof factChangesSchema>
 export async function applyFactChanges(input: {
   workspaceId: string
   channelId: string
-  shown: Map<string, string>
+  shown: Map<string, ShownFact>
   changes: FactChanges
 }): Promise<{ added: number; edited: number; removed: number }> {
   const clip = (text: string, max: number) =>
     text.trim().replace(/\s+/g, " ").slice(0, max)
   const now = new Date()
   return db.transaction(async (tx) => {
-    const removeIds = input.changes.remove.flatMap(
+    // Each write requires the revision the pass saw, so a fact a person
+    // changed meanwhile is left for the next pass.
+    const toRemove = input.changes.remove.flatMap(
       (label) => input.shown.get(label) ?? []
     )
-    if (removeIds.length > 0) {
-      await tx
+    const removeIds = toRemove.map((fact) => fact.id)
+    let removed = 0
+    for (const fact of toRemove) {
+      const rows = await tx
         .update(schema.channelAgentFact)
         .set({ deletedAt: now, updatedAt: now, editedById: null })
         .where(
           and(
             eq(schema.channelAgentFact.channelId, input.channelId),
-            inArray(schema.channelAgentFact.id, removeIds),
+            eq(schema.channelAgentFact.id, fact.id),
+            sameRevision(fact.updatedAt),
             isNull(schema.channelAgentFact.deletedAt)
           )
         )
+        .returning({ id: schema.channelAgentFact.id })
+      removed += rows.length
     }
     let edited = 0
     for (const change of input.changes.edit) {
-      const id = input.shown.get(change.id)
-      if (!id || removeIds.includes(id)) continue
+      const shown = input.shown.get(change.id)
+      if (!shown || removeIds.includes(shown.id)) continue
       const rows = await tx
         .update(schema.channelAgentFact)
         .set({
@@ -304,8 +318,9 @@ export async function applyFactChanges(input: {
         })
         .where(
           and(
-            eq(schema.channelAgentFact.id, id),
+            eq(schema.channelAgentFact.id, shown.id),
             eq(schema.channelAgentFact.channelId, input.channelId),
+            sameRevision(shown.updatedAt),
             isNull(schema.channelAgentFact.deletedAt)
           )
         )
@@ -343,7 +358,7 @@ export async function applyFactChanges(input: {
         }))
       )
     }
-    return { added: additions.length, edited, removed: removeIds.length }
+    return { added: additions.length, edited, removed }
   })
 }
 

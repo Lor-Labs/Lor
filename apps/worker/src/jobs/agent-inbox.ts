@@ -1,5 +1,6 @@
 import {
   AGENT_COMPACT_JOB,
+  AGENT_INBOX_FLUSH_JOB,
   AGENT_TURN_JOB,
   type AgentCompactJobData,
   type AgentInboxFlushJobData,
@@ -26,6 +27,9 @@ export function createAgentInboxProcessor(deps: AgentDeps) {
     if (job.name === AGENT_COMPACT_JOB) {
       await runAgentCompactJob(deps, job as Job<AgentCompactJobData>, token)
       return
+    }
+    if (job.name !== AGENT_INBOX_FLUSH_JOB) {
+      throw new Error(`Unknown agent inbox job: ${job.name}`)
     }
     const { channelId } = job.data as AgentInboxFlushJobData
     const outcome = await flushAgentInbox(deps, channelId)

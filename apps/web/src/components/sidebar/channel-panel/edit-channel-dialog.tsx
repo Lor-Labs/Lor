@@ -122,6 +122,9 @@ export function EditChannelDialog({
     isCreatureId(channel.agentCreature) ? channel.agentCreature : null
   )
 
+  // Drafts start from the channel when the dialog opens or switches channel,
+  // not on every cache update, so an unsaved edit survives a rename's
+  // optimistic update or its rollback.
   useEffect(() => {
     if (open) {
       setTab(
@@ -140,19 +143,7 @@ export function EditChannelDialog({
         isCreatureId(channel.agentCreature) ? channel.agentCreature : null
       )
     }
-  }, [
-    open,
-    overviewOnly,
-    initialTab,
-    channel.name,
-    channel.topic,
-    channel.agentProfileId,
-    channel.agentModel,
-    channel.agentWakeMode,
-    channel.agentBrief,
-    channel.agentName,
-    channel.agentCreature,
-  ])
+  }, [open, channel.id])
 
   const { data: profilesData } = useQuery({
     queryKey: ["agent-profiles", workspaceSlug],
@@ -490,6 +481,7 @@ export function EditChannelDialog({
                         {!overviewOnly && (
                           <>
                             <DiscordChatSection
+                              key={channel.id}
                               workspaceSlug={workspaceSlug}
                               channelId={channel.id}
                               agentName={identity.name}
@@ -551,12 +543,13 @@ export function EditChannelDialog({
                                 this channel. Only people write the brief.
                               </p>
                             </div>
-                            <AgentFactsList
-                              workspaceSlug={workspaceSlug}
-                              channelId={channel.id}
-                            />
                           </>
                         )}
+                        {/* Any member may edit facts, as the API allows. */}
+                        <AgentFactsList
+                          workspaceSlug={workspaceSlug}
+                          channelId={channel.id}
+                        />
                       </>
                     )}
                     {!overviewOnly && customProfiles.length > 0 && (

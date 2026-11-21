@@ -1,4 +1,4 @@
-import { and, asc, count, db, eq, inArray, lte, schema } from "@repo/db"
+import { and, asc, count, db, eq, lte, schema } from "@repo/db"
 import {
   type AgentWakeUps,
   addInboxNote,
@@ -159,6 +159,19 @@ export async function sweepDueWakeUps(
   const channels = new Set<string>()
   const delivered: string[] = []
   for (const wakeUp of due) {
+    // Claimed first, so a cancel that wins skips the note and a delivery
+    // that wins makes the cancel report nothing to cancel.
+    const [claimed] = await db
+      .update(schema.agentWakeUp)
+      .set({ status: "fired", firedAt: new Date() })
+      .where(
+        and(
+          eq(schema.agentWakeUp.id, wakeUp.id),
+          eq(schema.agentWakeUp.status, "pending")
+        )
+      )
+      .returning({ id: schema.agentWakeUp.id })
+    if (!claimed) continue
     try {
       await addInboxNote({
         workspaceId: wakeUp.workspaceId,
@@ -172,18 +185,12 @@ export async function sweepDueWakeUps(
       delivered.push(wakeUp.id)
     } catch (err) {
       logger.error({ err, wakeUpId: wakeUp.id }, "Wake-up delivery failed")
+      await db
+        .update(schema.agentWakeUp)
+        .set({ status: "pending", firedAt: null })
+        .where(eq(schema.agentWakeUp.id, wakeUp.id))
+        .catch(() => {})
     }
-  }
-  if (delivered.length > 0) {
-    await db
-      .update(schema.agentWakeUp)
-      .set({ status: "fired", firedAt: new Date() })
-      .where(
-        and(
-          inArray(schema.agentWakeUp.id, delivered),
-          eq(schema.agentWakeUp.status, "pending")
-        )
-      )
   }
   for (const channelId of channels) {
     emitUpdated(deps, channelId)

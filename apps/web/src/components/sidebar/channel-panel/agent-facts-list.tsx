@@ -67,8 +67,13 @@ export function AgentFactsList({
       if (!res.ok) throw new Error("Failed to save the fact")
       return (await res.json()) as AgentFact
     },
-    onSuccess: (saved) => {
-      setEditing(null)
+    onSuccess: (saved, submitted) => {
+      // A draft started or changed while this saved stays open.
+      setEditing((current) =>
+        current?.id === submitted.id && current.text.trim() === submitted.text
+          ? null
+          : current
+      )
       queryClient.setQueryData<AgentFact[]>(agentFactsKey(channelId), (list) =>
         list?.map((fact) => (fact.id === saved.id ? saved : fact))
       )
@@ -109,6 +114,17 @@ export function AgentFactsList({
       </p>
       {facts.isPending ? (
         <p className="text-xs text-muted-foreground">Loading…</p>
+      ) : facts.isError && list.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Couldn't load the facts.{" "}
+          <button
+            type="button"
+            onClick={() => void facts.refetch()}
+            className="cursor-pointer font-medium text-primary underline-offset-2 hover:underline"
+          >
+            Try again
+          </button>
+        </p>
       ) : list.length === 0 ? (
         <p className="rounded-md border border-border/70 border-dashed px-3 py-2 text-xs text-muted-foreground">
           No facts yet. Lor adds them as it learns how this channel works, and
@@ -126,6 +142,7 @@ export function AgentFactsList({
                     aria-label="Fact"
                     value={editing.text}
                     maxLength={300}
+                    disabled={save.isPending}
                     onChange={(event) =>
                       setEditing({ id: fact.id, text: event.target.value })
                     }
@@ -133,7 +150,9 @@ export function AgentFactsList({
                       if (event.key === "Enter") {
                         event.preventDefault()
                         const text = editing.text.trim()
-                        if (text) save.mutate({ id: fact.id, text })
+                        if (text && !save.isPending) {
+                          save.mutate({ id: fact.id, text })
+                        }
                       } else if (event.key === "Escape") {
                         event.stopPropagation()
                         setEditing(null)

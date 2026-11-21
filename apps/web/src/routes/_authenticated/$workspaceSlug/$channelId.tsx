@@ -448,13 +448,22 @@ function ChannelView() {
   useEffect(() => {
     if (!about || messagesLoading) return
     const target = messages.find((message) => message.id === about)
+    // Not on the loaded page: load around it first, so the mention keeps it
+    // as the reply target. Once anchored there, go on either way.
+    if (!target && msgId !== about) {
+      void navigate({
+        search: (prev) => ({ ...prev, msgId: about }),
+        replace: true,
+      })
+      return
+    }
     if (target) setReplyingTo(target)
     setAskDraft({ id: crypto.randomUUID(), text: draft ?? "" })
     void navigate({
       search: (prev) => ({ ...prev, about: undefined, draft: undefined }),
       replace: true,
     })
-  }, [about, draft, messages, messagesLoading, setReplyingTo, navigate])
+  }, [about, draft, messages, messagesLoading, msgId, setReplyingTo, navigate])
 
   const { data: threadActivityData } = useQuery({
     queryKey: ["thread-activity", channelId],
@@ -563,7 +572,9 @@ function ChannelView() {
 
   const mentionCandidates = useMentionCandidates(workspaceSlug, channelId)
   // A chat that lives in Discord is read-only here (decision 22).
-  const { data: discord } = useChannelDiscord(
+  // Until its status loads, the composer waits rather than offer a chat
+  // that may live in Discord.
+  const { data: discord, isLoading: discordLoading } = useChannelDiscord(
     workspaceSlug,
     channelId,
     data?.type === "text"
@@ -683,6 +694,8 @@ function ChannelView() {
               </span>
             </div>
           </div>
+        ) : discordLoading ? (
+          <div className="h-[72px]" />
         ) : discord?.link ? (
           <div className="px-4 pt-1 pb-5">
             <div className="flex items-center gap-3 rounded-xl border bg-muted/40 px-4 py-3 text-sm">

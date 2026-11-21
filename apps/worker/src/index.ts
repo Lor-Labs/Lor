@@ -62,7 +62,7 @@ import {
   VOICE_SESSION_AUDIT_EVERY_MS,
   VOICE_SESSION_SWEEP_EVERY_MS,
 } from "@/jobs/voice-sessions"
-import type { AgentQueueData } from "@/lib/agent-inbox"
+import { type AgentQueueData, sweepStrandedInboxes } from "@/lib/agent-inbox"
 import { signalRunStop } from "@/lib/agent-run"
 import { sweepDueWakeUps } from "@/lib/agent-wake-ups"
 import {
@@ -234,6 +234,11 @@ async function bootstrap() {
     connection: {
       ...redisOpts,
       maxRetriesPerRequest: null,
+    },
+    // Flushes are added on every wake: keep Redis bounded.
+    defaultJobOptions: {
+      removeOnComplete: { age: 3600, count: 1000 },
+      removeOnFail: { age: 86400, count: 5000 },
     },
   })
 
@@ -468,7 +473,10 @@ async function bootstrap() {
         await sweepOrphanedPlaceholders(emitter)
       } else if (job.name === "sweep-due-loops") {
         await sweepDueLoops(emitter, loopRunQueue)
+      } else if (job.name === "sweep-agent-inbox") {
+        // Its own job: a failing Loop sweep must not hold up wake-ups.
         await sweepDueWakeUps({ emitter, agentInboxQueue })
+        await sweepStrandedInboxes(agentInboxQueue)
       } else if (job.name === "sweep-voice-sessions") await sweepVoiceSessions()
       else if (job.name === "sweep-checkpoint-storage") {
         const swept = await sweepCheckpointStorage()
@@ -544,6 +552,9 @@ async function bootstrap() {
   })
   await maintenanceQueue.upsertJobScheduler("sweep-due-loops", {
     every: LOOP_SWEEP_EVERY_MS,
+  })
+  await maintenanceQueue.upsertJobScheduler("sweep-agent-inbox", {
+    every: 60_000,
   })
   await maintenanceQueue.upsertJobScheduler("sweep-voice-sessions", {
     every: VOICE_SESSION_SWEEP_EVERY_MS,

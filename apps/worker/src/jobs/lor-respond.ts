@@ -17,6 +17,7 @@ import {
 } from "@repo/db/queries/beta-access"
 import {
   EMPTY_LOR_RUN_SCOPE,
+  resolveChannelAccess,
   resolveLorRunScope,
 } from "@repo/db/queries/channel-access"
 import type {
@@ -982,12 +983,20 @@ export function createLorRespondProcessor(
             // Whose plan runs the turn: its sender, or for the channel agent's
             // own messages in a session it started, the person it started it
             // for (reference/always-on-agents.md, decision 34).
+            // The creator's plan only while they can still see the channel.
+            const creatorPlan =
+              session.origin === "agent" &&
+              triggerUserId === LOR_USER_ID &&
+              session.creatorId &&
+              (await resolveChannelAccess(session.creatorId, channelId)
+                .then((access) => access.ok)
+                .catch(() => false))
+                ? session.creatorId
+                : null
             const planUserId =
               triggerUserId && triggerUserId !== LOR_USER_ID
                 ? triggerUserId
-                : session.origin === "agent" && triggerUserId === LOR_USER_ID
-                  ? session.creatorId
-                  : null
+                : creatorPlan
 
             // A Claude Code turn runs only on its sender's own subscription,
             // in the mode they picked: never a Loop fire, an Act event or
@@ -1125,6 +1134,7 @@ export function createLorRespondProcessor(
               emit(refusal, true, "failed")
               await runWriter.transition("failed", { stopReason: "error" })
               execution.stop()
+              await reportToAgent("failed", refusal)
               await settlePlan("failed")
               await emitThreadSummary()
               drainQueue()
@@ -1543,6 +1553,7 @@ export function createLorRespondProcessor(
                 await persistFailure(LOR_ERROR_FALLBACK)
                 await runWriter.transition("failed", { stopReason: "error" })
                 execution.stop()
+                await reportToAgent("failed", LOR_ERROR_FALLBACK)
                 await settlePlan("failed")
                 await emitThreadSummary()
                 drainQueue()
@@ -1560,6 +1571,7 @@ export function createLorRespondProcessor(
                 stopReason: "stopped_by_user",
               })
               execution.stop()
+              await reportToAgent("stopped", empty ? "" : content)
               await settlePlan("stopped")
               await emitThreadSummary()
               drainQueue()
@@ -1738,6 +1750,7 @@ export function createLorRespondProcessor(
             await persistFailure(LOR_ERROR_FALLBACK)
             await runWriter.transition("failed", { stopReason: "error" })
             execution?.stop()
+            await reportToAgent("failed", LOR_ERROR_FALLBACK)
             await settlePlan("failed")
             await emitThreadSummary()
             drainQueue()

@@ -8,7 +8,7 @@ import {
   type CreatureState,
   channelAgentIdentity,
 } from "@repo/utils/bestiary"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   createContext,
   type ReactNode,
@@ -16,6 +16,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
 } from "react"
 import { useSocket } from "@/context/socket-context"
 import { workspaceActivityKey } from "@/hooks/use-workspace-activity"
@@ -34,7 +35,10 @@ const WORKING_FOR_MS = 15_000
 // (showWorking), and typing counts too.
 function useAgentWorking(channelId: string) {
   const socket = useSocket()
-  const [until, setUntil] = useState(0)
+  // The deadline belongs to the channel that set it.
+  const [deadline, setDeadline] = useState({ channelId, until: 0 })
+  const until = deadline.channelId === channelId ? deadline.until : 0
+  const setUntil = (at: number) => setDeadline({ channelId, until: at })
   const [, setTick] = useState(0)
   useEffect(() => {
     if (!socket) return
@@ -77,12 +81,14 @@ export function useChannelAgent(
     ...channelQueryOptions(workspaceSlug ?? "", channelId),
     enabled: Boolean(workspaceSlug && channelId),
   })
-  // Read from the sidebar's snapshot; this hook never fetches it.
-  const { data: activity } = useQuery<ChannelActivity[]>({
-    queryKey: workspaceActivityKey(channel?.workspaceId ?? ""),
-    queryFn: () => Promise.reject(new Error("Read only")),
-    enabled: false,
-  })
+  // Read from the sidebar's snapshot without becoming one of its observers,
+  // so this hook never changes how that query fetches.
+  const queryClient = useQueryClient()
+  const activityKey = workspaceActivityKey(channel?.workspaceId ?? "")
+  const activity = useSyncExternalStore(
+    (onChange) => queryClient.getQueryCache().subscribe(onChange),
+    () => queryClient.getQueryData<ChannelActivity[]>(activityKey)
+  )
   const working = useAgentWorking(channelId)
   const needsYou = Boolean(
     activity?.find((row) => row.channelId === channelId)?.agentNeeds.length

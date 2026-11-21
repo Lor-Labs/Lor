@@ -148,6 +148,17 @@ async function runTask(
     threadRootId: session.threadRootId,
     scopeKey: session.threadRootId,
     triggerMessageId: messageId,
+  }).catch(async (err: unknown) => {
+    // Failed before a run took the brief: remove it. Once a run exists it
+    // may point at the brief as its trigger, so it stays.
+    const [accepted] = await db
+      .select({ id: schema.agentRun.id })
+      .from(schema.agentRun)
+      .where(eq(schema.agentRun.triggerMessageId, messageId))
+      .limit(1)
+    if (accepted) throw err
+    logger.warn({ err, messageId }, "Agent task start failed")
+    return "failed" as const
   })
   if (started !== "started") {
     await db
@@ -192,14 +203,26 @@ async function planFor(
       : chatgpt && offered("codex")
         ? "codex"
         : null)
-  if (harness === "claude_code" && (!claude || !offered("claude_code"))) {
+  const codexToo = chatgpt && offered("codex")
+  const claudeToo = claude && offered("claude_code")
+  if (harness === "claude_code" && !offered("claude_code")) {
     return {
-      error: `${name} hasn't connected a Claude subscription, so Claude Code can't run for them. They can connect one in Settings → Linked accounts${chatgpt ? ", or you can use Codex on their ChatGPT plan" : ""}.`,
+      error: `Claude Code is switched off on this Lor server${codexToo ? `, but you can use Codex on ${name}'s ChatGPT plan` : ""}.`,
     }
   }
-  if (harness === "codex" && (!chatgpt || !offered("codex"))) {
+  if (harness === "codex" && !offered("codex")) {
     return {
-      error: `${name} hasn't connected a ChatGPT plan, so Codex can't run for them. They can connect one in Settings → Linked accounts${claude ? ", or you can use Claude Code on their Claude subscription" : ""}.`,
+      error: `Codex is switched off on this Lor server${claudeToo ? `, but you can use Claude Code on ${name}'s Claude subscription` : ""}.`,
+    }
+  }
+  if (harness === "claude_code" && !claude) {
+    return {
+      error: `${name} hasn't connected a Claude subscription, so Claude Code can't run for them. They can connect one in Settings → Linked accounts${codexToo ? ", or you can use Codex on their ChatGPT plan" : ""}.`,
+    }
+  }
+  if (harness === "codex" && !chatgpt) {
+    return {
+      error: `${name} hasn't connected a ChatGPT plan, so Codex can't run for them. They can connect one in Settings → Linked accounts${claudeToo ? ", or you can use Claude Code on their Claude subscription" : ""}.`,
     }
   }
   if (!harness) {
@@ -479,7 +502,9 @@ export async function reportHelperTurn(
     note,
     lane: "wake",
   })
-  if (!added) return
+  // A repeated report adds no note but still asks for the flush, in case
+  // the first one's enqueue failed.
+  if (!added) logger.info({ runId: args.runId }, "Helper report already noted")
   await queue.add(
     AGENT_INBOX_FLUSH_JOB,
     { channelId: args.channelId },

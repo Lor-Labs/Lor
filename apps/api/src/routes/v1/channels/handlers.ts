@@ -584,6 +584,10 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
           : {}),
         ...(agentCreature !== undefined ? { agentCreature } : {}),
         ...(identityChanged ? { agentIdentityUpdatedAt: new Date() } : {}),
+        // An empty model means the default, like null.
+        ...(fields.agentModel !== undefined
+          ? { agentModel: fields.agentModel?.trim() || null }
+          : {}),
         // The agent learns of a new brief from a change note.
         ...(agentBrief !== undefined
           ? {

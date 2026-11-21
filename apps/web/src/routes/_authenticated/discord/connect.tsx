@@ -21,6 +21,14 @@ function DiscordConnect() {
   const { token } = Route.useSearch()
   const router = useRouter()
   const ranRef = useRef(false)
+  // Set once the person leaves: a late answer must not move them.
+  const leftRef = useRef(false)
+  useEffect(
+    () => () => {
+      leftRef.current = true
+    },
+    []
+  )
 
   useEffect(() => {
     if (ranRef.current) return
@@ -31,6 +39,7 @@ function DiscordConnect() {
             .$post({ json: { token } })
             .catch(() => null)
         : null
+      if (leftRef.current) return
       if (res?.ok) {
         const { account } = await res.json()
         toast.success(`Linked Discord account ${account?.username ?? ""}`)

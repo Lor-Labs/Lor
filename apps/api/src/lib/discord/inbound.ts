@@ -49,6 +49,7 @@ export type DiscordMessageEvent = {
   }>
   mention_roles?: string[]
   message_reference?: { message_id?: string }
+  referenced_message?: { webhook_id?: string | null } | null
   attachments?: Array<{ url: string; filename: string }>
 }
 
@@ -381,9 +382,12 @@ async function mirrorInto(
   void ensureCheckInLoop(link.channelId).catch(() => {})
   // In a thread a mention or a reply to the agent reaches it, and so does
   // every message in a thread it's part of, as in Lor's own threads.
+  // A reply to anything the agent's webhook posted counts, mapped or not
+  // (its hello, the later parts of a long answer).
   const addressed =
     content.includes(`<@${LOR_USER_ID}>`) ||
     referenced?.authorId === LOR_USER_ID ||
+    event.referenced_message?.webhook_id === link.webhookId ||
     (threadRootId ? await agentInThread(threadRootId) : false)
   if (threadRootId && !addressed) return
   const everyMessage = addressed

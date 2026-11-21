@@ -14,6 +14,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import { env } from "@repo/env/server"
 import { sendApprovalPush } from "@repo/messaging"
 import type {
@@ -277,6 +278,19 @@ async function resolverAudience(
 // (reference/always-on-agents.md §5). Null when there is nobody: the
 // workspace owner is paged.
 async function requesterOf(row: ParkedApprovalRow): Promise<string | null> {
+  const candidate = await candidateRequester(row)
+  // Someone who can no longer see the channel is never sent its approval:
+  // the visible-owner fallback takes it.
+  if (!candidate) return null
+  const access = await resolveChannelAccess(candidate, row.channelId).catch(
+    () => null
+  )
+  return access?.ok ? candidate : null
+}
+
+async function candidateRequester(
+  row: ParkedApprovalRow
+): Promise<string | null> {
   if (row.triggerMessageId) {
     const authorId = await db
       .select({ authorId: schema.message.authorId })

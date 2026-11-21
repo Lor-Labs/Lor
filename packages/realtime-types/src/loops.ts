@@ -155,10 +155,10 @@ export function parseLoopSchedule(schedule: string): LoopScheduleShape {
     const hours = hour === "*" ? ["*", "0", "23"] : /^(\d+)-(\d+)$/.exec(hour)
     const every =
       min === "0" ? 60 : Number(/^\*\/(\d+)$/.exec(min)?.[1] ?? Number.NaN)
-    // "0 * * * *" stays the hourly shape.
+    // "0 * * * *" stays the hourly shape; on weekdays it is an interval.
     if (
       hours &&
-      !(hour === "*" && every === 60) &&
+      !(hour === "*" && every === 60 && dow === "*") &&
       dom === "*" &&
       month === "*" &&
       (dow === "*" || EDITABLE_DOW.test(dow)) &&

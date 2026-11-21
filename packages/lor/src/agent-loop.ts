@@ -136,7 +136,10 @@ function json(value: unknown): string {
 }
 
 // Plain text of a step, for search and read-back. Reasoning is left out.
-export function stepText(message: AgentStepMessage): string {
+export function stepText(
+  message: AgentStepMessage,
+  partChars = STEP_TEXT_PART_CHARS
+): string {
   if (typeof message.content === "string") return message.content
   return partsOf(message)
     .map((part) => {
@@ -144,9 +147,9 @@ export function stepText(message: AgentStepMessage): string {
         case "text":
           return typeof part.text === "string" ? part.text : ""
         case "tool-call":
-          return `→ ${String(part.toolName)} ${clip(json(part.input), STEP_TEXT_PART_CHARS)}`
+          return `→ ${String(part.toolName)} ${clip(json(part.input), partChars)}`
         case "tool-result":
-          return `← ${String(part.toolName)}: ${clip(json(part.output), STEP_TEXT_PART_CHARS)}`
+          return `← ${String(part.toolName)}: ${clip(json(part.output), partChars)}`
         case "tool-approval-request":
           return "(waiting for a person's approval)"
         case "tool-approval-response":
@@ -243,9 +246,32 @@ export async function appendSteps(
   )
 }
 
-// The approval requests a model step left open, with the calls they hold.
-function openApprovals(step: StoredStep | undefined) {
-  if (!step || step.kind !== "model") return []
+// The approval requests the last model step left open, with the calls they
+// hold. A step that also ran another tool stores that result in a following
+// tools message, so answers and results are read from everything after it.
+function openApprovals(steps: StoredStep[]) {
+  let at = steps.length - 1
+  while (at >= 0 && steps[at]?.kind !== "model") at--
+  const step = steps[at]
+  if (!step) return []
+  const later = steps.slice(at + 1).flatMap((next) => partsOf(next.message))
+  const answered = new Set(
+    later
+      .filter((part) => part.type === "tool-approval-response")
+      .map((part) => String(part.approvalId))
+  )
+  const done = new Set(
+    later
+      .filter((part) => part.type === "tool-result")
+      .map((part) => String(part.toolCallId))
+  )
+  return openRequests(step).filter(
+    (request) =>
+      !answered.has(request.approvalId) && !done.has(request.toolCallId)
+  )
+}
+
+function openRequests(step: StoredStep) {
   const parts = partsOf(step.message)
   const calls = new Map(
     parts
@@ -271,7 +297,7 @@ export async function pausedAgentRun(channelId: string): Promise<{
   runId: string
   epoch: number
 } | null> {
-  const [last] = await db
+  const recent = await db
     .select({
       id: schema.agentStep.id,
       seq: schema.agentStep.seq,
@@ -283,8 +309,9 @@ export async function pausedAgentRun(channelId: string): Promise<{
     .from(schema.agentStep)
     .where(eq(schema.agentStep.channelId, channelId))
     .orderBy(desc(schema.agentStep.seq))
-    .limit(1)
-  if (!last?.runId || openApprovals(last).length === 0) return null
+    .limit(4)
+  const last = recent[0]
+  if (!last?.runId || openApprovals(recent.reverse()).length === 0) return null
   return { runId: last.runId, epoch: last.epoch }
 }
 
@@ -440,6 +467,15 @@ export function usageLedger(args: {
   }
 }
 
+function awaitingApprovedResults(messages: ModelMessage[]): boolean {
+  const last = messages.at(-1)
+  return (
+    last?.role === "tool" &&
+    Array.isArray(last.content) &&
+    last.content.some((part) => part.type === "tool-approval-response")
+  )
+}
+
 function lastAssistantText(messages: ModelMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]
@@ -540,7 +576,6 @@ async function turnLoop(
       .where(eq(schema.agentContext.channelId, channelId))
     context = { ...context, toolsHash, model: args.model, reasoningCutSeq }
   }
-  const system = context.system ?? args.instructions
 
   let steps = await loadEpochSteps(channelId, context.epoch)
   const save = async (messages: ModelMessage[]) => {
@@ -557,9 +592,11 @@ async function turnLoop(
   }
 
   // A paused turn finishes first: one decision per open approval.
-  const open = openApprovals(steps.at(-1))
+  const open = openApprovals(steps)
   if (open.length > 0) {
-    const pausedRunId = steps.at(-1)?.runId
+    const pausedRunId = [...steps]
+      .reverse()
+      .find((step) => step.kind === "model")?.runId
     const decisions =
       pausedRunId && agent.loadDecisions
         ? await agent.loadDecisions(pausedRunId)
@@ -652,8 +689,13 @@ async function turnLoop(
       stoppedFor = "budget_spend"
       break
     }
-    // A turn that filled most of the window compacts before its next call.
-    if (promptTokens >= window * COMPACT_IN_TURN_SHARE) {
+    // A turn that filled most of the window compacts before its next call,
+    // but not while approved calls still wait for their results: the
+    // provider needs those right after the decision.
+    if (
+      promptTokens >= window * COMPACT_IN_TURN_SHARE &&
+      !awaitingApprovedResults(messages)
+    ) {
       const compacted = await compactAgentConversation({
         workspaceId,
         channelId,
@@ -681,7 +723,8 @@ async function turnLoop(
 
     const result = await generateText({
       model: lorGatewayModel(args.model),
-      instructions: system,
+      // The epoch's own prompt: after an in-turn compaction, the new one.
+      instructions: context.system ?? args.instructions,
       messages: withLongCache(messages, promptTokens),
       tools: args.tools,
       // The context map is built for this tool set in respond().
@@ -753,7 +796,7 @@ async function turnLoop(
           cacheRead: usage.cachedInputTokens,
           provider,
           previousProvider: lastProvider ?? context.model,
-          systemHash: sha256(system).slice(0, 12),
+          systemHash: sha256(context.system ?? args.instructions).slice(0, 12),
           toolsHash: toolsHash.slice(0, 12),
           reasoningCutSeq: context.reasoningCutSeq,
         },
@@ -776,8 +819,12 @@ async function turnLoop(
     turnMessages.push(...replies)
     const calls = result.content.filter((part) => part.type === "tool-call")
     countToolCalls(calls.length)
-    sentMessages += calls.filter(
-      (part) => part.toolName === "send_message"
+    // Sends that ran: a denied call stays in the content without a result.
+    sentMessages += result.content.filter(
+      (part) =>
+        part.type === "tool-result" &&
+        part.toolName === "send_message" &&
+        (part.output as { ok?: unknown } | undefined)?.ok === true
     ).length
 
     for (const part of result.content) {
@@ -888,7 +935,7 @@ export async function compactAgentConversation(args: {
   const context = await loadAgentContext(args.workspaceId, args.channelId)
   if (!context.system) return null
   const steps = await loadEpochSteps(args.channelId, context.epoch)
-  if (steps.length < 2 || openApprovals(steps.at(-1)).length > 0) return null
+  if (steps.length < 2 || openApprovals(steps).length > 0) return null
 
   // Same tool definitions so the prefix matches, but nothing runs.
   const inert = Object.fromEntries(
@@ -1015,7 +1062,7 @@ export async function agentMemoryPass(args: {
   const through = steps.filter((step) => step.runId === args.turnRunId).at(-1)
   if (!through) return null
   const history = steps.filter((step) => step.seq <= through.seq)
-  if (openApprovals(history.at(-1)).length > 0) return null
+  if (openApprovals(history).length > 0) return null
 
   const profile = await loadChannelProfile(args.channelId)
   const shown = factsForMemoryPass(profile.facts)
@@ -1094,20 +1141,23 @@ export async function agentMemoryPass(args: {
 export const readAgentHistoryTool = {
   read_agent_history: tool({
     description:
-      "Read your own earlier work in this channel word for word, including everything from before your conversation was summarized: what woke you, what you sent, the tools you called and what they returned. With `turn` (a turn id from an earlier result), reads that turn in full. With `query`, finds earlier turns whose text contains it. With neither, lists your recent turns. `before` (a date like 2026-11-01) limits results to earlier turns.",
+      "Read your own earlier work in this channel word for word, including everything from before your conversation was summarized: what woke you, what you sent, the tools you called and what they returned. With `turn` (a turn id from an earlier result), reads that turn in full, a page at a time (`page`, from 0, when the result says there is more). With `query`, finds earlier turns whose text contains it. With neither, lists your recent turns. `before` (a date like 2026-11-01) limits results to earlier turns.",
     inputSchema: z.object({
       turn: z.string().uuid().optional().describe("a turn id to read in full"),
+      page: z.number().optional().describe("a page of a long turn, from 0"),
       query: z.string().min(2).max(200).optional(),
       before: z.string().optional().describe("ISO date or datetime"),
     }),
     contextSchema: z.object({ channelId: z.string() }),
-    execute: async ({ turn, query, before }, { context }) => {
+    execute: async ({ turn, page, query, before }, { context }) => {
       const channelId = context.channelId
       if (turn) {
+        // From the stored messages, not the search text, which clips each
+        // tool input and result.
         const rows = await db
           .select({
             kind: schema.agentStep.kind,
-            text: schema.agentStep.text,
+            message: schema.agentStep.message,
             createdAt: schema.agentStep.createdAt,
           })
           .from(schema.agentStep)
@@ -1120,12 +1170,22 @@ export const readAgentHistoryTool = {
           .orderBy(asc(schema.agentStep.seq))
         if (rows.length === 0) return { error: "No turn with that id here." }
         const body = rows
-          .map((row) => `[${row.kind}]\n${row.text}`)
+          .map(
+            (row) =>
+              `[${row.kind}]\n${stepText(row.message, Number.POSITIVE_INFINITY)}`
+          )
           .join("\n\n")
+        const pages = Math.max(1, Math.ceil(body.length / HISTORY_RESULT_CHARS))
+        const at = Math.min(Math.max(0, Math.floor(page ?? 0)), pages - 1)
         return {
           turn,
           startedAt: rows[0]?.createdAt.toISOString(),
-          text: clip(body, HISTORY_RESULT_CHARS),
+          page: at,
+          pages,
+          text: body.slice(
+            at * HISTORY_RESULT_CHARS,
+            (at + 1) * HISTORY_RESULT_CHARS
+          ),
         }
       }
       const beforeDate = before ? new Date(before) : null

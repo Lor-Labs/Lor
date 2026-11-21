@@ -27,6 +27,7 @@ export function DiscordChatSection({
   const queryClient = useQueryClient()
   const { data } = useChannelDiscord(workspaceSlug, channelId)
   const [code, setCode] = useState<string | null>(null)
+  const [expiresAt, setExpiresAt] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
   const params = { workspaceSlug, channelId }
 
@@ -38,7 +39,10 @@ export function DiscordChatSection({
       if (!res.ok) throw new Error("Couldn't make a link code")
       return res.json()
     },
-    onSuccess: (result) => setCode(result.code),
+    onSuccess: (result) => {
+      setCode(result.code)
+      setExpiresAt(new Date(result.expiresAt).getTime())
+    },
     onError: (error) => toast.error(error.message),
   })
   const unlink = useMutation({
@@ -146,6 +150,18 @@ export function DiscordChatSection({
             The code works once, for 15 minutes. Running it needs the Manage
             Channels permission there. This page updates when it links.
           </p>
+          {/* Checked when it renders; an expired code says so here. */}
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            disabled={makeCode.isPending}
+            onClick={() => makeCode.mutate()}
+          >
+            {expiresAt !== null && Date.now() > expiresAt
+              ? "This code expired. Get a new one"
+              : "Get a new code"}
+          </Button>
         </div>
       ) : (
         <div className="flex items-center gap-3">

@@ -13,6 +13,7 @@ import { formatSpeakerLine, sanitizeInlineLabel } from "./transcript"
 // A runaway guard on one batch, not a window: the agent can read the chat
 // itself for anything older.
 const INBOX_BATCH_MAX = 200
+const INBOX_WAKE_MAX = 50
 
 const MAX_MESSAGE_CHARS = 8000
 
@@ -468,13 +469,16 @@ export async function loadInboxBatch(
   const firstWake = rows.find((row) => row.lane === "wake")
   if (!firstWake) return null
 
-  // Over the guard, the oldest unread items are left out and said so. What
-  // woke the agent is never cut.
-  const overflow = Math.max(0, rows.length - INBOX_BATCH_MAX)
+  // Over the guard, the oldest unread items are left out and said so. Wakes
+  // past one turn's worth stay pending for the next turn.
+  const woke = rows
+    .filter((row) => row.lane === "wake")
+    .slice(0, INBOX_WAKE_MAX)
   const waiting = rows.filter((row) => row.lane === "wait")
+  const overflow = Math.max(0, waiting.length + woke.length - INBOX_BATCH_MAX)
   const omitted = Math.min(overflow, waiting.length)
   const unread = waiting.slice(omitted)
-  const woke = rows.filter((row) => row.lane === "wake")
+  const taken = [...waiting, ...woke]
   const replies = await repliedTo([...unread, ...woke])
 
   const line = (row: (typeof rows)[number]) => {
@@ -507,13 +511,13 @@ export async function loadInboxBatch(
   ].filter((section): section is string => section !== null)
 
   return {
-    itemIds: rows.map((row) => row.id),
+    itemIds: taken.map((row) => row.id),
     woke: woke.length,
     unread: unread.length + omitted,
     text: sections.join("\n\n"),
     triggerMessageId:
       woke.find((row) => row.messageId)?.messageId ?? firstWake.messageId,
-    deliveryIds: rows.flatMap((row) =>
+    deliveryIds: taken.flatMap((row) =>
       row.deliveryId ? [row.deliveryId] : []
     ),
     loop: loopFire?.loopId
@@ -566,13 +570,18 @@ function dueTime(sourceId: string): Date | null {
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
+// Another run already read part of this batch: the turn must not run it again.
+export class StaleInboxBatchError extends Error {}
+
+// Claims the batch for a run. Throws when another flush read any of it first,
+// so the caller's transaction rolls back instead of appending a stale batch.
 export async function markInboxRead(
   tx: Tx | typeof db,
   itemIds: string[],
   runId: string
 ): Promise<void> {
   if (itemIds.length === 0) return
-  await tx
+  const claimed = await tx
     .update(schema.agentInbox)
     .set({ status: "read", readAt: new Date(), runId })
     .where(
@@ -581,6 +590,8 @@ export async function markInboxRead(
         eq(schema.agentInbox.status, "pending")
       )
     )
+    .returning({ id: schema.agentInbox.id })
+  if (claimed.length !== itemIds.length) throw new StaleInboxBatchError()
 }
 
 export async function hasPendingWake(channelId: string): Promise<boolean> {

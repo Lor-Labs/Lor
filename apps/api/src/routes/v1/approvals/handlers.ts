@@ -347,6 +347,13 @@ export async function resolveApproval(
         : authority.isOwner
   if (!allowed) return { kind: "forbidden" }
 
+  // A channel agent's turn needs no posted resolution: its paused turn goes
+  // on from the agent's inbox worker. Read before the decision commits, so a
+  // failed read leaves the approval pending and retryable.
+  const agentTurn = row.approval.runId
+    ? await isChannelAgentRun(row.approval.runId)
+    : false
+
   // CAS: only one resolver wins; a second click reads as already resolved.
   // A paused turn waits on its whole set: resolutions of one run serialize on
   // the run row, so exactly one of them sees the set complete.
@@ -437,11 +444,6 @@ export async function resolveApproval(
   // continuation answers Lor's paused reply. Only an old message-less run
   // still needs a posted resolution to trigger on; if that can't be created,
   // un-resolve the CAS so the caller can retry.
-  // A channel agent's turn needs no posted resolution: its paused turn goes
-  // on from the agent's inbox worker.
-  const agentTurn = resolved.runId
-    ? await isChannelAgentRun(resolved.runId)
-    : false
   const messageId =
     !decided.complete || agentTurn
       ? null

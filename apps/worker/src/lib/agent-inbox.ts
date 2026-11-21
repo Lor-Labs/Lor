@@ -2,6 +2,7 @@ import { checkCredits, recordUsage } from "@repo/billing"
 import {
   APP_USER_ID,
   and,
+  asc,
   db,
   desc,
   eq,
@@ -9,6 +10,7 @@ import {
   isNotNull,
   isUniqueViolation,
   LOR_USER_ID,
+  lt,
   notInArray,
   schema,
   sql,
@@ -33,6 +35,7 @@ import {
   loadInboxBatch,
   markInboxRead,
   type RunAgentContext,
+  StaleInboxBatchError,
 } from "@repo/lor/channel-agent"
 import { openBlock, profileChangeNotes } from "@repo/lor/channel-profile"
 import {
@@ -283,7 +286,9 @@ async function createTurnRun(args: {
       return run.id
     })
   } catch (err) {
-    if (isUniqueViolation(err)) return null
+    if (isUniqueViolation(err) || err instanceof StaleInboxBatchError) {
+      return null
+    }
     throw err
   }
 }
@@ -313,6 +318,9 @@ export async function flushAgentInbox(
     return "skipped"
   }
   if (await activeAgentRun(channelId)) return "busy"
+  // Out of credits: the items stay pending, and the inbox sweep tries again
+  // once credits are back, instead of a turn reading them and refusing.
+  if (!(await checkCredits(workspaceId)).allowed) return "skipped"
 
   const paused = await pausedAgentRun(channelId)
   if (paused) {
@@ -474,9 +482,12 @@ async function setUpBy(runId: string): Promise<string | null> {
     .where(
       and(
         eq(schema.agentInbox.runId, runId),
+        eq(schema.agentInbox.lane, "wake"),
         isNotNull(schema.connectorTrigger.configuredById)
       )
     )
+    // The earliest event that woke the turn.
+    .orderBy(asc(schema.agentInbox.createdAt))
     .limit(1)
   return trigger?.userId ?? null
 }
@@ -665,36 +676,42 @@ export async function runAgentTurnJob(
   const execution = await claim(job, token, runId)
   if (!execution) return
   const writer = execution.writer
-  const [channel] = await db
-    .select({
-      id: schema.channel.id,
-      name: schema.channel.name,
-      workspaceId: schema.channel.workspaceId,
-      agentModel: schema.channel.agentModel,
-      agentName: schema.channel.agentName,
-      agentCreature: schema.channel.agentCreature,
-      agentWakeMode: schema.channel.agentWakeMode,
-      archivedAt: schema.channel.archivedAt,
-    })
-    .from(schema.channel)
-    .where(eq(schema.channel.id, channelId))
-  const [run] = await db
-    .select({
-      triggerMessageId: schema.agentRun.triggerMessageId,
-      triggerAuthorId: schema.message.authorId,
-      triggerContent: schema.message.content,
-      triggerThreadRootId: schema.message.threadRootId,
-      triggerReplyAuthorId: sql<
-        string | null
-      >`(select r.author_id from message r where r.id = ${schema.message.referencedMessageId})`,
-      loopId: schema.agentRun.loopId,
-    })
-    .from(schema.agentRun)
-    .leftJoin(
-      schema.message,
-      eq(schema.message.id, schema.agentRun.triggerMessageId)
-    )
-    .where(eq(schema.agentRun.id, runId))
+  // A failed read releases the claim, so the run stays eligible for recovery.
+  const [[channel], [run]] = await Promise.all([
+    db
+      .select({
+        id: schema.channel.id,
+        name: schema.channel.name,
+        workspaceId: schema.channel.workspaceId,
+        agentModel: schema.channel.agentModel,
+        agentName: schema.channel.agentName,
+        agentCreature: schema.channel.agentCreature,
+        agentWakeMode: schema.channel.agentWakeMode,
+        archivedAt: schema.channel.archivedAt,
+      })
+      .from(schema.channel)
+      .where(eq(schema.channel.id, channelId)),
+    db
+      .select({
+        triggerMessageId: schema.agentRun.triggerMessageId,
+        triggerAuthorId: schema.message.authorId,
+        triggerContent: schema.message.content,
+        triggerThreadRootId: schema.message.threadRootId,
+        triggerReplyAuthorId: sql<
+          string | null
+        >`(select r.author_id from message r where r.id = ${schema.message.referencedMessageId})`,
+        loopId: schema.agentRun.loopId,
+      })
+      .from(schema.agentRun)
+      .leftJoin(
+        schema.message,
+        eq(schema.message.id, schema.agentRun.triggerMessageId)
+      )
+      .where(eq(schema.agentRun.id, runId)),
+  ]).catch((err: unknown) => {
+    execution.stop()
+    throw err
+  })
   if (!channel?.workspaceId) {
     await writer.transition("failed", { stopReason: "error" })
     execution.stop()
@@ -773,6 +790,9 @@ export async function runAgentTurnJob(
       Boolean(userId) &&
       (explicit ||
         (channel.agentWakeMode === "mention" && !turnPlace.threadRootId))
+    // Before the typing and working timers start, so a failed lookup can't
+    // leave them running.
+    turnPlace.planUserId = userId ?? (await setUpBy(runId))
     const typing = addressed
       ? showTyping(
           deps,
@@ -806,7 +826,6 @@ export async function runAgentTurnJob(
         userId ?? null
       ),
     }
-    turnPlace.planUserId = userId ?? (await setUpBy(runId))
     const result = await respond(
       {
         ...turnContext,
@@ -1117,4 +1136,56 @@ export async function runAgentCompactJob(
     execution.stop()
   }
   await flushIfWaiting(deps, channelId)
+}
+
+// Wakes a flush may have missed: a wake item still unread a minute after it
+// arrived, or a turn paused on approvals that are all decided. Any producer
+// whose flush enqueue failed (a chat message, Discord, a wake-up, a session
+// report, an approval) is recovered here; a repeated flush is harmless.
+const STRANDED_AFTER_MS = 60_000
+
+export async function sweepStrandedInboxes(
+  queue: Queue<AgentQueueData>
+): Promise<number> {
+  const before = new Date(Date.now() - STRANDED_AFTER_MS)
+  const unread = await db
+    .selectDistinct({ channelId: schema.agentInbox.channelId })
+    .from(schema.agentInbox)
+    .where(
+      and(
+        eq(schema.agentInbox.status, "pending"),
+        eq(schema.agentInbox.lane, "wake"),
+        lt(schema.agentInbox.createdAt, before)
+      )
+    )
+    .limit(200)
+  // The channel's latest run paused on approvals none of which is pending.
+  const decided = await db.execute<{ channel_id: string }>(sql`
+    select r.scope_key::text as channel_id
+    from agent_run r
+    where r.stop_reason = 'awaiting_approval'
+      and r.scope_key = r.channel_id
+      and r.updated_at < now() - interval '1 minute'
+      and r.updated_at > now() - interval '7 days'
+      and not exists (
+        select 1 from approval a where a.run_id = r.id and a.status = 'pending'
+      )
+      and not exists (
+        select 1 from agent_run later
+        where later.scope_key = r.scope_key and later.created_at > r.created_at
+      )
+    limit 200
+  `)
+  const channelIds = new Set([
+    ...unread.map((row) => row.channelId),
+    ...decided.map((row) => row.channel_id),
+  ])
+  for (const channelId of channelIds) {
+    await queue
+      .add(AGENT_INBOX_FLUSH_JOB, { channelId })
+      .catch((err) =>
+        logger.error({ err, channelId }, "Stranded inbox flush failed")
+      )
+  }
+  return channelIds.size
 }

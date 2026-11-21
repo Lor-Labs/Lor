@@ -3,6 +3,7 @@ import {
   db,
   eq,
   inArray,
+  isNotNull,
   isNull,
   LOR_USER_ID,
   schema,
@@ -318,7 +319,14 @@ async function completeLoopByLor(
       pausedReason: null,
       nextRunAt: null,
     })
-    .where(and(eq(schema.loop.id, loopId), eq(schema.loop.status, "active")))
+    // An end condition someone cleared meanwhile no longer lets it end.
+    .where(
+      and(
+        eq(schema.loop.id, loopId),
+        eq(schema.loop.status, "active"),
+        isNotNull(schema.loop.endCondition)
+      )
+    )
     .returning()
     .then((rows) => rows[0] ?? null)
   // Paused/completed since this run started — the tool must not report

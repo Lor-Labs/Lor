@@ -439,7 +439,9 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
     { broadcasts: true }
   )
   // A chat that lives in Discord keeps its threads there too.
-  const { data: discord } = useChannelDiscord(
+  // Until its status loads, the composer waits rather than offer a chat
+  // that may live in Discord.
+  const { data: discord, isLoading: discordLoading } = useChannelDiscord(
     view.workspaceSlug,
     view.channelId,
     channel?.type === "text"
@@ -583,7 +585,9 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
     )
   }
 
-  const composer = discord?.link ? (
+  const composer = discordLoading ? (
+    <div className="h-16" />
+  ) : discord?.link ? (
     <div className="px-3 pt-1 pb-4">
       <div className="flex items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2.5 text-sm">
         <HugeiconsIcon

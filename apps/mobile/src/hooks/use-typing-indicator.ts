@@ -64,6 +64,8 @@ export function useTypingIndicator({
     // A message from someone ends their typing at once, Lor's included.
     const onMessageCreated = (message: RealtimeMessage) => {
       if (message.channelId !== channelId) return
+      // Only a post in this scope ends typing here, as onTypingUpdate scopes.
+      if ((message.threadRootId ?? undefined) !== threadRootId) return
       setTypingUsers((prev) => {
         const active = prev.filter((user) => user.userId !== message.author.id)
         return active.length === prev.length ? prev : active
