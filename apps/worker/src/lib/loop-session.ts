@@ -115,7 +115,15 @@ async function fireLoopToInbox(
           .where(eq(schema.user.id, loop.creatorId))
       : Promise.resolve([]),
   ])
-  if (waiting || running) return "skipped"
+  if (running) return "skipped"
+  // A fire still unread gets a flush, not a second note: a lost flush must
+  // not strand it.
+  if (waiting) {
+    await deps.agentInboxQueue.add(AGENT_INBOX_FLUSH_JOB, {
+      channelId: loop.channelId,
+    })
+    return "skipped"
+  }
   // The check-in wakes the agent only for what waits unread, and not when a
   // turn is coming anyway (decision 7).
   if (loop.kind === "check_in" && !(await checkInNeeded(loop.channelId))) {

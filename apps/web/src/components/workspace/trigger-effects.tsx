@@ -357,7 +357,16 @@ function ActSessionFields({
             channelId={codeScope.channelId}
             value={value.actCode}
             disabled={disabled}
-            onChange={(next) => onPatch({ actCode: next })}
+            // Code sessions don't run as one ongoing session (the API's
+            // checkActTarget), so an older ongoing trigger moves to per event.
+            onChange={(next) =>
+              onPatch({
+                actCode: next,
+                ...(next && value.actSessionMode === "ongoing"
+                  ? { actSessionMode: "per_event" }
+                  : {}),
+              })
+            }
           />
         </OptionRow>
       )}

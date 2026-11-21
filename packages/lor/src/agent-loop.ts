@@ -597,7 +597,10 @@ async function turnLoop(
   }
 
   let messages = promptMessages(steps, context.reasoningCutSeq)
-  const startedAt = messages.length
+  // This turn's own messages, kept apart from the prompt, which compaction
+  // replaces mid-turn.
+  const before = messages.at(-1)
+  const turnMessages: ModelMessage[] = []
   const window = contextWindowOf(args.model)
   let promptTokens = context.promptTokens
   // The standing cache check (always-on-agents.md §8, step 4.5): the first
@@ -671,6 +674,8 @@ async function turnLoop(
         messages = promptMessages(steps, context.reasoningCutSeq)
         promptTokens = 0
         expectWarm = false
+        // Compaction spent: the limits are checked again before the call.
+        continue
       }
     }
 
@@ -768,6 +773,7 @@ async function turnLoop(
     const replies = result.responseMessages as ModelMessage[]
     await save(replies)
     messages = [...messages, ...replies]
+    turnMessages.push(...replies)
     const calls = result.content.filter((part) => part.type === "tool-call")
     countToolCalls(calls.length)
     sentMessages += calls.filter(
@@ -827,8 +833,8 @@ async function turnLoop(
   }
 
   return {
-    text: lastAssistantText(messages.slice(startedAt)),
-    messages: messages.slice(Math.max(0, startedAt - 1)),
+    text: lastAssistantText(turnMessages),
+    messages: before ? [before, ...turnMessages] : turnMessages,
     ...(stoppedFor ? { stoppedFor } : {}),
     approvals,
     promptTokens,

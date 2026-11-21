@@ -381,7 +381,8 @@ async function enqueueTurn(
       jobId: data.runId,
     })
   } catch (err) {
-    // Unwind: the items go back to pending and the next flush retries.
+    // Unwind: the items go back to pending, and one delayed flush retries
+    // them without waiting for another wake.
     logger.error({ err, runId: data.runId }, "Agent turn enqueue failed")
     await db.transaction(async (tx) => {
       await tx
@@ -393,6 +394,13 @@ async function enqueueTurn(
         .where(eq(schema.agentStep.runId, data.runId))
       await tx.delete(schema.agentRun).where(eq(schema.agentRun.id, data.runId))
     })
+    await deps.queue
+      .add(
+        AGENT_INBOX_FLUSH_JOB,
+        { channelId: data.channelId },
+        { delay: 30_000, removeOnComplete: true, removeOnFail: 100 }
+      )
+      .catch(() => {})
     throw err
   }
 }
@@ -566,6 +574,14 @@ function agentHooks(
       askedById: turn.askerId,
     }),
     sendMessage: async ({ content, startThread }) => {
+      // The channel may be archived while the model works.
+      const [open] = await db
+        .select({ archivedAt: schema.channel.archivedAt })
+        .from(schema.channel)
+        .where(eq(schema.channel.id, channel.id))
+      if (!open || open.archivedAt) {
+        return { error: "This channel is archived, so nothing more can post." }
+      }
       let threadNote: string | undefined
       if (startThread) {
         if (turn.threadRootId) {
@@ -658,6 +674,7 @@ export async function runAgentTurnJob(
       agentName: schema.channel.agentName,
       agentCreature: schema.channel.agentCreature,
       agentWakeMode: schema.channel.agentWakeMode,
+      archivedAt: schema.channel.archivedAt,
     })
     .from(schema.channel)
     .where(eq(schema.channel.id, channelId))
@@ -680,6 +697,12 @@ export async function runAgentTurnJob(
     .where(eq(schema.agentRun.id, runId))
   if (!channel?.workspaceId) {
     await writer.transition("failed", { stopReason: "error" })
+    execution.stop()
+    return
+  }
+  // A channel archived since the turn was queued takes no more posts.
+  if (channel.archivedAt) {
+    await writer.transition("stopped")
     execution.stop()
     return
   }
@@ -818,6 +841,7 @@ export async function runAgentTurnJob(
     // A turn paused on approvals: the set is filed under a message in the
     // chat that shows the cards, and a decision resumes it.
     let parkedApprovalId: string | null = null
+    let parkedMessageId: string | null = null
     if (agent && agent.approvals.length > 0) {
       const [inbox] = await db
         .select({ id: schema.agentStep.id })
@@ -858,6 +882,7 @@ export async function runAgentTurnJob(
           })
       })
       parkedApprovalId = inserted[0]?.id ?? null
+      parkedMessageId = posted.messageId
       // In a chat that lives in Discord, each approval gets buttons there.
       for (const approval of inserted) {
         await postAgentToDiscord({
@@ -891,20 +916,18 @@ export async function runAgentTurnJob(
       stopReason: result.stoppedFor ?? "completed",
     })
     execution.stop()
-    await settleLoop(stoppedByUser ? "stopped" : "complete")
+    // A turn parked on approvals isn't the fire's end: its continuation
+    // keeps the Loop and settles it.
+    if (!parkedApprovalId) {
+      await settleLoop(stoppedByUser ? "stopped" : "complete")
+    }
 
     if (parkedApprovalId) {
       deps.emitter.to(channelRoom(channelId)).emit("approval:created", {
         approvalId: parkedApprovalId,
         channelId,
         threadRootId: null,
-        messageId:
-          (
-            await db
-              .select({ messageId: schema.agentRun.messageId })
-              .from(schema.agentRun)
-              .where(eq(schema.agentRun.id, runId))
-          )[0]?.messageId ?? null,
+        messageId: parkedMessageId,
         planId: null,
       })
       try {

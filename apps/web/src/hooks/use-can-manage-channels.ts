@@ -1,9 +1,11 @@
 import { authClient } from "@repo/auth/client"
 import { useQuery } from "@tanstack/react-query"
+import { toCustomRoleMap, useWorkspaceRoles } from "@/hooks/use-workspace-roles"
 import { apiClient } from "@/lib/api-client"
 import { canManageChannels } from "@/lib/permissions"
 
-// channel:update, read from the same cached queries as the channel list.
+// channel:update, read from the same cached queries as the channel list,
+// custom roles included.
 export function useCanManageChannels(workspaceSlug: string | undefined) {
   const { data: activeMember } = useQuery({
     queryKey: ["active-workspace-member", workspaceSlug],
@@ -29,7 +31,12 @@ export function useCanManageChannels(workspaceSlug: string | undefined) {
     },
     enabled: !!workspaceSlug,
   })
+  const { data: roles } = useWorkspaceRoles(members?.workspaceId)
   return activeMember && members?.ownerId
-    ? canManageChannels(activeMember, { ownerId: members.ownerId })
+    ? canManageChannels(
+        activeMember,
+        { ownerId: members.ownerId },
+        toCustomRoleMap(roles)
+      )
     : false
 }

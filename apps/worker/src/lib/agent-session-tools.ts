@@ -319,12 +319,17 @@ export function agentSessionExecutors(
       }).catch((err) =>
         logger.warn({ err, sessionId }, "Agent session line failed")
       )
-      const started = await runTask(deps, session, channelName, task)
+      const started = await runTask(deps, session, channelName, task).catch(
+        (err: unknown) => {
+          logger.warn({ err, sessionId }, "Agent session first turn failed")
+          return "failed" as const
+        }
+      )
       if (started !== "started") {
         logger.warn({ sessionId, started }, "Agent session did not start")
         return {
           error:
-            "The session was created but its first turn did not start. Try message_session.",
+            "The session was created but its first turn may not have started. Check it with check_session before sending the brief again with message_session.",
           sessionId,
         }
       }

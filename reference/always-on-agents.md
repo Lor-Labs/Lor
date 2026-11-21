@@ -1099,22 +1099,27 @@ deployed.
   Loop and Act sessions on voice channels still run on it.
 - [x] 7.5 Discord (slice 6, decision 35) with the chat-location choice
   (built; live test owed with Jacob's bot).
-- [ ] 7.6 The rollout checklist (written 2026-11-21; run at deploy):
-  1. `db:push` on each environment, answering No to the `brain_node`
+- [ ] 7.6 The rollout checklist (written 2026-11-21; run at deploy, in
+  this order):
+  1. Stop or drain every API, worker and realtime process on the old code.
+     The push drops columns the old code still reads (`loop.model`,
+     `connector_trigger.act_model`), so nothing on the old code may run
+     after step 2, and rolling back the app alone won't bring them back.
+  2. `db:push` on each environment, answering No to the `brain_node`
      truncate prompt. It adds `agent_inbox`, `agent_step`, `agent_context`,
      `agent_wake_up`, `channel_agent_fact`, `channel_discord_link`,
-     `discord_message`, `discord_account`, the channel agent columns
-     (`agent_model`, `agent_wake_mode`, `agent_brief*`, `agent_check_in_at`,
-     `agent_name`, `agent_creature`, `agent_identity_updated_at`) and the
-     Loop `kind`, and drops `loop.model` and `connector_trigger.act_model`
-     (decision 31).
-  2. Optional env: `DISCORD_BOT_TOKEN` and `DISCORD_APPLICATION_ID` on the
+     `discord_message`, `discord_thread`, `discord_account`, the channel
+     agent columns (`agent_model`, `agent_wake_mode`, `agent_brief*`,
+     `agent_check_in_at`, `agent_name`, `agent_creature`,
+     `agent_identity_updated_at`) and the Loop `kind`, and drops
+     `loop.model` and `connector_trigger.act_model` (decision 31).
+  3. Optional env: `DISCORD_BOT_TOKEN` and `DISCORD_APPLICATION_ID` on the
      API and worker (Message Content intent on, no interactions endpoint).
      The invite asks for nine permissions, `310043036736`.
      Without them Discord stays hidden.
-  3. Redeploy API, realtime, worker, web/desktop and mobile together; drain
-     the worker first so no old-code turn runs.
-  4. What existing data sees: every text channel gets a derived name and
+  4. Start API, realtime and worker on the new code, and release
+     web/desktop and mobile with them.
+  5. What existing data sees: every text channel gets a derived name and
      creature, and its check-in Loop on its next message. Old Lor chat
      sessions stay readable; older sessions on Lor's own agent keep working.
      Loops and triggers lose their model picks and run on the channel's
