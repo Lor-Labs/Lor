@@ -9,6 +9,7 @@ import {
   SPRITE_SIZE,
 } from "@repo/utils/bestiary"
 import { type CSSProperties, memo, useMemo } from "react"
+import { AgentFace } from "@/components/agent/agent-face"
 
 const runCache = new Map<string, ReturnType<typeof pixelRuns>>()
 
@@ -55,25 +56,32 @@ function Effect({
   )
 }
 
-// A channel agent's creature (reference/always-on-agents.md, decision 33),
-// animated by its real state: asleep with nothing to do, working while a
-// turn runs, waiting on a person. Sizes that are multiples of 24 keep every
-// sprite pixel whole; `still` draws it without motion (old posts).
-export const AgentCreature = memo(function AgentCreature({
-  creature,
-  state = "idle",
-  size = 48,
-  still = false,
-  className,
-  label,
-}: {
+type CreatureProps = {
   creature: CreatureId
   state?: CreatureState
   size?: number
   still?: boolean
   className?: string
   label?: string
-}) {
+}
+
+// A channel agent's creature, animated by its real state: asleep with
+// nothing to do, working while a turn runs, waiting on a person. `still`
+// draws it without motion (old posts). It is drawn as a simple face
+// (reference/always-on-agents.md, decision 39).
+export const AgentCreature = AgentFace
+
+// The detailed pixel-art bestiary (decision 33), no longer drawn in the app
+// and kept in case it comes back. Only /prototype/faces shows it.
+// Sizes that are multiples of 24 keep every sprite pixel whole.
+export const PixelCreature = memo(function PixelCreature({
+  creature,
+  state = "idle",
+  size = 48,
+  still = false,
+  className,
+  label,
+}: CreatureProps) {
   const art = creatureById(creature)
   const px = size / SPRITE_SIZE
   // Instances blink out of step with each other.

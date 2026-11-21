@@ -39,7 +39,7 @@ export function useChannelActivity(channelId: string) {
   return channels.get(channelId)
 }
 
-// Every channel's activity, for the Needs you tab.
+// Every channel's activity, for the Needs you group.
 export function useAllChannelActivity() {
   return useContext(ActivityContext).channels
 }

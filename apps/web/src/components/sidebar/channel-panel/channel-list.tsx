@@ -54,10 +54,12 @@ import {
 } from "@repo/ui/components/tooltip"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
+import { channelAgentIdentity } from "@repo/utils/bestiary"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useMemo, useState } from "react"
+import { AgentCreature } from "@/components/agent/agent-creature"
 import { ArchiveProjectDialog } from "@/components/project/archive-project-dialog"
 import {
   SessionStateIndicator,
@@ -108,6 +110,12 @@ const channelIcons = {
 } as const
 
 type ChannelData = ListChannelsResponse
+
+const AGENT_STATE_LABELS = {
+  asleep: "is asleep",
+  working: "is working",
+  needs_you: "needs you",
+} as const
 
 function ChannelIcon({
   type,
@@ -1084,9 +1092,22 @@ function SortableChannelItem({
   const sessions = activity?.sessions ?? []
   const sessionCollapse = useSessionCollapse(ch.id, activity?.sessions)
   // A collapsed channel shows the strongest state of its hidden sessions.
+  // Running ones are in the row's count already.
   const rollup = sessionCollapse.collapsed
-    ? strongestSessionState(sessions)
+    ? strongestSessionState(
+        sessions.filter((session) => session.state !== "running")
+      )
     : undefined
+  // The channel's agent on its row: its creature with what it is doing now,
+  // and how many sessions are running here, the person's own or not.
+  const agent = ch.type === "text" ? channelAgentIdentity(ch) : null
+  const agentState = activity?.agentNeeds.length
+    ? "needs_you"
+    : activity?.agentWorking
+      ? "working"
+      : "asleep"
+  const runningCount = activity?.runningSessions ?? 0
+  const runningLabel = `${runningCount} ${runningCount === 1 ? "session" : "sessions"} running`
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -1139,17 +1160,48 @@ function SortableChannelItem({
               onClick={onClick}
               {...(canManage ? { ...attributes, ...listeners } : {})}
               aria-current={active ? "page" : undefined}
+              title={
+                agent
+                  ? [
+                      `${agent.name} ${AGENT_STATE_LABELS[agentState]}`,
+                      ...(runningCount > 0 ? [runningLabel] : []),
+                    ].join(" · ")
+                  : undefined
+              }
               className="min-w-0 flex-1 cursor-pointer truncate text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring/50 active:opacity-100"
             >
               {ch.name}
             </button>
             <div className="ml-auto flex shrink-0 items-center gap-1.5">
               <MentionBadge count={mentionCount} />
+              {runningCount > 0 && (
+                <span
+                  role="img"
+                  aria-label={runningLabel}
+                  className="flex items-center gap-1 font-normal text-agent text-xs tabular-nums"
+                >
+                  <span className="size-3 shrink-0 rounded-full border-[1.5px] border-agent/20 border-t-agent motion-safe:animate-spin" />
+                  {runningCount}
+                </span>
+              )}
               {rollup && <SessionStateIndicator state={rollup} />}
               {sessions.length > 0 && (
                 <SessionCollapseToggle
                   collapsed={sessionCollapse.collapsed}
                   onToggle={sessionCollapse.toggle}
+                />
+              )}
+              {/* Last, so the faces line up down the sidebar. No pointer
+                  events: the creature is positioned and would otherwise sit
+                  above the row's click overlay. */}
+              {agent && (
+                <AgentCreature
+                  creature={agent.creature}
+                  state={agentState}
+                  size={24}
+                  still={agentState !== "working"}
+                  label={`${agent.name} ${AGENT_STATE_LABELS[agentState]}`}
+                  className="pointer-events-none -my-1"
                 />
               )}
             </div>

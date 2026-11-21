@@ -36,6 +36,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { useChannelAgent } from "@/components/agent/channel-agent"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { ActWaitingNote } from "@/components/session/act-waiting-note"
@@ -43,6 +44,7 @@ import { ArchiveSessionDialog } from "@/components/session/archive-session-dialo
 import { HarnessLogo } from "@/components/session/harness-logo"
 import { HARNESS_LABELS } from "@/components/session/harness-picker"
 import { SandboxStatusNote } from "@/components/session/sandbox-status-note"
+import { SessionAgentProvider } from "@/components/session/session-agent"
 import { SessionContextFold } from "@/components/session/session-context-fold"
 import { SessionDocument } from "@/components/session/session-document"
 import { SessionSetupDialog } from "@/components/session/session-setup-dialog"
@@ -341,13 +343,14 @@ function SessionConversation({
       ? "you"
       : (people.find((person) => person.userId === userId)?.name ?? "someone")
   const archivedBy = nameOf(session.archivedById)
+  const channelAgent = useChannelAgent(workspaceSlug, session.channelId)
   const startedBy =
     session.origin === "loop"
       ? "Loop"
       : session.origin === "trigger"
         ? "Started by an automation"
         : session.origin === "agent"
-          ? "Started by the channel's agent"
+          ? `Started by ${channelAgent?.name ?? "the channel's agent"}`
           : `Started by ${nameOf(session.creatorId)}`
   const starter =
     people.find((person) => person.userId === session.creatorId) ?? null
@@ -371,172 +374,177 @@ function SessionConversation({
     subscription.account == null
 
   return (
-    <SessionDocument
-      harness={session.harness}
-      harnessCommands={session.harnessCommands}
-      claudeCode={
-        harnessEnabled &&
-        session.harness === "claude_code" &&
-        !withoutSubscription
-      }
-      withoutSubscription={withoutSubscription}
-      composerNote={
-        !harnessEnabled ? (
-          <p className="text-sm text-muted-foreground">
-            This agent is temporarily unavailable. Messages here go to the
-            people in this session. Start a new session to keep working.
-          </p>
-        ) : withoutSubscription ? (
-          <>
-            <SubscriptionNote
-              harness={session.harness === "codex" ? "codex" : "claude_code"}
-              onConnect={() => setConnecting(true)}
-            />
-            {session.harness === "codex" ? (
-              <ChatgptConnectDialog
-                open={connecting}
-                onOpenChange={setConnecting}
+    <SessionAgentProvider harness={session.harness}>
+      <SessionDocument
+        harness={session.harness}
+        harnessCommands={session.harnessCommands}
+        claudeCode={
+          harnessEnabled &&
+          session.harness === "claude_code" &&
+          !withoutSubscription
+        }
+        withoutSubscription={withoutSubscription}
+        composerNote={
+          !harnessEnabled ? (
+            <p className="text-sm text-muted-foreground">
+              This agent is temporarily unavailable. Messages here go to the
+              people in this session. Start a new session to keep working.
+            </p>
+          ) : withoutSubscription ? (
+            <>
+              <SubscriptionNote
+                harness={session.harness === "codex" ? "codex" : "claude_code"}
+                onConnect={() => setConnecting(true)}
               />
-            ) : (
-              <ClaudeConnectDialog
-                open={connecting}
-                onOpenChange={setConnecting}
-              />
-            )}
-          </>
-        ) : (
-          <>
-            {session.origin === "trigger" ? (
-              <ActWaitingNote
-                sessionId={session.id}
-                threadRootId={session.threadRootId}
-              />
-            ) : null}
-            {code && !session.archivedAt ? (
-              <SandboxStatusNote sessionId={session.id} />
-            ) : null}
-          </>
-        )
-      }
-      workspaceSlug={workspaceSlug}
-      channelId={session.channelId}
-      threadRootId={session.threadRootId}
-      sessionId={session.id}
-      repoSessionId={code ? session.id : undefined}
-      onShowChat={() => tabs.select(null)}
-      onRead={markSidebarRead}
-      targetMessageId={targetMessageId}
-      onFork={
-        code
-          ? (message) =>
-              fork.mutateAsync({ sessionId: session.id, messageId: message.id })
-          : undefined
-      }
-      onRewind={
-        session.archivedAt || !code
-          ? undefined
-          : (message) => rewind.mutateAsync(message.id)
-      }
-      rewindRestoresFiles={code}
-      header={({ lorRunning, headingVisible }) => (
-        <SessionStrip
-          session={session}
-          workView={workView}
-          lorRunning={lorRunning}
-          showTitle={!headingVisible}
-          tabBar={
-            showTabs ? (
-              <SessionTabBar
-                workspaceSlug={workspaceSlug}
-                sessionId={session.id}
-                tabs={tabs}
-              />
-            ) : null
-          }
-          onRename={() => setRenaming(true)}
-          onArchive={() => {
-            updateSession.mutate({ ...change, archived: true })
-            // Nothing left to do here; back to the channel's chat.
-            void navigate({
-              to: "/$workspaceSlug/$channelId",
-              params: { workspaceSlug, channelId: session.channelId },
-            })
-          }}
-        />
-      )}
-      heading={
-        <SessionHeading
-          session={session}
-          channelName={channel.name ?? "channel"}
-          source={source}
-          startedBy={startedBy}
-          starter={starter}
-          renaming={renaming}
-          onRenamingChange={setRenaming}
-          onRename={(title) => updateSession.mutate({ ...change, title })}
-        />
-      }
-      cover={
-        activeTab ? (
-          <SessionTabView
-            key={activeTab.id}
-            sessionId={session.id}
-            tab={activeTab}
-            onOpen={tabs.open}
-            onOpenChange={tabs.openChange}
-          />
-        ) : undefined
-      }
-      archivedBar={
-        !session.archivedAt && !code ? (
-          // Chat sessions are history: questions go to the channel's agent
-          // in the chat (reference/always-on-agents.md, step 3.4).
-          <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
-            <HugeiconsIcon
-              icon={LockedIcon}
-              className="size-3.5 shrink-0"
-              strokeWidth={2}
-            />
-            <span className="min-w-0 flex-1 truncate">
-              Chat sessions are read-only. Ask Lor in #
-              {channel.name ?? "the channel"}.
-            </span>
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() =>
-                void navigate({
-                  to: "/$workspaceSlug/$channelId",
-                  params: { workspaceSlug, channelId: session.channelId },
+              {session.harness === "codex" ? (
+                <ChatgptConnectDialog
+                  open={connecting}
+                  onOpenChange={setConnecting}
+                />
+              ) : (
+                <ClaudeConnectDialog
+                  open={connecting}
+                  onOpenChange={setConnecting}
+                />
+              )}
+            </>
+          ) : (
+            <>
+              {session.origin === "trigger" ? (
+                <ActWaitingNote
+                  sessionId={session.id}
+                  threadRootId={session.threadRootId}
+                />
+              ) : null}
+              {code && !session.archivedAt ? (
+                <SandboxStatusNote sessionId={session.id} />
+              ) : null}
+            </>
+          )
+        }
+        workspaceSlug={workspaceSlug}
+        channelId={session.channelId}
+        threadRootId={session.threadRootId}
+        sessionId={session.id}
+        repoSessionId={code ? session.id : undefined}
+        onShowChat={() => tabs.select(null)}
+        onRead={markSidebarRead}
+        targetMessageId={targetMessageId}
+        onFork={
+          code
+            ? (message) =>
+                fork.mutateAsync({
+                  sessionId: session.id,
+                  messageId: message.id,
                 })
-              }
-            >
-              Open chat
-            </Button>
-          </div>
-        ) : session.archivedAt ? (
-          <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
-            <HugeiconsIcon
-              icon={Archive02Icon}
-              className="size-3.5 shrink-0"
-              strokeWidth={2}
+            : undefined
+        }
+        onRewind={
+          session.archivedAt || !code
+            ? undefined
+            : (message) => rewind.mutateAsync(message.id)
+        }
+        rewindRestoresFiles={code}
+        header={({ lorRunning, headingVisible }) => (
+          <SessionStrip
+            session={session}
+            workView={workView}
+            lorRunning={lorRunning}
+            showTitle={!headingVisible}
+            tabBar={
+              showTabs ? (
+                <SessionTabBar
+                  workspaceSlug={workspaceSlug}
+                  sessionId={session.id}
+                  tabs={tabs}
+                />
+              ) : null
+            }
+            onRename={() => setRenaming(true)}
+            onArchive={() => {
+              updateSession.mutate({ ...change, archived: true })
+              // Nothing left to do here; back to the channel's chat.
+              void navigate({
+                to: "/$workspaceSlug/$channelId",
+                params: { workspaceSlug, channelId: session.channelId },
+              })
+            }}
+          />
+        )}
+        heading={
+          <SessionHeading
+            session={session}
+            channelName={channel.name ?? "channel"}
+            source={source}
+            startedBy={startedBy}
+            starter={starter}
+            renaming={renaming}
+            onRenamingChange={setRenaming}
+            onRename={(title) => updateSession.mutate({ ...change, title })}
+          />
+        }
+        cover={
+          activeTab ? (
+            <SessionTabView
+              key={activeTab.id}
+              sessionId={session.id}
+              tab={activeTab}
+              onOpen={tabs.open}
+              onOpenChange={tabs.openChange}
             />
-            <span className="min-w-0 flex-1 truncate">
-              Archived by {archivedBy}
-            </span>
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() =>
-                updateSession.mutate({ ...change, archived: false })
-              }
-            >
-              Unarchive
-            </Button>
-          </div>
-        ) : undefined
-      }
-    />
+          ) : undefined
+        }
+        archivedBar={
+          !session.archivedAt && !code ? (
+            // Chat sessions are history: questions go to the channel's agent
+            // in the chat (reference/always-on-agents.md, step 3.4).
+            <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
+              <HugeiconsIcon
+                icon={LockedIcon}
+                className="size-3.5 shrink-0"
+                strokeWidth={2}
+              />
+              <span className="min-w-0 flex-1 truncate">
+                Chat sessions are read-only. Ask Lor in #
+                {channel.name ?? "the channel"}.
+              </span>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() =>
+                  void navigate({
+                    to: "/$workspaceSlug/$channelId",
+                    params: { workspaceSlug, channelId: session.channelId },
+                  })
+                }
+              >
+                Open chat
+              </Button>
+            </div>
+          ) : session.archivedAt ? (
+            <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
+              <HugeiconsIcon
+                icon={Archive02Icon}
+                className="size-3.5 shrink-0"
+                strokeWidth={2}
+              />
+              <span className="min-w-0 flex-1 truncate">
+                Archived by {archivedBy}
+              </span>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() =>
+                  updateSession.mutate({ ...change, archived: false })
+                }
+              >
+                Unarchive
+              </Button>
+            </div>
+          ) : undefined
+        }
+      />
+    </SessionAgentProvider>
   )
 }
 

@@ -280,8 +280,10 @@ export const CREATURES: readonly Creature[] = [
   },
   {
     id: "golem",
-    label: "Golem",
-    names: ["Cobble", "Flint", "Boulder"],
+    // Drawn as a skeleton since the simple faces (decision 39); the id and
+    // the pixel art below are still the golem's.
+    label: "Skeleton",
+    names: ["Bones", "Rattle", "Marrow"],
     palette: [
       "#1c2129",
       "#7cc451",

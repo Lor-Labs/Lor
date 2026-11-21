@@ -35,6 +35,7 @@ import {
 import { useQuery } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import { type ReactNode, useState } from "react"
+import { ChannelAgentProvider } from "@/components/agent/channel-agent"
 import { MessageItem } from "@/components/chat/message-item"
 import { isReviewedEvent, ReviewCard } from "@/components/session/review-card"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
@@ -925,24 +926,32 @@ function agentTaskAuthor(message: Message): string {
 }
 
 // The channel agent's brief or follow-up in a session it runs, shown as a
-// message from it (reference/always-on-agents.md §6).
+// message from it with its own name and creature, beside the coding agent's
+// replies (reference/always-on-agents.md §6).
 function AgentTaskMessage({ message }: { message: Message }) {
   const { data: auth } = authClient.useSession()
+  const { workspaceSlug } = useParams({ strict: false })
   return (
-    <MessageItem
-      message={{
-        ...message,
-        type: "default",
-        eventType: null,
-        eventPayload: null,
-        overrideName: agentTaskAuthor(message),
-      }}
-      showHeader
-      wrapContentAroundAvatar
-      layout="chat"
-      currentUserId={auth?.user.id}
-      readOnly
-    />
+    <ChannelAgentProvider
+      workspaceSlug={workspaceSlug}
+      channelId={message.channelId}
+    >
+      <MessageItem
+        message={{
+          ...message,
+          type: "default",
+          eventType: null,
+          eventPayload: null,
+          // Until the channel loads.
+          overrideName: agentTaskAuthor(message),
+        }}
+        showHeader
+        wrapContentAroundAvatar
+        layout="chat"
+        currentUserId={auth?.user.id}
+        readOnly
+      />
+    </ChannelAgentProvider>
   )
 }
 
