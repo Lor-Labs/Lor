@@ -11,12 +11,7 @@ import {
 import { env } from "@repo/env/server"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import { and, count, eq } from "drizzle-orm"
-import {
-  actCodeChanged,
-  actCodeOf,
-  checkActModel,
-  checkActTarget,
-} from "@/lib/act-target"
+import { actCodeChanged, actCodeOf, checkActTarget } from "@/lib/act-target"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { type LastAct, lastActByTrigger } from "@/lib/last-act"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
@@ -54,7 +49,6 @@ type WebhookRow = {
   actSessionMode: ActSessionMode
   actRepoFullName: string | null
   actBaseBranch: string | null
-  actModel: string | null
   actWindowSeconds: number
   hourlyRunCap: number
   dailyRunCap: number
@@ -84,7 +78,6 @@ function toResponse(
     actInstructions: row.actInstructions,
     actSessionMode: row.actSessionMode,
     actCode: actCodeOf(row),
-    actModel: row.actModel,
     actWindowSeconds: row.actWindowSeconds,
     hourlyRunCap: row.hourlyRunCap,
     dailyRunCap: row.dailyRunCap,
@@ -104,7 +97,6 @@ const webhookSelection = {
   actSessionMode: connectorTrigger.actSessionMode,
   actRepoFullName: connectorTrigger.actRepoFullName,
   actBaseBranch: connectorTrigger.actBaseBranch,
-  actModel: connectorTrigger.actModel,
   actWindowSeconds: connectorTrigger.actWindowSeconds,
   hourlyRunCap: connectorTrigger.hourlyRunCap,
   dailyRunCap: connectorTrigger.dailyRunCap,
@@ -392,7 +384,6 @@ export const createChannelWebhook: AppRouteHandler<
           actSessionMode: result.trigger.actSessionMode,
           actRepoFullName: result.trigger.actRepoFullName,
           actBaseBranch: result.trigger.actBaseBranch,
-          actModel: result.trigger.actModel,
           actWindowSeconds: result.trigger.actWindowSeconds,
           hourlyRunCap: result.trigger.hourlyRunCap,
           dailyRunCap: result.trigger.dailyRunCap,
@@ -418,7 +409,6 @@ export const updateChannelWebhook: AppRouteHandler<
     actInstructions,
     actSessionMode,
     actCode,
-    actModel,
     actWindowSeconds,
     hourlyRunCap,
     dailyRunCap,
@@ -478,17 +468,6 @@ export const updateChannelWebhook: AppRouteHandler<
       HttpStatusCodes.BAD_REQUEST
     )
   }
-  const modelRefusal = await checkActModel(
-    workspace.id,
-    actModel,
-    existing.actModel
-  )
-  if (modelRefusal) {
-    return c.json(
-      { success: false, message: modelRefusal },
-      HttpStatusCodes.BAD_REQUEST
-    )
-  }
 
   // One transaction so a patch touching both rows can't half-apply.
   await db.transaction(async (tx) => {
@@ -505,7 +484,6 @@ export const updateChannelWebhook: AppRouteHandler<
       post !== undefined ||
       actInstructions !== undefined ||
       target ||
-      actModel !== undefined ||
       actWindowSeconds !== undefined ||
       hourlyRunCap !== undefined ||
       dailyRunCap !== undefined
@@ -518,7 +496,6 @@ export const updateChannelWebhook: AppRouteHandler<
           ...(actInstructions !== undefined ? { actInstructions } : {}),
           ...(actSessionMode !== undefined ? { actSessionMode } : {}),
           ...(target?.ok ? target.columns : {}),
-          ...(actModel !== undefined ? { actModel } : {}),
           ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
           ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),
           ...(dailyRunCap !== undefined ? { dailyRunCap } : {}),

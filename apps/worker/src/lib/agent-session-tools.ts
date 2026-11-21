@@ -11,6 +11,7 @@ import {
   sql,
 } from "@repo/db"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
+import { hasPersonalAccount } from "@repo/db/queries/personal-accounts"
 import { createSession, toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import { type AgentSessionTools, addInboxNote } from "@repo/lor/channel-agent"
 import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
@@ -24,6 +25,7 @@ import {
   type LorRespondJobData,
 } from "@repo/realtime-types/queues"
 import { channelRoom } from "@repo/realtime-types/rooms"
+import { isHarnessEnabled } from "@repo/utils/features"
 import { lorBranchName } from "@repo/utils/github"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
@@ -156,6 +158,58 @@ async function runTask(
   return started
 }
 
+// The harness and plan a session the agent starts runs on: Claude Code when
+// the person has Claude connected, else Codex, unless the agent asked for
+// one. An error the agent reads when there is no such plan.
+async function planFor(
+  userId: string | null,
+  wanted: "claude_code" | "codex" | undefined
+): Promise<
+  | { userId: string; name: string; harness: "claude_code" | "codex" }
+  | { error: string }
+> {
+  if (!userId) {
+    return {
+      error:
+        "No person started this turn, so there is no Claude or ChatGPT plan to run a session on. Ask someone in the chat to start it with you.",
+    }
+  }
+  const [[person], claude, chatgpt] = await Promise.all([
+    db
+      .select({ name: schema.user.name })
+      .from(schema.user)
+      .where(eq(schema.user.id, userId)),
+    hasPersonalAccount(userId, "claude"),
+    hasPersonalAccount(userId, "chatgpt"),
+  ])
+  const name = person?.name ?? "This person"
+  const offered = (harness: "claude_code" | "codex") =>
+    isHarnessEnabled(harness)
+  const harness =
+    wanted ??
+    (claude && offered("claude_code")
+      ? "claude_code"
+      : chatgpt && offered("codex")
+        ? "codex"
+        : null)
+  if (harness === "claude_code" && (!claude || !offered("claude_code"))) {
+    return {
+      error: `${name} hasn't connected a Claude subscription, so Claude Code can't run for them. They can connect one in Settings → Linked accounts${chatgpt ? ", or you can use Codex on their ChatGPT plan" : ""}.`,
+    }
+  }
+  if (harness === "codex" && (!chatgpt || !offered("codex"))) {
+    return {
+      error: `${name} hasn't connected a ChatGPT plan, so Codex can't run for them. They can connect one in Settings → Linked accounts${claude ? ", or you can use Claude Code on their Claude subscription" : ""}.`,
+    }
+  }
+  if (!harness) {
+    return {
+      error: `${name} hasn't connected a Claude or ChatGPT plan, and code sessions run on one. They can connect one in Settings → Linked accounts.`,
+    }
+  }
+  return { userId, name, harness }
+}
+
 export function agentSessionExecutors(
   deps: SessionToolDeps,
   args: {
@@ -164,6 +218,9 @@ export function agentSessionExecutors(
     channelName: string | null
     // Who woke the agent: they follow the sessions it starts for them.
     askerId: string | null
+    // Whose Claude or ChatGPT plan runs the sessions it starts: the asker,
+    // or on a turn no person started, whoever set up its Loop or trigger.
+    planUserId: string | null
   }
 ): AgentSessionTools {
   const { workspaceId, channelId, channelName } = args
@@ -176,7 +233,7 @@ export function agentSessionExecutors(
   }
 
   return {
-    start: async ({ repo, baseBranch, title, task }) => {
+    start: async ({ repo, baseBranch, title, task, harness: wanted }) => {
       const available = await reposForChannel(workspaceId, channelId)
       if ("error" in available) return available
       const { repos } = available
@@ -211,6 +268,11 @@ export function agentSessionExecutors(
         }
       }
 
+      // Sessions run on a person's own Claude Code or Codex plan
+      // (reference/always-on-agents.md, decisions 16 and 34).
+      const plan = await planFor(args.planUserId, wanted)
+      if ("error" in plan) return plan
+
       const audience = args.askerId
         ? await listChannelAudienceUserIds(channelId)
         : []
@@ -222,8 +284,10 @@ export function agentSessionExecutors(
           workspaceId,
           channelId,
           authorId: LOR_USER_ID,
-          creatorId: null,
+          // The person whose plan runs its turns.
+          creatorId: plan.userId,
           origin: "agent",
+          harness: plan.harness,
           title,
           code: {
             repoFullName: allowed.repo.fullName,
@@ -267,6 +331,7 @@ export function agentSessionExecutors(
       return {
         sessionId,
         title,
+        runsOn: `${plan.harness === "codex" ? "Codex" : "Claude Code"} on ${plan.name}'s plan`,
         repo: allowed.repo.fullName,
         baseBranch: branch,
         branch: newBranch,

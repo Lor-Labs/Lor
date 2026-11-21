@@ -638,9 +638,3 @@ apps/realtime `services/lor.ts`, card rendering in web
   channel → 400; non-active → 409. Web: "Run now" item (Refresh01Icon) at
   the top of the panel's … menu, active loops only (`useRunLoopNow` in
   loop-actions.tsx, success toast).
-- 2026-11-14 — LOR-161: `loop.model` (nullable, additive `db:push`) saves Lor's
-  model for each run, picked in the loop panel from the composer's catalog
-  (`SavedModelPicker`). The fire stamps it on its `loop_run` line's
-  `turnModel`, so funding resolves as for a person's pick (a `key:` model runs
-  on the workspace key; a model that later goes away runs on Lor's default).
-  Act triggers got the same as `connector_trigger.act_model`.

@@ -717,6 +717,7 @@ export function createLorRespondProcessor(
                     harness: schema.agentSession.harness,
                     harnessCommands: schema.agentSession.harnessCommands,
                     origin: schema.agentSession.origin,
+                    creatorId: schema.agentSession.creatorId,
                     title: schema.agentSession.title,
                   })
                   .from(schema.agentSession)
@@ -978,6 +979,15 @@ export function createLorRespondProcessor(
               channelId,
               userId: triggerUserId,
             }
+            // Whose plan runs the turn: its sender, or for the channel agent's
+            // own messages in a session it started, the person it started it
+            // for (reference/always-on-agents.md, decision 34).
+            const planUserId =
+              triggerUserId && triggerUserId !== LOR_USER_ID
+                ? triggerUserId
+                : session.origin === "agent" && triggerUserId === LOR_USER_ID
+                  ? session.creatorId
+                  : null
 
             // A Claude Code turn runs only on its sender's own subscription,
             // in the mode they picked: never a Loop fire, an Act event or
@@ -998,9 +1008,9 @@ export function createLorRespondProcessor(
                       .from(schema.agentRun)
                       .where(eq(schema.agentRun.id, harnessState.lastRunId))
                       .then((rows) => rows[0] ?? null)
-                  : triggerUserId && triggerUserId !== LOR_USER_ID
+                  : planUserId
                     ? {
-                        userId: triggerUserId,
+                        userId: planUserId,
                         ...(triggerMessageId
                           ? await db
                               .select({ mode: schema.message.claudeCodeMode })
@@ -1029,9 +1039,7 @@ export function createLorRespondProcessor(
                       .from(schema.agentRun)
                       .where(eq(schema.agentRun.id, harnessState.lastRunId))
                       .then((rows) => rows[0]?.userId ?? null)
-                  : triggerUserId && triggerUserId !== LOR_USER_ID
-                    ? triggerUserId
-                    : null
+                  : planUserId
             const codexSignIn = codexUserId
               ? await chatgptCredential(codexUserId).catch((err: unknown) => {
                   if (err instanceof ChatgptSignInError) return err
@@ -1044,13 +1052,13 @@ export function createLorRespondProcessor(
               session.harness === "claude_code" && !claudeToken
                 ? automated
                   ? "Claude Code sessions only run on a person's own messages."
-                  : "This message needs its sender's Claude subscription. Connect it in Settings → Linked accounts, or continue in a Lor session."
+                  : "This message needs its sender's Claude subscription. Connect it in Settings → Linked accounts."
                 : session.harness === "codex" && !codexCredential
                   ? automated
                     ? "Codex sessions only run on a person's own messages."
                     : codexSignIn instanceof ChatgptSignInError
                       ? codexSignIn.message
-                      : "This message needs its sender's ChatGPT plan. Connect it in Settings → Linked accounts, or continue in a Lor session."
+                      : "This message needs its sender's ChatGPT plan. Connect it in Settings → Linked accounts."
                   : null
             // The model, effort and fast mode the turn's sender picked, for
             // any harness; a run that continues a paused turn keeps that

@@ -10,7 +10,7 @@ type NewSessionSearchParams = {
   // "Continue in Code": the session to continue, from `channelId` (the
   // channel is then fixed).
   continueFrom?: string
-  // Opens on this harness ("Continue with Lor" from a Claude Code session).
+  // Opens on this harness.
   harness?: SessionHarness
 }
 
@@ -28,9 +28,7 @@ export const Route = createFileRoute(
     continueFrom:
       typeof search.continueFrom === "string" ? search.continueFrom : undefined,
     harness:
-      search.harness === "pi" ||
-      search.harness === "claude_code" ||
-      search.harness === "codex"
+      search.harness === "claude_code" || search.harness === "codex"
         ? search.harness
         : undefined,
   }),

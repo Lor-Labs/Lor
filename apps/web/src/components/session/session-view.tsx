@@ -384,25 +384,13 @@ function SessionConversation({
         !harnessEnabled ? (
           <p className="text-sm text-muted-foreground">
             This agent is temporarily unavailable. Messages here go to the
-            people in this session. Start a new session with Lor to keep
-            working.
+            people in this session. Start a new session to keep working.
           </p>
         ) : withoutSubscription ? (
           <>
             <SubscriptionNote
               harness={session.harness === "codex" ? "codex" : "claude_code"}
               onConnect={() => setConnecting(true)}
-              onContinueWithLor={() =>
-                void navigate({
-                  to: "/$workspaceSlug/session/new",
-                  params: { workspaceSlug },
-                  search: {
-                    channelId: session.channelId,
-                    continueFrom: session.id,
-                    harness: "pi",
-                  },
-                })
-              }
             />
             {session.harness === "codex" ? (
               <ChatgptConnectDialog
@@ -702,11 +690,9 @@ function SessionStrip({
 function SubscriptionNote({
   harness,
   onConnect,
-  onContinueWithLor,
 }: {
   harness: "claude_code" | "codex"
   onConnect: () => void
-  onContinueWithLor: () => void
 }) {
   const plan = harness === "codex" ? "ChatGPT plan" : "Claude subscription"
   return (
@@ -715,9 +701,6 @@ function SubscriptionNote({
         {harness === "codex" ? "Codex" : "Claude Code"} answers people on their
         own {plan}. Your messages here go to the people in the session.
       </span>
-      <Button size="xs" variant="ghost" onClick={onContinueWithLor}>
-        Continue with Lor
-      </Button>
       <Button size="xs" onClick={onConnect}>
         Connect your {plan}
       </Button>

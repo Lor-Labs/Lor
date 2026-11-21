@@ -59,9 +59,6 @@ export const connectorTrigger = pgTable(
     // chat sessions.
     actRepoFullName: text("act_repo_full_name"),
     actBaseBranch: text("act_base_branch"),
-    // The model Act runs use, as Lor's composer names it ("key:<provider>/…"
-    // runs on the workspace's key). Null: Lor's default model on credits.
-    actModel: text("act_model"),
     enabled: boolean("enabled").notNull().default(true),
     // Who last saved the trigger's effects: the person asked to approve on a
     // turn its events start (reference/always-on-agents.md §5).

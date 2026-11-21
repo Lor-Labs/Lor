@@ -32,9 +32,10 @@ const autoBranchKey = (workspaceSlug: string, repo: string) =>
 const REPOS_STALE_MS = 5 * 60 * 1000
 const BRANCHES_STALE_MS = 30 * 1000
 
-const HARNESSES = (["pi", "claude_code", "codex"] as const).filter(
-  isHarnessEnabled
-)
+// Sessions run on Claude Code or Codex; Lor's own agent no longer starts
+// them (reference/always-on-agents.md, decision 34).
+const HARNESSES = (["claude_code", "codex"] as const).filter(isHarnessEnabled)
+const DEFAULT_HARNESS: SessionHarness = HARNESSES[0] ?? "claude_code"
 
 export const HARNESS_DETAILS: Record<SessionHarness, string> = {
   pi: "Lor's own agent, on Lor credits.",
@@ -100,15 +101,15 @@ export function useSessionHarness(): [
   const [value, change] = useStoredChoice<SessionHarness>(
     HARNESS_KEY,
     options.map((option) => option.value),
-    "pi"
+    DEFAULT_HARNESS
   )
-  // A pick saved while the beta was off falls back to Lor once it is known to
-  // be on; the stored value itself is left alone.
+  // A pick that isn't offered falls back to the first that is; the stored
+  // value itself is left alone.
   const harness: SessionHarness = options.some(
     (option) => option.value === value
   )
     ? value
-    : "pi"
+    : (options[0]?.value ?? DEFAULT_HARNESS)
   return [harness, change]
 }
 

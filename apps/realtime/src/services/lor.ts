@@ -108,8 +108,13 @@ async function codeStartFor(
   senderId: string,
   session: { id: string; title: string }
 ) {
-  assertHostedHarness(payload.harness ?? "pi")
-  assertHarnessEnabled(payload.harness ?? "pi")
+  // Sessions run on Claude Code or Codex (reference/always-on-agents.md,
+  // decision 34); Lor's own agent no longer starts them.
+  if (payload.harness !== "claude_code" && payload.harness !== "codex") {
+    throw new Error("Code sessions run on Claude Code or Codex")
+  }
+  assertHostedHarness(payload.harness)
+  assertHarnessEnabled(payload.harness)
   const code = payload.code
     ? await codeSessionStart(
         workspaceId,
@@ -118,31 +123,24 @@ async function codeStartFor(
         session
       )
     : undefined
-  // Claude Code and Codex: code sessions only for now, on the starter's own
-  // Claude subscription or ChatGPT plan (code-sessions-runbook.md chunks 7
-  // and 8f).
+  // On the starter's own Claude subscription or ChatGPT plan
+  // (code-sessions-runbook.md chunks 7 and 8f).
   const claudeCode = payload.harness === "claude_code"
-  const codex = payload.harness === "codex"
-  if ((claudeCode || codex) && !code) {
+  if (!code) {
     throw new Error(
       `${claudeCode ? "Claude Code" : "Codex"} sessions need a repository`
     )
   }
-  if (claudeCode && !(await hasPersonalAccount(senderId, "claude"))) {
+  if (
+    !(await hasPersonalAccount(senderId, claudeCode ? "claude" : "chatgpt"))
+  ) {
     throw new Error(
-      "Connect your Claude subscription in Settings → Linked accounts to start a Claude Code session"
+      claudeCode
+        ? "Connect your Claude subscription in Settings → Linked accounts to start a Claude Code session"
+        : "Connect your ChatGPT plan in Settings → Linked accounts to start a Codex session"
     )
   }
-  if (codex && !(await hasPersonalAccount(senderId, "chatgpt"))) {
-    throw new Error(
-      "Connect your ChatGPT plan in Settings → Linked accounts to start a Codex session"
-    )
-  }
-  return {
-    ...(code ? { code } : {}),
-    ...(claudeCode ? { harness: "claude_code" as const } : {}),
-    ...(codex ? { harness: "codex" as const } : {}),
-  }
+  return { code, harness: payload.harness }
 }
 
 // A New session send starts a code session: one repository, one branch.
