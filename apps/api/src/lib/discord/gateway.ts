@@ -36,11 +36,18 @@ const LEASE_MS = 30_000
 // Close codes that retrying can't fix: bad token, intents not enabled.
 const FATAL_CLOSES = new Set([4004, 4010, 4011, 4012, 4013, 4014])
 
+// Owner-checked renew and release, so a stale owner never touches a
+// replacement's lease.
+const RENEW_LEASE = `if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("PEXPIRE", KEYS[1], ARGV[2]) end return 0`
+const RELEASE_LEASE = `if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("DEL", KEYS[1]) end return 0`
+const REGISTER_ATTEMPTS = 3
+
+// Hello and heartbeat acks can omit `s` and `t`.
 type GatewayPayload = {
   op: number
   d: unknown
-  s: number | null
-  t: string | null
+  s?: number | null
+  t?: string | null
 }
 
 class DiscordGateway {
@@ -54,6 +61,7 @@ class DiscordGateway {
   private botUserId = ""
   private botName = "Lor"
   private registered = false
+  private registering = false
 
   start() {
     this.stopped = false
@@ -68,7 +76,8 @@ class DiscordGateway {
   }
 
   private connect(resume: boolean) {
-    if (this.stopped) return
+    // A reconnect timer from before a stop and restart finds a live socket.
+    if (this.stopped || this.ws) return
     const url =
       resume && this.resumeUrl
         ? `${this.resumeUrl}/?v=10&encoding=json`
@@ -110,7 +119,7 @@ class DiscordGateway {
   }
 
   private onPayload(payload: GatewayPayload, resuming: boolean) {
-    if (payload.s !== null) this.seq = payload.s
+    if (typeof payload.s === "number") this.seq = payload.s
     switch (payload.op) {
       case 10: {
         const interval = (payload.d as { heartbeat_interval: number })
@@ -177,15 +186,7 @@ class DiscordGateway {
       this.botUserId = ready.user.id
       this.botName = ready.user.username
       logger.info({ bot: ready.user.username }, "Discord gateway ready")
-      if (!this.registered) {
-        this.registered = true
-        void discordRequest(
-          `/applications/${env.DISCORD_APPLICATION_ID}/commands`,
-          { method: "PUT", body: LOR_COMMANDS }
-        ).catch((err) =>
-          logger.error({ err }, "Discord command registration failed")
-        )
-      }
+      void this.registerCommands()
       return
     }
     if (type === "GUILD_CREATE") {
@@ -225,6 +226,28 @@ class DiscordGateway {
       void handleDiscordInteraction(data as DiscordInteraction, this.botName)
     }
   }
+
+  // A few tries per READY; a later READY tries again if they all fail.
+  private async registerCommands() {
+    if (this.registered || this.registering) return
+    this.registering = true
+    for (let attempt = 1; attempt <= REGISTER_ATTEMPTS; attempt++) {
+      try {
+        await discordRequest(
+          `/applications/${env.DISCORD_APPLICATION_ID}/commands`,
+          { method: "PUT", body: LOR_COMMANDS }
+        )
+        this.registered = true
+        break
+      } catch (err) {
+        logger.error({ err, attempt }, "Discord command registration failed")
+        if (attempt < REGISTER_ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, attempt * 30_000))
+        }
+      }
+    }
+    this.registering = false
+  }
 }
 
 // Holds the lease while this process runs the gateway; another process
@@ -234,24 +257,38 @@ export function startDiscordGateway() {
   const owner = randomUUID()
   const gateway = new DiscordGateway()
   let running = false
+  // When the last confirmed lease runs out.
+  let leaseUntil = 0
+  const stopGateway = (reason: string) => {
+    running = false
+    gateway.stop()
+    logger.warn(reason)
+  }
   const tick = async () => {
+    // Renewal failing (Redis down or stalled): stop before another process
+    // can take the expired lease.
+    if (running && Date.now() >= leaseUntil - LEASE_MS / 3) {
+      stopGateway("Discord gateway lease not renewed in time")
+    }
+    const checkedAt = Date.now()
     try {
       const redis = await getRedisClient()
-      const holder = await redis.get(LEASE_KEY)
-      if (holder === owner) {
-        await redis.set(LEASE_KEY, owner, { PX: LEASE_MS })
-      } else if (
-        !holder &&
-        (await redis.set(LEASE_KEY, owner, { PX: LEASE_MS, NX: true }))
-      ) {
-        running = true
-        gateway.start()
-        logger.info("Discord gateway lease taken")
-        return
+      const renewed = await redis.eval(RENEW_LEASE, {
+        keys: [LEASE_KEY],
+        arguments: [owner, String(LEASE_MS)],
+      })
+      const held =
+        renewed === 1 ||
+        (await redis.set(LEASE_KEY, owner, { PX: LEASE_MS, NX: true })) !== null
+      if (held) {
+        leaseUntil = checkedAt + LEASE_MS
+        if (!running) {
+          running = true
+          gateway.start()
+          logger.info("Discord gateway lease taken")
+        }
       } else if (running) {
-        running = false
-        gateway.stop()
-        logger.warn("Discord gateway lease lost")
+        stopGateway("Discord gateway lease lost")
       }
     } catch (err) {
       logger.error({ err }, "Discord gateway lease check failed")
@@ -262,9 +299,9 @@ export function startDiscordGateway() {
   const release = async () => {
     gateway.stop()
     const redis = await getRedisClient().catch(() => null)
-    if (redis && (await redis.get(LEASE_KEY)) === owner) {
-      await redis.del(LEASE_KEY)
-    }
+    await redis
+      ?.eval(RELEASE_LEASE, { keys: [LEASE_KEY], arguments: [owner] })
+      .catch(() => {})
   }
   // A listener replaces Node's default exit on these signals, so exit here.
   for (const signal of ["SIGTERM", "SIGINT"] as const) {

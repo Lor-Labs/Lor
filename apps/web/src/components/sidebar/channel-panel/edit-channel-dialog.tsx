@@ -121,6 +121,13 @@ export function EditChannelDialog({
   const [agentCreature, setAgentCreature] = useState<CreatureId | null>(
     isCreatureId(channel.agentCreature) ? channel.agentCreature : null
   )
+  // Only edited agent fields are sent, so a stale draft never overwrites a
+  // change someone else saved while the dialog was open.
+  const [edited, setEdited] = useState<{
+    model?: boolean
+    wakeMode?: boolean
+    brief?: boolean
+  }>({})
 
   // Drafts start from the channel when the dialog opens or switches channel,
   // not on every cache update, so an unsaved edit survives a rename's
@@ -142,6 +149,7 @@ export function EditChannelDialog({
       setAgentCreature(
         isCreatureId(channel.agentCreature) ? channel.agentCreature : null
       )
+      setEdited({})
     }
   }, [open, channel.id])
 
@@ -178,11 +186,9 @@ export function EditChannelDialog({
           ...(overviewOnly || isCategory
             ? {}
             : {
-                agentModel,
-                agentWakeMode: wakeMode,
-                ...(brief !== (channel.agentBrief ?? "")
-                  ? { agentBrief: brief.trim() || null }
-                  : {}),
+                ...(edited.model ? { agentModel } : {}),
+                ...(edited.wakeMode ? { agentWakeMode: wakeMode } : {}),
+                ...(edited.brief ? { agentBrief: brief.trim() || null } : {}),
               }),
           // The channel's creator may name its agent too.
           ...(channel.type === "text" && agentName !== (channel.agentName ?? "")
@@ -492,7 +498,10 @@ export function EditChannelDialog({
                                 id="channel-agent-model"
                                 workspaceSlug={workspaceSlug}
                                 value={agentModel}
-                                onChange={setAgentModel}
+                                onChange={(model) => {
+                                  setAgentModel(model)
+                                  setEdited((e) => ({ ...e, model: true }))
+                                }}
                               />
                             </div>
                             <div className="space-y-2">
@@ -502,9 +511,11 @@ export function EditChannelDialog({
                               <Select
                                 items={WAKE_MODES}
                                 value={wakeMode}
-                                onValueChange={(v) =>
-                                  v && setWakeMode(v as typeof wakeMode)
-                                }
+                                onValueChange={(v) => {
+                                  if (!v) return
+                                  setWakeMode(v as typeof wakeMode)
+                                  setEdited((e) => ({ ...e, wakeMode: true }))
+                                }}
                               >
                                 <SelectTrigger
                                   id="channel-agent-wake"
@@ -533,7 +544,13 @@ export function EditChannelDialog({
                               <Textarea
                                 id="channel-agent-brief"
                                 value={brief}
-                                onChange={(e) => setBrief(e.target.value)}
+                                onChange={(e) => {
+                                  setBrief(e.target.value)
+                                  setEdited((prev) => ({
+                                    ...prev,
+                                    brief: true,
+                                  }))
+                                }}
                                 maxLength={4000}
                                 rows={4}
                                 placeholder={`What ${identity.name} should know and do here, e.g. “Watch deploys and tell us in two lines when one fails. Zoe owns the pipeline.”`}

@@ -591,16 +591,55 @@ async function turnLoop(
     })
   }
 
+  const pendingApproval = (request: {
+    approvalId: string
+    toolCallId: string
+    toolName: string
+    input: unknown
+    reason: string | null
+  }): PendingApproval => {
+    const asked =
+      request.toolName === "request_approval"
+        ? (request.input as { action?: unknown; description?: unknown })
+        : null
+    const target = asked ? null : args.targetFor(request.toolName)
+    return {
+      harnessApprovalId: request.approvalId,
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+      kind: asked ? "request" : "policy",
+      target,
+      action:
+        typeof asked?.action === "string"
+          ? asked.action
+          : (target ?? request.toolName),
+      description:
+        typeof asked?.description === "string"
+          ? asked.description
+          : args.describe(request.toolName, request.input),
+      reason: request.reason,
+      payload: request.input,
+      inputSha256: sha256(stableStringify(request.input)),
+    }
+  }
+
   // A paused turn finishes first: one decision per open approval.
   const open = openApprovals(steps)
-  if (open.length > 0) {
-    const pausedRunId = [...steps]
-      .reverse()
-      .find((step) => step.kind === "model")?.runId
-    const decisions =
-      pausedRunId && agent.loadDecisions
-        ? await agent.loadDecisions(pausedRunId)
-        : []
+  const pausedRunId =
+    open.length > 0
+      ? [...steps].reverse().find((step) => step.kind === "model")?.runId
+      : undefined
+  const decisions =
+    pausedRunId && agent.loadDecisions
+      ? await agent.loadDecisions(pausedRunId)
+      : []
+  // An earlier attempt of this run saved the requests but stopped before
+  // filing their approvals: file them now rather than deny them unseen.
+  const unfiled =
+    pausedRunId === run.runId && decisions.length === 0
+      ? open.map((request) => pendingApproval({ ...request, reason: null }))
+      : []
+  if (open.length > 0 && unfiled.length === 0) {
     const responses = open.map((request): ToolApprovalResponse => {
       const decision = decisions.find(
         (d) => d.harnessApprovalId === request.approvalId
@@ -652,17 +691,25 @@ async function turnLoop(
   let lastProvider: string | undefined
   const turnCache = { calls: 0, input: 0, cacheRead: 0, coldFirst: false }
   let sentMessages = 0
-  let stoppedFor: RunStopCause | undefined
-  const approvals: PendingApproval[] = []
+  let stoppedFor: RunStopCause | undefined =
+    unfiled.length > 0 ? "awaiting_approval" : undefined
+  const approvals: PendingApproval[] = [...unfiled]
 
   const ledgerSpend = { credits: 0 }
   const spendLimited = () =>
     Date.now() >= run.budgets.deadlineAt.getTime() - 3 * 60_000 ||
     ledgerSpend.credits >= run.budgets.credits * 0.9
-  const toolApproval = ({ toolCall }: { toolCall: { toolName: string } }) =>
-    spendLimited()
-      ? ({ type: "denied", reason: LIMIT_REASON } as const)
-      : args.approval[toolCall.toolName]
+  // Near a limit only one send_message still runs (under its usual approval
+  // rule), so the agent can say what is left undone.
+  let finalSendAllowed = true
+  const toolApproval = ({ toolCall }: { toolCall: { toolName: string } }) => {
+    if (!spendLimited()) return args.approval[toolCall.toolName]
+    if (toolCall.toolName === "send_message" && finalSendAllowed) {
+      finalSendAllowed = false
+      return args.approval.send_message
+    }
+    return { type: "denied", reason: LIMIT_REASON } as const
+  }
 
   // The last saved step decides where the turn is: a model reply with no
   // tool calls ended it, anything else continues.
@@ -676,7 +723,7 @@ async function turnLoop(
     )
   }
 
-  while (!finished()) {
+  while (unfiled.length === 0 && !finished()) {
     if (run.stopRequested?.()) {
       stoppedFor = "stopped_by_user"
       break
@@ -721,6 +768,10 @@ async function turnLoop(
       }
     }
 
+    // A slow call must not outlive the turn's wall-clock budget.
+    const deadline = AbortSignal.timeout(
+      Math.max(0, run.budgets.deadlineAt.getTime() - Date.now())
+    )
     const result = await generateText({
       model: lorGatewayModel(args.model),
       // The epoch's own prompt: after an in-turn compaction, the new one.
@@ -735,10 +786,21 @@ async function turnLoop(
         args.model,
         conversationId(channelId, context.epoch)
       ),
-      ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
+      abortSignal: AbortSignal.any([
+        ...(run.abortSignal ? [run.abortSignal] : []),
+        deadline,
+      ]),
       runtimeContext: aiRuntimeContext(),
       telemetry: aiTelemetry("lor.agent"),
+    }).catch((err: unknown) => {
+      // A lease loss or a user stop keeps its own handling.
+      if (deadline.aborted && !run.abortSignal?.aborted) return null
+      throw err
     })
+    if (!result) {
+      stoppedFor = "budget_wall_clock"
+      break
+    }
     const usage = stepUsage(args.model, result)
     const routing = (
       result.providerMetadata?.gateway as
@@ -813,46 +875,46 @@ async function turnLoop(
     ledger.add(usage, counters.costUsd)
     promptTokens = usage.inputTokens
 
-    const replies = result.responseMessages as ModelMessage[]
+    const replies = [...result.responseMessages] as ModelMessage[]
+    // An empty stop sends no assistant message; a saved one ends the turn,
+    // here and on a retry, since ending without a reply is allowed.
+    if (
+      result.finishReason === "stop" &&
+      !replies.some((message) => message.role === "assistant")
+    ) {
+      replies.push({
+        role: "assistant",
+        content: [{ type: "text", text: "(Ended the turn without a reply.)" }],
+      })
+    }
     await save(replies)
     messages = [...messages, ...replies]
     turnMessages.push(...replies)
     const calls = result.content.filter((part) => part.type === "tool-call")
     countToolCalls(calls.length)
-    // Sends that ran: a denied call stays in the content without a result.
-    sentMessages += result.content.filter(
-      (part) =>
-        part.type === "tool-result" &&
-        part.toolName === "send_message" &&
-        (part.output as { ok?: unknown } | undefined)?.ok === true
-    ).length
+    // Sends that ran, including approved ones run before this call: each
+    // result is in the response messages once. A denied call has no result.
+    sentMessages += replies
+      .flatMap((message) => (message.role === "tool" ? message.content : []))
+      .filter(
+        (part) =>
+          part.type === "tool-result" &&
+          part.toolName === "send_message" &&
+          part.output.type === "json" &&
+          (part.output.value as { ok?: unknown } | null)?.ok === true
+      ).length
 
     for (const part of result.content) {
       if (part.type !== "tool-approval-request" || part.isAutomatic) continue
-      const input = part.toolCall.input
-      const asked =
-        part.toolCall.toolName === "request_approval"
-          ? (input as { action?: unknown; description?: unknown })
-          : null
-      const target = asked ? null : args.targetFor(part.toolCall.toolName)
-      approvals.push({
-        harnessApprovalId: part.approvalId,
-        toolCallId: part.toolCall.toolCallId,
-        toolName: part.toolCall.toolName,
-        kind: asked ? "request" : "policy",
-        target,
-        action:
-          typeof asked?.action === "string"
-            ? asked.action
-            : (target ?? part.toolCall.toolName),
-        description:
-          typeof asked?.description === "string"
-            ? asked.description
-            : args.describe(part.toolCall.toolName, input),
-        reason: part.reason ?? null,
-        payload: input,
-        inputSha256: sha256(stableStringify(input)),
-      })
+      approvals.push(
+        pendingApproval({
+          approvalId: part.approvalId,
+          toolCallId: part.toolCall.toolCallId,
+          toolName: part.toolCall.toolName,
+          input: part.toolCall.input,
+          reason: part.reason ?? null,
+        })
+      )
     }
     if (approvals.length > 0) {
       stoppedFor = "awaiting_approval"

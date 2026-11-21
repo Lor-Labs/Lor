@@ -178,11 +178,17 @@ function ChannelView() {
   const { msgId, threadId, threadMessageId, draft, about, panel } =
     Route.useSearch()
   const navigate = Route.useNavigate()
-  const [askDraft, setAskDraft] = useState<{ id: string; text: string }>()
+  // A pending `about` question belongs to the channel it was asked in.
+  const [askDraft, setAskDraft] = useState<{
+    id: string
+    text: string
+    channelId: string
+  }>()
   const composerDraft = useMemo(
     () =>
-      askDraft ?? (draft && !about ? { id: draft, text: draft } : undefined),
-    [askDraft, draft, about]
+      (askDraft?.channelId === channelId ? askDraft : undefined) ??
+      (draft && !about ? { id: draft, text: draft } : undefined),
+    [askDraft, channelId, draft, about]
   )
   const consumeComposerDraft = useCallback(() => {
     setAskDraft(undefined)
@@ -446,6 +452,12 @@ function ChannelView() {
 
   const { replyingTo, setReplyingTo, clearReply } = useReplyState()
 
+  // Clear reply state when switching channels. Runs before the `about`
+  // effect below so it never clears the target that effect sets.
+  useEffect(() => {
+    clearReply()
+  }, [channelId, clearReply])
+
   useEffect(() => {
     if (!about || messagesLoading) return
     const target = messages.find((message) => message.id === about)
@@ -459,8 +471,8 @@ function ChannelView() {
       return
     }
     if (!target && !isAnchorMissing && !isAnchorWindowLoaded) return
-    if (target) setReplyingTo(target)
-    setAskDraft({ id: crypto.randomUUID(), text: draft ?? "" })
+    setReplyingTo(target ?? null)
+    setAskDraft({ id: crypto.randomUUID(), text: draft ?? "", channelId })
     void navigate({
       search: (prev) => ({ ...prev, about: undefined, draft: undefined }),
       replace: true,
@@ -475,6 +487,7 @@ function ChannelView() {
     isAnchorWindowLoaded,
     setReplyingTo,
     navigate,
+    channelId,
   ])
 
   const { data: threadActivityData } = useQuery({
@@ -559,11 +572,6 @@ function ChannelView() {
     channelId,
     currentUserId,
   })
-
-  // Clear reply state when switching channels
-  useEffect(() => {
-    clearReply()
-  }, [channelId, clearReply])
 
   const fileUpload = useFileUpload(channelId)
   // A chat that lives in Discord is read-only here (decision 22). The

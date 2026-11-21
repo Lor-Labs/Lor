@@ -5,8 +5,12 @@ import {
   db,
   desc,
   eq,
+  gt,
   inArray,
+  isNotNull,
   LOR_USER_ID,
+  lt,
+  notExists,
   schema,
   sql,
 } from "@repo/db"
@@ -16,6 +20,7 @@ import { createSession, toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import { type AgentSessionTools, addInboxNote } from "@repo/lor/channel-agent"
 import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
 import { resolveWorkspaceGithub } from "@repo/lor/github"
+import { loadThreadSummary } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   AGENT_INBOX_BATCH_MS,
@@ -24,7 +29,7 @@ import {
   type AgentInboxFlushJobData,
   type LorRespondJobData,
 } from "@repo/realtime-types/queues"
-import { channelRoom } from "@repo/realtime-types/rooms"
+import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import { isHarnessEnabled } from "@repo/utils/features"
 import { lorBranchName } from "@repo/utils/github"
 import type { Emitter } from "@socket.io/redis-emitter"
@@ -161,10 +166,25 @@ async function runTask(
     return "failed" as const
   })
   if (started !== "started") {
-    await db
+    const deleted = await db
       .delete(schema.message)
       .where(eq(schema.message.id, messageId))
-      .catch(() => {})
+      .then(() => true)
+      .catch(() => false)
+    if (deleted) {
+      deps.emitter
+        .to(threadRoom(session.threadRootId))
+        .emit("message:deleted", { channelId: session.channelId, messageId })
+      await loadThreadSummary(session.channelId, session.threadRootId)
+        .then((summary) =>
+          deps.emitter
+            .to(channelRoom(session.channelId))
+            .emit("message:thread:updated", summary)
+        )
+        .catch((err) =>
+          logger.warn({ err, messageId }, "Thread summary emit failed")
+        )
+    }
   }
   return started
 }
@@ -223,6 +243,11 @@ async function planFor(
   if (harness === "codex" && !chatgpt) {
     return {
       error: `${name} hasn't connected a ChatGPT plan, so Codex can't run for them. They can connect one in Settings → Linked accounts${claudeToo ? ", or you can use Claude Code on their Claude subscription" : ""}.`,
+    }
+  }
+  if (!harness && (claude || chatgpt)) {
+    return {
+      error: `${claude ? "Claude Code" : "Codex"}${claude && chatgpt ? " and Codex are" : " is"} switched off on this Lor server, so ${name}'s linked plan can't run a code session.`,
     }
   }
   if (!harness) {
@@ -444,6 +469,11 @@ export function agentSessionExecutors(
         }
       }
       const started = await runTask(deps, session, channelName, message)
+      if (started === "failed") {
+        return {
+          error: "The follow-up did not start. You can send it again.",
+        }
+      }
       return started === "started"
         ? { ok: true }
         : { error: "The session is busy. Wait for its report." }
@@ -481,7 +511,8 @@ const OUTCOME_TEXT: Record<HelperOutcome, string> = {
 // A helper session's turn ended: the agent reads a short report next turn,
 // and it wakes for it.
 export async function reportHelperTurn(
-  queue: Queue<AgentInboxFlushJobData>,
+  // Null: no flush here; the stranded-inbox sweep wakes the agent for it.
+  queue: Queue<AgentInboxFlushJobData> | null,
   args: {
     workspaceId: string
     channelId: string
@@ -507,9 +538,108 @@ export async function reportHelperTurn(
   // A repeated report adds no note but still asks for the flush, in case
   // the first one's enqueue failed.
   if (!added) logger.info({ runId: args.runId }, "Helper report already noted")
-  await queue.add(
+  await queue?.add(
     AGENT_INBOX_FLUSH_JOB,
     { channelId: args.channelId },
     { delay: AGENT_INBOX_BATCH_MS, removeOnComplete: true, removeOnFail: 100 }
   )
+}
+
+// A helper run's report rebuilt from its saved row, for runs that ended
+// outside the turn's own report: attempts used up, a dead run, or a report
+// insert that failed. The run id keeps it to one note.
+export async function reportHelperRun(
+  queue: Queue<AgentInboxFlushJobData> | null,
+  runId: string
+): Promise<void> {
+  const [run] = await db
+    .select({
+      workspaceId: schema.agentRun.workspaceId,
+      channelId: schema.agentRun.channelId,
+      state: schema.agentRun.state,
+      stopReason: schema.agentRun.stopReason,
+      messageId: schema.agentRun.messageId,
+      reply: schema.message.content,
+      sessionId: schema.agentSession.id,
+      title: schema.agentSession.title,
+      newBranch: schema.agentSession.newBranch,
+    })
+    .from(schema.agentRun)
+    .innerJoin(
+      schema.agentSession,
+      and(
+        eq(schema.agentSession.threadRootId, schema.agentRun.scopeKey),
+        eq(schema.agentSession.origin, "agent")
+      )
+    )
+    .leftJoin(schema.message, eq(schema.message.id, schema.agentRun.messageId))
+    .where(eq(schema.agentRun.id, runId))
+  if (!run?.messageId) return
+  const outcome: HelperOutcome | null =
+    run.state === "failed"
+      ? "failed"
+      : run.state === "stopped"
+        ? "stopped"
+        : run.state === "complete"
+          ? run.stopReason === "awaiting_approval"
+            ? "approval"
+            : "finished"
+          : null
+  if (!outcome) return
+  await reportHelperTurn(queue, {
+    workspaceId: run.workspaceId,
+    channelId: run.channelId,
+    runId,
+    session: {
+      id: run.sessionId,
+      title: run.title ?? "Session",
+      newBranch: run.newBranch,
+    },
+    outcome,
+    reply: run.reply ?? "",
+    replyMessageId: run.messageId,
+  })
+}
+
+const UNREPORTED_AFTER_MS = 2 * 60_000
+const UNREPORTED_WITHIN_MS = 24 * 60 * 60_000
+
+// Helper runs that ended without a report note (the insert failed, or the
+// worker died between the run's end and the report).
+export async function sweepUnreportedHelperRuns(): Promise<void> {
+  const now = Date.now()
+  const runs = await db
+    .select({ id: schema.agentRun.id })
+    .from(schema.agentSession)
+    .innerJoin(
+      schema.agentRun,
+      eq(schema.agentRun.scopeKey, schema.agentSession.threadRootId)
+    )
+    .where(
+      and(
+        eq(schema.agentSession.origin, "agent"),
+        inArray(schema.agentRun.state, ["complete", "failed", "stopped"]),
+        isNotNull(schema.agentRun.messageId),
+        gt(schema.agentRun.finishedAt, new Date(now - UNREPORTED_WITHIN_MS)),
+        lt(schema.agentRun.finishedAt, new Date(now - UNREPORTED_AFTER_MS)),
+        notExists(
+          db
+            .select({ id: schema.agentInbox.id })
+            .from(schema.agentInbox)
+            .where(
+              and(
+                eq(schema.agentInbox.channelId, schema.agentRun.channelId),
+                eq(schema.agentInbox.source, "session"),
+                eq(schema.agentInbox.sourceId, sql`${schema.agentRun.id}::text`)
+              )
+            )
+        )
+      )
+    )
+    .limit(200)
+  for (const run of runs) {
+    await reportHelperRun(null, run.id).catch((err) =>
+      logger.error({ err, runId: run.id }, "Unreported helper run sweep failed")
+    )
+  }
 }

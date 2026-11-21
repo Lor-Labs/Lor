@@ -538,7 +538,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function SetupCanvas({ agent }: { agent: Agent }) {
   const { configured, rooms } = useProto()
   const room = rooms[agent.id]
-  if (!configured[agent.id] || agent.watching.length === 0) {
+  if (!configured[agent.id]) {
     return (
       <Shell title={`${agent.name} setup`} subtitle="Not set up yet">
         <p className="p-5 text-[15px] leading-7 text-muted-foreground">

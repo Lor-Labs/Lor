@@ -283,6 +283,23 @@ export async function applyFactChanges(input: {
     text.trim().replace(/\s+/g, " ").slice(0, max)
   const now = new Date()
   return db.transaction(async (tx) => {
+    const live = new Map(
+      (
+        await tx
+          .select({
+            id: schema.channelAgentFact.id,
+            text: schema.channelAgentFact.text,
+          })
+          .from(schema.channelAgentFact)
+          .where(
+            and(
+              eq(schema.channelAgentFact.channelId, input.channelId),
+              isNull(schema.channelAgentFact.deletedAt)
+            )
+          )
+      ).map((row) => [row.id, row.text.length])
+    )
+    let chars = [...live.values()].reduce((sum, length) => sum + length, 0)
     // Each write requires the revision the pass saw, so a fact a person
     // changed meanwhile is left for the next pass.
     const toRemove = input.changes.remove.flatMap(
@@ -304,15 +321,23 @@ export async function applyFactChanges(input: {
         )
         .returning({ id: schema.channelAgentFact.id })
       removed += rows.length
+      if (rows.length > 0) {
+        chars -= live.get(fact.id) ?? 0
+        live.delete(fact.id)
+      }
     }
     let edited = 0
     for (const change of input.changes.edit) {
       const shown = input.shown.get(change.id)
       if (!shown || removeIds.includes(shown.id)) continue
+      const text = clip(change.text, FACT_CHARS)
+      // An edit may shrink an oversized profile but never grow it past the cap.
+      const growth = text.length - (live.get(shown.id) ?? 0)
+      if (growth > 0 && chars + growth > FACTS_CHARS) continue
       const rows = await tx
         .update(schema.channelAgentFact)
         .set({
-          text: clip(change.text, FACT_CHARS),
+          text,
           updatedAt: now,
           editedById: null,
         })
@@ -326,18 +351,12 @@ export async function applyFactChanges(input: {
         )
         .returning({ id: schema.channelAgentFact.id })
       edited += rows.length
+      if (rows.length > 0) {
+        chars += growth
+        live.set(shown.id, text.length)
+      }
     }
-    const live = await tx
-      .select({ text: schema.channelAgentFact.text })
-      .from(schema.channelAgentFact)
-      .where(
-        and(
-          eq(schema.channelAgentFact.channelId, input.channelId),
-          isNull(schema.channelAgentFact.deletedAt)
-        )
-      )
-    let count = live.length
-    let chars = live.reduce((sum, row) => sum + row.text.length, 0)
+    let count = live.size
     const additions: { text: string; source: string }[] = []
     for (const change of input.changes.add) {
       const text = clip(change.text, FACT_CHARS)
@@ -370,6 +389,21 @@ function eventLine(note: string | null): string {
   return source ? `${source}: ${firstLine(body)}` : firstLine(head)
 }
 
+// A fire with no run has not run: it waits (out of credits, say), or was read
+// without one.
+function loopOutcome(
+  status: "pending" | "read",
+  runState: string | null
+): string {
+  if (runState === null) {
+    return status === "pending" ? "is waiting to run" : "was skipped"
+  }
+  if (runState === "complete") return "ran"
+  if (runState === "failed") return "ran and failed"
+  if (runState === "stopped") return "was stopped"
+  return "is running"
+}
+
 function firstLine(text: string | null): string {
   const line = (text ?? "").split("\n")[0]?.trim() ?? ""
   return line.length > NOTE_LINE_CHARS
@@ -390,6 +424,7 @@ export async function channelAgentLog(
         at: schema.agentInbox.createdAt,
         source: schema.agentInbox.source,
         lane: schema.agentInbox.lane,
+        status: schema.agentInbox.status,
         note: schema.agentInbox.note,
         loopName: schema.loop.name,
         runState: schema.agentRun.state,
@@ -470,7 +505,7 @@ export async function channelAgentLog(
       at: item.at,
       text:
         item.source === "loop"
-          ? `Loop "${sanitizeInlineLabel(item.loopName ?? "deleted")}" ran${item.runState === "failed" ? " and failed" : ""}`
+          ? `Loop "${sanitizeInlineLabel(item.loopName ?? "deleted")}" ${loopOutcome(item.status, item.runState)}`
           : item.source === "wake_up"
             ? `Your wake-up came due: ${firstLine(item.note?.split("Your note to yourself:\n")[1] ?? null)}`
             : item.source === "session"

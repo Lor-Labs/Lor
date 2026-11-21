@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { recordUsage } from "@repo/billing"
 import type { ConnectorEventKey } from "@repo/connectors"
-import { APP_USER_ID, and, db, eq, schema } from "@repo/db"
+import { APP_USER_ID, and, db, eq, schema, sql } from "@repo/db"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import type {
   Embed,
@@ -359,38 +359,50 @@ async function deliverToInbox(input: {
   cardMessageId: string | null
 }): Promise<string> {
   const { trigger } = input
-  let lane: "wake" | "wait" = "wait"
-  let outcome = "wait"
-  if (trigger.actInstructions !== null) {
-    const counts = await triggerWakeCounts(trigger.id)
-    if (counts.hourly >= trigger.hourlyRunCap) outcome = "hourly_cap"
-    else if (counts.daily >= trigger.dailyRunCap) outcome = "daily_cap"
-    else {
-      lane = "wake"
-      outcome = "wake"
+  const note = triggerInboxNote({
+    label: input.label,
+    event: input.event,
+    body: input.body,
+    cardMessageId: input.cardMessageId,
+    instructions: trigger.actInstructions,
+    setUpBy: input.setUpBy,
+    code: trigger.actRepoFullName
+      ? {
+          repoFullName: trigger.actRepoFullName,
+          baseBranch: trigger.actBaseBranch,
+        }
+      : null,
+  })
+  // Count and insert under one per-trigger lock so concurrent deliveries
+  // cannot both take the last unit of the wake cap.
+  const { added, lane, outcome } = await db.transaction(async (tx) => {
+    let lane: "wake" | "wait" = "wait"
+    let outcome = "wait"
+    if (trigger.actInstructions !== null) {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`trigger-wake:${trigger.id}`}, 0))`
+      )
+      const counts = await triggerWakeCounts(trigger.id, tx)
+      if (counts.hourly >= trigger.hourlyRunCap) outcome = "hourly_cap"
+      else if (counts.daily >= trigger.dailyRunCap) outcome = "daily_cap"
+      else {
+        lane = "wake"
+        outcome = "wake"
+      }
     }
-  }
-  const added = await addInboxNote({
-    workspaceId: input.workspaceId,
-    channelId: input.channelId,
-    source: "trigger",
-    sourceId: input.deliveryId,
-    deliveryId: input.deliveryId,
-    lane,
-    note: triggerInboxNote({
-      label: input.label,
-      event: input.event,
-      body: input.body,
-      cardMessageId: input.cardMessageId,
-      instructions: trigger.actInstructions,
-      setUpBy: input.setUpBy,
-      code: trigger.actRepoFullName
-        ? {
-            repoFullName: trigger.actRepoFullName,
-            baseBranch: trigger.actBaseBranch,
-          }
-        : null,
-    }),
+    const added = await addInboxNote(
+      {
+        workspaceId: input.workspaceId,
+        channelId: input.channelId,
+        source: "trigger",
+        sourceId: input.deliveryId,
+        deliveryId: input.deliveryId,
+        lane,
+        note,
+      },
+      tx
+    )
+    return { added, lane, outcome }
   })
   if (added && lane === "wake") {
     await flushAgentInbox(input.channelId, AGENT_INBOX_BATCH_MS)

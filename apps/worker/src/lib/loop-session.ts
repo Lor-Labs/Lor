@@ -3,7 +3,6 @@ import {
   db,
   eq,
   inArray,
-  isNotNull,
   isNull,
   LOR_USER_ID,
   schema,
@@ -68,19 +67,16 @@ type FireOutcome = "started" | "queued" | "skipped" | "failed"
 // (reference/always-on-agents.md §3): the turn that reads it is the fire's
 // run. A fire of the same Loop still unread or running skips this one.
 async function checkInNeeded(channelId: string): Promise<boolean> {
-  const pending = await db
-    .select({ lane: schema.agentInbox.lane })
-    .from(schema.agentInbox)
-    .where(
-      and(
-        eq(schema.agentInbox.channelId, channelId),
-        eq(schema.agentInbox.status, "pending")
-      )
-    )
-  return (
-    pending.some((item) => item.lane === "wait") &&
-    !pending.some((item) => item.lane === "wake")
+  const pendingIn = (lane: "wait" | "wake") => sql`exists (
+    select 1 from ${schema.agentInbox}
+    where ${schema.agentInbox.channelId} = ${channelId}
+      and ${schema.agentInbox.status} = 'pending'
+      and ${schema.agentInbox.lane} = ${lane}
+  )`
+  const [row] = await db.execute<{ needed: boolean }>(
+    sql`select ${pendingIn("wait")} and not ${pendingIn("wake")} as needed`
   )
+  return Boolean(row?.needed)
 }
 
 async function fireLoopToInbox(
@@ -309,7 +305,9 @@ async function completeLoopByLor(
   deps: LoopDeps,
   loopId: string,
   closingNote: string,
-  threadRootId: string | null
+  threadRootId: string | null,
+  // The end condition the run judged.
+  endCondition: string
 ): Promise<void> {
   const completed = await db
     .update(schema.loop)
@@ -319,19 +317,22 @@ async function completeLoopByLor(
       pausedReason: null,
       nextRunAt: null,
     })
-    // An end condition someone cleared meanwhile no longer lets it end.
+    // An end condition someone cleared or edited meanwhile no longer lets it
+    // end.
     .where(
       and(
         eq(schema.loop.id, loopId),
         eq(schema.loop.status, "active"),
-        isNotNull(schema.loop.endCondition)
+        eq(schema.loop.endCondition, endCondition)
       )
     )
     .returning()
     .then((rows) => rows[0] ?? null)
   // Paused/completed since this run started — the tool must not report
   // success for a transition that didn't happen.
-  if (!completed) throw new Error("Loop is no longer active")
+  if (!completed) {
+    throw new Error("Loop is no longer active or its end condition changed")
+  }
   logger.info({ loopId }, "Loop completed by complete_loop")
   emitLoopUpdated(deps.emitter, completed)
   if (!threadRootId) return
@@ -356,6 +357,19 @@ export function agentCompleteLoop(
   deps: LoopDeps,
   channelId: string
 ): CompleteAgentLoop {
+  // The end conditions as the turn starts: what the agent judges. An edit
+  // during the turn makes complete_loop refuse.
+  const judged = db
+    .select({ id: schema.loop.id, endCondition: schema.loop.endCondition })
+    .from(schema.loop)
+    .where(eq(schema.loop.channelId, channelId))
+    .then(
+      (rows) => new Map(rows.map((row) => [row.id, row.endCondition])),
+      (err: unknown) => {
+        logger.warn({ err, channelId }, "Loop end condition snapshot failed")
+        return null
+      }
+    )
   return async ({ loopId, closingNote }) => {
     const [loop] = await db
       .select({
@@ -378,8 +392,19 @@ export function agentCompleteLoop(
     if (loop.status !== "active") {
       return { ok: false, error: `This Loop is ${loop.status}, not active` }
     }
+    const conditions = await judged
+    const endCondition = conditions
+      ? (conditions.get(loopId) ?? null)
+      : loop.endCondition
+    if (endCondition !== loop.endCondition) {
+      return {
+        ok: false,
+        error:
+          "This Loop's end condition changed during this turn. Judge the new one on its next run.",
+      }
+    }
     try {
-      await completeLoopByLor(deps, loopId, closingNote, null)
+      await completeLoopByLor(deps, loopId, closingNote, null, endCondition)
       return { ok: true }
     } catch {
       return { ok: false, error: "Failed to complete the Loop" }
@@ -395,15 +420,22 @@ export function loopRunContext(
   loop: Loop,
   threadRootId: string
 ): RunLoopContext {
+  const endCondition = loop.endCondition
   return {
     name: loop.name,
     scheduleDescription: describeLoopSchedule(loop.schedule, loop.timezone),
     instructions: loop.instructions,
-    endCondition: loop.endCondition,
-    ...(loop.endCondition
+    endCondition,
+    ...(endCondition
       ? {
           completeLoop: ({ closingNote }) =>
-            completeLoopByLor(deps, loop.id, closingNote, threadRootId),
+            completeLoopByLor(
+              deps,
+              loop.id,
+              closingNote,
+              threadRootId,
+              endCondition
+            ),
         }
       : {}),
   }

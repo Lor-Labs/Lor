@@ -83,7 +83,11 @@ import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
 import { claimAgentRun, delayJobUntil, LeaseLostError } from "@/lib/agent-run"
-import { type HelperOutcome, reportHelperTurn } from "@/lib/agent-session-tools"
+import {
+  type HelperOutcome,
+  reportHelperRun,
+  reportHelperTurn,
+} from "@/lib/agent-session-tools"
 import {
   notifyApprovalParked,
   scheduleApprovalEscalation,
@@ -500,6 +504,15 @@ export function createLorRespondProcessor(
               .where(eq(schema.message.id, lorMessageId))
               .catch(() => {})
             emit(LOR_ERROR_FALLBACK, true, "failed", true)
+            if (job.data.runId) {
+              await reportHelperRun(agentInboxQueue, job.data.runId).catch(
+                (err) =>
+                  logger.error(
+                    { err, lorMessageId },
+                    "Helper session report failed"
+                  )
+              )
+            }
             await settlePlan("failed")
             await emitThreadSummary()
             drainQueue()
@@ -993,6 +1006,14 @@ export function createLorRespondProcessor(
                 .catch(() => false))
                 ? session.creatorId
                 : null
+            // A paused turn's saved plan owner may have left the channel since.
+            const stillInChannel = async (userId: string | null) =>
+              userId &&
+              (await resolveChannelAccess(userId, channelId)
+                .then((access) => access.ok)
+                .catch(() => false))
+                ? userId
+                : null
             const planUserId =
               triggerUserId && triggerUserId !== LOR_USER_ID
                 ? triggerUserId
@@ -1016,7 +1037,11 @@ export function createLorRespondProcessor(
                       })
                       .from(schema.agentRun)
                       .where(eq(schema.agentRun.id, harnessState.lastRunId))
-                      .then((rows) => rows[0] ?? null)
+                      .then(async ([row]) =>
+                        row
+                          ? { ...row, userId: await stillInChannel(row.userId) }
+                          : null
+                      )
                   : planUserId
                     ? {
                         userId: planUserId,
@@ -1047,7 +1072,7 @@ export function createLorRespondProcessor(
                       })
                       .from(schema.agentRun)
                       .where(eq(schema.agentRun.id, harnessState.lastRunId))
-                      .then((rows) => rows[0]?.userId ?? null)
+                      .then(([row]) => stillInChannel(row?.userId ?? null))
                   : planUserId
             const codexSignIn = codexUserId
               ? await chatgptCredential(codexUserId).catch((err: unknown) => {

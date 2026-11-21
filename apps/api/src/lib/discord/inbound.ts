@@ -1,4 +1,12 @@
-import { APP_USER_ID, db, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
+import {
+  APP_USER_ID,
+  and,
+  db,
+  eq,
+  inArray,
+  LOR_USER_ID,
+  schema,
+} from "@repo/db"
 import { addInboxMessage, agentInThread } from "@repo/lor/channel-agent"
 import { ensureCheckInLoop } from "@repo/lor/check-in"
 import {
@@ -173,6 +181,20 @@ async function threadRootFor(
   return starter.id
 }
 
+// Messages in one Discord thread are stored one at a time, so when its
+// starter was never mirrored only the first becomes the Lor thread's root.
+// One process holds the gateway, so an in-memory queue is enough.
+const threadQueues = new Map<string, Promise<unknown>>()
+function inThreadOrder<T>(threadId: string, run: () => Promise<T>) {
+  const next = (threadQueues.get(threadId) ?? Promise.resolve()).then(run)
+  const tail = next.catch(() => {})
+  threadQueues.set(threadId, tail)
+  void tail.then(() => {
+    if (threadQueues.get(threadId) === tail) threadQueues.delete(threadId)
+  })
+  return next
+}
+
 async function mirrorInto(
   link: DiscordLink,
   event: DiscordMessageEvent,
@@ -195,6 +217,22 @@ async function mirrorInto(
       : null
   const content = fromDiscordContent(event, botUserId, link.agentRoleId, lorIds)
   if (!content) return
+
+  const [channel] = await db
+    .select({
+      id: schema.channel.id,
+      workspaceId: schema.channel.workspaceId,
+      name: schema.channel.name,
+      workspaceName: schema.workspace.name,
+      archivedAt: schema.channel.archivedAt,
+    })
+    .from(schema.channel)
+    .leftJoin(
+      schema.workspace,
+      eq(schema.workspace.id, schema.channel.workspaceId)
+    )
+    .where(eq(schema.channel.id, link.channelId))
+  if (!channel?.workspaceId || channel.archivedAt) return
 
   const referenced = event.message_reference?.message_id
     ? await db
@@ -222,10 +260,6 @@ async function mirrorInto(
         .then((rows) => rows[0] ?? null)
     : null
 
-  const threadRootId = threadId
-    ? await threadRootFor(threadId, link.channelId)
-    : null
-
   const authorId = asPerson ?? APP_USER_ID
   const override = asPerson
     ? null
@@ -233,40 +267,74 @@ async function mirrorInto(
         overrideName: displayName({ ...event.author, member: event.member }),
         overrideAvatarUrl: avatarUrl(event.author),
       }
-  const [inserted] = await db
-    .insert(schema.message)
-    .values({
-      channelId: link.channelId,
-      authorId,
-      content,
-      type: referenced ? "reply" : "default",
-      referencedMessageId: referenced?.id ?? null,
-      threadRootId,
-      clientKey: `discord:${event.id}`,
-      ...(override ?? {}),
-    })
-    .onConflictDoNothing()
-    .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
-  if (!inserted) return
-  await db
-    .insert(schema.discordMessage)
-    .values({
-      discordMessageId: event.id,
-      messageId: inserted.id,
-      channelId: link.channelId,
-    })
-    .onConflictDoNothing()
-  // A thread whose starter was never mirrored: this message is its root.
-  if (threadId && !threadRootId) {
-    await db
-      .insert(schema.discordThread)
+  const clientKey = `discord:${event.id}`
+  const persist = async () => {
+    const rootId = threadId
+      ? await threadRootFor(threadId, link.channelId)
+      : null
+    const [inserted] = await db
+      .insert(schema.message)
       .values({
-        discordThreadId: threadId,
         channelId: link.channelId,
-        threadRootId: inserted.id,
+        authorId,
+        content,
+        type: referenced ? "reply" : "default",
+        referencedMessageId: referenced?.id ?? null,
+        threadRootId: rootId,
+        clientKey,
+        ...(override ?? {}),
       })
       .onConflictDoNothing()
+      .returning({
+        id: schema.message.id,
+        createdAt: schema.message.createdAt,
+        threadRootId: schema.message.threadRootId,
+      })
+    // A redelivered event finishes what a failed first try left undone.
+    const saved =
+      inserted ??
+      (await db
+        .select({
+          id: schema.message.id,
+          createdAt: schema.message.createdAt,
+          threadRootId: schema.message.threadRootId,
+        })
+        .from(schema.message)
+        .where(
+          and(
+            eq(schema.message.authorId, authorId),
+            eq(schema.message.channelId, link.channelId),
+            eq(schema.message.clientKey, clientKey)
+          )
+        )
+        .then((rows) => rows[0]))
+    if (!saved) return null
+    await db
+      .insert(schema.discordMessage)
+      .values({
+        discordMessageId: event.id,
+        messageId: saved.id,
+        channelId: link.channelId,
+      })
+      .onConflictDoNothing()
+    // A thread whose starter was never mirrored: this message is its root.
+    if (threadId && !saved.threadRootId) {
+      await db
+        .insert(schema.discordThread)
+        .values({
+          discordThreadId: threadId,
+          channelId: link.channelId,
+          threadRootId: saved.id,
+        })
+        .onConflictDoNothing()
+    }
+    return { ...saved, fresh: Boolean(inserted) }
   }
+  const inserted = threadId
+    ? await inThreadOrder(threadId, persist)
+    : await persist()
+  if (!inserted) return
+  const threadRootId = inserted.threadRootId
 
   const [author] = await db
     .select({
@@ -276,105 +344,95 @@ async function mirrorInto(
     })
     .from(schema.user)
     .where(eq(schema.user.id, authorId))
-  const [channel] = await db
-    .select({
-      id: schema.channel.id,
-      workspaceId: schema.channel.workspaceId,
-      name: schema.channel.name,
-      workspaceName: schema.workspace.name,
-    })
-    .from(schema.channel)
-    .leftJoin(
-      schema.workspace,
-      eq(schema.workspace.id, schema.channel.workspaceId)
-    )
-    .where(eq(schema.channel.id, link.channelId))
-  if (!author || !channel?.workspaceId) return
+  if (!author) return
 
-  const io = await getEmitter()
-  let mentions: RealtimeMessage["mentions"] = []
-  try {
-    const redis = await getRedisClient()
-    const fanout = await buildMessageFanout({
-      authorId,
-      channel,
-      message: {
-        id: inserted.id,
-        content,
-        author: {
-          name: override?.overrideName ?? author.name,
-          image: override?.overrideAvatarUrl ?? author.image,
+  // Notifications and realtime only for a newly stored message.
+  if (inserted.fresh) {
+    const io = await getEmitter()
+    let mentions: RealtimeMessage["mentions"] = []
+    try {
+      const redis = await getRedisClient()
+      const fanout = await buildMessageFanout({
+        authorId,
+        channel,
+        message: {
+          id: inserted.id,
+          content,
+          author: {
+            name: override?.overrideName ?? author.name,
+            image: override?.overrideAvatarUrl ?? author.image,
+          },
+          attachments: [],
+          threadRootId,
         },
-        attachments: [],
-        threadRootId,
-      },
-      redis,
-    })
-    mentions = fanout.messageMentions
-    for (const n of fanout.unreadNotifications) {
-      io.to(userRoom(n.userId)).emit("notification:unread", n.payload)
-    }
-    for (const n of fanout.mentionNotifications) {
-      io.to(userRoom(n.userId)).emit("notification:mention", n.payload)
-    }
-    void sendMessagePushNotifications({ fanout, redis }).catch((err) =>
+        redis,
+      })
+      mentions = fanout.messageMentions
+      for (const n of fanout.unreadNotifications) {
+        io.to(userRoom(n.userId)).emit("notification:unread", n.payload)
+      }
+      for (const n of fanout.mentionNotifications) {
+        io.to(userRoom(n.userId)).emit("notification:mention", n.payload)
+      }
+      void sendMessagePushNotifications({ fanout, redis }).catch((err) =>
+        logger.error(
+          { err, messageId: inserted.id },
+          "Discord mirror push failed"
+        )
+      )
+    } catch (err) {
       logger.error(
         { err, messageId: inserted.id },
-        "Discord mirror push failed"
+        "Discord mirror fanout failed"
       )
-    )
-  } catch (err) {
-    logger.error(
-      { err, messageId: inserted.id },
-      "Discord mirror fanout failed"
-    )
-  }
+    }
 
-  const message: RealtimeMessage = {
-    id: inserted.id,
-    channelId: link.channelId,
-    content,
-    type: referenced ? "reply" : "default",
-    eventType: null,
-    eventPayload: null,
-    pinned: false,
-    createdAt: inserted.createdAt.toISOString(),
-    author: { ...author, avatarColor: null },
-    overrideName: override?.overrideName ?? null,
-    overrideAvatarUrl: override?.overrideAvatarUrl ?? null,
-    mentions,
-    reactions: [],
-    attachments: [],
-    embeds: [],
-    referencedMessage: referenced
-      ? {
-          id: referenced.id,
-          content: referenced.content,
-          author: {
-            id: referenced.authorId,
-            name: referenced.authorName,
-            image: referenced.authorImage,
-            avatarColor: null,
-          },
-          overrideName: referenced.overrideName,
-          overrideAvatarUrl: referenced.overrideAvatarUrl,
-        }
-      : null,
-    threadRootId,
-  }
-  if (threadRootId) {
-    // A reply reaches the thread's room; the chat learns of it through the
-    // thread summary.
-    io.to(threadRoom(threadRootId)).emit("message:created", message)
-    await loadThreadSummary(link.channelId, threadRootId)
-      .then((summary) =>
-        io
-          .to(channelRoom(link.channelId))
-          .emit("message:thread:updated", summary)
-      )
-      .catch(() => {})
-  } else {
-    io.to(channelRoom(link.channelId)).emit("message:created", message)
+    const message: RealtimeMessage = {
+      id: inserted.id,
+      channelId: link.channelId,
+      content,
+      type: referenced ? "reply" : "default",
+      eventType: null,
+      eventPayload: null,
+      pinned: false,
+      createdAt: inserted.createdAt.toISOString(),
+      author: { ...author, avatarColor: null },
+      overrideName: override?.overrideName ?? null,
+      overrideAvatarUrl: override?.overrideAvatarUrl ?? null,
+      mentions,
+      reactions: [],
+      attachments: [],
+      embeds: [],
+      referencedMessage: referenced
+        ? {
+            id: referenced.id,
+            content: referenced.content,
+            author: {
+              id: referenced.authorId,
+              name: referenced.authorName,
+              image: referenced.authorImage,
+              avatarColor: null,
+            },
+            overrideName: referenced.overrideName,
+            overrideAvatarUrl: referenced.overrideAvatarUrl,
+          }
+        : null,
+      threadRootId,
+    }
+    if (threadRootId) {
+      // A reply reaches the thread's room; the chat learns of it through the
+      // thread summary.
+      io.to(threadRoom(threadRootId)).emit("message:created", message)
+      await loadThreadSummary(link.channelId, threadRootId)
+        .then((summary) =>
+          io
+            .to(channelRoom(link.channelId))
+            .emit("message:thread:updated", summary)
+        )
+        .catch(() => {})
+    } else {
+      io.to(channelRoom(link.channelId)).emit("message:created", message)
+    }
   }
 
   // Into the agent's inbox: a mention of the bot or a reply to the agent

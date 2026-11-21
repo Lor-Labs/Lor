@@ -323,6 +323,7 @@ async function candidateRequester(
         isNotNull(schema.agentWakeUp.askedById)
       )
     )
+    .orderBy(asc(schema.agentInbox.createdAt))
     .limit(1)
   if (wokeUp?.userId) return wokeUp.userId
   const [setUp] = await db

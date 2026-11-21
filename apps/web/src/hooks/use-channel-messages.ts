@@ -385,10 +385,11 @@ export function useChannelMessages({
   }, [])
 
   // Cached messages stay visible while an anchored window loads, so isPending
-  // doesn't say when the anchor's own window has arrived.
+  // doesn't say when the anchor's own window has arrived. An error is not a
+  // loaded window.
   const firstParam = query.data?.pageParams[0]
   const isAnchorWindowLoaded =
-    query.isError ||
+    !query.isError &&
     Boolean(
       normalizedAnchor &&
         firstParam &&

@@ -2,6 +2,7 @@ import { and, asc, db, eq, inArray, LOR_USER_ID, schema, sql } from "@repo/db"
 import type { AgentInboxLane } from "@repo/db/schema"
 import { tool } from "ai"
 import { z } from "zod"
+import type { DbTransaction } from "./retrieval"
 import type { ApprovalDecision, RunCounters, RunStepRecord } from "./run"
 import { formatSpeakerLine, sanitizeInlineLabel } from "./transcript"
 
@@ -258,17 +259,20 @@ You are ${name}, the always-on agent for ${channel}: one teammate the whole chan
 
 // An item that is not a chat message: a session's report, an event a trigger
 // delivered, a Loop's fire or a wake-up.
-export async function addInboxNote(input: {
-  workspaceId: string
-  channelId: string
-  source: "session" | "trigger" | "loop" | "wake_up"
-  sourceId: string
-  note: string
-  lane: AgentInboxLane
-  deliveryId?: string
-  loopId?: string
-}): Promise<boolean> {
-  const rows = await db
+export async function addInboxNote(
+  input: {
+    workspaceId: string
+    channelId: string
+    source: "session" | "trigger" | "loop" | "wake_up"
+    sourceId: string
+    note: string
+    lane: AgentInboxLane
+    deliveryId?: string
+    loopId?: string
+  },
+  executor: Pick<DbTransaction, "insert"> = db
+): Promise<boolean> {
+  const rows = await executor
     .insert(schema.agentInbox)
     .values({
       workspaceId: input.workspaceId,
@@ -350,9 +354,10 @@ export function loopInboxNote(input: {
 // How often a trigger's events woke the agent lately, for its hourly and
 // daily caps: over a cap, its events wait unread instead.
 export async function triggerWakeCounts(
-  triggerId: string
+  triggerId: string,
+  executor: Pick<DbTransaction, "select"> = db
 ): Promise<{ hourly: number; daily: number }> {
-  const [row] = await db
+  const [row] = await executor
     .select({
       hourly: sql<number>`count(*) filter (where ${schema.agentInbox.createdAt} >= now() - interval '1 hour')::int`,
       daily: sql<number>`count(*)::int`,
@@ -430,27 +435,22 @@ export type InboxBatch = {
 export async function loadInboxBatch(
   channelId: string
 ): Promise<InboxBatch | null> {
+  // Payloads (notes, content, attachments) load only for the rows shown.
   const pending = await db
     .select({
       id: schema.agentInbox.id,
       lane: schema.agentInbox.lane,
-      note: schema.agentInbox.note,
       deliveryId: schema.agentInbox.deliveryId,
       loopId: schema.agentInbox.loopId,
       sourceId: schema.agentInbox.sourceId,
       messageId: schema.message.id,
       threadRootId: schema.message.threadRootId,
-      referencedMessageId: schema.message.referencedMessageId,
-      content: schema.message.content,
-      attachments: schema.message.attachments,
-      authorName: schema.user.name,
     })
     .from(schema.agentInbox)
     .leftJoin(
       schema.message,
       eq(schema.agentInbox.messageId, schema.message.id)
     )
-    .leftJoin(schema.user, eq(schema.message.authorId, schema.user.id))
     .where(
       and(
         eq(schema.agentInbox.channelId, channelId),
@@ -476,15 +476,45 @@ export async function loadInboxBatch(
     .slice(0, INBOX_WAKE_MAX)
   const waiting = rows.filter((row) => row.lane === "wait")
   const overflow = Math.max(0, waiting.length + woke.length - INBOX_BATCH_MAX)
-  const omitted = Math.min(overflow, waiting.length)
-  const unread = waiting.slice(omitted)
-  const taken = [...waiting, ...woke]
+  // Chat messages stay readable in the chat, so they are left out first and
+  // marked read. Notes past the guard stay pending for a later turn.
+  const skipped = new Set(
+    waiting.filter((row) => row.messageId !== null).slice(0, overflow)
+  )
+  const omitted = skipped.size
+  const unread = waiting
+    .filter((row) => !skipped.has(row))
+    .slice(0, Math.max(0, INBOX_BATCH_MAX - woke.length))
+  const taken = [...skipped, ...unread, ...woke]
   // Tagged only when its fire is in this batch, not left for the next turn.
   const takenLoop = [...unread, ...woke].find((row) => row.loopId)
-  const replies = await repliedTo([...unread, ...woke])
+  const shown = [...unread, ...woke].map((row) => row.id)
+  const payloads = new Map(
+    (
+      await db
+        .select({
+          id: schema.agentInbox.id,
+          note: schema.agentInbox.note,
+          referencedMessageId: schema.message.referencedMessageId,
+          content: schema.message.content,
+          attachments: schema.message.attachments,
+          authorName: schema.user.name,
+        })
+        .from(schema.agentInbox)
+        .leftJoin(
+          schema.message,
+          eq(schema.agentInbox.messageId, schema.message.id)
+        )
+        .leftJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+        .where(inArray(schema.agentInbox.id, shown))
+    ).map((payload) => [payload.id, payload])
+  )
+  const replies = await repliedTo([...payloads.values()])
 
-  const line = (row: (typeof rows)[number]) => {
-    if (row.note !== null || !row.messageId) return row.note ?? ""
+  const line = (head: (typeof rows)[number]) => {
+    const row = payloads.get(head.id)
+    if (!row) return ""
+    if (row.note !== null || !head.messageId) return row.note ?? ""
     const files = (row.attachments ?? []).map(
       (file) =>
         `\n[file: ${sanitizeInlineLabel(file.filename)} — ${file.contentType}, ${file.size} bytes — ${file.url}]`
@@ -496,7 +526,7 @@ export async function loadInboxBatch(
     // mention ids come from the roster, never from text in a message.
     return formatSpeakerLine(
       row.authorName ?? "Someone",
-      `${row.content ?? ""}${files.join("")}\n(message ${row.messageId}${reply ? `, replying to ${reply}` : ""})`
+      `${row.content ?? ""}${files.join("")}\n(message ${head.messageId}${reply ? `, replying to ${reply}` : ""})`
     )
   }
   const sections = [

@@ -88,6 +88,15 @@ export async function fanoutLorMessage(
       loadLorAuthor(),
     ])
     if (!channel || !author) throw new Error("Channel or Lor user missing")
+    const asAgent = await speaksAsAgent(channel, input.threadRootId).catch(
+      (err) => {
+        logger.warn(
+          { err, messageId: input.messageId },
+          "Lor post author lookup failed"
+        )
+        return false
+      }
+    )
     const fanout = await buildMessageFanout({
       authorId: LOR_USER_ID,
       channel,
@@ -95,9 +104,7 @@ export async function fanoutLorMessage(
         id: input.messageId,
         content: input.content,
         author: {
-          name: (await speaksAsAgent(channel, input.threadRootId))
-            ? channelAgentIdentity(channel).name
-            : author.name,
+          name: asAgent ? channelAgentIdentity(channel).name : author.name,
           image: author.image,
         },
         attachments: [],

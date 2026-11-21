@@ -131,9 +131,8 @@ export function agentWakeUpExecutors(
   }
 }
 
-// The minute sweep: each due wake-up becomes an inbox item (duplicates are
-// dropped on its id, so a crash between the two writes repeats safely), then
-// is marked fired, and the channel's inbox is read.
+// The minute sweep: each due wake-up is marked fired and becomes an inbox
+// item in one transaction, then the channel's inbox is read.
 export async function sweepDueWakeUps(
   deps: Deps & { agentInboxQueue: Queue<AgentInboxFlushJobData> }
 ): Promise<void> {
@@ -160,36 +159,42 @@ export async function sweepDueWakeUps(
   const delivered: string[] = []
   for (const wakeUp of due) {
     // Claimed first, so a cancel that wins skips the note and a delivery
-    // that wins makes the cancel report nothing to cancel.
-    const [claimed] = await db
-      .update(schema.agentWakeUp)
-      .set({ status: "fired", firedAt: new Date() })
-      .where(
-        and(
-          eq(schema.agentWakeUp.id, wakeUp.id),
-          eq(schema.agentWakeUp.status, "pending")
-        )
-      )
-      .returning({ id: schema.agentWakeUp.id })
-    if (!claimed) continue
+    // that wins makes the cancel report nothing to cancel. One transaction:
+    // a failed note rolls back the claim and the wake-up stays pending.
     try {
-      await addInboxNote({
-        workspaceId: wakeUp.workspaceId,
-        channelId: wakeUp.channelId,
-        source: "wake_up",
-        sourceId: wakeUp.id,
-        note: wakeUpInboxNote({ setAt: wakeUp.createdAt, note: wakeUp.note }),
-        lane: "wake",
+      const fired = await db.transaction(async (tx) => {
+        const [claimed] = await tx
+          .update(schema.agentWakeUp)
+          .set({ status: "fired", firedAt: new Date() })
+          .where(
+            and(
+              eq(schema.agentWakeUp.id, wakeUp.id),
+              eq(schema.agentWakeUp.status, "pending")
+            )
+          )
+          .returning({ id: schema.agentWakeUp.id })
+        if (!claimed) return false
+        await addInboxNote(
+          {
+            workspaceId: wakeUp.workspaceId,
+            channelId: wakeUp.channelId,
+            source: "wake_up",
+            sourceId: wakeUp.id,
+            note: wakeUpInboxNote({
+              setAt: wakeUp.createdAt,
+              note: wakeUp.note,
+            }),
+            lane: "wake",
+          },
+          tx
+        )
+        return true
       })
+      if (!fired) continue
       channels.add(wakeUp.channelId)
       delivered.push(wakeUp.id)
     } catch (err) {
       logger.error({ err, wakeUpId: wakeUp.id }, "Wake-up delivery failed")
-      await db
-        .update(schema.agentWakeUp)
-        .set({ status: "pending", firedAt: null })
-        .where(eq(schema.agentWakeUp.id, wakeUp.id))
-        .catch(() => {})
     }
   }
   for (const channelId of channels) {

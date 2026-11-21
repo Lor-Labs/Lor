@@ -1277,7 +1277,7 @@ export const MessageInput = memo(function MessageInput({
                     ? isStopping
                       ? "Stopping Lor"
                       : "Stop Lor"
-                    : showLorState && destination !== "session"
+                    : destination === "new"
                       ? "Start session"
                       : "Send message"
                 }

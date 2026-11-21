@@ -36,12 +36,14 @@ export function ThreadView({ thread }: { thread: Thread }) {
   useEffect(() => {
     const element = scroller.current
     if (!element) return
+    const opening = seen.current === 0
+    seen.current = count
+    if (!opening && !stuck.current) return
     element.scrollTo({
       top: element.scrollHeight,
-      behavior: seen.current === 0 ? "auto" : "smooth",
+      behavior: opening ? "auto" : "smooth",
     })
     stuck.current = true
-    seen.current = count
   }, [count])
   useEffect(() => {
     const element = scroller.current

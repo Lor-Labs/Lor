@@ -12,6 +12,7 @@ import {
   isUniqueViolation,
   LOR_USER_ID,
   lt,
+  ne,
   notInArray,
   schema,
   sql,
@@ -215,6 +216,8 @@ async function pendingApproval(runId: string): Promise<boolean> {
 // it, restored if the run is unwound.
 type TurnRun = { runId: string; notesThrough?: Date | null }
 
+class SupersededRunError extends Error {}
+
 // A turn's run holds the channel's scope (one active run per scope), and its
 // inbox step and the items it read commit with it. Null when another run
 // holds the scope.
@@ -225,6 +228,8 @@ async function createTurnRun(args: {
   batch: InboxBatch | null
   // The Loop whose fire this turn answers: its run in the Loop's history.
   loop?: { id: string; scheduledFor: Date | null } | null
+  // Compaction: only while this is still the scope's latest run.
+  afterRunId?: string
 }): Promise<TurnRun | null> {
   const loop = args.loop ?? args.batch?.loop ?? null
   // The newest message carries what changed in the profile since the agent
@@ -266,6 +271,22 @@ async function createTurnRun(args: {
         })
         .returning({ id: schema.agentRun.id })
       if (!run) throw new Error("Agent run insert returned no row")
+      // Checked once this run holds the scope, so no run can start between
+      // the check and the insert.
+      if (args.afterRunId) {
+        const [previous] = await tx
+          .select({ id: schema.agentRun.id })
+          .from(schema.agentRun)
+          .where(
+            and(
+              eq(schema.agentRun.scopeKey, args.channelId),
+              ne(schema.agentRun.id, run.id)
+            )
+          )
+          .orderBy(desc(schema.agentRun.createdAt))
+          .limit(1)
+        if (previous?.id !== args.afterRunId) throw new SupersededRunError()
+      }
       if (args.batch && opening) {
         const context = await loadAgentContext(args.workspaceId, args.channelId)
         await appendSteps(tx, {
@@ -293,7 +314,11 @@ async function createTurnRun(args: {
       return { runId: run.id, notesThrough }
     })
   } catch (err) {
-    if (isUniqueViolation(err) || err instanceof StaleInboxBatchError) {
+    if (
+      isUniqueViolation(err) ||
+      err instanceof StaleInboxBatchError ||
+      err instanceof SupersededRunError
+    ) {
       return null
     }
     throw err
@@ -429,6 +454,43 @@ async function enqueueTurn(
   }
 }
 
+// A turn that stops before it reads its batch: the items go back to pending
+// and its opening is dropped, so a later flush reads them again. The notes
+// cursor goes back to the previous opening's time.
+async function returnBatchToPending(channelId: string, runId: string) {
+  await db.transaction(async (tx) => {
+    const opened = await tx
+      .delete(schema.agentStep)
+      .where(
+        and(
+          eq(schema.agentStep.runId, runId),
+          eq(schema.agentStep.kind, "inbox")
+        )
+      )
+      .returning({ id: schema.agentStep.id })
+    if (opened.length === 0) return
+    await tx
+      .update(schema.agentInbox)
+      .set({ status: "pending", readAt: null, runId: null })
+      .where(eq(schema.agentInbox.runId, runId))
+    const [previous] = await tx
+      .select({ createdAt: schema.agentStep.createdAt })
+      .from(schema.agentStep)
+      .where(
+        and(
+          eq(schema.agentStep.channelId, channelId),
+          eq(schema.agentStep.kind, "inbox")
+        )
+      )
+      .orderBy(desc(schema.agentStep.seq))
+      .limit(1)
+    await tx
+      .update(schema.agentContext)
+      .set({ notesThrough: previous?.createdAt ?? null })
+      .where(eq(schema.agentContext.channelId, channelId))
+  })
+}
+
 async function flushIfWaiting(deps: AgentDeps, channelId: string) {
   if (!(await hasPendingWake(channelId))) return
   await deps.queue
@@ -482,6 +544,7 @@ async function setUpBy(runId: string): Promise<string | null> {
         isNotNull(schema.agentWakeUp.askedById)
       )
     )
+    .orderBy(asc(schema.agentInbox.createdAt))
     .limit(1)
   if (wakeUp?.userId) return wakeUp.userId
   const [trigger] = await db
@@ -716,6 +779,9 @@ export async function runAgentTurnJob(
         triggerReplyAuthorId: sql<
           string | null
         >`(select r.author_id from message r where r.id = ${schema.message.referencedMessageId})`,
+        // The agent already answers in a thread on its trigger: a turn that
+        // went on after an approval stays where startThread moved it.
+        triggerHasAgentThread: sql<boolean>`exists (select 1 from message t where t.thread_root_id = ${schema.agentRun.triggerMessageId} and t.author_id = ${LOR_USER_ID}::uuid)`,
         loopId: schema.agentRun.loopId,
       })
       .from(schema.agentRun)
@@ -747,7 +813,9 @@ export async function runAgentTurnJob(
   const turnPlace = {
     askerId: userId ?? null,
     planUserId: userId ?? null,
-    threadRootId: run?.triggerThreadRootId ?? null,
+    threadRootId:
+      run?.triggerThreadRootId ??
+      (run?.triggerHasAgentThread ? run.triggerMessageId : null),
     triggerMessageId: run?.triggerMessageId ?? null,
   }
   let sent = false
@@ -787,6 +855,8 @@ export async function runAgentTurnJob(
     if (!gate.allowed) {
       // Said only to a person who asked: events and Loops would repeat it.
       if (userId) await notice(OUT_OF_CREDITS_MESSAGE)
+      // The inbox sweep wakes the agent again once credits are back.
+      await returnBatchToPending(channelId, runId)
       await writer.transition("failed", { stopReason: "out_of_credits" })
       execution.stop()
       await settleLoop("failed", "out_of_credits")
@@ -984,7 +1054,12 @@ export async function runAgentTurnJob(
 
     // What the turn said is its note in a Loop's or trigger's run history.
     const said = sentText(result.messages)
-    if (said.length > 0) await saveHandoffNote(runId, said.join("\n\n"))
+    // The turn already completed: a failed note must not retry or fail it.
+    if (said.length > 0) {
+      await saveHandoffNote(runId, said.join("\n\n")).catch((err) =>
+        logger.error({ err, runId }, "Agent handoff note save failed")
+      )
+    }
 
     // The next turn may start now; the memory pass doesn't hold it up.
     await flushIfWaiting(deps, channelId)
@@ -1100,6 +1175,7 @@ export async function runAgentCompactJob(
       channelId,
       triggerMessageId: null,
       batch: null,
+      afterRunId,
     })
   )?.runId
   if (!runId) return
@@ -1195,7 +1271,6 @@ export async function sweepStrandedInboxes(
     where r.stop_reason = 'awaiting_approval'
       and r.scope_key = r.channel_id
       and r.updated_at < now() - interval '1 minute'
-      and r.updated_at > now() - interval '7 days'
       and not exists (
         select 1 from approval a where a.run_id = r.id and a.status = 'pending'
       )
@@ -1217,5 +1292,37 @@ export async function sweepStrandedInboxes(
         logger.error({ err, channelId }, "Stranded inbox flush failed")
       )
   }
-  return channelIds.size
+  // A turn run that read its batch but was never claimed: the process died
+  // between the run's commit and its job's enqueue. Same jobId, so a turn
+  // job that still exists is not added twice.
+  const unclaimed = await db
+    .selectDistinct({
+      runId: schema.agentRun.id,
+      channelId: schema.agentRun.channelId,
+    })
+    .from(schema.agentRun)
+    .innerJoin(
+      schema.agentInbox,
+      eq(schema.agentInbox.runId, schema.agentRun.id)
+    )
+    .where(
+      and(
+        eq(schema.agentRun.state, "queued"),
+        isNull(schema.agentRun.deadlineAt),
+        lt(schema.agentRun.createdAt, before)
+      )
+    )
+    .limit(200)
+  for (const run of unclaimed) {
+    await queue
+      .add(
+        AGENT_TURN_JOB,
+        { channelId: run.channelId, runId: run.runId },
+        { ...TURN_JOB_OPTIONS, jobId: run.runId }
+      )
+      .catch((err) =>
+        logger.error({ err, runId: run.runId }, "Stranded turn enqueue failed")
+      )
+  }
+  return channelIds.size + unclaimed.length
 }

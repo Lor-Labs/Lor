@@ -474,9 +474,18 @@ async function bootstrap() {
       } else if (job.name === "sweep-due-loops") {
         await sweepDueLoops(emitter, loopRunQueue)
       } else if (job.name === "sweep-agent-inbox") {
-        // Its own job: a failing Loop sweep must not hold up wake-ups.
-        await sweepDueWakeUps({ emitter, agentInboxQueue })
-        await sweepStrandedInboxes(agentInboxQueue)
+        // Its own job: a failing Loop sweep must not hold up wake-ups. Each
+        // sweep runs even when the other fails.
+        const [wakeUps, stranded] = await Promise.allSettled([
+          sweepDueWakeUps({ emitter, agentInboxQueue }),
+          sweepStrandedInboxes(agentInboxQueue),
+        ])
+        if (wakeUps.status === "rejected") {
+          logger.error({ err: wakeUps.reason }, "Wake-up sweep failed")
+        }
+        if (stranded.status === "rejected") {
+          logger.error({ err: stranded.reason }, "Stranded inbox sweep failed")
+        }
       } else if (job.name === "sweep-voice-sessions") await sweepVoiceSessions()
       else if (job.name === "sweep-checkpoint-storage") {
         const swept = await sweepCheckpointStorage()

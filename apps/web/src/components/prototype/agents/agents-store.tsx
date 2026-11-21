@@ -342,8 +342,14 @@ export function AgentsStore({ children }: { children: ReactNode }) {
     text: string,
     repos: string[]
   ) => {
-    const lower = text.toLowerCase()
-    const repo = repos.find((name) => lower.includes(name)) ?? repos[0]
+    const tokens = new Set(
+      text
+        .toLowerCase()
+        .split(/[^a-z0-9._/-]+/)
+        .map((token) => token.replace(/\.+$/, ""))
+    )
+    const repo =
+      repos.find((name) => tokens.has(name.toLowerCase())) ?? repos[0]
     const work: Work = {
       id: uid(),
       agentId: thread.agentId,

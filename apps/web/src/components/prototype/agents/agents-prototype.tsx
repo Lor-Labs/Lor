@@ -68,7 +68,7 @@ function Layout() {
 
   // The panel keeps its final width while it slides, so only the chat reflows.
   const canvasWidth = Math.round(
-    Math.min(Math.max(frameWidth * 0.54, 440), 840)
+    Math.min(Math.max(frameWidth * 0.54, 440), 840, frameWidth)
   )
 
   return (

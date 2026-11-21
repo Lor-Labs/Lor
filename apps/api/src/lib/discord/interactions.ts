@@ -211,9 +211,19 @@ async function notifyLinkChanged(channelId: string) {
 export async function unlinkDiscord(channelId: string) {
   const link = await discordLinkFor(channelId)
   if (!link) return false
-  await db
-    .delete(schema.channelDiscordLink)
-    .where(eq(schema.channelDiscordLink.channelId, channelId))
+  // Message and thread mappings belong to the old Discord channel: a later
+  // link must not reuse them. The Lor messages stay.
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(schema.channelDiscordLink)
+      .where(eq(schema.channelDiscordLink.channelId, channelId))
+    await tx
+      .delete(schema.discordThread)
+      .where(eq(schema.discordThread.channelId, channelId))
+    await tx
+      .delete(schema.discordMessage)
+      .where(eq(schema.discordMessage.channelId, channelId))
+  })
   await deleteLinkResources(link)
   await notifyLinkChanged(channelId)
   return true
@@ -272,13 +282,13 @@ async function handleLink(
   if (!channel || channel.archivedAt) {
     return reply(interaction, "That Lor channel no longer takes messages.")
   }
-  await unlinkDiscord(channel.id)
   const identity = channelAgentIdentity(channel)
   const hook = await createAgentWebhook({
     discordChannelId: interaction.channel_id,
     name: identity.name,
     creature: identity.creature,
   })
+  await unlinkDiscord(channel.id)
   const guild = await discordRequest<{ name: string }>(
     `/guilds/${interaction.guild_id}`
   ).catch(() => null)

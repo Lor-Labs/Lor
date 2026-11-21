@@ -82,7 +82,7 @@ export async function discordRequest<T>(
         retry_after?: number
       }
       await new Promise((resolve) =>
-        setTimeout(resolve, Math.min(10, body.retry_after ?? 1) * 1000)
+        setTimeout(resolve, (body.retry_after ?? 1) * 1000)
       )
       continue
     }
@@ -425,22 +425,34 @@ export async function startDiscordThread(input: {
     .from(schema.discordMessage)
     .where(eq(schema.discordMessage.messageId, input.threadRootId))
   if (!root) return null
-  const thread = await discordRequest<{ id: string }>(
+  const threadId = await discordRequest<{ id: string }>(
     `/channels/${link.discordChannelId}/messages/${root.id}/threads`,
     {
       method: "POST",
       body: { name: input.name.slice(0, 100), auto_archive_duration: 1440 },
     }
+  ).then(
+    (thread) => thread.id,
+    async (err: unknown) => {
+      // The message already has a thread (its mapping never saved): a
+      // message's thread shares the message's id.
+      const existing = await discordRequest<{
+        id: string
+        parent_id?: string | null
+      }>(`/channels/${root.id}`).catch(() => null)
+      if (existing?.parent_id !== link.discordChannelId) throw err
+      return existing.id
+    }
   )
   await db
     .insert(schema.discordThread)
     .values({
-      discordThreadId: thread.id,
+      discordThreadId: threadId,
       channelId: input.channelId,
       threadRootId: input.threadRootId,
     })
     .onConflictDoNothing()
-  return thread.id
+  return threadId
 }
 
 export async function discordThreadForRoot(

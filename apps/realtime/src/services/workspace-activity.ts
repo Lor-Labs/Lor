@@ -304,7 +304,11 @@ export async function getWorkspaceActivity(
     })
   }
   for (const { channelId, need } of agentApprovals) {
-    activityOf(channelId).agentNeeds.unshift(need)
+    activityOf(channelId).agentNeeds.push(need)
+  }
+  // Newest first. ISO timestamps sort as strings.
+  for (const activity of channels.values()) {
+    activity.agentNeeds.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   }
   return [...channels.values()].sort((a, b) =>
     a.channelId.localeCompare(b.channelId)

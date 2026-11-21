@@ -67,6 +67,14 @@ export default function ChannelRoute() {
   return <ChannelScreen />
 }
 
+function writeAskDraft(
+  composer: MessageComposerMentionHandle | null,
+  prompt?: string
+) {
+  if (prompt) composer?.replaceDraft(`${prompt} `)
+  composer?.insertMention({ id: LOR_USER_ID, label: "Lor" })
+}
+
 function ChannelScreen() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
@@ -79,6 +87,15 @@ function ChannelScreen() {
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
   const hasFocusedRef = useRef(false)
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
+  // Leaving an edit restores the draft from before it, so a question asked
+  // mid-edit waits until the composer has done that.
+  const pendingAskRef = useRef<{ prompt?: string } | null>(null)
+  useEffect(() => {
+    const pending = pendingAskRef.current
+    if (editingMessage || !pending) return
+    pendingAskRef.current = null
+    writeAskDraft(composerMentionRef.current, pending.prompt)
+  }, [editingMessage])
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
@@ -254,9 +271,13 @@ function ChannelScreen() {
   // reply to it with @Lor in the composer (reference/always-on-agents.md,
   // step 3.4).
   const askLorAbout = (message: Message, prompt?: string) => {
+    const editing = Boolean(editingMessage)
     startReply(message)
-    if (prompt) composerMentionRef.current?.replaceDraft(`${prompt} `)
-    composerMentionRef.current?.insertMention({ id: LOR_USER_ID, label: "Lor" })
+    if (editing) {
+      pendingAskRef.current = { prompt }
+      return
+    }
+    writeAskDraft(composerMentionRef.current, prompt)
   }
   const openProfileFromMemberList = (member: MemberListItem) => {
     setIsMembersOpen(false)
