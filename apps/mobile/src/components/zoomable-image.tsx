@@ -37,6 +37,9 @@ export function ZoomableImage({
   const panBaseX = useSharedValue(0)
   const panBaseY = useSharedValue(0)
   const pinching = useSharedValue(false)
+  // Set by resetTransform: the active pinch's captured state is void until
+  // the next pinch starts.
+  const pinchStale = useSharedValue(false)
 
   const notifyZoom = useCallback(
     (zoomed: boolean) => onZoomChange?.(zoomed),
@@ -82,6 +85,7 @@ export function ZoomableImage({
     const pinch = Gesture.Pinch()
       .onStart((event) => {
         pinching.value = true
+        pinchStale.value = false
         savedScale.value = scale.value
         const fx = event.focalX - boxW.value / 2
         const fy = event.focalY - boxH.value / 2
@@ -89,6 +93,7 @@ export function ZoomableImage({
         pinchContentY.value = (fy - ty.value) / scale.value
       })
       .onUpdate((event) => {
+        if (pinchStale.value) return
         const s = Math.min(
           Math.max(savedScale.value * event.scale, 0.8),
           MAX_SCALE * 1.2
@@ -98,6 +103,7 @@ export function ZoomableImage({
         ty.value = event.focalY - boxH.value / 2 - pinchContentY.value * s
       })
       .onEnd(() => {
+        if (pinchStale.value) return
         if (scale.value <= 1.02) {
           reset()
           return
@@ -175,6 +181,7 @@ export function ZoomableImage({
     panBaseY,
     pinchContentX,
     pinchContentY,
+    pinchStale,
     pinching,
     savedScale,
     scale,
@@ -193,6 +200,7 @@ export function ZoomableImage({
   // A new size (rotation) or a newly loaded aspect changes the pan bounds:
   // drop the zoom rather than leave the image outside them.
   const resetTransform = () => {
+    pinchStale.value = true
     scale.value = 1
     savedScale.value = 1
     tx.value = 0
