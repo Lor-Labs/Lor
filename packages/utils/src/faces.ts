@@ -264,29 +264,46 @@ export const FACES: Record<CreatureId, FaceSpec> = {
       dark: true,
     },
   },
-  // A dome over a wavy hem: three lobes hang at the front and three behind,
-  // with a notch between each pair.
+  // A dome on straight sides down to a wavy hem: three lobes across the
+  // front. There are none at the back, since a face never turns far enough
+  // to show it, and lobes there would fill the notches between these.
   ghost: {
     color: "#e9e6f4",
     soft: 2,
     rest: [0.28, -0.06],
     parts: [
-      { ball: [12, 10.6, 0], r: [6.4, 6.6, 6.2] },
-      { ball: [12, 14, 0], r: [6, 3.6, 6] },
-      ...ring(
-        6,
-        30,
-        (cos, sin): FacePart => ({
+      {
+        limb: [
+          [12, 10.6, 0],
+          [12, 13, 0],
+        ],
+        r: [6, 6],
+      },
+      // Round the front, then one shorter lobe a little way round each
+      // side, so a turn doesn't show a bare edge.
+      ...(
+        [
+          [30, 18.4],
+          [90, 18.4],
+          [150, 18.4],
+          [210, 16.8],
+          [330, 16.8],
+        ] as const
+      ).map(([degrees, bottom]): FacePart => {
+        const angle = (degrees * Math.PI) / 180
+        const x = 12 + 4.1 * Math.cos(angle)
+        const z = 4.1 * Math.sin(angle)
+        return {
           limb: [
-            [12 + 4.2 * cos, 13, 4.2 * sin],
-            [12 + 4.2 * cos, 18.6, 4.2 * sin],
+            [x, 13, z],
+            [x, bottom, z],
           ],
-          r: [1.75, 1.75],
-        })
-      ),
+          r: [1.95, 1.95],
+        }
+      }),
     ],
     eyes: {
-      ...eyesOn([12, 10.8, 0], [6.4, 6.6, 6.2], 18, 4),
+      ...eyesOn([12, 10.6, 0], [6, 6, 6], 18, 4),
       size: [1.6, 3.5],
       dark: true,
     },
