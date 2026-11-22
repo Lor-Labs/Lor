@@ -23,6 +23,12 @@ type Paint = {
   stroke?: string
   // The face's `soft` unless set.
   strokeWidth?: number
+  // How far forward on the face the shape sits. Unset, it is part of the
+  // silhouette. A feature of the face (a beak, a nose, a marking) takes a
+  // depth up to 1 and moves that much of the way with the eyes when the
+  // face looks somewhere, so the head seems to turn. Shapes with a depth
+  // are drawn over those without.
+  depth?: number
 }
 
 // Shapes are in a 24x24 box.
@@ -75,26 +81,27 @@ export const FACES: Record<CreatureId, FaceSpec> = {
       },
     ],
   },
-  // Front on: pointed ears, feathered wings raised behind it and a beak.
-  // The wings and beak are a deeper tone of the body.
+  // A bird of prey, front on: a head that narrows to the chin, a strong
+  // beak, and two smooth wings raised behind it. The wings and beak are a
+  // deeper tone of the body.
   griffin: {
     color: "#f7ab00",
     soft: 2,
-    eyes: [12, 11.4],
+    eyes: [12, 10.2],
     rest: [0.4, -0.3],
     shapes: [
       {
-        path: "M8 17 2.6 15.4l1.8-2.2-3-2.4L3.6 9 1.2 5l8.2 2.4ZM16 17l5.4-1.6-1.8-2.2 3-2.4L20.4 9l2.4-4-8.2 2.4Z",
+        path: "M8.4 17C4 16 1.6 11 1.2 4.4c4 1.4 7.4 3.6 8.8 6.2ZM15.6 17c4.4-1 6.8-6 7.2-12.6-4 1.4-7.4 3.6-8.8 6.2Z",
         fill: "#c97c00",
       },
       {
-        path: "M8.4 8.8 8.2 5.2 11 7.4ZM15.6 8.8l.2-3.6L13 7.4Z",
+        path: "M6.6 9.4C6.6 6.6 9 5 12 5s5.4 1.6 5.4 4.4c0 4.2-2 8-5.4 9.6-3.4-1.6-5.4-5.4-5.4-9.6Z",
       },
-      { circle: [12, 13.4, 6.2] },
       {
-        path: "M10.6 14h2.8L12 16.5Z",
+        path: "M10.2 13.4h3.6L12 18Z",
         fill: "#c97c00",
-        strokeWidth: 1,
+        strokeWidth: 1.2,
+        depth: 0.85,
       },
     ],
   },
@@ -114,11 +121,12 @@ export const FACES: Record<CreatureId, FaceSpec> = {
       {
         path: "M12 5c4.4 0 7.4 3.2 7.4 8 0 4.2-3 7-7.4 7s-7.4-2.8-7.4-7c0-4.8 3-8 7.4-8Z",
       },
-      { circle: [9, 11.4, 3.8], fill: "#f6e3c5", stroke: "none" },
-      { circle: [15, 11.4, 3.8], fill: "#f6e3c5", stroke: "none" },
+      { circle: [9, 11.4, 3.8], fill: "#f6e3c5", stroke: "none", depth: 0.55 },
+      { circle: [15, 11.4, 3.8], fill: "#f6e3c5", stroke: "none", depth: 0.55 },
       {
         path: "M11.1 14.6h1.8L12 16.3Z",
         fill: "#f2a33a",
+        depth: 0.85,
         strokeWidth: 0.8,
       },
     ],
@@ -136,18 +144,26 @@ export const FACES: Record<CreatureId, FaceSpec> = {
       {
         path: "M4.8 10.6C4.8 6.4 8 4 12 4s7.2 2.4 7.2 6.6c0 2.4-1.1 4.1-2.8 5v3.8H7.6v-3.8c-1.7-.9-2.8-2.6-2.8-5Z",
       },
-      { rect: [9.7, 17.3, 0.9, 3.2], rx: 0.45, fill: DARK_EYE, stroke: "none" },
+      {
+        rect: [9.7, 17.3, 0.9, 3.2],
+        rx: 0.45,
+        fill: DARK_EYE,
+        stroke: "none",
+        depth: 0.3,
+      },
       {
         rect: [11.55, 17.3, 0.9, 3.2],
         rx: 0.45,
         fill: DARK_EYE,
         stroke: "none",
+        depth: 0.3,
       },
       {
         rect: [13.4, 17.3, 0.9, 3.2],
         rx: 0.45,
         fill: DARK_EYE,
         stroke: "none",
+        depth: 0.3,
       },
     ],
   },
@@ -191,9 +207,10 @@ export const FACES: Record<CreatureId, FaceSpec> = {
       {
         path: "M8 15h8l-4 3.8Z",
         fill: "#fff1df",
+        depth: 0.6,
         strokeWidth: 1.6,
       },
-      { circle: [12, 18.2, 0.9], fill: DARK_EYE, stroke: "none" },
+      { circle: [12, 18.2, 0.9], fill: DARK_EYE, stroke: "none", depth: 0.85 },
     ],
   },
   // A red cap over a short pale stem: the face is on the cap.
@@ -223,6 +240,7 @@ export const FACES: Record<CreatureId, FaceSpec> = {
         rect: [6.8, 10, 10.4, 7.6],
         rx: 2.2,
         fill: "#0b2a63",
+        depth: 0.35,
         stroke: "none",
       },
     ],
@@ -244,7 +262,25 @@ export const FACES: Record<CreatureId, FaceSpec> = {
   },
 }
 
+// A face's shapes in drawing order: the silhouette, then its features.
+export function faceLayers(face: FaceSpec) {
+  return [
+    ...face.shapes.filter((shape) => !shape.depth),
+    ...face.shapes.filter((shape) => shape.depth),
+  ]
+}
+
 // A shape's paint, with the face's defaults filled in.
+// Where a shape sits when the face looks toward `gaze`: a feature moves
+// its depth's share of the way, the silhouette stays.
+export function shapeShift(
+  shape: FaceShape,
+  gaze: readonly [number, number]
+): [number, number] {
+  const depth = shape.depth ?? 0
+  return [gaze[0] * depth, gaze[1] * depth]
+}
+
 export function shapePaint(face: FaceSpec, shape: FaceShape) {
   const fill = shape.fill ?? face.color
   return {
@@ -288,10 +324,16 @@ export function faceSvg(
 ) {
   const pad = options.pad ?? 0
   const box = FACE_BOX + pad * 2
-  const shapes = face.shapes
+  const shapes = faceLayers(face)
     .map((shape) => {
       const { fill, stroke, strokeWidth } = shapePaint(face, shape)
-      const paint = attrs({ fill, stroke, "stroke-width": strokeWidth })
+      const [dx, dy] = shapeShift(shape, face.rest)
+      const paint = attrs({
+        fill,
+        stroke,
+        "stroke-width": strokeWidth,
+        transform: shape.depth ? `translate(${dx} ${dy})` : undefined,
+      })
       if ("path" in shape) return `<path d="${shape.path}"${paint}/>`
       if ("circle" in shape) {
         const [cx, cy, r] = shape.circle

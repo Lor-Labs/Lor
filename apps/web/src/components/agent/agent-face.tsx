@@ -7,7 +7,7 @@ import {
   faceEyes,
   shapePaint,
 } from "@repo/utils/faces"
-import { memo, useEffect, useRef } from "react"
+import { type CSSProperties, memo, useEffect, useRef } from "react"
 
 // The channel agents' faces, animated (reference/always-on-agents.md,
 // decision 39): a sprung gaze that follows the pointer, idle glances,
@@ -19,13 +19,30 @@ import { memo, useEffect, useRef } from "react"
 // How far the eyes travel toward what they look at, in the 24-unit box.
 const LOOK = 1.7
 
+// How much an eye narrows per unit of gaze as it nears the edge.
+const NARROW = 0.16
+
+// A gaze as the custom properties a face's layers read (globals.css,
+// .face-*). The eyes go all the way, a feature goes its depth's share, and
+// the silhouette leans after them. The eye nearer the edge narrows and the
+// body thins a little, which is what makes a flat face seem to turn.
+function poseVars(x: number, y: number): Record<string, string> {
+  return {
+    "--gx": x.toFixed(3),
+    "--gy": y.toFixed(3),
+    "--el": (1 + Math.min(0, x) * NARROW).toFixed(3),
+    "--er": (1 - Math.max(0, x) * NARROW).toFixed(3),
+    "--ey": (1 - Math.abs(y) * 0.07).toFixed(3),
+    "--turn": (1 - Math.abs(x) * 0.022).toFixed(3),
+  }
+}
+
 // One driver for every face on the page: a sprung gaze toward the pointer,
 // idle glances, and blinks. It runs frames only while something moves.
 type Rig = {
   root: HTMLElement
-  eyes: SVGGElement
+  art: SVGSVGElement
   lids: SVGGElement
-  body: SVGGElement
   size: number
   rest: [number, number]
   // Looks at the pointer from anywhere (the agent is waiting on the person).
@@ -89,9 +106,8 @@ function step(rig: Rig, now: number, dt: number) {
     Math.abs(rig.vx) + Math.abs(rig.vy) > 0.02 ||
     Math.abs(target[0] - rig.x) + Math.abs(target[1] - rig.y) > 0.01
 
-  rig.eyes.style.transform = `translate(${rig.x}px, ${rig.y}px)`
-  // The body leans a little the way the eyes go, so the head seems to turn.
-  rig.body.style.transform = `translate(${rig.x * 0.14}px, ${rig.y * 0.1}px) rotate(${rig.x * 1.6}deg)`
+  const vars = poseVars(rig.x, rig.y)
+  for (const name in vars) rig.art.style.setProperty(name, vars[name] ?? "")
 
   const blinking = now < rig.blinkUntil
   rig.lids.style.transform = blinking ? "scaleY(0.12)" : ""
@@ -198,10 +214,9 @@ export const AgentFace = memo(function AgentFace({
   const asleep = state === "asleep"
   const working = state === "working"
   const rootRef = useRef<HTMLSpanElement>(null)
-  const eyesRef = useRef<SVGGElement>(null)
+  const artRef = useRef<SVGSVGElement>(null)
   const lidsRef = useRef<SVGGElement>(null)
-  const bodyRef = useRef<SVGGElement>(null)
-  // Awake and not scanning: the driver owns the eyes.
+  // Awake and not scanning: the driver owns the gaze.
   const driven = !still && !asleep && !working
   // The pop is for a change of state, not for arriving on the page.
   const mounted = useRef(false)
@@ -209,21 +224,20 @@ export const AgentFace = memo(function AgentFace({
     mounted.current = true
   }, [])
   const anywhere = state === "needs_you"
-  const [restX, restY] = face.rest
+  // Where it looks until the driver takes over, and wherever it never does.
+  const [restX, restY] = asleep || working ? [0, 0] : face.rest
 
   useEffect(() => {
     const root = rootRef.current
-    const eyes = eyesRef.current
+    const art = artRef.current
     const lids = lidsRef.current
-    const body = bodyRef.current
-    if (!driven || !root || !eyes || !lids || !body) return
+    if (!driven || !root || !art || !lids) return
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
     const now = performance.now()
     const remove = addRig({
       root,
-      eyes,
+      art,
       lids,
-      body,
       size,
       rest: [restX, restY],
       anywhere,
@@ -240,16 +254,15 @@ export const AgentFace = memo(function AgentFace({
     })
     return () => {
       remove()
-      eyes.style.transform = ""
       lids.style.transform = ""
-      body.style.transform = ""
+      const vars = poseVars(restX, restY)
+      for (const name in vars) art.style.setProperty(name, vars[name] ?? "")
     }
   }, [driven, anywhere, size, restX, restY])
 
   const eyes = faceEyes(face, asleep)
-  // Until the driver takes over, and wherever it never does.
-  const atRest =
-    asleep || working ? undefined : `translate(${restX}px, ${restY}px)`
+  const silhouette = face.shapes.filter((shape) => !shape.depth)
+  const features = face.shapes.filter((shape) => shape.depth)
 
   return (
     <span
@@ -261,6 +274,7 @@ export const AgentFace = memo(function AgentFace({
       style={{ width: size, height: size }}
     >
       <svg
+        ref={artRef}
         aria-hidden="true"
         viewBox="0 0 24 24"
         width={size}
@@ -270,30 +284,46 @@ export const AgentFace = memo(function AgentFace({
           !still && asleep && "face-breathe",
           !still && working && "face-bob"
         )}
+        style={poseVars(restX, restY) as CSSProperties}
       >
         {/* A change of state lands with a small squash and stretch. */}
-        <g key={state} className={cn(!still && mounted.current && "face-pop")}>
-          <g
-            ref={bodyRef}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            style={{ transformOrigin: "12px 13px" }}
-          >
-            {face.shapes.map((shape, index) => (
+        <g
+          key={state}
+          className={cn(!still && mounted.current && "face-pop")}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        >
+          <g className="face-body">
+            {silhouette.map((shape, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: a face's shapes are a fixed, ordered list
               <Shape key={index} face={face} shape={shape} />
             ))}
           </g>
-          <g ref={eyesRef} fill={eyes.fill} style={{ transform: atRest }}>
-            <g className={cn(!still && working && "face-scan")}>
+          {/* The face itself, which scans as one while the agent works. */}
+          <g className={cn(!still && working && "face-scan")}>
+            {features.map((shape, index) => (
+              <g
+                // biome-ignore lint/suspicious/noArrayIndexKey: a face's shapes are a fixed, ordered list
+                key={index}
+                className="face-feature"
+                style={{ "--d": shape.depth } as CSSProperties}
+              >
+                <Shape face={face} shape={shape} />
+              </g>
+            ))}
+            <g className="face-eyes" fill={eyes.fill}>
               {/* Shut eyes have no lids to blink. */}
               <g
                 ref={asleep ? undefined : lidsRef}
                 className="transition-transform duration-75 ease-out"
                 style={{ transformOrigin: `${eyeX}px ${eyeY}px` }}
               >
-                {eyes.rects.map((rect) => (
-                  <rect key={rect.x} {...rect} />
+                {eyes.rects.map((rect, index) => (
+                  <rect
+                    key={rect.x}
+                    {...rect}
+                    className={index === 0 ? "face-eye-left" : "face-eye-right"}
+                  />
                 ))}
               </g>
             </g>

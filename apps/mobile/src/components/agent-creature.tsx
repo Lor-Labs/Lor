@@ -5,7 +5,9 @@ import {
   type FaceShape,
   type FaceSpec,
   faceEyes,
+  faceLayers,
   shapePaint,
+  shapeShift,
 } from "@repo/utils/faces"
 import { useThemeColor } from "heroui-native/hooks"
 import { memo, useEffect, useMemo } from "react"
@@ -115,10 +117,16 @@ export const AgentCreature = memo(function AgentCreature({
       <Animated.View style={bodyStyle}>
         <Svg height={size} viewBox={`0 0 ${FACE_BOX} ${FACE_BOX}`} width={size}>
           <G strokeLinecap="round" strokeLinejoin="round">
-            {face.shapes.map((shape, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: a face's shapes are a fixed, ordered list
-              <Shape face={face} key={index} shape={shape} />
-            ))}
+            {faceLayers(face).map((shape, index) => {
+              // A feature sits where the resting gaze puts it, as on web.
+              const [dx, dy] = shapeShift(shape, [restX, restY])
+              return (
+                // biome-ignore lint/suspicious/noArrayIndexKey: a face's shapes are a fixed, ordered list
+                <G key={index} translateX={dx} translateY={dy}>
+                  <Shape face={face} shape={shape} />
+                </G>
+              )
+            })}
           </G>
         </Svg>
         <Animated.View
