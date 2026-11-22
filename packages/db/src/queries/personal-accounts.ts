@@ -65,7 +65,6 @@ export async function channelRequestUserId(
       threadRootId: message.threadRootId,
       wakeMode: channel.agentWakeMode,
       repliedToLor: sql<boolean>`exists (select 1 from message r where r.id = ${message.referencedMessageId} and r.author_id = ${LOR_USER_ID}::uuid)`,
-      agentInThread: sql<boolean>`exists (select 1 from message r where r.thread_root_id = ${message.threadRootId} and r.author_id = ${LOR_USER_ID}::uuid)`,
     })
     .from(message)
     .innerJoin(user, eq(user.id, message.authorId))
@@ -76,7 +75,6 @@ export async function channelRequestUserId(
   if (!trigger || trigger.isBot) return null
   return trigger.explicit ||
     trigger.repliedToLor ||
-    trigger.agentInThread ||
     (trigger.wakeMode === "mention" && !trigger.threadRootId)
     ? trigger.userId
     : null

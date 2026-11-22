@@ -101,18 +101,29 @@ const BILLING_ROUTE = /\/workspaces\/:workspaceSlug\/billing(\/|$)/
 
 // An ended beta team can still remove people, roles and integrations.
 const CLEANUP_ROUTES = [
-  "POST /workspaces/:workspaceSlug/members/:userId/kick",
-  "DELETE /workspaces/:workspaceSlug/roles/:roleName",
-  "DELETE /workspaces/:workspaceSlug/integrations/:connectionId",
-  "DELETE /workspaces/:workspaceSlug/ai-accounts/accounts/:provider/:accountId",
-]
+  ["POST", "/workspaces/:workspaceSlug/members/:userId/kick"],
+  ["DELETE", "/workspaces/:workspaceSlug/roles/:roleName"],
+  ["DELETE", "/workspaces/:workspaceSlug/integrations/:connectionId"],
+  [
+    "DELETE",
+    "/workspaces/:workspaceSlug/ai-accounts/accounts/:provider/:accountId",
+  ],
+] as const
 const PROJECT_MEMBER_ROUTE =
-  "DELETE /workspaces/:workspaceSlug/projects/:projectId/members/:userId"
+  "/workspaces/:workspaceSlug/projects/:projectId/members/:userId"
 
 function isCleanup(c: Context<AppBindings>, userId: string) {
-  const route = `${c.req.method} ${c.req.routePath}`
-  if (CLEANUP_ROUTES.some((cleanup) => route.endsWith(cleanup))) return true
+  const { method, routePath } = c.req
+  if (
+    CLEANUP_ROUTES.some(
+      ([cleanupMethod, path]) =>
+        method === cleanupMethod && routePath.endsWith(path)
+    )
+  )
+    return true
   return (
-    route.endsWith(PROJECT_MEMBER_ROUTE) && c.req.param("userId") === userId
+    method === "DELETE" &&
+    routePath.endsWith(PROJECT_MEMBER_ROUTE) &&
+    c.req.param("userId") === userId
   )
 }

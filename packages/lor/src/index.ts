@@ -202,6 +202,7 @@ import {
   LOR_MODEL,
   mainGatewayOptions,
   piGatewayAuth,
+  withInferenceGuard,
 } from "./models"
 import { notionTools, resolveWorkspaceNotion } from "./notion"
 import { notionWriteTools } from "./notion-write"
@@ -3457,6 +3458,7 @@ async function respondImpl(
             turnRunId: run.runId,
             model: agentModel,
             languageModel,
+            assertCanInfer: run.assertCanInfer,
             byok: funding?.source === "byok",
             tools: agentTools,
             toolsContext,
@@ -3489,6 +3491,7 @@ async function respondImpl(
             channelId: ctx.channelId,
             model: agentModel,
             languageModel,
+            assertCanInfer: run.assertCanInfer,
             byok: funding?.source === "byok",
             tools: agentTools,
             record: async (usage) => {
@@ -4768,9 +4771,9 @@ async function respondImpl(
             request = {
               ...request,
               harnessAccount: next,
-              harnessPartial: Boolean(
-                error instanceof HarnessTurnError && error.save
-              ),
+              harnessPartial: error.save
+                ? true
+                : (request.harnessPartial ?? false),
             }
             await run.saveContext({ context: request, instructions })
             logger.info(
@@ -5110,8 +5113,7 @@ async function writeBackImpl(
 
   const workspaceInstructions = await loadWorkspaceInstructions(ctx.workspaceId)
   const body = await generateText({
-    model: inference.model,
-    onStepStart: inference.assertCanInfer,
+    model: withInferenceGuard(inference.model, inference.assertCanInfer),
     reasoning: "high",
     instructions: `${buildSystemPrompt([])}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}`,
     messages: [

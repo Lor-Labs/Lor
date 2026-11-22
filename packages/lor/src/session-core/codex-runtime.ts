@@ -330,7 +330,7 @@ export async function runCodexTurn(
           : (saved?.head.harnessSessionId ?? null),
         saved
       ).catch(() => null)
-      err.save = withContinuation(rollout?.save ?? null, saved, null)
+      err.save = rollout ? withContinuation(rollout.save, saved, null) : null
     }
     throw err
   } finally {

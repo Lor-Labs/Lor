@@ -433,7 +433,8 @@ export type InboxBatch = {
 // Everything pending for the channel, as the text of one wake line. Null when
 // nothing in the wake lane is pending: unread items alone never start a turn.
 export async function loadInboxBatch(
-  channelId: string
+  channelId: string,
+  canStart?: (triggerMessageId: string | null) => Promise<boolean>
 ): Promise<InboxBatch | null> {
   // Payloads (notes, content, attachments) load only for the rows shown.
   const pending = await db
@@ -465,10 +466,19 @@ export async function loadInboxBatch(
   // first wake picks: wakes from elsewhere wait for the next turn. One Loop
   // fire per turn: its run is that fire in the Loop's history, and carries
   // its failures and its stop. Other fires wait too.
-  const place = pending.find((row) => row.lane === "wake")?.threadRootId ?? null
-  const here = pending.filter((row) => (row.threadRootId ?? null) === place)
-  const wake = here.find((row) => row.lane === "wake")
+  let wake = pending.find((row) => row.lane === "wake")
+  if (canStart) {
+    wake = undefined
+    for (const candidate of pending) {
+      if (candidate.lane === "wake" && (await canStart(candidate.messageId))) {
+        wake = candidate
+        break
+      }
+    }
+  }
   if (!wake) return null
+  const place = wake.threadRootId ?? null
+  const here = pending.filter((row) => (row.threadRootId ?? null) === place)
   const humanWake = Boolean(wake.authorId && !wake.authorIsBot)
   // Each human request gets its own payer. Autonomous wakes wait for their own turn.
   const samePayer = here.filter((row) => {

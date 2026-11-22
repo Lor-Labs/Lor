@@ -934,7 +934,7 @@ export function createLorRespondProcessor(
             )
 
             // Named only once the run may spend: titling is metered too.
-            if (threadRootId && job.data.runId) {
+            if (savedAnswer === null && threadRootId && job.data.runId) {
               void titleSessionOnFirstRun({
                 emitter,
                 threadRootId,
@@ -946,8 +946,8 @@ export function createLorRespondProcessor(
               )
             }
 
-            // Attribution only — never fail the answer over it (and jobs queued
-            // before this field existed have no triggerMessageId).
+            // Also selects the personal payer. A failed lookup must not turn a
+            // direct request into workspace-funded work.
             const triggerUserId = triggerMessageId
               ? await db
                   .select({ authorId: schema.message.authorId })
@@ -1000,10 +1000,18 @@ export function createLorRespondProcessor(
             let harnessAccount: HarnessAccountRoute | undefined
             let refusal: string | null = null
             if (
-              session.harness === "claude_code" ||
-              session.harness === "codex"
+              savedAnswer === null &&
+              (session.harness === "claude_code" || session.harness === "codex")
             ) {
-              if (!stillAuthorized)
+              if (
+                !automated &&
+                triggerUserId !== LOR_USER_ID &&
+                !pinnedAccount &&
+                !accountUserId
+              )
+                refusal =
+                  "Couldn't identify the person who started this turn. Send your request again to use your linked account."
+              else if (!stillAuthorized)
                 refusal =
                   "The person who started this turn no longer has access to the channel."
               else {
@@ -1107,7 +1115,7 @@ export function createLorRespondProcessor(
             // Legacy billing retains its existing outage behavior.
             // Claude Code and Codex turns run on the sender's own plan instead.
             const gate =
-              harnessAccount?.source === "subscription"
+              savedAnswer !== null || harnessAccount?.source === "subscription"
                 ? { allowed: true }
                 : await checkCredits(workspaceId)
             if (!gate.allowed) {

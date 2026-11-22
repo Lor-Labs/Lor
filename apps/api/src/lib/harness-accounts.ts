@@ -119,8 +119,7 @@ export async function disconnectHarnessAccount(
 ) {
   const where = and(
     harnessAccountOwner(scope),
-    eq(schema.personalAccount.provider, provider),
-    ...(accountId ? [eq(schema.personalAccount.id, accountId)] : [])
+    eq(schema.personalAccount.provider, provider)
   )
   // Older clients can disconnect their only account, but cannot delete a pool.
   if (!accountId) {
@@ -133,6 +132,10 @@ export async function disconnectHarnessAccount(
       throw new HTTPException(400, {
         message: "Choose which account to disconnect.",
       })
+    if (!rows[0]) return
+    accountId = rows[0].id
   }
-  await db.delete(schema.personalAccount).where(where)
+  await db
+    .delete(schema.personalAccount)
+    .where(and(where, eq(schema.personalAccount.id, accountId)))
 }

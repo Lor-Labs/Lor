@@ -130,7 +130,8 @@ export function agentHarnessModel(args: {
             instructions,
             tools,
             activeTools: Object.keys(tools),
-            permissionMode: "allow-reads",
+            permissionMode:
+              route.provider === "claude" ? "allow-reads" : "allow-all",
             stopWhen: isStepCount(1),
             ...(credential?.provider === "chatgpt"
               ? { headers: { "ChatGPT-Account-ID": credential.accountId } }

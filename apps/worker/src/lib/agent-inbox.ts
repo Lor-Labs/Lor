@@ -436,7 +436,7 @@ export async function flushAgentInbox(
         )
       )
     )
-  const batch = await loadInboxBatch(channelId)
+  let batch = await loadInboxBatch(channelId)
   if (!batch) return "empty"
   const directUserId =
     batch.loop || batch.deliveryIds.length
@@ -446,8 +446,15 @@ export async function flushAgentInbox(
     ? (await personalRequestHarness(workspaceId, directUserId)) !== "pi"
     : await autonomousUsesSubscription(workspaceId)
   // Unfunded API work stays pending; personal subscriptions can still run.
-  if (!subscription && !(await checkCredits(workspaceId)).allowed)
-    return "skipped"
+  if (!subscription && !(await checkCredits(workspaceId)).allowed) {
+    batch = await loadInboxBatch(channelId, async (messageId) => {
+      const userId = await channelRequestUserId(channelId, messageId)
+      return Boolean(
+        userId && (await personalRequestHarness(workspaceId, userId)) !== "pi"
+      )
+    })
+    if (!batch) return "skipped"
+  }
   const turnRun = await createTurnRun({
     workspaceId,
     channelId,
@@ -861,7 +868,13 @@ export async function runAgentTurnJob(
   const directUserId =
     run?.loopId || run?.hasDeliveries
       ? null
-      : await channelRequestUserId(channelId, run?.triggerMessageId ?? null)
+      : await channelRequestUserId(
+          channelId,
+          run?.triggerMessageId ?? null
+        ).catch((err: unknown) => {
+          execution.stop()
+          throw err
+        })
   const requestUserId = execution.handle.harnessAccount
     ? execution.handle.harnessAccount.userId
     : directUserId

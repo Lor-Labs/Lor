@@ -36,7 +36,7 @@ import {
   parseFactChanges,
 } from "./channel-profile"
 import { logger } from "./logger"
-import { lorGatewayModel } from "./models"
+import { lorGatewayModel, withInferenceGuard } from "./models"
 import type {
   PendingApproval,
   RunHandle,
@@ -816,6 +816,7 @@ async function turnLoop(
         channelId,
         model: args.model,
         languageModel: args.languageModel,
+        assertCanInfer: run.assertCanInfer,
         tools: args.tools,
         record: async (usage) => {
           const counters = await agent.recordUsage(usage, "compaction")
@@ -860,7 +861,10 @@ async function turnLoop(
     )
     const ranApproved: ToolResultPart[] = []
     const result = await generateText({
-      model: args.languageModel ?? lorGatewayModel(args.model),
+      model: withInferenceGuard(
+        args.languageModel ?? lorGatewayModel(args.model),
+        run.assertCanInfer
+      ),
       // The epoch's own prompt: after an in-turn compaction, the new one.
       instructions: context.system ?? args.instructions,
       messages: withLongCache(messages, promptTokens),
@@ -1096,6 +1100,7 @@ export async function compactAgentConversation(args: {
   channelId: string
   model: string
   languageModel?: LanguageModel
+  assertCanInfer?: () => Promise<void>
   byok?: boolean
   tools: ToolSet
   record: (usage: RunStepRecord & { reasoningTokens: number }) => Promise<void>
@@ -1119,7 +1124,10 @@ export async function compactAgentConversation(args: {
     { role: "user", content: SUMMARY_REQUEST },
   ]
   const result = await generateText({
-    model: args.languageModel ?? lorGatewayModel(args.model),
+    model: withInferenceGuard(
+      args.languageModel ?? lorGatewayModel(args.model),
+      args.assertCanInfer
+    ),
     instructions: context.system,
     messages,
     tools: inert,
@@ -1221,6 +1229,7 @@ export async function agentMemoryPass(args: {
   turnRunId: string
   model: string
   languageModel?: LanguageModel
+  assertCanInfer?: () => Promise<void>
   byok?: boolean
   tools: ToolSet
   toolsContext: unknown
@@ -1255,7 +1264,10 @@ export async function agentMemoryPass(args: {
   let reply = ""
   while (calls < MEMORY_PASS_CALLS) {
     const result = await generateText({
-      model: args.languageModel ?? lorGatewayModel(args.model),
+      model: withInferenceGuard(
+        args.languageModel ?? lorGatewayModel(args.model),
+        args.assertCanInfer
+      ),
       instructions: context.system,
       messages,
       tools,
