@@ -30,11 +30,7 @@ import {
   type EnrichedMarkdownTextInputInstance,
 } from "react-native-enriched-markdown"
 import { KeyboardController } from "react-native-keyboard-controller"
-import Animated, {
-  FadeIn,
-  FadeOut,
-  LinearTransition,
-} from "react-native-reanimated"
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { AttachmentPickerPanel } from "@/components/attachment-picker-panel"
 import {
@@ -67,7 +63,6 @@ import {
   toStoredMessageMarkdown,
 } from "@/lib/message-markdown"
 
-const composerLayoutTransition = LinearTransition.duration(100)
 const attachmentPanelGap = 8
 const toolbarSwapIn = FadeIn.duration(160)
 const toolbarSwapOut = FadeOut.duration(120)
@@ -600,10 +595,10 @@ export function MessageComposer({
         </HintCard>
       ) : null}
       {topAccessory}
-      <Animated.View
-        className="relative overflow-hidden rounded-lor-sm border border-border bg-surface"
-        layout={composerLayoutTransition}
-      >
+      {/* No layout transition on the input card: under the keyboard-sticky
+          view it could stick at an old height, clipping the draft and leaving
+          a blank band above the keyboard. */}
+      <View className="relative overflow-hidden rounded-lor-sm border border-border bg-surface">
         {editingMessage ? (
           <View className="min-h-10 flex-row items-center gap-two border-b border-border px-three py-two">
             <View className="w-[3px] self-stretch rounded-full bg-accent" />
@@ -837,7 +832,7 @@ export function MessageComposer({
             />
           </>
         )}
-      </Animated.View>
+      </View>
       {isAttachmentPickerOpen && !isEditing ? (
         <AttachmentPickerPanel
           height={attachmentPickerHeight}
