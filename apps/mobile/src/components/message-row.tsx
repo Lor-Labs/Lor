@@ -14,6 +14,7 @@ import { AgentCreature } from "@/components/agent-creature"
 import { MessageApprovalCard } from "@/components/approval-card"
 import { ConnectorIcon, connectorForName } from "@/components/connector-icon"
 import { ForwardedMessageCard } from "@/components/forwarded-message-card"
+import { HarnessLogo } from "@/components/harness-logo"
 import { LoopCard } from "@/components/loop-card"
 import { LorFailureNotice } from "@/components/lor-failure-notice"
 import { LorMessageBody } from "@/components/lor-message-body"
@@ -36,6 +37,7 @@ import { ThinkingIndicator } from "@/components/thinking-indicator"
 import { Avatar } from "@/components/ui/avatar"
 import { CallSummaryCard } from "@/components/voice/call-summary-card"
 import { type ChannelAgent, useChannelAgent } from "@/hooks/use-channel-agent"
+import { useSessionCoder } from "@/hooks/use-session-agent"
 import type { Message } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/message-markdown"
 import { isOptimisticMessage } from "@/lib/messages"
@@ -85,13 +87,28 @@ function MessageAvatar({
   agent?: ChannelAgent | null
 }) {
   const foreground = useThemeColor("foreground")
+  // In a code session Lor's replies are its coding agent's.
+  const coder = useSessionCoder()
   const isLor = message.authorId === LOR_USER_ID
   if (agent && isLor) {
     return (
       <AgentCreature
         creature={agent.creature}
         size={size === "md" ? 48 : size === "xs" ? 32 : 40}
+        still
       />
+    )
+  }
+  if (coder && isLor && !agent) {
+    const box = size === "md" ? 48 : size === "xs" ? 28 : 40
+    return (
+      <View
+        accessibilityLabel={coder.name}
+        className="items-center justify-center rounded-full bg-surface-secondary"
+        style={{ height: box, width: box }}
+      >
+        <HarnessLogo harness={coder.harness} size={box * 0.58} />
+      </View>
     )
   }
   const connector = message.overrideAvatarUrl

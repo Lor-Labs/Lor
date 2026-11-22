@@ -53,6 +53,10 @@ import { PlanCard } from "@/components/chat/plan-card"
 import { ProposalCard } from "@/components/chat/proposal-card"
 import { RewindDivider } from "@/components/chat/rewind-divider"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
+import {
+  SessionAgentAvatar,
+  useSessionAgent,
+} from "@/components/session/session-agent"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
 import type { RunModelLabel } from "@/hooks/use-agent-models"
 import { useEditableRow } from "@/hooks/use-message-editing"
@@ -378,7 +382,14 @@ export const MessageItem = memo(function MessageItem({
   const fromDiscord =
     isApp &&
     !!message.overrideAvatarUrl?.startsWith("https://cdn.discordapp.com/")
-  const displayName = agent?.name ?? message.overrideName ?? author.name
+  // In a code session Lor's replies are its coding agent's, Claude or Codex.
+  const sessionAgentContext = useSessionAgent()
+  const sessionAgent =
+    message.authorId === LOR_USER_ID && layout === "document"
+      ? sessionAgentContext
+      : null
+  const displayName =
+    agent?.name ?? sessionAgent?.name ?? message.overrideName ?? author.name
   const avatarUrl = message.overrideAvatarUrl ?? author.image
   // Connector-named bot posts ("GitHub", "Linear") wear the provider mark
   // when no uploaded avatar is set.
@@ -575,7 +586,14 @@ export const MessageItem = memo(function MessageItem({
           {formatTime(message.createdAt)}
         </div>
       )}
-      {showHeader && (
+      {showHeader && sessionAgent && (
+        <SessionAgentAvatar
+          agent={sessionAgent}
+          className="-mt-0.5 size-7"
+          title={`${displayName} · ${formatTime(message.createdAt)}`}
+        />
+      )}
+      {showHeader && !sessionAgent && (
         <Avatar
           className="-mt-0.5 size-7"
           title={`${displayName} · ${formatTime(message.createdAt)}`}

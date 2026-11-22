@@ -898,6 +898,89 @@
   animation: creature-twinkle 1.4s steps(1, end) infinite;
 }
 
+/* Agent faces (apps/web agent-face.tsx): the body breathes while the agent
+   sleeps and bobs while it works, and a change of state lands with a
+   squash and stretch. Turning, glances and blinks are driven in JS. */
+@keyframes face-pop {
+  0% {
+    transform: scale(0.86, 1.12);
+  }
+
+  45% {
+    transform: scale(1.07, 0.94);
+  }
+
+  75% {
+    transform: scale(0.98, 1.02);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes face-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-4%);
+  }
+}
+
+@keyframes face-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.035, 0.975);
+  }
+}
+
+@keyframes face-alert {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.18);
+  }
+}
+
+.face-pop {
+  transform-origin: 12px 21px;
+  animation: face-pop 0.42s cubic-bezier(0.3, 0.7, 0.3, 1);
+}
+
+.face-bob {
+  animation: face-bob 0.9s ease-in-out infinite;
+}
+
+.face-breathe {
+  transform-origin: 50% 100%;
+  animation: face-breathe 3.2s ease-in-out infinite;
+}
+
+.face-alert {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: face-alert 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .face-pop,
+  .face-bob,
+  .face-breathe,
+  .face-alert {
+    animation: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .creature-breathe,
   .creature-hop,

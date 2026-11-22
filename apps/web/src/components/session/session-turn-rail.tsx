@@ -17,6 +17,8 @@ import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { timeAgo } from "@repo/utils/date"
 import { useMemo, useState } from "react"
 import { jumpScrollBehavior } from "@/components/chat/message-scroller-controls"
+import { HarnessLogo } from "@/components/session/harness-logo"
+import { useSessionAgent } from "@/components/session/session-agent"
 import type { Message } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/search-preview"
 
@@ -180,12 +182,20 @@ function TurnCard({ turn }: { turn: Turn }) {
   const { start, reply } = turn
   const person = start.type === "event" ? null : start
   const name = person ? (person.overrideName ?? person.author.name) : null
+  const sessionAgent = useSessionAgent()
+  const agentName = sessionAgent?.name ?? "Lor"
+  const agentMark = (className: string) =>
+    sessionAgent ? (
+      <HarnessLogo harness={sessionAgent.harness} className={className} />
+    ) : (
+      <img src="/lor-mark.svg" alt="" className={className} />
+    )
   const replyText = turn.toPeople
     ? null
     : reply
       ? preview(reply)
       : turn.working
-        ? "Lor is working…"
+        ? `${agentName} is working…`
         : null
 
   return (
@@ -202,14 +212,14 @@ function TurnCard({ turn }: { turn: Turn }) {
         </p>
       ) : (
         <p className="flex items-center gap-1.5 font-medium text-agent text-xs">
-          <img src="/lor-mark.svg" alt="" className="size-3.5" />
-          {start.type === "event" ? "Lor run" : "To Lor"}
+          {agentMark("size-3.5")}
+          {start.type === "event" ? `${agentName} run` : `To ${agentName}`}
         </p>
       )}
       <p className="truncate font-medium text-foreground">{turnTitle(turn)}</p>
       {replyText && (
         <div className="flex gap-1.5">
-          <img src="/lor-mark.svg" alt="" className="mt-1 size-3 shrink-0" />
+          {agentMark("mt-1 size-3 shrink-0")}
           <p className="line-clamp-2 text-muted-foreground">{replyText}</p>
         </div>
       )}

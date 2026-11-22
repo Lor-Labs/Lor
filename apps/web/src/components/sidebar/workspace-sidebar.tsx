@@ -51,10 +51,12 @@ import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
 import { ChannelActivityProvider } from "@/components/sidebar/channel-panel/channel-activity"
+import { ChannelList } from "@/components/sidebar/channel-panel/channel-list"
 import {
   CreateChannelProvider,
   useCreateChannel,
 } from "@/components/sidebar/channel-panel/create-channel-context"
+import { NeedsYouGroup } from "@/components/sidebar/channel-panel/needs-you-list"
 import { VoicePresenceProvider } from "@/components/sidebar/channel-panel/voice-presence"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
 import { NewSessionButton } from "@/components/sidebar/new-session-button"
@@ -66,7 +68,6 @@ import {
   sidebarMenuSubTrigger,
   sidebarMenuSurface,
 } from "@/components/sidebar/sidebar-menu-styles"
-import { SidebarTabs } from "@/components/sidebar/sidebar-tabs"
 import { InstructionsApprovalAlert } from "@/components/workspace/instructions-approval-alert"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import {
@@ -492,7 +493,12 @@ function WorkspaceSidebarInner() {
                 workspaceSlug={activeWorkspace?.slug}
                 workspaceId={activeWorkspace?.id}
               >
-                <SidebarTabs />
+                {/* One list: what needs you, then the channels with
+                    their agents and your sessions under them. */}
+                <div className="px-2">
+                  <NeedsYouGroup />
+                </div>
+                <ChannelList />
               </VoicePresenceProvider>
             </ChannelActivityProvider>
           </div>

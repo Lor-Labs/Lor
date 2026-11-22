@@ -187,7 +187,7 @@ export async function profileChangeNotes(
   if (channel?.identityUpdatedAt && channel.identityUpdatedAt > since) {
     const identity = channelAgentIdentity(channel)
     lines.push(
-      `- The team changed how you appear: your name is now ${sanitizeInlineLabel(identity.name)}, shown as a pixel-art ${creatureById(identity.creature).label.toLowerCase()}. Go by that name from now on.`
+      `- The team changed how you appear: your name is now ${sanitizeInlineLabel(identity.name)}, shown as a little ${creatureById(identity.creature).label.toLowerCase()}. Go by that name from now on.`
     )
   }
   if (channel?.briefUpdatedAt && channel.briefUpdatedAt > since) {
