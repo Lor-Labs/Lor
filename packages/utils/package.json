@@ -21,6 +21,7 @@
     "./trigger-message": "./src/trigger-message.ts",
     "./bestiary": "./src/bestiary.ts",
     "./bestiary-png": "./src/bestiary-png.ts",
+    "./faces": "./src/faces.ts",
     "./inference": "./src/inference.ts",
     "./diff-hunks": "./src/diff-hunks.ts",
     "./linear-issue-block": "./src/linear-issue-block.ts"

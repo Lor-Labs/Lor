@@ -20,9 +20,11 @@ import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { type ReactNode, useState } from "react"
 import { Linking, Pressable, Text, View } from "react-native"
+import { AgentCreature } from "@/components/agent-creature"
 import { MessageRow } from "@/components/message-row"
 import { isReviewedEvent, ReviewCard } from "@/components/review-card"
 import { useAgentSession } from "@/hooks/use-agent-session"
+import { useSessionChannelAgent } from "@/hooks/use-session-agent"
 import type { Message } from "@/lib/api-types"
 
 // Channel events ("Jacob created this channel", "Alice was added") — compact
@@ -469,6 +471,34 @@ function SessionEventRow({
   )
 }
 
+// The channel agent's brief or follow-up in a session it runs, shown as a
+// message from it under its own name and face, beside the coding agent's
+// replies (reference/always-on-agents.md §6). Mirrors web.
+function AgentTaskMessage({ message }: { message: Message }) {
+  const agent = useSessionChannelAgent()
+  const payload = message.eventPayload as { channelName?: string | null } | null
+  const name =
+    agent?.name ??
+    (payload?.channelName
+      ? `#${payload.channelName}'s agent`
+      : "The channel's agent")
+  return (
+    <View className="mt-three flex-row gap-three px-four">
+      <View className="w-7 pt-px">
+        {agent ? (
+          <AgentCreature creature={agent.creature} size={28} still />
+        ) : null}
+      </View>
+      <View className="min-w-0 flex-1 gap-[2px]">
+        <Text className="text-sm font-semibold text-foreground">{name}</Text>
+        <Text className="text-[15px] leading-[22px] text-foreground" selectable>
+          {message.content}
+        </Text>
+      </View>
+    </View>
+  )
+}
+
 export function ChannelEventRow({
   events,
   resolveUserName,
@@ -484,6 +514,9 @@ export function ChannelEventRow({
 
   if (first.eventType === "trigger_run" && events.length === 1) {
     return <TriggerMessage message={first} />
+  }
+  if (first.eventType === "agent_task" && events.length === 1) {
+    return <AgentTaskMessage message={first} />
   }
 
   if (layout === "document" && events.length === 1 && isReviewedEvent(first)) {

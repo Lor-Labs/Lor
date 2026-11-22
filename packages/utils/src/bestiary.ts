@@ -1,5 +1,7 @@
-// The bestiary: each channel's agent wears one of these pixel-art creatures
-// (reference/always-on-agents.md, decision 33). 24x24 frames, one character
+// The bestiary: the creatures a channel's agent can be, with their names
+// (reference/always-on-agents.md, decisions 33 and 39). The app draws them
+// as the simple faces in ./faces; the pixel art here is the earlier
+// detailed set, kept in case it comes back. 24x24 frames, one character
 // per pixel indexing the creature's palette, "." transparent. `closed` is the
 // same creature with its eyes shut, for blinking and sleeping.
 
@@ -7,7 +9,7 @@ export type CreatureId =
   | "dragon"
   | "griffin"
   | "owl"
-  | "golem"
+  | "skeleton"
   | "ghost"
   | "slime"
   | "fox"
@@ -279,9 +281,9 @@ export const CREATURES: readonly Creature[] = [
     ],
   },
   {
-    id: "golem",
-    // Drawn as a skeleton since the simple faces (decision 39); the id and
-    // the pixel art below are still the golem's.
+    id: "skeleton",
+    // The golem until 2026-11-21: the pixel art below, unused since the
+    // simple faces (decision 39), is still the golem's.
     label: "Skeleton",
     names: ["Bones", "Rattle", "Marrow"],
     palette: [

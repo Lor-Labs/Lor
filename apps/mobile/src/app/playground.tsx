@@ -1,3 +1,4 @@
+import { CREATURES, type CreatureState } from "@repo/utils/bestiary"
 import { router } from "expo-router"
 import { Card } from "heroui-native/card"
 import { Description } from "heroui-native/description"
@@ -11,6 +12,7 @@ import { type ReactNode, useState } from "react"
 import { Text, View } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
 import { Uniwind, useUniwind } from "uniwind"
+import { AgentCreature } from "@/components/agent-creature"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { HapticButton } from "@/components/ui/haptic-button"
@@ -20,6 +22,8 @@ import { Screen } from "@/components/ui/screen"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Tabs } from "@/components/ui/tabs"
+
+const AGENT_STATES: CreatureState[] = ["idle", "asleep", "working", "needs_you"]
 
 type PlaygroundTab = "components" | "states" | "feedback"
 type SelectPresentation = "popover" | "bottom-sheet" | "dialog"
@@ -267,6 +271,40 @@ export default function PlaygroundScreen() {
           </Tabs.Content>
 
           <Tabs.Content className="gap-eight pt-six" value="states">
+            <PlaygroundSection
+              detail="Every channel agent's face in each state, at chat and list size."
+              title="Agent faces"
+            >
+              {AGENT_STATES.map((state) => (
+                <View className="gap-two" key={state}>
+                  <Text className="text-xs font-medium text-muted">
+                    {state}
+                  </Text>
+                  <View className="flex-row flex-wrap items-center gap-three">
+                    {CREATURES.map((creature) => (
+                      <AgentCreature
+                        creature={creature.id}
+                        key={creature.id}
+                        size={40}
+                        state={state}
+                      />
+                    ))}
+                  </View>
+                  <View className="flex-row flex-wrap items-center gap-three">
+                    {CREATURES.map((creature) => (
+                      <AgentCreature
+                        creature={creature.id}
+                        key={creature.id}
+                        size={24}
+                        state={state}
+                        still={state !== "working"}
+                      />
+                    ))}
+                  </View>
+                </View>
+              ))}
+            </PlaygroundSection>
+
             <PlaygroundSection
               detail="Toggle between a shaped skeleton and loaded content."
               title="Loading"
