@@ -875,6 +875,7 @@ function NeedsYouGroup({
                       params: {
                         channelId: need.channelId,
                         threadRootId: need.threadRootId,
+                        focusMessageId: need.messageId,
                       },
                     }
                   : {

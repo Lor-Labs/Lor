@@ -28,8 +28,8 @@ const EYE_STRIP = 6
 // A channel agent's face, from the same 3D definition web draws
 // (@repo/utils/faces; reference/always-on-agents.md, decision 41), held at
 // its resting angle, or bowed with its eyes shut while it sleeps. There is
-// no pointer to follow on a phone, so motion only shows state: it bobs
-// while the agent works, and blinks when awake and not `still`. Lists pass
+// no pointer to follow on a phone, so motion only shows state: unless
+// `still`, it bobs while the agent works and blinks when awake. Lists pass
 // `still`: a row seen all day shouldn't move for decoration.
 export const AgentCreature = memo(function AgentCreature({
   creature,
@@ -67,7 +67,7 @@ export const AgentCreature = memo(function AgentCreature({
   const lids = useSharedValue(1)
   // Faces blink out of step with each other.
   const blinkEvery = useMemo(() => 2_400 + Math.random() * 3_600, [])
-  const bobs = working && !reduced
+  const bobs = working && !still && !reduced
   const blinks = !still && !asleep && !working && !reduced
 
   useEffect(() => {

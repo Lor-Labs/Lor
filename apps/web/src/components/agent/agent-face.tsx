@@ -7,7 +7,7 @@ import {
   faceFrame,
   restPose,
 } from "@repo/utils/faces"
-import { memo, useEffect, useRef, useState } from "react"
+import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react"
 
 // The channel agents' faces, alive (reference/always-on-agents.md, decision
 // 41). A face is 3D: solids defined in @repo/utils/faces, turned in space
@@ -178,6 +178,20 @@ function addRig(rig: Rig) {
   }
 }
 
+// Reduced motion, followed while the page is open: a face stops turning
+// when the preference is switched on, not only on the next load.
+const REDUCED_MOTION = "(prefers-reduced-motion: reduce)"
+
+function onReducedMotionChange(notify: () => void) {
+  const query = window.matchMedia(REDUCED_MOTION)
+  query.addEventListener("change", notify)
+  return () => query.removeEventListener("change", notify)
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia(REDUCED_MOTION).matches
+}
+
 export const AgentFace = memo(function AgentFace({
   creature,
   face: custom,
@@ -201,8 +215,12 @@ export const AgentFace = memo(function AgentFace({
   const working = state === "working"
   const anywhere = state === "needs_you"
   const rootRef = useRef<HTMLSpanElement>(null)
+  const reduced = useSyncExternalStore(
+    onReducedMotionChange,
+    prefersReducedMotion
+  )
   // Asleep it holds its bowed pose; otherwise the driver turns it.
-  const driven = !still && !asleep
+  const driven = !still && !asleep && !reduced
   // The pop is for a change of state, not for arriving on the page.
   const mounted = useRef(false)
   useEffect(() => {
@@ -215,7 +233,6 @@ export const AgentFace = memo(function AgentFace({
   useEffect(() => {
     const root = rootRef.current
     if (!driven || !root) return
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
     const now = performance.now()
     const remove = addRig({
       root,

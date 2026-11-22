@@ -3,9 +3,9 @@ import { db, schema } from "../index"
 
 // Creatures that were replaced (reference/always-on-agents.md, decision
 // 39): moves channels that picked the old one to the new id. A channel that
-// never picked a creature needs nothing, its creature is derived. Without
-// this a picked old creature is an unknown id and falls back to the derived
-// one. Idempotent. Independent of db:push: run order does not matter.
+// never picked a creature needs nothing, its creature is derived. Until
+// this runs, `channelAgentIdentity` reads an old id as its replacement, so
+// it can run before or after a deploy. Idempotent. Independent of db:push.
 //
 //   pnpm --filter @repo/db exec tsx src/scripts/rename-creatures.ts \
 //     [--dry-run]

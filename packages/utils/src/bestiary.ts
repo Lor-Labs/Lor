@@ -876,6 +876,15 @@ function hash(text: string, seed: number) {
   return h
 }
 
+// Creatures that were replaced, ids included. A channel that picked the old
+// one shows as its replacement, so nothing changes face before
+// rename-creatures.ts (packages/db/src/scripts) has run on a database, or
+// while a server on older code still writes the old id during a deploy.
+const REPLACED_CREATURES = new Map<string, CreatureId>([
+  ["golem", "skeleton"],
+  ["griffin", "alien"],
+])
+
 export const AGENT_NAME_MAX = 24
 
 // A name people typed for the agent, cleaned; null when nothing usable is
@@ -895,8 +904,10 @@ export function channelAgentIdentity(channel: {
   agentName?: string | null
   agentCreature?: string | null
 }): { name: string; creature: CreatureId } {
-  const creature = isCreatureId(channel.agentCreature)
-    ? channel.agentCreature
+  const picked =
+    REPLACED_CREATURES.get(channel.agentCreature ?? "") ?? channel.agentCreature
+  const creature = isCreatureId(picked)
+    ? picked
     : (CREATURES[hash(channel.id, 2166136261) % CREATURES.length] as Creature)
         .id
   const names = creatureById(creature).names
