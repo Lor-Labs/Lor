@@ -2,6 +2,7 @@ import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models"
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
 import { assertHostedHarness } from "@repo/db/queries/beta-access"
 import { workspaceInferenceKeys } from "@repo/db/queries/inference"
+import { resolveHarnessAccount } from "@repo/db/queries/personal-accounts"
 import { assertHarnessEnabled } from "@repo/utils/features"
 import { type KeyProvider, keyModelId } from "@repo/utils/inference"
 import { chatgptModels } from "./chatgpt-account"
@@ -154,9 +155,13 @@ const claudeLineRank = (name: string) => {
 // Claude Code: the list the person's own Claude Code reported on their last
 // turn, with its effort levels and fast mode per model; before a first turn,
 // the starting list from Anthropic. Opus is the default in both.
-async function claudeCodeCatalog(userId: string): Promise<AgentModelCatalog> {
+async function claudeCodeCatalog(
+  userId: string,
+  accountId?: string
+): Promise<AgentModelCatalog> {
   const reported =
-    (await claudeModels(userId)) ?? (await startingClaudeModels(userId))
+    (await claudeModels(userId, accountId)) ??
+    (await startingClaudeModels(userId, accountId))
   const models = (
     reported
       ? reported.map((model) => ({
@@ -184,9 +189,14 @@ async function claudeCodeCatalog(userId: string): Promise<AgentModelCatalog> {
 // Codex: the list the person's own Codex gave on their last turn (their
 // ChatGPT plan decides it), or anyone's before that, with the efforts the
 // adapter can pass. "Default" effort leaves it to Codex's own per model.
-async function codexCatalog(userId: string): Promise<AgentModelCatalog> {
+async function codexCatalog(
+  userId: string,
+  accountId?: string
+): Promise<AgentModelCatalog> {
   const served =
-    (await chatgptModels(userId)) ?? (await harnessModels("codex")) ?? []
+    (await chatgptModels(userId, accountId)) ??
+    (await harnessModels("codex")) ??
+    []
   const models =
     served.length > 0
       ? served.map((model) => ({
@@ -218,8 +228,15 @@ export async function agentModelCatalog(
 ): Promise<AgentModelCatalog> {
   assertHarnessEnabled(harness)
   assertHostedHarness(harness)
-  if (harness === "claude_code") return claudeCodeCatalog(userId)
-  if (harness === "codex") return codexCatalog(userId)
+  if (harness === "claude_code" || harness === "codex") {
+    const route = await resolveHarnessAccount(
+      { workspaceId, userId },
+      harness === "claude_code" ? "claude" : "chatgpt"
+    ).catch(() => null)
+    return harness === "claude_code"
+      ? claudeCodeCatalog(userId, route?.accountId ?? undefined)
+      : codexCatalog(userId, route?.accountId ?? undefined)
+  }
   const keys = await workspaceInferenceKeys(workspaceId)
   return lorCatalog(keys.map((key) => key.provider))
 }

@@ -1,17 +1,7 @@
-import { and, db, eq, schema } from "@repo/db"
+import { and, asc, db, eq, schema, sql } from "@repo/db"
 import { env } from "@repo/env/server"
-import {
-  chatgptTokenDetails,
-  parseCodexAuthJson,
-  refreshChatgptTokens,
-} from "@repo/lor/chatgpt-account"
-import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
+import { decryptSecret } from "@repo/utils/crypto"
 import { features } from "@repo/utils/features"
-import {
-  claudeTokenDetails,
-  normalizeClaudeToken,
-  verifyClaudeToken,
-} from "@/lib/claude-account"
 import {
   exchangeGithubCode,
   fetchGithubProfile,
@@ -21,6 +11,10 @@ import {
   revokeGithubToken,
   verifyGithubAccountState,
 } from "@/lib/github-account"
+import {
+  connectHarnessAccount,
+  disconnectHarnessAccount,
+} from "@/lib/harness-accounts"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -56,16 +50,25 @@ const isClaudeAccount = (userId: string) =>
 
 // A reconnect replaces the token, so "connected" is the last update.
 const claudeAccountColumns = {
+  id: schema.personalAccount.id,
+  label: schema.personalAccount.label,
+  unavailableUntil: schema.personalAccount.unavailableUntil,
   login: schema.personalAccount.login,
   updatedAt: schema.personalAccount.updatedAt,
   accessTokenExpiresAt: schema.personalAccount.accessTokenExpiresAt,
 }
 
 const toClaudeAccount = (row: {
+  id: string
+  label: string | null
+  unavailableUntil: Date | null
   login: string
   updatedAt: Date
   accessTokenExpiresAt: Date | null
 }) => ({
+  id: row.id,
+  label: row.label,
+  unavailableUntil: row.unavailableUntil?.toISOString() ?? null,
   tokenHint: row.login,
   connectedAt: row.updatedAt.toISOString(),
   expiresAt: row.accessTokenExpiresAt?.toISOString() ?? null,
@@ -80,16 +83,25 @@ const isChatgptAccount = (userId: string) =>
 // A refresh updates the tokens, not the connection: "connected" is when the
 // row was made.
 const chatgptAccountColumns = {
+  id: schema.personalAccount.id,
+  label: schema.personalAccount.label,
+  unavailableUntil: schema.personalAccount.unavailableUntil,
   email: schema.personalAccount.email,
   name: schema.personalAccount.name,
   createdAt: schema.personalAccount.createdAt,
 }
 
 const toChatgptAccount = (row: {
+  id: string
+  label: string | null
+  unavailableUntil: Date | null
   email: string | null
   name: string | null
   createdAt: Date
 }) => ({
+  id: row.id,
+  label: row.label,
+  unavailableUntil: row.unavailableUntil?.toISOString() ?? null,
   email: row.email,
   plan: row.name,
   connectedAt: row.createdAt.toISOString(),
@@ -98,6 +110,7 @@ const toChatgptAccount = (row: {
 export const getPersonalAccounts: AppRouteHandler<
   GetPersonalAccountsRoute
 > = async (c) => {
+  c.header("Cache-Control", "no-store")
   const [account, claude, chatgpt] = await Promise.all([
     db
       .select(accountColumns)
@@ -109,14 +122,18 @@ export const getPersonalAccounts: AppRouteHandler<
       .select(claudeAccountColumns)
       .from(schema.personalAccount)
       .where(isClaudeAccount(c.var.user.id))
-      .limit(1)
-      .then((rows) => rows[0] ?? null),
+      .orderBy(
+        asc(schema.personalAccount.createdAt),
+        asc(schema.personalAccount.id)
+      ),
     db
       .select(chatgptAccountColumns)
       .from(schema.personalAccount)
       .where(isChatgptAccount(c.var.user.id))
-      .limit(1)
-      .then((rows) => rows[0] ?? null),
+      .orderBy(
+        asc(schema.personalAccount.createdAt),
+        asc(schema.personalAccount.id)
+      ),
   ])
   await fillMissingGithubAvatar(c.var.user, account?.avatarUrl)
   return c.json(
@@ -125,132 +142,63 @@ export const getPersonalAccounts: AppRouteHandler<
       claude: {
         available:
           features.claudeCodeHarness && Boolean(env.INTEGRATION_ENCRYPTION_KEY),
-        account: claude ? toClaudeAccount(claude) : null,
+        account: claude[0] ? toClaudeAccount(claude[0]) : null,
+        accounts: claude.map(toClaudeAccount),
       },
       chatgpt: {
         available:
           features.codexHarness && Boolean(env.INTEGRATION_ENCRYPTION_KEY),
-        account: chatgpt ? toChatgptAccount(chatgpt) : null,
+        account: chatgpt[0] ? toChatgptAccount(chatgpt[0]) : null,
+        accounts: chatgpt.map(toChatgptAccount),
       },
     },
     HttpStatusCodes.OK
   )
 }
 
-// Checked with Anthropic before it is stored, so a cut-off paste fails here
-// rather than on the person's first Claude Code turn.
 export const connectClaudeAccount: AppRouteHandler<
   ConnectClaudeAccountRoute
 > = async (c) => {
-  const refuse = (message: string) =>
-    c.json({ success: false as const, message }, HttpStatusCodes.BAD_REQUEST)
-  if (!features.claudeCodeHarness)
-    return refuse("Claude Code is temporarily unavailable")
-  const key = env.INTEGRATION_ENCRYPTION_KEY
-  if (!key) return refuse("Claude subscriptions aren't available yet")
-  const token = normalizeClaudeToken(c.req.valid("json").token)
-  if (!token) {
-    return refuse(
-      "That isn't a Claude setup token. It starts with sk-ant-oat01-; run claude setup-token to get one"
-    )
-  }
-  const verified = await verifyClaudeToken(token)
-  if (verified === "rejected") {
-    return refuse(
-      "Anthropic didn't accept that token. Run claude setup-token again and paste all of it"
-    )
-  }
-  if (verified === "unreachable") {
-    return refuse("Couldn't reach Anthropic to check the token. Try again")
-  }
-  const values = {
-    ...claudeTokenDetails(token),
-    accessToken: encryptSecret(token, key),
-    name: null,
-    email: null,
-    avatarUrl: null,
-    refreshToken: null,
-    refreshTokenExpiresAt: null,
-    // Another subscription can offer other models: the picker reads them again.
-    models: null,
-  }
-  const [row] = await db
-    .insert(schema.personalAccount)
-    .values({ userId: c.var.user.id, provider: "claude", ...values })
-    .onConflictDoUpdate({
-      target: [schema.personalAccount.userId, schema.personalAccount.provider],
-      set: values,
-    })
-    .returning(claudeAccountColumns)
-  if (!row) throw new Error("Claude account upsert returned no row")
+  const { token, label } = c.req.valid("json")
+  const row = await connectHarnessAccount(
+    { userId: c.var.user.id, workspaceId: "" },
+    "claude",
+    { credential: token, label }
+  )
   return c.json({ account: toClaudeAccount(row) }, HttpStatusCodes.OK)
 }
 
-// Anthropic has no endpoint to revoke a setup token; the person revokes it in
-// their Claude account settings if they want it gone there too.
 export const disconnectClaudeAccount: AppRouteHandler<
   DisconnectClaudeAccountRoute
 > = async (c) => {
-  await db.delete(schema.personalAccount).where(isClaudeAccount(c.var.user.id))
+  await disconnectHarnessAccount(
+    { userId: c.var.user.id, workspaceId: "" },
+    "claude",
+    c.req.valid("query").accountId
+  )
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
-// Refreshed once before it is stored: that checks the sign-in with OpenAI and
-// starts Lor's own token chain (each refresh replaces the refresh token).
 export const connectChatgptAccount: AppRouteHandler<
   ConnectChatgptAccountRoute
 > = async (c) => {
-  const refuse = (message: string) =>
-    c.json({ success: false as const, message }, HttpStatusCodes.BAD_REQUEST)
-  if (!features.codexHarness) return refuse("Codex is temporarily unavailable")
-  const key = env.INTEGRATION_ENCRYPTION_KEY
-  if (!key) return refuse("ChatGPT plans aren't available yet")
-  const pasted = parseCodexAuthJson(c.req.valid("json").authJson)
-  if (!pasted) {
-    return refuse(
-      "That isn't a ChatGPT sign-in. Paste the whole auth.json that codex login saved"
-    )
-  }
-  const tokens = await refreshChatgptTokens(pasted.refreshToken)
-  if (tokens === "rejected") {
-    return refuse(
-      "OpenAI didn't accept that sign-in. Run the login command again and paste the new auth.json"
-    )
-  }
-  if (tokens === "unreachable") {
-    return refuse("Couldn't reach OpenAI to check the sign-in. Try again")
-  }
-  const details = chatgptTokenDetails(tokens)
-  if (!details) {
-    return refuse(
-      "That sign-in has no ChatGPT account. Sign in with ChatGPT, not an API key"
-    )
-  }
-  const values = {
-    ...details,
-    accessToken: encryptSecret(tokens.accessToken, key),
-    refreshToken: encryptSecret(tokens.refreshToken, key),
-    avatarUrl: null,
-    refreshTokenExpiresAt: null,
-    // Another plan can offer other models: Codex reports them again.
-    models: null,
-  }
-  const [row] = await db
-    .insert(schema.personalAccount)
-    .values({ userId: c.var.user.id, provider: "chatgpt", ...values })
-    .onConflictDoUpdate({
-      target: [schema.personalAccount.userId, schema.personalAccount.provider],
-      set: { ...values, createdAt: new Date() },
-    })
-    .returning(chatgptAccountColumns)
-  if (!row) throw new Error("ChatGPT account upsert returned no row")
+  const { authJson, label } = c.req.valid("json")
+  const row = await connectHarnessAccount(
+    { userId: c.var.user.id, workspaceId: "" },
+    "chatgpt",
+    { credential: authJson, label }
+  )
   return c.json({ account: toChatgptAccount(row) }, HttpStatusCodes.OK)
 }
 
 export const disconnectChatgptAccount: AppRouteHandler<
   DisconnectChatgptAccountRoute
 > = async (c) => {
-  await db.delete(schema.personalAccount).where(isChatgptAccount(c.var.user.id))
+  await disconnectHarnessAccount(
+    { userId: c.var.user.id, workspaceId: "" },
+    "chatgpt",
+    c.req.valid("query").accountId
+  )
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
@@ -300,6 +248,7 @@ export const connectGithubAccount: AppRouteHandler<
     .values({ userId: c.var.user.id, provider: "github", ...values })
     .onConflictDoUpdate({
       target: [schema.personalAccount.userId, schema.personalAccount.provider],
+      targetWhere: sql`${schema.personalAccount.provider} = 'github'`,
       set: values,
     })
     .returning(accountColumns)

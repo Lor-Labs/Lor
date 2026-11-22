@@ -22,6 +22,7 @@ import type {
 import { aiRuntimeContext, aiTelemetry } from "../ai-observability"
 import { logger } from "../logger"
 import { claudeHeadOf, pendingRewind } from "./claude-branch"
+import { HarnessTurnError } from "./harness-error"
 import {
   checkCompatibility,
   type HarnessBinding,
@@ -54,11 +55,9 @@ export type ClaudeCodeMode =
   | "bypassPermissions"
 
 // Keep Claude Code's streamed error and partial conversation together.
-export class ClaudeCodeTurnError extends Error {
-  save: PiTurnSave | null = null
-
+export class ClaudeCodeTurnError extends HarnessTurnError {
   constructor(cause: unknown) {
-    super(cause instanceof Error ? cause.message : String(cause), { cause })
+    super(cause)
     this.name = "ClaudeCodeTurnError"
   }
 }
@@ -114,6 +113,7 @@ export type ClaudeCodeTurnInput = {
   }
   // The turn starter's token reaches Anthropic through the sandbox proxy;
   // Claude Code only ever sees this placeholder.
+  api?: { baseUrl: string; gateway: boolean }
   tokenPlaceholder: string
   // Claude Code's own permission mode. Its prompts pause the turn as builtin
   // approvals; Bypass raises none.
@@ -202,7 +202,25 @@ export async function runClaudeCodeTurn(
 
   const agent = new HarnessAgent({
     harness: createClaudeCode({
-      auth: { CLAUDE_CODE_OAUTH_TOKEN: input.tokenPlaceholder },
+      auth: input.api
+        ? {
+            ANTHROPIC_BASE_URL: input.api.baseUrl,
+            ...(input.api.gateway
+              ? {
+                  ANTHROPIC_AUTH_TOKEN: input.tokenPlaceholder,
+                  ANTHROPIC_API_KEY: "",
+                }
+              : {
+                  ANTHROPIC_API_KEY: input.tokenPlaceholder,
+                  ANTHROPIC_AUTH_TOKEN: "",
+                }),
+            CLAUDE_CODE_OAUTH_TOKEN: "",
+          }
+        : {
+            CLAUDE_CODE_OAUTH_TOKEN: input.tokenPlaceholder,
+            ANTHROPIC_API_KEY: "",
+            ANTHROPIC_AUTH_TOKEN: "",
+          },
       port: input.bridge.port,
       portEndpoint: input.bridge.endpoint,
       // Lor's adapter patch: Claude Code decides what to ask in its own mode.

@@ -27,6 +27,11 @@ function ownerColumns(owner: HarnessOwner) {
 // {type: "response_item", payload: {type: "message", role, content}}, its
 // text parts typed input_text and output_text.
 export async function savedTurnText(runId: string): Promise<string | null> {
+  const [run] = await db
+    .select({ context: schema.agentRun.context })
+    .from(schema.agentRun)
+    .where(eq(schema.agentRun.id, runId))
+  if (run?.context?.harnessPartial) return null
   const chunks = await db
     .select({ content: schema.harnessLog.content })
     .from(schema.harnessLog)

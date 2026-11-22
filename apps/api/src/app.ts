@@ -30,6 +30,7 @@ import mobileRouter from "@/routes/v1/mobile/index"
 import notificationSettingsRouter from "@/routes/v1/notification-settings/index"
 import onboardingRouter from "@/routes/v1/onboarding/index"
 import personalAccountsRouter from "@/routes/v1/personal-accounts/index"
+import workspaceAccountsRouter from "@/routes/v1/personal-accounts/workspace"
 import plansRouter from "@/routes/v1/plans/index"
 import previewsRouter from "@/routes/v1/previews/index"
 import projectsRouter from "@/routes/v1/projects/index"
@@ -127,6 +128,7 @@ const routes = app
   .route("/v1", notificationSettingsRouter)
   .route("/v1", sandboxSettingsRouter)
   .route("/v1", personalAccountsRouter)
+  .route("/v1", workspaceAccountsRouter)
   .route("/v1", agentModelsRouter)
   .route("/v1", pushTokensRouter)
   .route("/v1", channelMutesRouter)

@@ -1,8 +1,11 @@
+import { createAnthropic } from "@ai-sdk/anthropic"
+import { createOpenAI } from "@ai-sdk/openai"
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
 import {
   loadWorkspaceInferenceKey,
   workspaceInferenceKeyId,
 } from "@repo/db/queries/inference"
+import { env } from "@repo/env/server"
 import {
   type InferenceFunding,
   KEY_PROVIDER_NAMES,
@@ -81,4 +84,55 @@ export async function nativeInference(
       ? { ANTHROPIC_API_KEY: apiKey }
       : { OPENAI_API_KEY: apiKey }
   return { provider: funding.provider, model: funding.model, auth }
+}
+
+export async function harnessApiFunding(
+  workspaceId: string,
+  provider: KeyProvider,
+  billing: "lor" | "byok",
+  pick: string | undefined,
+  defaultModel: string
+): Promise<InferenceFunding> {
+  const raw = pick?.replace(/^(?:key:)?(?:anthropic|openai)\//, "")
+  const model = raw && isByokModel(provider, raw) ? raw : defaultModel
+  if (billing === "byok") {
+    const keyId = await workspaceInferenceKeyId(workspaceId, provider)
+    if (!keyId)
+      throw new Error(
+        `The workspace's ${KEY_PROVIDER_NAMES[provider]} API key is missing. Update Workspace settings → Billing.`
+      )
+    return { source: "byok", keyId, provider, model }
+  }
+  return { source: "lor", model: `${provider}/${model}` }
+}
+
+export function nativeLanguageModel(
+  native: Awaited<ReturnType<typeof nativeInference>>
+) {
+  return native.provider === "anthropic"
+    ? createAnthropic({ apiKey: native.auth.ANTHROPIC_API_KEY }).languageModel(
+        native.model
+      )
+    : createOpenAI({ apiKey: native.auth.OPENAI_API_KEY }).responses(
+        native.model
+      )
+}
+
+export function harnessApiConnection(
+  provider: KeyProvider,
+  funding: InferenceFunding | undefined,
+  native: Awaited<ReturnType<typeof nativeInference>> | null
+) {
+  return {
+    token: native
+      ? (native.auth.ANTHROPIC_API_KEY ?? native.auth.OPENAI_API_KEY ?? "")
+      : env.AI_GATEWAY_API_KEY,
+    gateway: !native,
+    baseUrl: native
+      ? provider === "anthropic"
+        ? "https://api.anthropic.com"
+        : "https://api.openai.com/v1"
+      : `${(env.AI_GATEWAY_BASE_URL ?? "https://ai-gateway.vercel.sh/v1").replace(/\/v1\/?$/, "").replace(/\/$/, "")}/${provider === "anthropic" ? "claude-code" : "codex/v1"}`,
+    model: native?.model ?? funding?.model,
+  }
 }

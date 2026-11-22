@@ -19,6 +19,12 @@ import {
   sql,
 } from "@repo/db"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
+import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import {
+  autonomousUsesSubscription,
+  channelRequestUserId,
+  personalRequestHarness,
+} from "@repo/db/queries/personal-accounts"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import { env } from "@repo/env/server"
 import { type ModelMessage, respond } from "@repo/lor"
@@ -231,6 +237,7 @@ async function createTurnRun(args: {
   loop?: { id: string; scheduledFor: Date | null } | null
   // Compaction: only while this is still the scope's latest run.
   afterRunId?: string
+  resumeFromRunId?: string
 }): Promise<TurnRun | null> {
   const loop = args.loop ?? args.batch?.loop ?? null
   // The newest message carries what changed in the profile since the agent
@@ -257,6 +264,23 @@ async function createTurnRun(args: {
   }
   try {
     return await db.transaction(async (tx) => {
+      const previous = args.resumeFromRunId
+        ? await tx
+            .select({
+              context: schema.agentRun.context,
+              inferenceFunding: schema.agentRun.inferenceFunding,
+              harnessAccount: schema.agentRun.harnessAccount,
+            })
+            .from(schema.agentRun)
+            .where(
+              and(
+                eq(schema.agentRun.id, args.resumeFromRunId),
+                eq(schema.agentRun.workspaceId, args.workspaceId),
+                eq(schema.agentRun.channelId, args.channelId)
+              )
+            )
+            .then((rows) => rows[0])
+        : null
       const [run] = await tx
         .insert(schema.agentRun)
         .values({
@@ -266,6 +290,13 @@ async function createTurnRun(args: {
           threadRootId: null,
           messageId: null,
           triggerMessageId: args.triggerMessageId,
+          ...(previous
+            ? {
+                context: previous.context,
+                inferenceFunding: previous.inferenceFunding,
+                harnessAccount: previous.harnessAccount,
+              }
+            : {}),
           ...(loop ? { loopId: loop.id, scheduledFor: loop.scheduledFor } : {}),
           budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
           budgetCredits: env.AGENT_RUN_MAX_CREDITS,
@@ -362,10 +393,6 @@ export async function flushAgentInbox(
     return "skipped"
   }
   if (await activeAgentRun(channelId)) return "busy"
-  // Out of credits: the items stay pending, and the inbox sweep tries again
-  // once credits are back, instead of a turn reading them and refusing.
-  if (!(await checkCredits(workspaceId)).allowed) return "skipped"
-
   const paused = await pausedAgentRun(channelId)
   if (paused) {
     if (await pendingApproval(paused.runId)) return "busy"
@@ -380,6 +407,7 @@ export async function flushAgentInbox(
       workspaceId,
       channelId,
       triggerMessageId: pausedRun?.triggerMessageId ?? null,
+      resumeFromRunId: paused.runId,
       batch: null,
       loop: pausedRun?.loopId
         ? { id: pausedRun.loopId, scheduledFor: null }
@@ -408,8 +436,25 @@ export async function flushAgentInbox(
         )
       )
     )
-  const batch = await loadInboxBatch(channelId)
+  let batch = await loadInboxBatch(channelId)
   if (!batch) return "empty"
+  const directUserId =
+    batch.loop || batch.deliveryIds.length
+      ? null
+      : await channelRequestUserId(channelId, batch.triggerMessageId)
+  const subscription = directUserId
+    ? (await personalRequestHarness(workspaceId, directUserId)) !== "pi"
+    : await autonomousUsesSubscription(workspaceId)
+  // Unfunded API work stays pending; personal subscriptions can still run.
+  if (!subscription && !(await checkCredits(workspaceId)).allowed) {
+    batch = await loadInboxBatch(channelId, async (messageId) => {
+      const userId = await channelRequestUserId(channelId, messageId)
+      return Boolean(
+        userId && (await personalRequestHarness(workspaceId, userId)) !== "pi"
+      )
+    })
+    if (!batch) return "skipped"
+  }
   const turnRun = await createTurnRun({
     workspaceId,
     channelId,
@@ -641,12 +686,11 @@ function agentHooks(
   },
   mode: RunAgentContext["mode"],
   onSent: () => void,
-  // Who woke the turn, whose plan runs the sessions it starts, the human
-  // thread it answers in (null: the chat; send_message's startThread sets
-  // it), and the message that woke it.
+  // Attribution, direct-request payer, and the place the turn answers in.
   turn: {
     askerId: string | null
     planUserId: string | null
+    requestUserId?: string | null
     threadRootId: string | null
     triggerMessageId?: string | null
   } = {
@@ -667,6 +711,7 @@ function agentHooks(
       channelName: channel.name,
       askerId: turn.askerId,
       planUserId: turn.planUserId,
+      requestUserId: turn.requestUserId ?? null,
     }),
     completeLoop: agentCompleteLoop(deps, channel.id),
     wakeUps: agentWakeUpExecutors(deps, {
@@ -795,6 +840,7 @@ export async function runAgentTurnJob(
         // went on after an approval stays where startThread moved it.
         triggerHasAgentThread: sql<boolean>`exists (select 1 from message t where t.thread_root_id = ${schema.agentRun.triggerMessageId} and t.author_id = ${LOR_USER_ID}::uuid)`,
         loopId: schema.agentRun.loopId,
+        hasDeliveries: sql<boolean>`exists (select 1 from trigger_delivery d where d.run_id = ${schema.agentRun.id})`,
       })
       .from(schema.agentRun)
       .leftJoin(
@@ -819,12 +865,26 @@ export async function runAgentTurnJob(
   }
   const workspaceId = channel.workspaceId
   const userId = run?.triggerAuthorId ?? undefined
+  const directUserId =
+    run?.loopId || run?.hasDeliveries
+      ? null
+      : await channelRequestUserId(
+          channelId,
+          run?.triggerMessageId ?? null
+        ).catch((err: unknown) => {
+          execution.stop()
+          throw err
+        })
+  const requestUserId = execution.handle.harnessAccount
+    ? execution.handle.harnessAccount.userId
+    : directUserId
   // A turn woken in a human thread answers there (loadInboxBatch keeps a
   // turn to one place, and its trigger is the first message that woke it).
   // send_message's startThread moves it into a new thread.
   const turnPlace = {
     askerId: userId ?? null,
     planUserId: userId ?? null,
+    requestUserId,
     threadRootId:
       run?.triggerThreadRootId ??
       (run?.triggerHasAgentThread ? run.triggerMessageId : null),
@@ -863,7 +923,22 @@ export async function runAgentTurnJob(
   }
 
   try {
-    const gate = await checkCredits(workspaceId)
+    if (
+      requestUserId &&
+      !(await resolveChannelAccess(requestUserId, channelId)).ok
+    )
+      throw new Error(
+        "The person who started this turn no longer has access to the channel."
+      )
+    const subscription = execution.handle.harnessAccount
+      ? execution.handle.harnessAccount.source === "subscription"
+      : !execution.handle.funding &&
+        (requestUserId
+          ? (await personalRequestHarness(workspaceId, requestUserId)) !== "pi"
+          : await autonomousUsesSubscription(workspaceId))
+    const gate = subscription
+      ? { allowed: true }
+      : await checkCredits(workspaceId)
     if (!gate.allowed) {
       // Said only to a person who asked: events and Loops would repeat it.
       if (userId) await notice(OUT_OF_CREDITS_MESSAGE)
@@ -911,6 +986,7 @@ export async function runAgentTurnJob(
         ? { triggerMessageId: run.triggerMessageId }
         : {}),
       ...(userId ? { userId } : {}),
+      autonomous: !requestUserId,
       aiSessionId: channelId,
       turn: { model: channel.agentModel ?? AGENT_DEFAULT_MODEL },
       proposeLoop: agentProposeLoop(
@@ -1079,17 +1155,27 @@ export async function runAgentTurnJob(
     // The memory pass (decision 11), on the turn's warm cache. It replaces
     // write-back for the agent; a turn paused on approvals has its pass when
     // it goes on.
-    if (result.messages.length > 0 && !stoppedByUser && !parkedApprovalId) {
+    const canRemember =
+      result.messages.length > 0 &&
+      !stoppedByUser &&
+      !parkedApprovalId &&
+      (await (async () =>
+        (await autonomousUsesSubscription(workspaceId)) ||
+        (
+          await checkCredits(workspaceId)
+        ).allowed)().catch(() => false))
+    if (canRemember) {
       await respond(
         {
           ...turnContext,
+          autonomous: true,
           agent: agentHooks(
             deps,
             execution,
             { ...channel, workspaceId },
             "memory",
             () => {},
-            turnPlace
+            { ...turnPlace, requestUserId: null }
           ),
         },
         {

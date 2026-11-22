@@ -15,6 +15,7 @@ import {
   connectGithubAccountBodySchema,
   connectGithubAccountResponseSchema,
   disconnectGithubAccountResponseSchema,
+  disconnectHarnessAccountQuerySchema,
   githubConnectUrlResponseSchema,
   personalAccountsResponseSchema,
 } from "@/routes/v1/personal-accounts/schema"
@@ -139,7 +140,9 @@ export const disconnectClaudeAccount = createRoute({
     "Deletes the stored token. It stays valid at Anthropic until it expires or is revoked there.",
   tags: ["Personal Accounts"],
   middleware: [sessionAuthMiddleware] as const,
+  request: { query: disconnectHarnessAccountQuerySchema },
   responses: {
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
     [HttpStatusCodes.OK]: jsonContent({
       schema: disconnectGithubAccountResponseSchema,
       description: "Disconnected",
@@ -183,7 +186,9 @@ export const disconnectChatgptAccount = createRoute({
   description: "Deletes the stored sign-in and its tokens.",
   tags: ["Personal Accounts"],
   middleware: [sessionAuthMiddleware] as const,
+  request: { query: disconnectHarnessAccountQuerySchema },
   responses: {
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
     [HttpStatusCodes.OK]: jsonContent({
       schema: disconnectGithubAccountResponseSchema,
       description: "Disconnected",

@@ -10,6 +10,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "@repo/ui/components/dialog"
+import { Input } from "@repo/ui/components/input"
 import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
 import { type ReactNode, useEffect, useState } from "react"
@@ -29,12 +30,15 @@ const INSTALL_DOCS = "https://developers.openai.com/codex/cli"
 export function ChatgptConnectDialog({
   open,
   onOpenChange,
+  workspaceSlug,
 }: {
   open: boolean
+  workspaceSlug?: string
   onOpenChange: (open: boolean) => void
 }) {
-  const connect = useConnectChatgptAccount()
+  const connect = useConnectChatgptAccount(workspaceSlug)
   const [authJson, setAuthJson] = useState("")
+  const [label, setLabel] = useState("")
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -45,17 +49,21 @@ export function ChatgptConnectDialog({
   useEffect(() => {
     if (!open) return
     setAuthJson("")
+    setLabel("")
     connect.reset()
   }, [open, connect.reset])
 
   const submit = () => {
-    if (!authJson.trim() || connect.isPending) return
-    connect.mutate(authJson, {
-      onSuccess: () => {
-        toast.success("ChatGPT plan connected")
-        onOpenChange(false)
-      },
-    })
+    if (!label.trim() || !authJson.trim() || connect.isPending) return
+    connect.mutate(
+      { authJson, label },
+      {
+        onSuccess: () => {
+          toast.success("ChatGPT plan connected")
+          onOpenChange(false)
+        },
+      }
+    )
   }
 
   return (
@@ -67,13 +75,30 @@ export function ChatgptConnectDialog({
     >
       <DialogPopup className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Connect your ChatGPT plan</DialogTitle>
+          <DialogTitle>
+            {workspaceSlug
+              ? "Connect a Codex subscription dedicated to Lor"
+              : "Connect a Codex account"}
+          </DialogTitle>
           <DialogDescription>
-            Use your own ChatGPT plan for Codex sessions. Only your own messages
-            use it; Lor's own agent and your teammates never do.
+            {workspaceSlug
+              ? "A separate ChatGPT subscription only for autonomous Codex work Lor starts in this workspace, such as loops and events. Your direct requests use your personal subscriptions. Enable it in Autonomous runs after connecting. Provider terms still apply."
+              : "Use this subscription for requests you send to Lor and Codex turns you start. Set its priority for each workspace here in Settings → Linked accounts."}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-6">
+          <div className="space-y-2">
+            <label htmlFor="account-label" className="text-sm font-medium">
+              Account name
+            </label>
+            <Input
+              id="account-label"
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+              maxLength={80}
+              placeholder={workspaceSlug ? "Lor's account" : "Work account"}
+            />
+          </div>
           <Step number={1} title="In a terminal on your own computer, run:">
             <div className="flex items-start gap-2">
               <code className="flex-1 break-all rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono text-xs leading-5">
@@ -141,7 +166,7 @@ export function ChatgptConnectDialog({
           </Button>
           <Button
             loading={connect.isPending}
-            disabled={!authJson.trim()}
+            disabled={!label.trim() || !authJson.trim()}
             onClick={submit}
           >
             Verify & connect

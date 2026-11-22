@@ -17,6 +17,7 @@ import type { AgentStepKind, AgentStepMessage } from "@repo/db/schema"
 import {
   generateText,
   isStepCount,
+  type LanguageModel,
   type ModelMessage,
   type ToolApprovalResponse,
   type ToolApprovalStatus,
@@ -35,7 +36,7 @@ import {
   parseFactChanges,
 } from "./channel-profile"
 import { logger } from "./logger"
-import { lorGatewayModel } from "./models"
+import { lorGatewayModel, withInferenceGuard } from "./models"
 import type {
   PendingApproval,
   RunHandle,
@@ -83,6 +84,8 @@ export type AgentTurnArgs = {
   agent: RunAgentContext
   run: RunHandle
   model: string
+  languageModel?: LanguageModel
+  byok?: boolean
   // The system prompt this turn would build fresh. The epoch keeps the one
   // its first turn built until the next compaction.
   instructions: string
@@ -427,6 +430,8 @@ export function usageLedger(args: {
   workspaceId: string
   runId: string
   model: string
+  languageModel?: LanguageModel
+  byok?: boolean
   // Names the charge in its billing key ("agent", "compact").
   label: string
   onUsage?: OnUsage
@@ -458,6 +463,7 @@ export function usageLedger(args: {
         tool: "lor.respond",
         model: args.model,
         requestedModel: args.model,
+        byok: args.byok,
         ...total,
         ...(costUsd !== null ? { costUsd } : {}),
         wallMs: Math.round(performance.now() - started),
@@ -549,6 +555,7 @@ export async function runAgentTurn(
     model: args.model,
     label: "agent",
     onUsage: args.onUsage,
+    byok: args.byok,
   })
   let toolCalls = 0
   try {
@@ -808,6 +815,8 @@ async function turnLoop(
         workspaceId,
         channelId,
         model: args.model,
+        languageModel: args.languageModel,
+        assertCanInfer: run.assertCanInfer,
         tools: args.tools,
         record: async (usage) => {
           const counters = await agent.recordUsage(usage, "compaction")
@@ -836,6 +845,8 @@ async function turnLoop(
       }
     }
 
+    await run.assertCanInfer?.()
+
     // Approved calls run inside generateText before its model call. Their
     // results are kept so a deadline abort during that call saves them
     // instead of losing them (and resending on a retry).
@@ -850,7 +861,10 @@ async function turnLoop(
     )
     const ranApproved: ToolResultPart[] = []
     const result = await generateText({
-      model: lorGatewayModel(args.model),
+      model: withInferenceGuard(
+        args.languageModel ?? lorGatewayModel(args.model),
+        run.assertCanInfer
+      ),
       // The epoch's own prompt: after an in-turn compaction, the new one.
       instructions: context.system ?? args.instructions,
       messages: withLongCache(messages, promptTokens),
@@ -1085,6 +1099,9 @@ export async function compactAgentConversation(args: {
   workspaceId: string
   channelId: string
   model: string
+  languageModel?: LanguageModel
+  assertCanInfer?: () => Promise<void>
+  byok?: boolean
   tools: ToolSet
   record: (usage: RunStepRecord & { reasoningTokens: number }) => Promise<void>
   abortSignal?: AbortSignal
@@ -1107,7 +1124,10 @@ export async function compactAgentConversation(args: {
     { role: "user", content: SUMMARY_REQUEST },
   ]
   const result = await generateText({
-    model: lorGatewayModel(args.model),
+    model: withInferenceGuard(
+      args.languageModel ?? lorGatewayModel(args.model),
+      args.assertCanInfer
+    ),
     instructions: context.system,
     messages,
     tools: inert,
@@ -1208,6 +1228,9 @@ export async function agentMemoryPass(args: {
   // The turn it follows: the pass reads the history up to that turn's end.
   turnRunId: string
   model: string
+  languageModel?: LanguageModel
+  assertCanInfer?: () => Promise<void>
+  byok?: boolean
   tools: ToolSet
   toolsContext: unknown
   gated: ReadonlySet<string>
@@ -1241,7 +1264,10 @@ export async function agentMemoryPass(args: {
   let reply = ""
   while (calls < MEMORY_PASS_CALLS) {
     const result = await generateText({
-      model: lorGatewayModel(args.model),
+      model: withInferenceGuard(
+        args.languageModel ?? lorGatewayModel(args.model),
+        args.assertCanInfer
+      ),
       instructions: context.system,
       messages,
       tools,

@@ -433,7 +433,8 @@ export type InboxBatch = {
 // Everything pending for the channel, as the text of one wake line. Null when
 // nothing in the wake lane is pending: unread items alone never start a turn.
 export async function loadInboxBatch(
-  channelId: string
+  channelId: string,
+  canStart?: (triggerMessageId: string | null) => Promise<boolean>
 ): Promise<InboxBatch | null> {
   // Payloads (notes, content, attachments) load only for the rows shown.
   const pending = await db
@@ -444,6 +445,8 @@ export async function loadInboxBatch(
       loopId: schema.agentInbox.loopId,
       sourceId: schema.agentInbox.sourceId,
       messageId: schema.message.id,
+      authorId: schema.message.authorId,
+      authorIsBot: schema.user.isBot,
       threadRootId: schema.message.threadRootId,
     })
     .from(schema.agentInbox)
@@ -451,6 +454,7 @@ export async function loadInboxBatch(
       schema.message,
       eq(schema.agentInbox.messageId, schema.message.id)
     )
+    .leftJoin(schema.user, eq(schema.message.authorId, schema.user.id))
     .where(
       and(
         eq(schema.agentInbox.channelId, channelId),
@@ -462,10 +466,29 @@ export async function loadInboxBatch(
   // first wake picks: wakes from elsewhere wait for the next turn. One Loop
   // fire per turn: its run is that fire in the Loop's history, and carries
   // its failures and its stop. Other fires wait too.
-  const place = pending.find((row) => row.lane === "wake")?.threadRootId ?? null
+  let wake = pending.find((row) => row.lane === "wake")
+  if (canStart) {
+    wake = undefined
+    for (const candidate of pending) {
+      if (candidate.lane === "wake" && (await canStart(candidate.messageId))) {
+        wake = candidate
+        break
+      }
+    }
+  }
+  if (!wake) return null
+  const place = wake.threadRootId ?? null
   const here = pending.filter((row) => (row.threadRootId ?? null) === place)
-  const loopFire = here.find((row) => row.loopId)
-  const rows = here.filter((row) => !row.loopId || row === loopFire)
+  const humanWake = Boolean(wake.authorId && !wake.authorIsBot)
+  // Each human request gets its own payer. Autonomous wakes wait for their own turn.
+  const samePayer = here.filter((row) => {
+    if (row === wake) return true
+    if (humanWake && (row.loopId || row.deliveryId)) return false
+    if (row.lane !== "wake") return true
+    return !humanWake && !(row.authorId && !row.authorIsBot)
+  })
+  const loopFire = samePayer.find((row) => row.loopId)
+  const rows = samePayer.filter((row) => !row.loopId || row === loopFire)
   const firstWake = rows.find((row) => row.lane === "wake")
   if (!firstWake) return null
 
