@@ -2,7 +2,12 @@ import { db, eq, inArray, LOR_USER_ID, schema, sql } from "@repo/db"
 import { env } from "@repo/env/server"
 import { type CreatureId, channelAgentIdentity } from "@repo/utils/bestiary"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
-import { FACES, type FaceSpec, faceKey, faceSvg } from "@repo/utils/faces"
+import {
+  STILLS,
+  type StillSpec,
+  stillKey,
+  stillSvg,
+} from "@repo/utils/face-stills"
 import sharp from "sharp"
 
 // Lor's Discord bot over REST (reference/always-on-agents.md §10). The
@@ -111,11 +116,12 @@ export function webhookSafeName(name: string) {
   return name.replace(/discord|clyde/gi, "Lor").slice(0, 80) || "Lor"
 }
 
-// The agent's face as a Discord avatar: the same drawing the app shows, on
-// a transparent background, with room around it because Discord crops
+// The agent's face as a Discord avatar: its flat still, drawn to be seen
+// from the front (the app's 3D face frozen at one angle reads worse), on a
+// transparent background, with room around it because Discord crops
 // avatars to a circle.
-async function faceAvatar(face: FaceSpec) {
-  const svg = faceSvg(face, { size: 256, pad: 3.5 })
+async function faceAvatar(face: StillSpec) {
+  const svg = stillSvg(face, { size: 256, pad: 3.5 })
   const png = await sharp(Buffer.from(svg)).png().toBuffer()
   return `data:image/png;base64,${png.toString("base64")}`
 }
@@ -172,7 +178,7 @@ export async function createAgentWebhook(input: {
   name: string
   creature: CreatureId
 }) {
-  const face = FACES[input.creature]
+  const face = STILLS[input.creature]
   const hook = await discordRequest<{ id: string; token: string }>(
     `/channels/${input.discordChannelId}/webhooks`,
     {
@@ -186,7 +192,7 @@ export async function createAgentWebhook(input: {
   return {
     webhookId: hook.id,
     webhookToken: encryptSecret(hook.token, encryptionKey()),
-    webhookCreature: faceKey(face),
+    webhookCreature: stillKey(face),
   }
 }
 
@@ -364,8 +370,8 @@ export async function postAgentToDiscord(input: {
   // Discord's webhook avatar can't be set per message without a public URL,
   // so the webhook's own avatar follows the face: a change of creature, or
   // of how one is drawn, changes its key and uploads it again.
-  const face = FACES[identity.creature]
-  const avatarKey = faceKey(face)
+  const face = STILLS[identity.creature]
+  const avatarKey = stillKey(face)
   if (link.webhookCreature !== avatarKey) {
     await discordRequest(`/webhooks/${link.webhookId}`, {
       method: "PATCH",

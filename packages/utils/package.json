@@ -22,6 +22,7 @@
     "./bestiary": "./src/bestiary.ts",
     "./bestiary-png": "./src/bestiary-png.ts",
     "./faces": "./src/faces.ts",
+    "./face-stills": "./src/face-stills.ts",
     "./inference": "./src/inference.ts",
     "./diff-hunks": "./src/diff-hunks.ts",
     "./linear-issue-block": "./src/linear-issue-block.ts"

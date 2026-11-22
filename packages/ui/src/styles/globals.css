@@ -898,43 +898,9 @@
   animation: creature-twinkle 1.4s steps(1, end) infinite;
 }
 
-/* Simple agent faces, a try-out (apps/web agent-face.tsx): the eyes scan
-   while the agent works, the body breathes while it sleeps, and a change of
-   state lands with a squash and stretch. Gaze and blinks are driven in JS. */
-/* A face's layers read its gaze from custom properties the driver writes
-   (apps/web agent-face.tsx poseVars): --gx/--gy the gaze, --el/--er/--ey
-   the eyes' foreshortening, --turn the body thinning as it turns. */
-.face-body {
-  transform-origin: 12px 13px;
-  transform: translate(calc(var(--gx) * 0.14px), calc(var(--gy) * 0.1px))
-    rotate(calc(var(--gx) * 1.6deg)) scaleX(var(--turn));
-}
-
-.face-feature {
-  transform: translate(
-    calc(var(--gx) * var(--d) * 1px),
-    calc(var(--gy) * var(--d) * 1px)
-  );
-}
-
-.face-eyes {
-  transform: translate(calc(var(--gx) * 1px), calc(var(--gy) * 1px));
-}
-
-.face-eye-left,
-.face-eye-right {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
-.face-eye-left {
-  transform: scale(var(--el), var(--ey));
-}
-
-.face-eye-right {
-  transform: scale(var(--er), var(--ey));
-}
-
+/* Agent faces (apps/web agent-face.tsx): the body breathes while the agent
+   sleeps and bobs while it works, and a change of state lands with a
+   squash and stretch. Turning, glances and blinks are driven in JS. */
 @keyframes face-pop {
   0% {
     transform: scale(0.86, 1.12);
@@ -950,18 +916,6 @@
 
   100% {
     transform: scale(1);
-  }
-}
-
-@keyframes face-scan {
-  0%,
-  100% {
-    transform: translate(-1.2px, 0.3px);
-  }
-
-  45%,
-  55% {
-    transform: translate(1.2px, 0.3px);
   }
 }
 
@@ -1003,10 +957,6 @@
   animation: face-pop 0.42s cubic-bezier(0.3, 0.7, 0.3, 1);
 }
 
-.face-scan {
-  animation: face-scan 1.6s ease-in-out infinite;
-}
-
 .face-bob {
   animation: face-bob 0.9s ease-in-out infinite;
 }
@@ -1024,7 +974,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .face-pop,
-  .face-scan,
   .face-bob,
   .face-breathe,
   .face-alert {

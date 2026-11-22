@@ -7,7 +7,7 @@
 
 export type CreatureId =
   | "dragon"
-  | "griffin"
+  | "alien"
   | "owl"
   | "skeleton"
   | "ghost"
@@ -120,9 +120,11 @@ export const CREATURES: readonly Creature[] = [
     ],
   },
   {
-    id: "griffin",
-    label: "Griffin",
-    names: ["Talon", "Aurel", "Gale"],
+    id: "alien",
+    // The griffin until 2026-11-22: the pixel art below, unused since the
+    // simple faces (decision 39), is still the griffin's.
+    label: "Alien",
+    names: ["Zorp", "Blip", "Orbit"],
     palette: [
       "#2b2620",
       "#1a1108",

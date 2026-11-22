@@ -2,71 +2,59 @@ import { cn } from "@repo/ui/lib/utils"
 import type { CreatureId, CreatureState } from "@repo/utils/bestiary"
 import {
   FACES,
-  type FaceShape,
+  type FacePose,
   type FaceSpec,
-  faceEyes,
-  shapePaint,
+  faceFrame,
+  restPose,
 } from "@repo/utils/faces"
-import { type CSSProperties, memo, useEffect, useRef } from "react"
+import { memo, useEffect, useRef, useState } from "react"
 
-// The channel agents' faces, animated (reference/always-on-agents.md,
-// decision 39): a sprung gaze that follows the pointer, idle glances,
-// blinks, and a state the face shows. What a face looks like is data in
-// @repo/utils/faces, shared with the stills drawn for Discord. The detailed
-// pixel-art set this replaced is kept, unused, in
+// The channel agents' faces, alive (reference/always-on-agents.md, decision
+// 41). A face is 3D: solids defined in @repo/utils/faces, turned in space
+// and drawn flat. Here it turns toward the pointer on a spring, glances
+// around and blinks when idle, looks about while its agent works, and bows
+// its head to sleep. The same definition draws the stills for Discord. The
+// detailed pixel-art set this replaced is kept, unused, in
 // components/agent/agent-creature.tsx.
 
-// How far the eyes travel toward what they look at, in the 24-unit box.
-const LOOK = 1.7
+// How far a face turns toward what it looks at, in radians.
+const TURN = 0.8
+const TILT = 0.45
 
-// How much an eye narrows per unit of gaze as it nears the edge.
-const NARROW = 0.16
-
-// A gaze as the custom properties a face's layers read (globals.css,
-// .face-*). The eyes go all the way, a feature goes its depth's share, and
-// the silhouette leans after them. The eye nearer the edge narrows and the
-// body thins a little, which is what makes a flat face seem to turn.
-function poseVars(x: number, y: number): Record<string, string> {
-  return {
-    "--gx": x.toFixed(3),
-    "--gy": y.toFixed(3),
-    "--el": (1 + Math.min(0, x) * NARROW).toFixed(3),
-    "--er": (1 - Math.max(0, x) * NARROW).toFixed(3),
-    "--ey": (1 - Math.abs(y) * 0.07).toFixed(3),
-    "--turn": (1 - Math.abs(x) * 0.022).toFixed(3),
-  }
-}
-
-// One driver for every face on the page: a sprung gaze toward the pointer,
-// idle glances, and blinks. It runs frames only while something moves.
+// One driver for every face on the page. It runs frames only while
+// something moves.
 type Rig = {
   root: HTMLElement
-  art: SVGSVGElement
-  lids: SVGGElement
   size: number
   rest: [number, number]
   // Looks at the pointer from anywhere (the agent is waiting on the person).
   anywhere: boolean
-  x: number
-  y: number
-  vx: number
+  // Looks about on its own (the agent is working).
+  working: boolean
+  // So faces that look about don't move in step.
+  phase: number
+  yaw: number
+  pitch: number
   vy: number
+  vp: number
   glance: [number, number] | null
   glanceUntil: number
   nextGlance: number
   nextBlink: number
   blinkUntil: number
   blinks: number
+  shown: { yaw: number; pitch: number; lids: number }
+  show: (pose: FacePose) => void
 }
 
 const rigs = new Set<Rig>()
-const pointer = { x: 0, y: 0, at: 0 }
+const pointer = { x: 0, y: 0, at: Number.NEGATIVE_INFINITY }
 let raf = 0
 let last = 0
 let clock: ReturnType<typeof setInterval> | undefined
 
-const STIFFNESS = 150
-const DAMPING = 17
+const STIFFNESS = 110
+const DAMPING = 15
 // The pointer holds a face's attention this long after it stops moving.
 const ATTENTION_MS = 3_500
 
@@ -74,20 +62,29 @@ function between(min: number, max: number) {
   return min + Math.random() * (max - min)
 }
 
+function clamp(value: number) {
+  return Math.max(-1, Math.min(1, value))
+}
+
 function step(rig: Rig, now: number, dt: number) {
   let target = rig.rest
   let busy = false
-  if (now - pointer.at < ATTENTION_MS) {
+  if (rig.working) {
+    const t = now / 1000 + rig.phase
+    target = [Math.sin(t * 2.2) * 0.5, 0.08 + Math.sin(t * 1.3) * 0.08]
+    busy = true
+  } else if (now - pointer.at < ATTENTION_MS) {
     const box = rig.root.getBoundingClientRect()
     const dx = pointer.x - (box.left + box.width / 2)
     const dy = pointer.y - (box.top + box.height / 2)
-    const distance = Math.hypot(dx, dy)
     const reach = rig.anywhere
       ? Number.POSITIVE_INFINITY
       : Math.max(rig.size * 5, 140)
-    if (distance > 0 && distance < reach) {
-      const pull = Math.min(1, distance / (rig.size * 0.8)) * LOOK
-      target = [(dx / distance) * pull, (dy / distance) * pull]
+    if (Math.hypot(dx, dy) < reach) {
+      // A pointer this far to the side has it fully turned. One that waits
+      // on the person looks across the page, so it turns more gradually.
+      const full = rig.anywhere ? 320 : Math.max(rig.size * 2.2, 60)
+      target = [clamp(dx / full) * TURN, -clamp(dy / full) * TILT]
     }
     busy = true
   } else if (rig.glance && now < rig.glanceUntil) {
@@ -96,24 +93,28 @@ function step(rig: Rig, now: number, dt: number) {
     rig.glance = null
   }
 
-  const ax = (target[0] - rig.x) * STIFFNESS - rig.vx * DAMPING
-  const ay = (target[1] - rig.y) * STIFFNESS - rig.vy * DAMPING
-  rig.vx += ax * dt
-  rig.vy += ay * dt
-  rig.x += rig.vx * dt
-  rig.y += rig.vy * dt
+  rig.vy += ((target[0] - rig.yaw) * STIFFNESS - rig.vy * DAMPING) * dt
+  rig.vp += ((target[1] - rig.pitch) * STIFFNESS - rig.vp * DAMPING) * dt
+  rig.yaw += rig.vy * dt
+  rig.pitch += rig.vp * dt
   const moving =
-    Math.abs(rig.vx) + Math.abs(rig.vy) > 0.02 ||
-    Math.abs(target[0] - rig.x) + Math.abs(target[1] - rig.y) > 0.01
-
-  const vars = poseVars(rig.x, rig.y)
-  for (const name in vars) rig.art.style.setProperty(name, vars[name] ?? "")
+    Math.abs(rig.vy) + Math.abs(rig.vp) > 0.01 ||
+    Math.abs(target[0] - rig.yaw) + Math.abs(target[1] - rig.pitch) > 0.005
 
   const blinking = now < rig.blinkUntil
-  rig.lids.style.transform = blinking ? "scaleY(0.12)" : ""
   if (!blinking && rig.blinks > 0 && now > rig.blinkUntil + 110) {
     rig.blinks -= 1
     rig.blinkUntil = now + 110
+  }
+  const lids = blinking ? 0.12 : 1
+  const { shown } = rig
+  if (
+    Math.abs(shown.yaw - rig.yaw) > 0.004 ||
+    Math.abs(shown.pitch - rig.pitch) > 0.004 ||
+    shown.lids !== lids
+  ) {
+    rig.shown = { yaw: rig.yaw, pitch: rig.pitch, lids }
+    rig.show(rig.shown)
   }
   return busy || moving || blinking || rig.blinks > 0 || rig.glance !== null
 }
@@ -152,9 +153,8 @@ function onClock() {
       due = true
     }
     if (now > rig.nextGlance) {
-      const angle = between(0, Math.PI * 2)
-      rig.glance = [Math.cos(angle) * 1.2, Math.sin(angle) * 0.8]
-      rig.glanceUntil = now + between(700, 1_600)
+      rig.glance = [between(-0.55, 0.55), between(-0.2, 0.25)]
+      rig.glanceUntil = now + between(800, 1_800)
       rig.nextGlance = now + between(5_000, 14_000)
       due = true
     }
@@ -178,19 +178,6 @@ function addRig(rig: Rig) {
   }
 }
 
-function Shape({ face, shape }: { face: FaceSpec; shape: FaceShape }) {
-  const paint = shapePaint(face, shape)
-  if ("path" in shape) return <path d={shape.path} {...paint} />
-  if ("circle" in shape) {
-    const [cx, cy, r] = shape.circle
-    return <circle cx={cx} cy={cy} r={r} {...paint} />
-  }
-  const [x, y, width, height] = shape.rect
-  return (
-    <rect x={x} y={y} width={width} height={height} rx={shape.rx} {...paint} />
-  )
-}
-
 export const AgentFace = memo(function AgentFace({
   creature,
   face: custom,
@@ -210,59 +197,56 @@ export const AgentFace = memo(function AgentFace({
   label?: string
 }) {
   const face = custom ?? FACES[creature]
-  const [eyeX, eyeY] = face.eyes
   const asleep = state === "asleep"
   const working = state === "working"
+  const anywhere = state === "needs_you"
   const rootRef = useRef<HTMLSpanElement>(null)
-  const artRef = useRef<SVGSVGElement>(null)
-  const lidsRef = useRef<SVGGElement>(null)
-  // Awake and not scanning: the driver owns the gaze.
-  const driven = !still && !asleep && !working
+  // Asleep it holds its bowed pose; otherwise the driver turns it.
+  const driven = !still && !asleep
   // The pop is for a change of state, not for arriving on the page.
   const mounted = useRef(false)
   useEffect(() => {
     mounted.current = true
   }, [])
-  const anywhere = state === "needs_you"
-  // Where it looks until the driver takes over, and wherever it never does.
-  const [restX, restY] = asleep || working ? [0, 0] : face.rest
+  const [restYaw, restPitch] = face.rest
+  // Where the driver has it now; null while it holds its resting pose.
+  const [turned, setTurned] = useState<FacePose | null>(null)
 
   useEffect(() => {
     const root = rootRef.current
-    const art = artRef.current
-    const lids = lidsRef.current
-    if (!driven || !root || !art || !lids) return
+    if (!driven || !root) return
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
     const now = performance.now()
     const remove = addRig({
       root,
-      art,
-      lids,
       size,
-      rest: [restX, restY],
+      rest: [restYaw, restPitch],
       anywhere,
-      x: restX,
-      y: restY,
-      vx: 0,
+      working,
+      phase: Math.random() * 10,
+      yaw: restYaw,
+      pitch: restPitch,
       vy: 0,
+      vp: 0,
       glance: null,
       glanceUntil: 0,
       nextGlance: now + between(3_000, 12_000),
       nextBlink: now + between(800, 5_000),
       blinkUntil: 0,
       blinks: 0,
+      shown: { yaw: restYaw, pitch: restPitch, lids: 1 },
+      show: setTurned,
     })
     return () => {
       remove()
-      lids.style.transform = ""
-      const vars = poseVars(restX, restY)
-      for (const name in vars) art.style.setProperty(name, vars[name] ?? "")
+      setTurned(null)
     }
-  }, [driven, anywhere, size, restX, restY])
+  }, [driven, anywhere, working, size, restYaw, restPitch])
 
-  const eyes = faceEyes(face, asleep)
-  const silhouette = face.shapes.filter((shape) => !shape.depth)
-  const features = face.shapes.filter((shape) => shape.depth)
+  const { shapes, eyes, eyeFill } = faceFrame(
+    face,
+    (driven && turned) || restPose(face, asleep)
+  )
 
   return (
     <span
@@ -274,7 +258,6 @@ export const AgentFace = memo(function AgentFace({
       style={{ width: size, height: size }}
     >
       <svg
-        ref={artRef}
         aria-hidden="true"
         viewBox="0 0 24 24"
         width={size}
@@ -284,49 +267,42 @@ export const AgentFace = memo(function AgentFace({
           !still && asleep && "face-breathe",
           !still && working && "face-bob"
         )}
-        style={poseVars(restX, restY) as CSSProperties}
       >
         {/* A change of state lands with a small squash and stretch. */}
-        <g
-          key={state}
-          className={cn(!still && mounted.current && "face-pop")}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        >
-          <g className="face-body">
-            {silhouette.map((shape, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: a face's shapes are a fixed, ordered list
-              <Shape key={index} face={face} shape={shape} />
-            ))}
-          </g>
-          {/* The face itself, which scans as one while the agent works. */}
-          <g className={cn(!still && working && "face-scan")}>
-            {features.map((shape, index) => (
-              <g
-                // biome-ignore lint/suspicious/noArrayIndexKey: a face's shapes are a fixed, ordered list
-                key={index}
-                className="face-feature"
-                style={{ "--d": shape.depth } as CSSProperties}
-              >
-                <Shape face={face} shape={shape} />
+        <g key={state} className={cn(!still && mounted.current && "face-pop")}>
+          {shapes.map((shape) =>
+            shape.kind === "ellipse" ? (
+              <ellipse
+                key={shape.key}
+                cx={shape.cx}
+                cy={shape.cy}
+                rx={shape.rx}
+                ry={shape.ry}
+                transform={`rotate(${shape.tilt} ${shape.cx} ${shape.cy})`}
+                fill={shape.fill}
+              />
+            ) : shape.kind === "limb" ? (
+              <g key={shape.key} fill={shape.fill}>
+                <circle cx={shape.ax} cy={shape.ay} r={shape.ar} />
+                <circle cx={shape.bx} cy={shape.by} r={shape.br} />
+                {shape.quad && <polygon points={shape.quad} />}
               </g>
+            ) : (
+              <polygon
+                key={shape.key}
+                points={shape.points}
+                fill={shape.fill}
+                stroke={shape.fill}
+                strokeWidth={shape.soft}
+                strokeLinejoin="round"
+              />
+            )
+          )}
+          <g fill={eyeFill}>
+            {eyes.map((eye, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: a face has two eyes, in order
+              <rect key={index} {...eye} />
             ))}
-            <g className="face-eyes" fill={eyes.fill}>
-              {/* Shut eyes have no lids to blink. */}
-              <g
-                ref={asleep ? undefined : lidsRef}
-                className="transition-transform duration-75 ease-out"
-                style={{ transformOrigin: `${eyeX}px ${eyeY}px` }}
-              >
-                {eyes.rects.map((rect, index) => (
-                  <rect
-                    key={rect.x}
-                    {...rect}
-                    className={index === 0 ? "face-eye-left" : "face-eye-right"}
-                  />
-                ))}
-              </g>
-            </g>
           </g>
         </g>
         {state === "needs_you" && (

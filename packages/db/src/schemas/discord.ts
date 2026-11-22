@@ -30,7 +30,7 @@ export const channelDiscordLink = pgTable(
     webhookId: text("webhook_id").notNull(),
     // Encrypted at rest (AES-256-GCM, INTEGRATION_ENCRYPTION_KEY).
     webhookToken: text("webhook_token").notNull(),
-    // A key for the face the webhook's avatar shows (`faceKey`), so a change
+    // A key for the still the webhook's avatar shows (`stillKey`), so a change
     // of creature or of its drawing re-uploads it.
     webhookCreature: text("webhook_creature"),
     // A mentionable role named after the agent, held by the bot, so people

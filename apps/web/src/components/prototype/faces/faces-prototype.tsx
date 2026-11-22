@@ -4,13 +4,14 @@ import {
   type CreatureId,
   type CreatureState,
 } from "@repo/utils/bestiary"
+import { STILLS, stillSvg } from "@repo/utils/face-stills"
 import { type ReactNode, useState } from "react"
 import { PixelCreature } from "@/components/agent/agent-creature"
 import { AgentFace } from "@/components/agent/agent-face"
 
-// Dev-only: the simple faces the app draws beside the detailed pixel
-// bestiary it no longer does (reference/always-on-agents.md, decision 39),
-// at the sizes the app uses, for working on either set.
+// Dev-only: the 3D faces the app draws beside the detailed pixel bestiary
+// it no longer does (reference/always-on-agents.md, decision 41), at the
+// sizes the app uses, for working on either set.
 
 const STATES: { id: CreatureState; label: string }[] = [
   { id: "idle", label: "Awake" },
@@ -108,11 +109,10 @@ export function FacesPrototype() {
       <div className="mx-auto max-w-5xl space-y-10">
         <header className="flex flex-wrap items-end justify-between gap-6">
           <div className="space-y-1">
-            <h1 className="font-semibold text-xl">Simpler faces</h1>
+            <h1 className="font-semibold text-xl">Agent faces</h1>
             <p className="max-w-xl text-pretty text-muted-foreground text-sm">
-              The ten creatures as they are, and redrawn as flat faces that
-              share one shape. Move the pointer near a simple face and its eyes
-              follow.
+              The 3D faces the app draws, beside the pixel creatures they
+              replaced. Move the pointer near a face and it turns to look.
             </p>
           </div>
         </header>
@@ -169,11 +169,34 @@ export function FacesPrototype() {
           </div>
         </section>
 
+        <section className="space-y-3">
+          <h2 className="font-medium text-muted-foreground text-sm">
+            Stills for Discord and Slack
+          </h2>
+          <p className="max-w-2xl text-pretty text-muted-foreground text-sm">
+            What a chat app shows as the avatar: each creature's flat front
+            view, cropped to a circle as Discord does.
+          </p>
+          <div className="flex flex-wrap gap-4 rounded-xl bg-[#313338] p-4">
+            {CREATURES.map((creature) => (
+              <img
+                key={creature.id}
+                alt={creature.label}
+                title={creature.label}
+                className="size-14 rounded-full"
+                src={`data:image/svg+xml;utf8,${encodeURIComponent(
+                  stillSvg(STILLS[creature.id], { size: 112, pad: 3.5 })
+                )}`}
+              />
+            ))}
+          </div>
+        </section>
+
         <section className="grid grid-cols-2 gap-10">
           {(
             [
               ["Pixel creatures", pixel],
-              ["Simple faces", simple],
+              ["3D faces", simple],
             ] as const
           ).map(([title, draw]) => (
             <div key={title} className="space-y-3">

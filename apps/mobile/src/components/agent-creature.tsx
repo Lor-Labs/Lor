@@ -2,12 +2,9 @@ import type { CreatureId, CreatureState } from "@repo/utils/bestiary"
 import {
   FACE_BOX,
   FACES,
-  type FaceShape,
   type FaceSpec,
-  faceEyes,
-  faceLayers,
-  shapePaint,
-  shapeShift,
+  faceFrame,
+  restPose,
 } from "@repo/utils/faces"
 import { useThemeColor } from "heroui-native/hooks"
 import { memo, useEffect, useMemo } from "react"
@@ -23,26 +20,14 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated"
-import Svg, { Circle, G, Path, Rect } from "react-native-svg"
-
-function Shape({ face, shape }: { face: FaceSpec; shape: FaceShape }) {
-  const paint = shapePaint(face, shape)
-  if ("path" in shape) return <Path d={shape.path} {...paint} />
-  if ("circle" in shape) {
-    const [cx, cy, r] = shape.circle
-    return <Circle cx={cx} cy={cy} r={r} {...paint} />
-  }
-  const [x, y, width, height] = shape.rect
-  return (
-    <Rect height={height} rx={shape.rx} width={width} x={x} y={y} {...paint} />
-  )
-}
+import Svg, { Circle, Ellipse, G, Polygon, Rect } from "react-native-svg"
 
 // The eyes' own strip of the face, so a blink scales about their centre.
 const EYE_STRIP = 6
 
-// A channel agent's face, from the same data web draws
-// (@repo/utils/faces; reference/always-on-agents.md, decision 39). There is
+// A channel agent's face, from the same 3D definition web draws
+// (@repo/utils/faces; reference/always-on-agents.md, decision 41), held at
+// its resting angle, or bowed with its eyes shut while it sleeps. There is
 // no pointer to follow on a phone, so motion only shows state: it bobs
 // while the agent works, and blinks when awake and not `still`. Lists pass
 // `still`: a row seen all day shouldn't move for decoration.
@@ -65,10 +50,18 @@ export const AgentCreature = memo(function AgentCreature({
   const working = state === "working"
   const reduced = useReducedMotion()
   const [warning, background] = useThemeColor(["warning", "background"])
-  const eyes = faceEyes(face, asleep)
-  const [restX, restY] = asleep || working ? [0, 0] : face.rest
+  const frame = useMemo(
+    () => faceFrame(face, restPose(face, asleep)),
+    [face, asleep]
+  )
   const unit = size / FACE_BOX
-  const stripTop = face.eyes[1] - EYE_STRIP / 2
+  // The middle of the eyes, which a blink closes toward.
+  const eyeLine =
+    frame.eyes.length > 0
+      ? frame.eyes.reduce((sum, eye) => sum + eye.y + eye.height / 2, 0) /
+        frame.eyes.length
+      : FACE_BOX / 2
+  const stripTop = eyeLine - EYE_STRIP / 2
 
   const bob = useSharedValue(0)
   const lids = useSharedValue(1)
@@ -116,18 +109,35 @@ export const AgentCreature = memo(function AgentCreature({
     <View style={{ height: size, width: size }}>
       <Animated.View style={bodyStyle}>
         <Svg height={size} viewBox={`0 0 ${FACE_BOX} ${FACE_BOX}`} width={size}>
-          <G strokeLinecap="round" strokeLinejoin="round">
-            {faceLayers(face).map((shape, index) => {
-              // A feature sits where the resting gaze puts it, as on web.
-              const [dx, dy] = shapeShift(shape, [restX, restY])
-              return (
-                // biome-ignore lint/suspicious/noArrayIndexKey: a face's shapes are a fixed, ordered list
-                <G key={index} translateX={dx} translateY={dy}>
-                  <Shape face={face} shape={shape} />
-                </G>
-              )
-            })}
-          </G>
+          {frame.shapes.map((shape) =>
+            shape.kind === "ellipse" ? (
+              <Ellipse
+                cx={shape.cx}
+                cy={shape.cy}
+                fill={shape.fill}
+                key={shape.key}
+                origin={`${shape.cx}, ${shape.cy}`}
+                rotation={shape.tilt}
+                rx={shape.rx}
+                ry={shape.ry}
+              />
+            ) : shape.kind === "limb" ? (
+              <G fill={shape.fill} key={shape.key}>
+                <Circle cx={shape.ax} cy={shape.ay} r={shape.ar} />
+                <Circle cx={shape.bx} cy={shape.by} r={shape.br} />
+                {shape.quad ? <Polygon points={shape.quad} /> : null}
+              </G>
+            ) : (
+              <Polygon
+                fill={shape.fill}
+                key={shape.key}
+                points={shape.points}
+                stroke={shape.fill}
+                strokeLinejoin="round"
+                strokeWidth={shape.soft}
+              />
+            )
+          )}
         </Svg>
         <Animated.View
           pointerEvents="none"
@@ -147,9 +157,10 @@ export const AgentCreature = memo(function AgentCreature({
             viewBox={`0 ${stripTop} ${FACE_BOX} ${EYE_STRIP}`}
             width={size}
           >
-            <G fill={eyes.fill} translateX={restX} translateY={restY}>
-              {eyes.rects.map((rect) => (
-                <Rect key={rect.x} {...rect} />
+            <G fill={frame.eyeFill}>
+              {frame.eyes.map((eye, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: a face has two eyes, in order
+                <Rect key={index} {...eye} />
               ))}
             </G>
           </Svg>
