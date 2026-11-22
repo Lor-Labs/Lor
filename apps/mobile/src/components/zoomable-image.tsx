@@ -129,13 +129,14 @@ export function ZoomableImage({
           panBaseY.value = ty.value - event.translationY
           return
         }
-        const max = bounds(scale.value)
+        // savedScale is the scale a pinch spring is settling to.
+        const max = bounds(savedScale.value)
         tx.value = clamp(panBaseX.value + event.translationX, max.x)
         ty.value = clamp(panBaseY.value + event.translationY, max.y)
       })
       .onEnd((event) => {
         if (pinching.value) return
-        const max = bounds(scale.value)
+        const max = bounds(savedScale.value)
         tx.value = withDecay({
           velocity: event.velocityX,
           clamp: [-max.x, max.x],
@@ -189,9 +190,22 @@ export function ZoomableImage({
     ],
   }))
 
+  // A new size (rotation) or a newly loaded aspect changes the pan bounds:
+  // drop the zoom rather than leave the image outside them.
+  const resetTransform = () => {
+    scale.value = 1
+    savedScale.value = 1
+    tx.value = 0
+    ty.value = 0
+    notifyZoom(false)
+  }
+
   const onLayout = (event: LayoutChangeEvent) => {
-    boxW.value = event.nativeEvent.layout.width
-    boxH.value = event.nativeEvent.layout.height
+    const { width, height } = event.nativeEvent.layout
+    if (width === boxW.value && height === boxH.value) return
+    boxW.value = width
+    boxH.value = height
+    resetTransform()
   }
 
   return (
@@ -207,7 +221,10 @@ export function ZoomableImage({
             accessibilityLabel={accessibilityLabel}
             onLoad={(event) => {
               const { width, height } = event.nativeEvent.source
-              if (width > 0 && height > 0) aspect.value = width / height
+              if (width > 0 && height > 0 && width / height !== aspect.value) {
+                aspect.value = width / height
+                resetTransform()
+              }
             }}
             resizeMode="contain"
             source={{ uri }}

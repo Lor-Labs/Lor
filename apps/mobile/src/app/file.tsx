@@ -334,7 +334,7 @@ function FileBody({
     file.mime.startsWith("image/") &&
     file.mime !== "image/svg+xml"
   ) {
-    return <FileImage name={file.name} url={file.url} />
+    return <FileImage key={file.url} name={file.name} url={file.url} />
   }
 
   if (!textPreviewable(file)) {
