@@ -345,15 +345,11 @@ export const FACES: Record<CreatureId, FaceSpec> = {
         ],
         r: [2.8, 0.6],
       },
-      {
-        limb: [
-          [12, 14.8, 4.6],
-          [12, 16.4, 7.4],
-        ],
-        r: [2.9, 1.2],
-        color: CREAM,
-      },
-      { ball: [12, 16.7, 8.3], r: 1, color: DARK_EYE },
+      // The muzzle is one rounded lump, with the nose sunk into its tip: a
+      // longer snout swings out past the head on a turn and the nose slides
+      // off the end of it.
+      { ball: [12, 15.7, 4.4], r: [3.6, 2.5, 2.7], color: CREAM },
+      { ball: [12, 15.2, 6.7], r: 1, color: DARK_EYE },
     ],
     eyes: {
       ...eyesOn([12, 12.2, 0], [7.4, 6, 6.4], 20, 12),
