@@ -13,7 +13,7 @@ import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useToast } from "heroui-native/toast"
 import { useEffect, useState } from "react"
-import { Image, ScrollView, Text, View } from "react-native"
+import { ScrollView, Text, View } from "react-native"
 import { CsvTable } from "@/components/csv-table"
 import { FileTypeIcon } from "@/components/file-type-icon"
 import { formatFileSize } from "@/components/message-attachments"
@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
+import { ZoomableImage } from "@/components/zoomable-image"
 import { useWorkspace } from "@/context/workspace-context"
 import { api } from "@/lib/api"
 import { fetchMessageLocation } from "@/lib/message-location"
@@ -333,14 +334,7 @@ function FileBody({
     file.mime.startsWith("image/") &&
     file.mime !== "image/svg+xml"
   ) {
-    return (
-      <Image
-        accessibilityLabel={file.name}
-        resizeMode="contain"
-        source={{ uri: file.url }}
-        style={{ flex: 1 }}
-      />
-    )
+    return <FileImage name={file.name} url={file.url} />
   }
 
   if (!textPreviewable(file)) {
@@ -384,6 +378,24 @@ function FileBody({
         mentions={[]}
       />
     </ScrollView>
+  )
+}
+
+// Swipe-to-dismiss is off while zoomed so a pan moves the image, not the sheet.
+function FileImage({ name, url }: { name: string; url: string }) {
+  const navigation = useNavigation()
+  useEffect(
+    () => () => navigation.setOptions({ gestureEnabled: true }),
+    [navigation]
+  )
+  return (
+    <ZoomableImage
+      accessibilityLabel={name}
+      onZoomChange={(zoomed) =>
+        navigation.setOptions({ gestureEnabled: !zoomed })
+      }
+      uri={url}
+    />
   )
 }
 
