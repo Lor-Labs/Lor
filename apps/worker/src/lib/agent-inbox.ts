@@ -19,7 +19,12 @@ import {
   sql,
 } from "@repo/db"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
-import { autonomousUsesSubscription } from "@repo/db/queries/personal-accounts"
+import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import {
+  autonomousUsesSubscription,
+  channelRequestUserId,
+  personalRequestHarness,
+} from "@repo/db/queries/personal-accounts"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import { env } from "@repo/env/server"
 import { type ModelMessage, respond } from "@repo/lor"
@@ -413,14 +418,6 @@ export async function flushAgentInbox(
     return "resumed"
   }
 
-  // Out of credits: the items stay pending, and the inbox sweep tries again
-  // once credits are back, instead of a turn reading them and refusing.
-  if (
-    !(await autonomousUsesSubscription(workspaceId)) &&
-    !(await checkCredits(workspaceId)).allowed
-  )
-    return "skipped"
-
   // A fire of a Loop paused, completed or deleted since is not read.
   await db
     .update(schema.agentInbox)
@@ -441,6 +438,16 @@ export async function flushAgentInbox(
     )
   const batch = await loadInboxBatch(channelId)
   if (!batch) return "empty"
+  const directUserId =
+    batch.loop || batch.deliveryIds.length
+      ? null
+      : await channelRequestUserId(channelId, batch.triggerMessageId)
+  const subscription = directUserId
+    ? (await personalRequestHarness(workspaceId, directUserId)) !== "pi"
+    : await autonomousUsesSubscription(workspaceId)
+  // Unfunded API work stays pending; personal subscriptions can still run.
+  if (!subscription && !(await checkCredits(workspaceId)).allowed)
+    return "skipped"
   const turnRun = await createTurnRun({
     workspaceId,
     channelId,
@@ -672,12 +679,11 @@ function agentHooks(
   },
   mode: RunAgentContext["mode"],
   onSent: () => void,
-  // Who woke the turn, whose plan runs the sessions it starts, the human
-  // thread it answers in (null: the chat; send_message's startThread sets
-  // it), and the message that woke it.
+  // Attribution, direct-request payer, and the place the turn answers in.
   turn: {
     askerId: string | null
     planUserId: string | null
+    requestUserId?: string | null
     threadRootId: string | null
     triggerMessageId?: string | null
   } = {
@@ -698,6 +704,7 @@ function agentHooks(
       channelName: channel.name,
       askerId: turn.askerId,
       planUserId: turn.planUserId,
+      requestUserId: turn.requestUserId ?? null,
     }),
     completeLoop: agentCompleteLoop(deps, channel.id),
     wakeUps: agentWakeUpExecutors(deps, {
@@ -826,6 +833,7 @@ export async function runAgentTurnJob(
         // went on after an approval stays where startThread moved it.
         triggerHasAgentThread: sql<boolean>`exists (select 1 from message t where t.thread_root_id = ${schema.agentRun.triggerMessageId} and t.author_id = ${LOR_USER_ID}::uuid)`,
         loopId: schema.agentRun.loopId,
+        hasDeliveries: sql<boolean>`exists (select 1 from trigger_delivery d where d.run_id = ${schema.agentRun.id})`,
       })
       .from(schema.agentRun)
       .leftJoin(
@@ -850,12 +858,20 @@ export async function runAgentTurnJob(
   }
   const workspaceId = channel.workspaceId
   const userId = run?.triggerAuthorId ?? undefined
+  const directUserId =
+    run?.loopId || run?.hasDeliveries
+      ? null
+      : await channelRequestUserId(channelId, run?.triggerMessageId ?? null)
+  const requestUserId = execution.handle.harnessAccount
+    ? execution.handle.harnessAccount.userId
+    : directUserId
   // A turn woken in a human thread answers there (loadInboxBatch keeps a
   // turn to one place, and its trigger is the first message that woke it).
   // send_message's startThread moves it into a new thread.
   const turnPlace = {
     askerId: userId ?? null,
     planUserId: userId ?? null,
+    requestUserId,
     threadRootId:
       run?.triggerThreadRootId ??
       (run?.triggerHasAgentThread ? run.triggerMessageId : null),
@@ -894,10 +910,19 @@ export async function runAgentTurnJob(
   }
 
   try {
+    if (
+      requestUserId &&
+      !(await resolveChannelAccess(requestUserId, channelId)).ok
+    )
+      throw new Error(
+        "The person who started this turn no longer has access to the channel."
+      )
     const subscription = execution.handle.harnessAccount
       ? execution.handle.harnessAccount.source === "subscription"
       : !execution.handle.funding &&
-        (await autonomousUsesSubscription(workspaceId))
+        (requestUserId
+          ? (await personalRequestHarness(workspaceId, requestUserId)) !== "pi"
+          : await autonomousUsesSubscription(workspaceId))
     const gate = subscription
       ? { allowed: true }
       : await checkCredits(workspaceId)
@@ -948,6 +973,7 @@ export async function runAgentTurnJob(
         ? { triggerMessageId: run.triggerMessageId }
         : {}),
       ...(userId ? { userId } : {}),
+      autonomous: !requestUserId,
       aiSessionId: channelId,
       turn: { model: channel.agentModel ?? AGENT_DEFAULT_MODEL },
       proposeLoop: agentProposeLoop(
@@ -1116,17 +1142,27 @@ export async function runAgentTurnJob(
     // The memory pass (decision 11), on the turn's warm cache. It replaces
     // write-back for the agent; a turn paused on approvals has its pass when
     // it goes on.
-    if (result.messages.length > 0 && !stoppedByUser && !parkedApprovalId) {
+    const canRemember =
+      result.messages.length > 0 &&
+      !stoppedByUser &&
+      !parkedApprovalId &&
+      (await (async () =>
+        (await autonomousUsesSubscription(workspaceId)) ||
+        (
+          await checkCredits(workspaceId)
+        ).allowed)().catch(() => false))
+    if (canRemember) {
       await respond(
         {
           ...turnContext,
+          autonomous: true,
           agent: agentHooks(
             deps,
             execution,
             { ...channel, workspaceId },
             "memory",
             () => {},
-            turnPlace
+            { ...turnPlace, requestUserId: null }
           ),
         },
         {

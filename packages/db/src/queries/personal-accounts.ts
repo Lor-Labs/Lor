@@ -1,14 +1,86 @@
-import { and, asc, eq } from "drizzle-orm"
+import { isHarnessEnabled } from "@repo/utils/features"
+import { and, asc, eq, sql } from "drizzle-orm"
+import { LOR_USER_ID } from "../constants"
 import { db } from "../index"
+import { channel } from "../schemas/channels"
+import { message } from "../schemas/messages"
 import {
   type HarnessAccountRoute,
   type HarnessAccountScope,
   harnessAccountPreference,
   type PersonalAccountProvider,
   personalAccount,
+  personalHarnessSettings,
   type WorkspaceHarnessSettings,
   workspaceHarnessSettings,
 } from "../schemas/personal-accounts"
+import { user } from "../schemas/users"
+
+export async function getPersonalHarnessSettings(
+  workspaceId: string,
+  userId: string
+) {
+  const [settings] = await db
+    .select()
+    .from(personalHarnessSettings)
+    .where(
+      and(
+        eq(personalHarnessSettings.workspaceId, workspaceId),
+        eq(personalHarnessSettings.userId, userId)
+      )
+    )
+  return { defaultHarness: settings?.defaultHarness ?? "auto" }
+}
+
+export async function personalRequestHarness(
+  workspaceId: string,
+  userId: string
+) {
+  const settings = await getPersonalHarnessSettings(workspaceId, userId)
+  if (settings.defaultHarness !== "auto") return settings.defaultHarness
+  for (const [harness, provider] of [
+    ["claude_code", "claude"],
+    ["codex", "chatgpt"],
+  ] as const) {
+    if (
+      isHarnessEnabled(harness) &&
+      (await hasPersonalAccount(userId, provider))
+    )
+      return harness
+  }
+  return "pi" as const
+}
+
+// Background observation of human chat does not authorize using its author's plan.
+export async function channelRequestUserId(
+  channelId: string,
+  triggerMessageId: string | null
+) {
+  if (!triggerMessageId) return null
+  const [trigger] = await db
+    .select({
+      userId: message.authorId,
+      isBot: user.isBot,
+      explicit: sql<boolean>`${message.content} like ${`%<@${LOR_USER_ID}>%`}`,
+      threadRootId: message.threadRootId,
+      wakeMode: channel.agentWakeMode,
+      repliedToLor: sql<boolean>`exists (select 1 from message r where r.id = ${message.referencedMessageId} and r.author_id = ${LOR_USER_ID}::uuid)`,
+      agentInThread: sql<boolean>`exists (select 1 from message r where r.thread_root_id = ${message.threadRootId} and r.author_id = ${LOR_USER_ID}::uuid)`,
+    })
+    .from(message)
+    .innerJoin(user, eq(user.id, message.authorId))
+    .innerJoin(channel, eq(channel.id, message.channelId))
+    .where(
+      and(eq(message.id, triggerMessageId), eq(message.channelId, channelId))
+    )
+  if (!trigger || trigger.isBot) return null
+  return trigger.explicit ||
+    trigger.repliedToLor ||
+    trigger.agentInThread ||
+    (trigger.wakeMode === "mention" && !trigger.threadRootId)
+    ? trigger.userId
+    : null
+}
 
 // Whether a person linked their own account at a provider: a Claude Code or
 // Codex turn runs only on the sender's own Claude subscription or ChatGPT plan.
@@ -59,6 +131,24 @@ export function harnessAccountOwner(scope: HarnessAccountScope) {
     : eq(personalAccount.workspaceId, scope.workspaceId)
 }
 
+export function orderHarnessAccounts<T extends { id: string }>(
+  accounts: T[],
+  preference?: { accountId: string | null; accountOrder?: string[] } | null
+) {
+  const priority = [
+    ...new Set([
+      ...(preference?.accountId ? [preference.accountId] : []),
+      ...(preference?.accountOrder ?? []),
+    ]),
+  ]
+  const positions = new Map(priority.map((id, index) => [id, index]))
+  return [...accounts].sort(
+    (a, b) =>
+      (positions.get(a.id) ?? priority.length) -
+      (positions.get(b.id) ?? priority.length)
+  )
+}
+
 export async function harnessAccountPool(
   scope: HarnessAccountScope,
   provider: "claude" | "chatgpt"
@@ -101,12 +191,10 @@ export async function harnessAccountPool(
     : provider === "claude"
       ? (settings?.claudeAutoFallback ?? true)
       : (settings?.codexAutoFallback ?? true)
-  const ordered = preferred
-    ? [
-        ...accounts.filter((a) => a.id === preferred),
-        ...accounts.filter((a) => a.id !== preferred),
-      ]
-    : accounts
+  const ordered = orderHarnessAccounts(accounts, {
+    accountId: preferred ?? null,
+    accountOrder: preference?.accountOrder,
+  })
   return {
     accounts: ordered,
     autoFallback,
@@ -162,7 +250,7 @@ export async function resolveHarnessAccount(
     throw new Error(
       scope.userId
         ? "No available linked account for this provider. Connect an account in Settings → Linked accounts, or wait for its usage limit to reset."
-        : "No available Lor account for this provider. An admin can update Workspace settings → AI accounts, or switch autonomous runs to API billing."
+        : "No available Lor account for this provider. An admin can update Workspace settings → Autonomous runs, or switch autonomous runs to API billing."
     )
   return { ...base, source: "subscription", accountId: account.id }
 }

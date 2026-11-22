@@ -83,7 +83,7 @@ const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "members", label: "Members & Roles", icon: UserGroupIcon },
   { id: "connectors", label: "Connectors", icon: Plug01Icon },
   { id: "custom-tools", label: "Tools", icon: Wrench01Icon },
-  { id: "ai-accounts", label: "AI accounts", icon: Layers01Icon },
+  { id: "ai-accounts", label: "Autonomous runs", icon: Layers01Icon },
   { id: "agent", label: "Agent profiles", icon: Layers01Icon },
   { id: "approvals", label: "Approvals", icon: CheckmarkSquare02Icon },
   { id: "instructions", label: "LOR.md", icon: Scroll01Icon },

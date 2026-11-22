@@ -14,7 +14,11 @@ import {
   sql,
 } from "@repo/db"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
-import { getWorkspaceHarnessSettings } from "@repo/db/queries/personal-accounts"
+import {
+  getWorkspaceHarnessSettings,
+  personalRequestHarness,
+  resolveHarnessAccount,
+} from "@repo/db/queries/personal-accounts"
 import { createSession, toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import { type AgentSessionTools, addInboxNote } from "@repo/lor/channel-agent"
 import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
@@ -133,10 +137,19 @@ async function runTask(
     workspaceId: string
     channelId: string
     threadRootId: string
+    harness: "pi" | "claude_code" | "codex"
   },
   channelName: string | null,
-  task: string
+  task: string,
+  requestUserId: string | null
 ): Promise<"started" | "busy" | "failed"> {
+  const harnessAccount =
+    session.harness === "pi"
+      ? undefined
+      : await resolveHarnessAccount(
+          { workspaceId: session.workspaceId, userId: requestUserId },
+          session.harness === "claude_code" ? "claude" : "chatgpt"
+        )
   const { messageId } = await postLorMessage(deps, {
     channelId: session.channelId,
     threadRootId: session.threadRootId,
@@ -152,6 +165,7 @@ async function runTask(
     threadRootId: session.threadRootId,
     scopeKey: session.threadRootId,
     triggerMessageId: messageId,
+    harnessAccount,
   }).catch(async (err: unknown) => {
     // Failed before a run took the brief: remove it. Once a run exists it
     // may point at the brief as its trigger, so it stays.
@@ -196,9 +210,9 @@ export function agentSessionExecutors(
     channelName: string | null
     // Who woke the agent: they follow the sessions it starts for them.
     askerId: string | null
-    // Whose Claude or ChatGPT plan runs the sessions it starts: the asker,
-    // or on a turn no person started, whoever set up its Loop or trigger.
     planUserId: string | null
+    // Set only for a direct request; automation attribution is not a payer.
+    requestUserId: string | null
   }
 ): AgentSessionTools {
   const { workspaceId, channelId, channelName } = args
@@ -246,13 +260,16 @@ export function agentSessionExecutors(
         }
       }
 
-      // Agent-created sessions always use the workspace autonomous policy.
       const settings = await getWorkspaceHarnessSettings(workspaceId)
-      const harness = wanted ?? settings.defaultHarness
+      const harness =
+        wanted ??
+        (args.requestUserId
+          ? await personalRequestHarness(workspaceId, args.requestUserId)
+          : settings.defaultHarness)
       if (!isHarnessEnabled(harness))
         return {
           error:
-            "The configured autonomous agent is unavailable. Update Workspace settings → AI accounts.",
+            "The selected coding agent is unavailable. Update your linked accounts or the workspace's autonomous settings.",
         }
 
       const audience = args.askerId
@@ -266,7 +283,6 @@ export function agentSessionExecutors(
           workspaceId,
           channelId,
           authorId: LOR_USER_ID,
-          // Attribution only; this person does not fund autonomous turns.
           creatorId: args.askerId,
           origin: "agent",
           harness,
@@ -301,12 +317,16 @@ export function agentSessionExecutors(
       }).catch((err) =>
         logger.warn({ err, sessionId }, "Agent session line failed")
       )
-      const started = await runTask(deps, session, channelName, task).catch(
-        (err: unknown) => {
-          logger.warn({ err, sessionId }, "Agent session first turn failed")
-          return "failed" as const
-        }
-      )
+      const started = await runTask(
+        deps,
+        session,
+        channelName,
+        task,
+        args.requestUserId
+      ).catch((err: unknown) => {
+        logger.warn({ err, sessionId }, "Agent session first turn failed")
+        return "failed" as const
+      })
       if (started !== "started") {
         logger.warn({ sessionId, started }, "Agent session did not start")
         return {
@@ -320,7 +340,7 @@ export function agentSessionExecutors(
       return {
         sessionId,
         title,
-        runsOn: `${harness === "pi" ? "Lor" : harness === "codex" ? "Codex" : "Claude Code"} with workspace autonomous billing`,
+        runsOn: `${harness === "pi" ? "Lor" : harness === "codex" ? "Codex" : "Claude Code"} with ${args.requestUserId && harness !== "pi" ? "the requester's personal subscription" : "workspace API or autonomous billing"}`,
         repo: allowed.repo.fullName,
         baseBranch: branch,
         branch: newBranch,
@@ -402,7 +422,13 @@ export function agentSessionExecutors(
             "The session is working. Wait for its report, or stop it first.",
         }
       }
-      const started = await runTask(deps, session, channelName, message)
+      const started = await runTask(
+        deps,
+        session,
+        channelName,
+        message,
+        args.requestUserId
+      )
       if (started === "failed") {
         return {
           error: "The follow-up did not start. You can send it again.",

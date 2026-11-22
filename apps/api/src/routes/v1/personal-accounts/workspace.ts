@@ -1,9 +1,11 @@
 import { createRoute, z } from "@hono/zod-openapi"
-import { and, asc, db, eq, schema } from "@repo/db"
+import { and, asc, db, eq, inArray, schema } from "@repo/db"
 import { workspaceInferenceKeyId } from "@repo/db/queries/inference"
 import {
+  getPersonalHarnessSettings,
   getWorkspaceHarnessSettings,
   harnessAccountOwner,
+  orderHarnessAccounts,
 } from "@repo/db/queries/personal-accounts"
 import { keyFunding } from "@repo/lor/byok"
 import { isLorCreditModel } from "@repo/lor/model-catalog"
@@ -25,7 +27,15 @@ const provider = z.enum(["claude", "chatgpt"])
 const params = z.object({ workspaceSlug: z.string() })
 const preference = z.object({
   accountId: z.string().uuid().nullable(),
+  accountOrder: z
+    .array(z.string().uuid())
+    .max(500)
+    .refine((ids) => new Set(ids).size === ids.length, "Duplicate accounts")
+    .optional(),
   autoFallback: z.boolean(),
+})
+const personalSettings = z.object({
+  defaultHarness: z.enum(["auto", "pi", "claude_code", "codex"]),
 })
 const settings = z.object({
   defaultHarness: z.enum(["pi", "claude_code", "codex"]),
@@ -52,6 +62,7 @@ const account = z.object({
 const response = z.object({
   canManage: z.boolean(),
   personal: z.array(account),
+  personalSettings,
   accounts: z.array(account),
   preferences: z.object({ claude: preference, chatgpt: preference }),
   settings: settings.nullable(),
@@ -101,6 +112,19 @@ const saveSettings = createRoute({
   },
   responses: ok,
 })
+const savePersonalSettings = createRoute({
+  ...common,
+  path: `${path}/personal-agent`,
+  method: "put",
+  request: {
+    params,
+    body: jsonContent({
+      schema: personalSettings,
+      description: "Your agent for direct requests in this workspace",
+    }),
+  },
+  responses: ok,
+})
 const connect = createRoute({
   ...common,
   path: `${path}/accounts/{provider}`,
@@ -132,36 +156,38 @@ async function snapshot(
   userId: string,
   canManage: boolean
 ) {
-  const [personal, accounts, preferences, saved] = await Promise.all([
-    db
-      .select()
-      .from(schema.personalAccount)
-      .where(eq(schema.personalAccount.userId, userId))
-      .orderBy(
-        asc(schema.personalAccount.createdAt),
-        asc(schema.personalAccount.id)
-      ),
-    canManage
-      ? db
-          .select()
-          .from(schema.personalAccount)
-          .where(eq(schema.personalAccount.workspaceId, workspaceId))
-          .orderBy(
-            asc(schema.personalAccount.createdAt),
-            asc(schema.personalAccount.id)
+  const [personal, accounts, preferences, saved, personalPolicy] =
+    await Promise.all([
+      db
+        .select()
+        .from(schema.personalAccount)
+        .where(eq(schema.personalAccount.userId, userId))
+        .orderBy(
+          asc(schema.personalAccount.createdAt),
+          asc(schema.personalAccount.id)
+        ),
+      canManage
+        ? db
+            .select()
+            .from(schema.personalAccount)
+            .where(eq(schema.personalAccount.workspaceId, workspaceId))
+            .orderBy(
+              asc(schema.personalAccount.createdAt),
+              asc(schema.personalAccount.id)
+            )
+        : [],
+      db
+        .select()
+        .from(schema.harnessAccountPreference)
+        .where(
+          and(
+            eq(schema.harnessAccountPreference.workspaceId, workspaceId),
+            eq(schema.harnessAccountPreference.userId, userId)
           )
-      : [],
-    db
-      .select()
-      .from(schema.harnessAccountPreference)
-      .where(
-        and(
-          eq(schema.harnessAccountPreference.workspaceId, workspaceId),
-          eq(schema.harnessAccountPreference.userId, userId)
-        )
-      ),
-    canManage ? getWorkspaceHarnessSettings(workspaceId) : null,
-  ])
+        ),
+      canManage ? getWorkspaceHarnessSettings(workspaceId) : null,
+      getPersonalHarnessSettings(workspaceId, userId),
+    ])
   const masked = (rows: typeof personal) =>
     rows.flatMap((row) =>
       row.provider === "github"
@@ -183,12 +209,17 @@ async function snapshot(
     const pref = preferences.find((row) => row.provider === p)
     return {
       accountId: pref?.accountId ?? null,
+      accountOrder: orderHarnessAccounts(
+        personal.filter((row) => row.provider === p),
+        pref
+      ).map((row) => row.id),
       autoFallback: pref?.autoFallback ?? true,
     }
   }
   return {
     canManage,
     personal: masked(personal),
+    personalSettings: personalPolicy,
     accounts: masked(accounts),
     preferences: { claude: pick("claude"), chatgpt: pick("chatgpt") },
     settings: saved,
@@ -231,15 +262,64 @@ const router = createRouter()
       200
     )
   })
+  .openapi(savePersonalSettings, async (c) => {
+    const values = c.req.valid("json")
+    if (values.defaultHarness !== "auto")
+      assertHarnessEnabled(values.defaultHarness)
+    await db
+      .insert(schema.personalHarnessSettings)
+      .values({
+        workspaceId: c.var.workspace.id,
+        userId: c.var.user.id,
+        ...values,
+      })
+      .onConflictDoUpdate({
+        target: [
+          schema.personalHarnessSettings.workspaceId,
+          schema.personalHarnessSettings.userId,
+        ],
+        set: values,
+      })
+    return c.json(
+      await snapshot(
+        c.var.workspace.id,
+        c.var.user.id,
+        hasWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
+      ),
+      200
+    )
+  })
   .openapi(savePreference, async (c) => {
     const { provider } = c.req.valid("param")
-    const values = c.req.valid("json")
+    const input = c.req.valid("json")
+    const values = {
+      ...input,
+      accountId: input.accountOrder
+        ? (input.accountOrder[0] ?? null)
+        : input.accountId,
+    }
     await assertAccount(
       c.var.workspace.id,
       c.var.user.id,
       provider,
       values.accountId
     )
+    if (values.accountOrder?.length) {
+      const owned = await db
+        .select({ id: schema.personalAccount.id })
+        .from(schema.personalAccount)
+        .where(
+          and(
+            eq(schema.personalAccount.userId, c.var.user.id),
+            eq(schema.personalAccount.provider, provider),
+            inArray(schema.personalAccount.id, values.accountOrder)
+          )
+        )
+      if (owned.length !== values.accountOrder.length)
+        throw new HTTPException(400, {
+          message: "Only order your own accounts of this provider.",
+        })
+    }
     await db
       .insert(schema.harnessAccountPreference)
       .values({

@@ -77,13 +77,13 @@ export function ChatgptConnectDialog({
         <DialogHeader>
           <DialogTitle>
             {workspaceSlug
-              ? "Connect a Codex account for Lor"
+              ? "Connect a Codex subscription dedicated to Lor"
               : "Connect a Codex account"}
           </DialogTitle>
           <DialogDescription>
             {workspaceSlug
-              ? "A dedicated ChatGPT account for autonomous Codex runs in this workspace. Enable it in AI accounts after connecting. Provider terms still apply to this use."
-              : "Use this account for Codex turns you start. Choose its default workspaces in Workspace settings → AI accounts."}
+              ? "A separate ChatGPT subscription only for autonomous Codex work Lor starts in this workspace, such as loops and events. Your direct requests use your personal subscriptions. Enable it in Autonomous runs after connecting. Provider terms still apply."
+              : "Use this subscription for requests you send to Lor and Codex turns you start. Set its priority for each workspace here in Settings → Linked accounts."}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-6">

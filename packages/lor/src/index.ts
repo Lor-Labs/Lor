@@ -29,6 +29,7 @@ import {
 } from "@repo/db/queries/channel-access"
 import {
   getWorkspaceHarnessSettings,
+  personalRequestHarness,
   resolveHarnessAccount,
 } from "@repo/db/queries/personal-accounts"
 import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
@@ -2747,8 +2748,29 @@ async function respondImpl(
     }
   }
   await assertWorkspaceActive(ctx.workspaceId)
+  const memoryInference =
+    ctx.agent?.mode === "memory"
+      ? await autonomousInference(ctx.workspaceId, run?.runId)
+      : null
+  if (memoryInference && run) {
+    ctx = {
+      ...ctx,
+      autonomous: true,
+      harnessAccount: memoryInference.route ?? undefined,
+    }
+    // Memory has a separate workspace payer; never alter the answer's pinned route.
+    run = {
+      ...run,
+      harnessAccount: memoryInference.route ?? undefined,
+      funding: memoryInference.funding,
+      resume: null,
+      pinHarnessAccount: undefined,
+      pinInferenceFunding: undefined,
+      assertCanInfer: memoryInference.assertCanInfer,
+    }
+  }
   const policy =
-    ctx.autonomous || ctx.agent
+    ctx.autonomous || (ctx.agent && ctx.autonomous !== false)
       ? await getWorkspaceHarnessSettings(ctx.workspaceId)
       : null
   if (ctx.agent) {
@@ -2760,10 +2782,19 @@ async function respondImpl(
           ? "codex"
           : run?.funding
             ? "pi"
-            : policy?.defaultHarness
+            : !ctx.autonomous && ctx.userId
+              ? await personalRequestHarness(ctx.workspaceId, ctx.userId)
+              : policy?.defaultHarness
     if (selected === "claude_code" || selected === "codex") {
       const route = await resolveHarnessAccount(
-        { workspaceId: ctx.workspaceId, userId: null },
+        {
+          workspaceId: ctx.workspaceId,
+          userId: pinned
+            ? pinned.userId
+            : !ctx.autonomous
+              ? (ctx.userId ?? null)
+              : null,
+        },
         selected === "claude_code" ? "claude" : "chatgpt",
         { pinned }
       )
@@ -3373,18 +3404,20 @@ async function respondImpl(
         : native
           ? `${native.provider}/${native.model}`
           : (funding?.model ?? ctx.turn?.model ?? LOR_MODEL)
-      const harnessInference = ctx.harnessAccount
-        ? agentHarnessModel({
-            route: ctx.harnessAccount,
-            model: agentModel,
-            run:
-              ctx.agent.mode === "memory"
-                ? { ...run, pinHarnessAccount: undefined }
-                : run,
-            api: harnessApi,
-          })
-        : null
+      const harnessInference =
+        ctx.harnessAccount && !memoryInference
+          ? agentHarnessModel({
+              route: ctx.harnessAccount,
+              model: agentModel,
+              run:
+                ctx.agent.mode === "memory"
+                  ? { ...run, pinHarnessAccount: undefined }
+                  : run,
+              api: harnessApi,
+            })
+          : null
       const languageModel =
+        memoryInference?.model ??
         harnessInference?.model ??
         (native ? nativeLanguageModel(native) : undefined)
       const agentUsage = subscription ? undefined : onUsage
@@ -3512,6 +3545,7 @@ async function respondImpl(
         }
       } finally {
         await harnessInference?.close()
+        await memoryInference?.close()
       }
     }
 

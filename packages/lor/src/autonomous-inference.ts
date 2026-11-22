@@ -99,6 +99,8 @@ export async function autonomousInference(workspaceId: string, runId?: string) {
         })
       : null
   return {
+    route,
+    funding,
     subscription,
     byok: funding?.source === "byok",
     model:

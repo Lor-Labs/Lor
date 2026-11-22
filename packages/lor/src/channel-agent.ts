@@ -444,6 +444,8 @@ export async function loadInboxBatch(
       loopId: schema.agentInbox.loopId,
       sourceId: schema.agentInbox.sourceId,
       messageId: schema.message.id,
+      authorId: schema.message.authorId,
+      authorIsBot: schema.user.isBot,
       threadRootId: schema.message.threadRootId,
     })
     .from(schema.agentInbox)
@@ -451,6 +453,7 @@ export async function loadInboxBatch(
       schema.message,
       eq(schema.agentInbox.messageId, schema.message.id)
     )
+    .leftJoin(schema.user, eq(schema.message.authorId, schema.user.id))
     .where(
       and(
         eq(schema.agentInbox.channelId, channelId),
@@ -464,8 +467,18 @@ export async function loadInboxBatch(
   // its failures and its stop. Other fires wait too.
   const place = pending.find((row) => row.lane === "wake")?.threadRootId ?? null
   const here = pending.filter((row) => (row.threadRootId ?? null) === place)
-  const loopFire = here.find((row) => row.loopId)
-  const rows = here.filter((row) => !row.loopId || row === loopFire)
+  const wake = here.find((row) => row.lane === "wake")
+  if (!wake) return null
+  const humanWake = Boolean(wake.authorId && !wake.authorIsBot)
+  // Each human request gets its own payer. Autonomous wakes wait for their own turn.
+  const samePayer = here.filter((row) => {
+    if (row === wake) return true
+    if (humanWake && (row.loopId || row.deliveryId)) return false
+    if (row.lane !== "wake") return true
+    return !humanWake && !(row.authorId && !row.authorIsBot)
+  })
+  const loopFire = samePayer.find((row) => row.loopId)
+  const rows = samePayer.filter((row) => !row.loopId || row === loopFire)
   const firstWake = rows.find((row) => row.lane === "wake")
   if (!firstWake) return null
 

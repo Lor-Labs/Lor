@@ -13,21 +13,19 @@ import { features } from "@repo/utils/features"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useId, useState } from "react"
 import { HarnessLogo } from "@/components/session/harness-logo"
+import { AccountLimit } from "@/components/settings/account-limit"
 import { ChatgptConnectDialog } from "@/components/settings/chatgpt-connect-dialog"
 import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog"
-import { AccountLimit } from "@/components/settings/linked-accounts-settings"
 import { InlineConfirmButton } from "@/components/ui/inline-confirm-button"
 import { agentModelsQueryOptions } from "@/hooks/use-agent-models"
-import { apiClient } from "@/lib/api-client"
+import {
+  type HarnessAccountsData as Data,
+  harnessAccountsEndpoint as endpoint,
+  harnessAccountsQueryOptions,
+} from "@/hooks/use-harness-accounts"
+import { useSettings } from "@/hooks/use-settings"
 import { SettingsGroup, SettingsSection } from "./settings-group"
 
-const endpoint = apiClient.v1.workspaces[":workspaceSlug"]["ai-accounts"]
-async function load(workspaceSlug: string) {
-  const res = await endpoint.$get({ param: { workspaceSlug } })
-  if (!res.ok) throw new Error("Couldn't load AI accounts")
-  return res.json()
-}
-type Data = Awaited<ReturnType<typeof load>>
 type Settings = NonNullable<Data["settings"]>
 type Provider = "claude" | "chatgpt"
 const providers = ["claude", "chatgpt"] as const
@@ -44,31 +42,14 @@ export function AiAccountsSettings({
 }) {
   const client = useQueryClient()
   const key = ["ai-accounts", workspaceSlug]
-  const query = useQuery({ queryKey: key, queryFn: () => load(workspaceSlug) })
+  const query = useQuery(harnessAccountsQueryOptions(workspaceSlug))
+  const { open: openSettings } = useSettings()
   const [connect, setConnect] = useState<Provider | null>(null)
-  const [personalConnect, setPersonalConnect] = useState<Provider | null>(null)
   const models = useQuery(agentModelsQueryOptions("pi", workspaceSlug))
   const changed = (data: Data) => {
     client.setQueryData(key, data)
     void client.invalidateQueries({ queryKey: ["agent-models"] })
   }
-  const savePreference = useMutation({
-    mutationFn: async (value: {
-      provider: Provider
-      accountId: string | null
-      autoFallback: boolean
-    }) => {
-      const { provider, ...json } = value
-      const res = await endpoint.preferences[":provider"].$put({
-        param: { workspaceSlug, provider },
-        json,
-      })
-      if (!res.ok) throw new Error("Couldn't save your workspace default")
-      return res.json()
-    },
-    onSuccess: changed,
-    onError: (err) => toast.error(err.message),
-  })
   const saveSettings = useMutation({
     mutationFn: async (json: Settings) => {
       const res = await endpoint.autonomous.$put({
@@ -117,74 +98,37 @@ export function AiAccountsSettings({
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-lg font-semibold">AI accounts</h2>
+        <h2 className="text-lg font-semibold">Lor’s autonomous runs</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Choose who pays for your turns and for work Lor starts on its own.
+          Configure billing and dedicated coding-agent subscriptions for work
+          Lor starts on its own.
         </p>
       </div>
-      <SettingsSection title="Your defaults in this workspace">
-        <p className="mb-3 text-sm text-muted-foreground">
-          These accounts are used for messages and commands you send. Your
-          teammates keep their own defaults.
+      <div className="space-y-2 rounded-xl border bg-muted/30 p-4">
+        <p className="text-sm font-medium">Only for autonomous work</p>
+        <p className="text-sm text-muted-foreground">
+          Dedicated accounts here belong to Lor and are used only for loops,
+          events, and other work it starts on its own. When you ask Lor to do
+          something, it uses your personal subscriptions.
         </p>
-        <SettingsGroup>
-          {providers.filter(enabled).map((provider) => {
-            const accounts = data.personal.filter(
-              (a) => a.provider === provider
-            )
-            const pref = data.preferences[provider]
-            return (
-              <div key={provider} className="space-y-3 py-4">
-                <ProviderHeading provider={provider}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setPersonalConnect(provider)}
-                  >
-                    Add account
-                  </Button>
-                </ProviderHeading>
-                <Choice
-                  label={`${names[provider]} default account`}
-                  value={pref.accountId ?? "first"}
-                  disabled={savePreference.isPending}
-                  options={[
-                    { value: "first", label: "First linked account" },
-                    ...accounts.map((a) => ({
-                      value: a.id,
-                      label: labelFor(a),
-                    })),
-                  ]}
-                  onChange={(value) =>
-                    savePreference.mutate({
-                      provider,
-                      ...pref,
-                      accountId: value === "first" ? null : value,
-                    })
-                  }
-                />
-                {accounts.length === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Connect an account to use {names[provider]}.
-                  </p>
-                )}
-                <Fallback
-                  checked={pref.autoFallback}
-                  disabled={savePreference.isPending}
-                  onChange={(autoFallback) =>
-                    savePreference.mutate({ provider, ...pref, autoFallback })
-                  }
-                />
-              </div>
-            )
-          })}
-        </SettingsGroup>
-      </SettingsSection>
+        <Button
+          variant="link"
+          className="h-auto p-0 text-sm"
+          onClick={() => openSettings("user", "linked-accounts")}
+        >
+          Manage your subscriptions in user settings
+        </Button>
+      </div>
+      {!data.canManage && (
+        <p className="text-sm text-muted-foreground">
+          An admin manages Lor’s dedicated subscriptions and autonomous billing.
+        </p>
+      )}
       {data.canManage && settings && (
-        <SettingsSection title="Autonomous runs">
+        <SettingsSection title="Autonomous agent and billing">
           <p className="mb-4 text-sm text-muted-foreground">
-            Loops, events, and work started by Lor use workspace billing.
-            Personal subscriptions are never borrowed for these runs.
+            API billing is the default. To use a coding-agent subscription,
+            connect a separate account dedicated to Lor, then enable it below.
           </p>
           <SettingsGroup>
             <div className="space-y-2 py-4">
@@ -209,7 +153,7 @@ export function AiAccountsSettings({
                 }
               />
               <p className="text-xs text-muted-foreground">
-                Used for channel agents and new autonomous sessions.
+                Used for background channel work and new autonomous sessions.
               </p>
             </div>
             <div className="space-y-2 py-4">
@@ -258,7 +202,7 @@ export function AiAccountsSettings({
                       size="sm"
                       onClick={() => setConnect(provider)}
                     >
-                      Add Lor account
+                      Connect dedicated subscription
                     </Button>
                   </ProviderHeading>
                   <Choice
@@ -275,7 +219,8 @@ export function AiAccountsSettings({
                         ? [
                             {
                               value: "subscription",
-                              label: "Dedicated Lor subscription",
+                              label:
+                                "Subscription dedicated to Lor · autonomous only",
                             },
                           ]
                         : []),
@@ -387,18 +332,6 @@ export function AiAccountsSettings({
           if (!open) setConnect(null)
         }}
         workspaceSlug={workspaceSlug}
-      />
-      <ClaudeConnectDialog
-        open={personalConnect === "claude"}
-        onOpenChange={(open) => {
-          if (!open) setPersonalConnect(null)
-        }}
-      />
-      <ChatgptConnectDialog
-        open={personalConnect === "chatgpt"}
-        onOpenChange={(open) => {
-          if (!open) setPersonalConnect(null)
-        }}
       />
     </div>
   )

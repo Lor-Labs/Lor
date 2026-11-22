@@ -72,13 +72,13 @@ export function ClaudeConnectDialog({
         <DialogHeader>
           <DialogTitle>
             {workspaceSlug
-              ? "Connect a Claude account for Lor"
+              ? "Connect a Claude Code subscription dedicated to Lor"
               : "Connect a Claude account"}
           </DialogTitle>
           <DialogDescription>
             {workspaceSlug
-              ? "A dedicated account for autonomous Claude Code runs in this workspace. Enable it in AI accounts after connecting. Provider terms still apply to this use."
-              : "Use this account for Claude Code turns you start. Choose its default workspaces in Workspace settings → AI accounts."}
+              ? "Only for autonomous work Lor starts in this workspace, such as loops and events. Your direct requests use your personal subscriptions. Enable this dedicated account in Autonomous runs after connecting. Provider terms still apply."
+              : "Use this subscription for requests you send to Lor and Claude Code turns you start. Set its priority for each workspace here in Settings → Linked accounts."}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-6">

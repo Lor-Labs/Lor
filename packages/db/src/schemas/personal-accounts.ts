@@ -120,6 +120,10 @@ export const harnessAccountPreference = pgTable(
     accountId: uuid("account_id").references(() => personalAccount.id, {
       onDelete: "set null",
     }),
+    accountOrder: jsonb("account_order")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     autoFallback: boolean("auto_fallback").notNull().default(true),
   },
   (table) => [
@@ -161,6 +165,24 @@ export const workspaceHarnessSettings = pgTable("workspace_harness_settings", {
   claudeAutoFallback: boolean("claude_auto_fallback").notNull().default(true),
   codexAutoFallback: boolean("codex_auto_fallback").notNull().default(true),
 })
+
+export const personalHarnessSettings = pgTable(
+  "personal_harness_settings",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    defaultHarness: text("default_harness", {
+      enum: ["auto", "pi", "claude_code", "codex"],
+    })
+      .notNull()
+      .default("auto"),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.workspaceId] })]
+)
 
 export type HarnessAccountScope = {
   workspaceId: string
