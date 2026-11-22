@@ -8,7 +8,7 @@ import type {
   Experimental_SandboxSession as SandboxSession,
 } from "ai"
 import { logger } from "../logger"
-import type { HarnessOwner } from "../session-core"
+import type { HarnessOwner as SessionHarnessOwner } from "../session-core"
 import { guardSandbox } from "./beta-compute"
 import {
   baseConfig,
@@ -44,6 +44,8 @@ import {
 // session is archived (reference/planned/pi-harness-runbook.md §4.10).
 
 // Runaway guard per command; the adapter does not pass the model's timeout.
+type HarnessOwner = SessionHarnessOwner | { agentRunId: string }
+
 const RUN_TIMEOUT_SEC = 1800
 const LOG_POLL_MS = 500
 // Completion polling starts fast so the adapter's many short path checks stay
@@ -116,7 +118,11 @@ export const CHATGPT_TOKEN_PLACEHOLDER = "{{SECRET:chatgpt}}"
 const CLAUDE_API_HOST = "api.anthropic.com"
 const CHATGPT_HOST = "chatgpt.com"
 
-export type HarnessAccess = { claudeToken: string } | { chatgptToken: string }
+export const API_TOKEN_PLACEHOLDER = "{{SECRET:inference}}"
+export type HarnessAccess =
+  | { claudeToken: string }
+  | { chatgptToken: string }
+  | { apiToken: string; baseUrl: string }
 
 // Boat has no proxy: a turn on a Boat sandbox passes the credential itself in
 // place of the placeholder (SessionSandbox.provider), so these do nothing.
@@ -125,9 +131,11 @@ export async function grantHarnessAccess(
   access: HarnessAccess
 ): Promise<void> {
   const [host, secrets] =
-    "claudeToken" in access
-      ? [CLAUDE_API_HOST, { claude: access.claudeToken }]
-      : [CHATGPT_HOST, { chatgpt: access.chatgptToken }]
+    "apiToken" in access
+      ? [new URL(access.baseUrl).hostname, { inference: access.apiToken }]
+      : "claudeToken" in access
+        ? [CLAUDE_API_HOST, { claude: access.claudeToken }]
+        : [CHATGPT_HOST, { chatgpt: access.chatgptToken }]
   if (await onBoat(owner)) return
   await SandboxInstance.updateNetwork(sessionSandboxName(owner), {
     network: {
@@ -518,7 +526,9 @@ async function findBlaxelSandbox(
 export function sessionSandboxName(owner: HarnessOwner): string {
   return "sessionId" in owner
     ? `ses-${owner.sessionId}`
-    : `call-${owner.voiceSessionId}`
+    : "voiceSessionId" in owner
+      ? `call-${owner.voiceSessionId}`
+      : `run-${owner.agentRunId}`
 }
 
 export type SessionSandbox = {

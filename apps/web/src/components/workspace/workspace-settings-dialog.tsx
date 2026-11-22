@@ -27,6 +27,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useDesktopChrome } from "@/components/desktop-window-frame"
 import { AgentProfilesSection } from "@/components/workspace/agent-profiles-section"
+import { AiAccountsSettings } from "@/components/workspace/ai-accounts-settings"
 import { ApprovalsSection } from "@/components/workspace/approvals-section"
 import { BillingSection } from "@/components/workspace/billing-section"
 import { ConnectorsSection } from "@/components/workspace/connectors-section"
@@ -75,12 +76,14 @@ export type SectionId =
   | "approvals"
   | "instructions"
   | "billing"
+  | "ai-accounts"
 
 const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "general", label: "General", icon: Settings01Icon },
   { id: "members", label: "Members & Roles", icon: UserGroupIcon },
   { id: "connectors", label: "Connectors", icon: Plug01Icon },
   { id: "custom-tools", label: "Tools", icon: Wrench01Icon },
+  { id: "ai-accounts", label: "AI accounts", icon: Layers01Icon },
   { id: "agent", label: "Agent profiles", icon: Layers01Icon },
   { id: "approvals", label: "Approvals", icon: CheckmarkSquare02Icon },
   { id: "instructions", label: "LOR.md", icon: Scroll01Icon },
@@ -294,6 +297,8 @@ export function WorkspaceSettingsDialog({
                     />
                   ) : section === "connectors" ? (
                     <ConnectorsSection workspaceSlug={workspace.slug} />
+                  ) : section === "ai-accounts" ? (
+                    <AiAccountsSettings workspaceSlug={workspace.slug} />
                   ) : section === "custom-tools" ? (
                     <CustomToolsSection
                       workspaceSlug={workspace.slug}

@@ -19,7 +19,9 @@ async function sandboxWorkspace(name: string) {
   if (known) return known
   const source = name.startsWith("ses-")
     ? schema.agentSession
-    : schema.voiceSession
+    : name.startsWith("run-")
+      ? schema.agentRun
+      : schema.voiceSession
   const [owner] = await db
     .select({ workspaceId: source.workspaceId })
     .from(source)

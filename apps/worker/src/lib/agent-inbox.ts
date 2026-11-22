@@ -19,6 +19,7 @@ import {
   sql,
 } from "@repo/db"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
+import { autonomousUsesSubscription } from "@repo/db/queries/personal-accounts"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import { env } from "@repo/env/server"
 import { type ModelMessage, respond } from "@repo/lor"
@@ -231,6 +232,7 @@ async function createTurnRun(args: {
   loop?: { id: string; scheduledFor: Date | null } | null
   // Compaction: only while this is still the scope's latest run.
   afterRunId?: string
+  resumeFromRunId?: string
 }): Promise<TurnRun | null> {
   const loop = args.loop ?? args.batch?.loop ?? null
   // The newest message carries what changed in the profile since the agent
@@ -257,6 +259,23 @@ async function createTurnRun(args: {
   }
   try {
     return await db.transaction(async (tx) => {
+      const previous = args.resumeFromRunId
+        ? await tx
+            .select({
+              context: schema.agentRun.context,
+              inferenceFunding: schema.agentRun.inferenceFunding,
+              harnessAccount: schema.agentRun.harnessAccount,
+            })
+            .from(schema.agentRun)
+            .where(
+              and(
+                eq(schema.agentRun.id, args.resumeFromRunId),
+                eq(schema.agentRun.workspaceId, args.workspaceId),
+                eq(schema.agentRun.channelId, args.channelId)
+              )
+            )
+            .then((rows) => rows[0])
+        : null
       const [run] = await tx
         .insert(schema.agentRun)
         .values({
@@ -266,6 +285,13 @@ async function createTurnRun(args: {
           threadRootId: null,
           messageId: null,
           triggerMessageId: args.triggerMessageId,
+          ...(previous
+            ? {
+                context: previous.context,
+                inferenceFunding: previous.inferenceFunding,
+                harnessAccount: previous.harnessAccount,
+              }
+            : {}),
           ...(loop ? { loopId: loop.id, scheduledFor: loop.scheduledFor } : {}),
           budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
           budgetCredits: env.AGENT_RUN_MAX_CREDITS,
@@ -362,10 +388,6 @@ export async function flushAgentInbox(
     return "skipped"
   }
   if (await activeAgentRun(channelId)) return "busy"
-  // Out of credits: the items stay pending, and the inbox sweep tries again
-  // once credits are back, instead of a turn reading them and refusing.
-  if (!(await checkCredits(workspaceId)).allowed) return "skipped"
-
   const paused = await pausedAgentRun(channelId)
   if (paused) {
     if (await pendingApproval(paused.runId)) return "busy"
@@ -380,6 +402,7 @@ export async function flushAgentInbox(
       workspaceId,
       channelId,
       triggerMessageId: pausedRun?.triggerMessageId ?? null,
+      resumeFromRunId: paused.runId,
       batch: null,
       loop: pausedRun?.loopId
         ? { id: pausedRun.loopId, scheduledFor: null }
@@ -389,6 +412,14 @@ export async function flushAgentInbox(
     await enqueueTurn(deps, workspaceId, channelId, turnRun)
     return "resumed"
   }
+
+  // Out of credits: the items stay pending, and the inbox sweep tries again
+  // once credits are back, instead of a turn reading them and refusing.
+  if (
+    !(await autonomousUsesSubscription(workspaceId)) &&
+    !(await checkCredits(workspaceId)).allowed
+  )
+    return "skipped"
 
   // A fire of a Loop paused, completed or deleted since is not read.
   await db
@@ -863,7 +894,13 @@ export async function runAgentTurnJob(
   }
 
   try {
-    const gate = await checkCredits(workspaceId)
+    const subscription = execution.handle.harnessAccount
+      ? execution.handle.harnessAccount.source === "subscription"
+      : !execution.handle.funding &&
+        (await autonomousUsesSubscription(workspaceId))
+    const gate = subscription
+      ? { allowed: true }
+      : await checkCredits(workspaceId)
     if (!gate.allowed) {
       // Said only to a person who asked: events and Loops would repeat it.
       if (userId) await notice(OUT_OF_CREDITS_MESSAGE)

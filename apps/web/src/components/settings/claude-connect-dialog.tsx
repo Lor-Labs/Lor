@@ -25,12 +25,15 @@ const INSTALL_DOCS = "https://code.claude.com/docs/en/setup"
 export function ClaudeConnectDialog({
   open,
   onOpenChange,
+  workspaceSlug,
 }: {
   open: boolean
+  workspaceSlug?: string
   onOpenChange: (open: boolean) => void
 }) {
-  const connect = useConnectClaudeAccount()
+  const connect = useConnectClaudeAccount(workspaceSlug)
   const [token, setToken] = useState("")
+  const [label, setLabel] = useState("")
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -41,17 +44,21 @@ export function ClaudeConnectDialog({
   useEffect(() => {
     if (!open) return
     setToken("")
+    setLabel("")
     connect.reset()
   }, [open, connect.reset])
 
   const submit = () => {
-    if (!token.trim() || connect.isPending) return
-    connect.mutate(token, {
-      onSuccess: () => {
-        toast.success("Claude subscription connected")
-        onOpenChange(false)
-      },
-    })
+    if (!label.trim() || !token.trim() || connect.isPending) return
+    connect.mutate(
+      { token, label },
+      {
+        onSuccess: () => {
+          toast.success("Claude subscription connected")
+          onOpenChange(false)
+        },
+      }
+    )
   }
 
   return (
@@ -63,14 +70,30 @@ export function ClaudeConnectDialog({
     >
       <DialogPopup className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Connect your Claude subscription</DialogTitle>
+          <DialogTitle>
+            {workspaceSlug
+              ? "Connect a Claude account for Lor"
+              : "Connect a Claude account"}
+          </DialogTitle>
           <DialogDescription>
-            Use your own Claude Pro or Max plan for Claude Code sessions. Only
-            your own messages use it; Lor's own agent and your teammates never
-            do.
+            {workspaceSlug
+              ? "A dedicated account for autonomous Claude Code runs in this workspace. Enable it in AI accounts after connecting. Provider terms still apply to this use."
+              : "Use this account for Claude Code turns you start. Choose its default workspaces in Workspace settings → AI accounts."}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-6">
+          <div className="space-y-2">
+            <label htmlFor="account-label" className="text-sm font-medium">
+              Account name
+            </label>
+            <Input
+              id="account-label"
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+              maxLength={80}
+              placeholder={workspaceSlug ? "Lor's account" : "Work account"}
+            />
+          </div>
           <Step number={1} title="In a terminal on your own computer, run:">
             <div className="flex items-center gap-2">
               <code className="flex-1 rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono text-sm">
@@ -140,7 +163,7 @@ export function ClaudeConnectDialog({
           </Button>
           <Button
             loading={connect.isPending}
-            disabled={!token.trim()}
+            disabled={!label.trim() || !token.trim()}
             onClick={submit}
           >
             Verify & connect

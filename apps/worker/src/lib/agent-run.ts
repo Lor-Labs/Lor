@@ -400,8 +400,10 @@ export async function claimAgentRun(
   // Set when a Lor turn picks its model (pinInferenceFunding); null until
   // then and for subscription runs (Claude Code, Codex).
   let funding = claimed.inferenceFunding
+  let harnessAccount = claimed.harnessAccount ?? claimed.context?.harnessAccount
   const assertCanInfer = async () => {
     await assertWorkspaceActive(claimed.workspaceId)
+    if (harnessAccount?.source === "subscription") return
     await assertInferenceKeyCurrent(claimed.workspaceId, funding)
     await assertBetaSandbox(claimed.workspaceId)
     const check = await checkBetaCredits(claimed.workspaceId)
@@ -439,7 +441,10 @@ export async function claimAgentRun(
   // The stop flag rides the heartbeat and every checkpoint, so a working run
   // notices within one step boundary or one heartbeat, whichever is sooner.
   const heartbeat = setInterval(() => {
-    if (hostedBetaConfig().enabled || funding?.source === "byok") {
+    if (
+      harnessAccount?.source !== "subscription" &&
+      (hostedBetaConfig().enabled || funding?.source === "byok")
+    ) {
       void assertWorkspaceActive(claimed.workspaceId)
         .then(() => assertInferenceKeyCurrent(claimed.workspaceId, funding))
         .then(() => assertBetaSandbox(claimed.workspaceId))
@@ -515,6 +520,7 @@ export async function claimAgentRun(
     u: Priced,
     oneRequest = false
   ): Promise<{ credits: number; usd: number }> => {
+    if (harnessAccount?.source === "subscription") return { credits: 0, usd: 0 }
     const price = await priceFor(u, oneRequest)
     if (!price) return { credits: 0, usd: 0 }
     const share =
@@ -534,7 +540,7 @@ export async function claimAgentRun(
 
   let betaUsageSequence = 0
   const settleBetaStep = async (usage: RunStepRecord, costUsd: number) => {
-    if (!betaRun) return
+    if (!betaRun || harnessAccount?.source === "subscription") return
     betaUsageSequence += 1
     try {
       await recordBillingUsage(
@@ -603,19 +609,14 @@ export async function claimAgentRun(
     if (turn.extraUsage) await settleBetaStep(turn.extraUsage, usd)
     // The turn's coverage, paused sandbox state and context count ride the
     // save, so a lost lease never records one without the other.
-    const context =
-      runContext &&
-      (turn.pausedSandbox ||
-        turn.contextUsage ||
-        turn.coveredMessageIds.length > 0)
-        ? {
-            ...mergeRunContextCoverage(runContext, turn.coveredMessageIds),
-            ...(turn.pausedSandbox
-              ? { pausedSandbox: turn.pausedSandbox }
-              : {}),
-            ...(turn.contextUsage ? { contextUsage: turn.contextUsage } : {}),
-          }
-        : null
+    const context = runContext
+      ? {
+          ...mergeRunContextCoverage(runContext, turn.coveredMessageIds),
+          harnessPartial: turn.partial ?? false,
+          ...(turn.pausedSandbox ? { pausedSandbox: turn.pausedSandbox } : {}),
+          ...(turn.contextUsage ? { contextUsage: turn.contextUsage } : {}),
+        }
+      : null
     const row = await db
       .transaction(async (tx) => {
         if (turn.save) {
@@ -796,6 +797,31 @@ export async function claimAgentRun(
   }
 
   const handle: RunHandle = {
+    harnessAccount,
+    pinHarnessAccount: async (route) => {
+      const rows = await db
+        .update(schema.agentRun)
+        .set({
+          harnessAccount: route,
+          ...(runContext
+            ? {
+                context: sql`${schema.agentRun.context} || ${JSON.stringify({ harnessAccount: route })}::jsonb`,
+              }
+            : {}),
+        })
+        .where(
+          and(
+            eq(schema.agentRun.id, runId),
+            eq(schema.agentRun.leaseOwner, WORKER_ID),
+            eq(schema.agentRun.state, "working")
+          )
+        )
+        .returning({ id: schema.agentRun.id })
+      if (!rows[0]) throw new LeaseLostError()
+      harnessAccount = route
+      handle.harnessAccount = route
+      if (runContext) runContext = { ...runContext, harnessAccount: route }
+    },
     funding: funding ?? undefined,
     pinInferenceFunding: async (resolved) => {
       if (funding) return funding

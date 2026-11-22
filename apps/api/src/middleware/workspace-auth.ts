@@ -104,6 +104,7 @@ const CLEANUP_ROUTES = [
   "POST /workspaces/:workspaceSlug/members/:userId/kick",
   "DELETE /workspaces/:workspaceSlug/roles/:roleName",
   "DELETE /workspaces/:workspaceSlug/integrations/:connectionId",
+  "DELETE /workspaces/:workspaceSlug/ai-accounts/accounts/:provider/:accountId",
 ]
 const PROJECT_MEMBER_ROUTE =
   "DELETE /workspaces/:workspaceSlug/projects/:projectId/members/:userId"

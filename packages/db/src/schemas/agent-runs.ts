@@ -20,6 +20,7 @@ import { connectorTrigger } from "./connector-triggers"
 import { loop } from "./loops"
 import type { ClaudeCodeMode, LorToolCall } from "./messages"
 import { message } from "./messages"
+import type { HarnessAccountRoute } from "./personal-accounts"
 import type { PlanStatus, PlanStep } from "./plans"
 import { triggerDelivery } from "./trigger-deliveries"
 import type { TurnSandboxMode } from "./user-sandbox-settings"
@@ -174,6 +175,8 @@ export const agentRun = pgTable(
     // re-fetched from their URLs.
     context: jsonb("context").$type<AgentRunContext>(),
     inferenceFunding: jsonb("inference_funding").$type<InferenceFunding>(),
+    // Pin account selection before the conversation snapshot is ready.
+    harnessAccount: jsonb("harness_account").$type<HarnessAccountRoute>(),
     instructions: text("instructions"),
 
     startedAt: timestamp("started_at"),
@@ -393,6 +396,8 @@ export type SandboxTurnContext = {
 }
 
 export type AgentRunContext = {
+  harnessPartial?: boolean
+  harnessAccount?: HarnessAccountRoute
   conversation: AgentRunContextTurn[]
   // Nearby channel messages are reference material, outside the active thread.
   backgroundConversation?: AgentRunContextTurn[]
@@ -444,6 +449,7 @@ export type AgentRunContext = {
   // mode they picked. A run that continues its paused turn reads both here
   // (the resume's trigger is Lor's own message, and the approver may be
   // someone else).
+  codexUserId?: string
   claudeCodeUserId?: string
   claudeCodeMode?: ClaudeCodeMode
   // The model, effort and fast mode the turn's sender picked (any harness),

@@ -54,8 +54,9 @@ export function LinkedAccountsSettings() {
       <div>
         <h3 className="text-lg font-semibold">Linked accounts</h3>
         <p className="text-sm text-muted-foreground">
-          Your own accounts. Lor uses them only when you act, never for your
-          teammates.
+          Link multiple accounts for the turns you start. Choose defaults and
+          automatic fallback for each workspace in Workspace settings → AI
+          accounts.
         </p>
       </div>
 
@@ -95,39 +96,50 @@ export function LinkedAccountsSettings() {
         )}
       </div>
 
-      {(features.claudeCodeHarness || claude.account) && (
-        <div className="flex items-center gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card">
+      {(features.claudeCodeHarness || claude.accounts.length > 0) && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
             <HarnessLogo harness="claude_code" className="size-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="font-medium text-sm">Claude subscription</p>
-            <p className="truncate text-muted-foreground text-xs">
-              {claude.account
-                ? `Token ending in ${claude.account.tokenHint} · connected ${formatDate(claude.account.connectedAt)}`
-                : claude.available
-                  ? "Run Claude Code sessions on your own Claude Pro or Max plan."
-                  : "Not available on this server yet."}
-            </p>
-          </div>
-          {claude.account ? (
+            <h4 className="flex-1 text-sm font-medium">Claude Code</h4>
             <Button
+              size="sm"
               variant="outline"
-              size="sm"
-              disabled={disconnectClaude.isPending}
-              onClick={() => disconnectClaude.mutate()}
-            >
-              Disconnect
-            </Button>
-          ) : (
-            <Button
-              size="sm"
               disabled={!claude.available}
               onClick={() => setConnectingClaude(true)}
             >
-              Connect
+              Add account
             </Button>
+          </div>
+          {claude.accounts.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No Claude accounts connected.
+            </p>
           )}
+          {claude.accounts.map((account) => (
+            <div
+              key={account.id}
+              className="flex items-center gap-3 rounded-lg border p-3"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">
+                  {account.label ?? `Claude · ${account.tokenHint}`}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Token ending {account.tokenHint} · Connected{" "}
+                  {formatDate(account.connectedAt)}
+                </p>
+                <AccountLimit until={account.unavailableUntil} />
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={disconnectClaude.isPending}
+                onClick={() => disconnectClaude.mutate(account.id)}
+              >
+                Disconnect
+              </Button>
+            </div>
+          ))}
         </div>
       )}
       {features.claudeCodeHarness && (
@@ -137,45 +149,51 @@ export function LinkedAccountsSettings() {
         />
       )}
 
-      {(features.codexHarness || chatgpt.account) && (
-        <div className="flex items-center gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card">
+      {(features.codexHarness || chatgpt.accounts.length > 0) && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
             <HarnessLogo harness="codex" className="size-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="font-medium text-sm">ChatGPT plan</p>
-            <p className="truncate text-muted-foreground text-xs">
-              {chatgpt.account
-                ? [
-                    chatgpt.account.email ?? "Connected",
-                    chatgpt.account.plan && planName(chatgpt.account.plan),
-                    `connected ${formatDate(chatgpt.account.connectedAt)}`,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")
-                : chatgpt.available
-                  ? "Run Codex sessions on your own ChatGPT plan."
-                  : "Not available on this server yet."}
-            </p>
-          </div>
-          {chatgpt.account ? (
+            <h4 className="flex-1 text-sm font-medium">Codex</h4>
             <Button
+              size="sm"
               variant="outline"
-              size="sm"
-              disabled={disconnectChatgpt.isPending}
-              onClick={() => disconnectChatgpt.mutate()}
-            >
-              Disconnect
-            </Button>
-          ) : (
-            <Button
-              size="sm"
               disabled={!chatgpt.available}
               onClick={() => setConnectingChatgpt(true)}
             >
-              Connect
+              Add account
             </Button>
+          </div>
+          {chatgpt.accounts.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No Codex accounts connected.
+            </p>
           )}
+          {chatgpt.accounts.map((account) => (
+            <div
+              key={account.id}
+              className="flex items-center gap-3 rounded-lg border p-3"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">
+                  {account.label ?? account.email ?? "ChatGPT account"}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {[account.email, account.plan && planName(account.plan)]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+                <AccountLimit until={account.unavailableUntil} />
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={disconnectChatgpt.isPending}
+                onClick={() => disconnectChatgpt.mutate(account.id)}
+              >
+                Disconnect
+              </Button>
+            </div>
+          ))}
         </div>
       )}
       {features.codexHarness && (
@@ -191,4 +209,13 @@ export function LinkedAccountsSettings() {
 // The token's plan claim ("plus", "pro") as ChatGPT names it.
 function planName(plan: string) {
   return `ChatGPT ${plan.charAt(0).toUpperCase()}${plan.slice(1)}`
+}
+
+export function AccountLimit({ until }: { until: string | null }) {
+  if (!until || new Date(until).getTime() <= Date.now()) return null
+  return (
+    <p className="mt-1 text-xs text-muted-foreground">
+      Usage limit reached · Retry after {new Date(until).toLocaleString()}
+    </p>
+  )
 }

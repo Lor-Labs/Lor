@@ -14,7 +14,7 @@ import {
   sql,
 } from "@repo/db"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
-import { hasPersonalAccount } from "@repo/db/queries/personal-accounts"
+import { getWorkspaceHarnessSettings } from "@repo/db/queries/personal-accounts"
 import { createSession, toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import { type AgentSessionTools, addInboxNote } from "@repo/lor/channel-agent"
 import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
@@ -188,75 +188,6 @@ async function runTask(
   return started
 }
 
-// The harness and plan a session the agent starts runs on: Claude Code when
-// the person has Claude connected, else Codex, unless the agent asked for
-// one. An error the agent reads when there is no such plan.
-async function planFor(
-  userId: string | null,
-  wanted: "claude_code" | "codex" | undefined
-): Promise<
-  | { userId: string; name: string; harness: "claude_code" | "codex" }
-  | { error: string }
-> {
-  if (!userId) {
-    return {
-      error:
-        "No person started this turn, so there is no Claude or ChatGPT plan to run a session on. Ask someone in the chat to start it with you.",
-    }
-  }
-  const [[person], claude, chatgpt] = await Promise.all([
-    db
-      .select({ name: schema.user.name })
-      .from(schema.user)
-      .where(eq(schema.user.id, userId)),
-    hasPersonalAccount(userId, "claude"),
-    hasPersonalAccount(userId, "chatgpt"),
-  ])
-  const name = person?.name ?? "This person"
-  const offered = (harness: "claude_code" | "codex") =>
-    isHarnessEnabled(harness)
-  const harness =
-    wanted ??
-    (claude && offered("claude_code")
-      ? "claude_code"
-      : chatgpt && offered("codex")
-        ? "codex"
-        : null)
-  const codexToo = chatgpt && offered("codex")
-  const claudeToo = claude && offered("claude_code")
-  if (harness === "claude_code" && !offered("claude_code")) {
-    return {
-      error: `Claude Code is switched off on this Lor server${codexToo ? `, but you can use Codex on ${name}'s ChatGPT plan` : ""}.`,
-    }
-  }
-  if (harness === "codex" && !offered("codex")) {
-    return {
-      error: `Codex is switched off on this Lor server${claudeToo ? `, but you can use Claude Code on ${name}'s Claude subscription` : ""}.`,
-    }
-  }
-  if (harness === "claude_code" && !claude) {
-    return {
-      error: `${name} hasn't connected a Claude subscription, so Claude Code can't run for them. They can connect one in Settings → Linked accounts${codexToo ? ", or you can use Codex on their ChatGPT plan" : ""}.`,
-    }
-  }
-  if (harness === "codex" && !chatgpt) {
-    return {
-      error: `${name} hasn't connected a ChatGPT plan, so Codex can't run for them. They can connect one in Settings → Linked accounts${claudeToo ? ", or you can use Claude Code on their Claude subscription" : ""}.`,
-    }
-  }
-  if (!harness && (claude || chatgpt)) {
-    return {
-      error: `${claude ? "Claude Code" : "Codex"}${claude && chatgpt ? " and Codex are" : " is"} switched off on this Lor server, so ${name}'s linked plan can't run a code session.`,
-    }
-  }
-  if (!harness) {
-    return {
-      error: `${name} hasn't connected a Claude or ChatGPT plan, and code sessions run on one. They can connect one in Settings → Linked accounts.`,
-    }
-  }
-  return { userId, name, harness }
-}
-
 export function agentSessionExecutors(
   deps: SessionToolDeps,
   args: {
@@ -315,10 +246,14 @@ export function agentSessionExecutors(
         }
       }
 
-      // Sessions run on a person's own Claude Code or Codex plan
-      // (reference/always-on-agents.md, decisions 16 and 34).
-      const plan = await planFor(args.planUserId, wanted)
-      if ("error" in plan) return plan
+      // Agent-created sessions always use the workspace autonomous policy.
+      const settings = await getWorkspaceHarnessSettings(workspaceId)
+      const harness = wanted ?? settings.defaultHarness
+      if (!isHarnessEnabled(harness))
+        return {
+          error:
+            "The configured autonomous agent is unavailable. Update Workspace settings → AI accounts.",
+        }
 
       const audience = args.askerId
         ? await listChannelAudienceUserIds(channelId)
@@ -331,10 +266,10 @@ export function agentSessionExecutors(
           workspaceId,
           channelId,
           authorId: LOR_USER_ID,
-          // The person whose plan runs its turns.
-          creatorId: plan.userId,
+          // Attribution only; this person does not fund autonomous turns.
+          creatorId: args.askerId,
           origin: "agent",
-          harness: plan.harness,
+          harness,
           title,
           code: {
             repoFullName: allowed.repo.fullName,
@@ -385,7 +320,7 @@ export function agentSessionExecutors(
       return {
         sessionId,
         title,
-        runsOn: `${plan.harness === "codex" ? "Codex" : "Claude Code"} on ${plan.name}'s plan`,
+        runsOn: `${harness === "pi" ? "Lor" : harness === "codex" ? "Codex" : "Claude Code"} with workspace autonomous billing`,
         repo: allowed.repo.fullName,
         baseBranch: branch,
         branch: newBranch,

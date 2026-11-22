@@ -20,6 +20,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | Doc | Covers |
 |---|---|
 | `agent-harness.md` | Durable runs on the Pi path (rewritten 2026-10-22): Postgres-owned run and Pi state, per-turn saves, leases, spend-only limits, steer/stop, context meter |
+| `harness-accounts.md` | Multiple Claude Code/Codex accounts, workspace defaults, quota fallback and autonomous billing; schema rollout required |
 | `artifacts.md` | Artifact + version model (Postgres/R2), the session sandbox and `share_file` (rewritten 2026-10-22) |
 | `automation-primitives.md` | Triggers, effects, Act, custom tools, MCP servers |
 | `mcp-oauth.md` | Workspace-scoped OAuth for MCP servers (written as the plan; routes shipped) |

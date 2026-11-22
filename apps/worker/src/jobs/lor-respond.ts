@@ -20,8 +20,13 @@ import {
   resolveChannelAccess,
   resolveLorRunScope,
 } from "@repo/db/queries/channel-access"
+import {
+  autonomousUsesSubscription,
+  resolveHarnessAccount,
+} from "@repo/db/queries/personal-accounts"
 import type {
   ClaudeCodeMode,
+  HarnessAccountRoute,
   Loop,
   LorMemory,
   LorReasoningSegment,
@@ -39,11 +44,6 @@ import {
   writeBack,
 } from "@repo/lor"
 import { saveHandoffNote } from "@repo/lor/act-runs"
-import {
-  ChatgptSignInError,
-  chatgptCredential,
-} from "@repo/lor/chatgpt-account"
-import { claudeSubscriptionToken } from "@repo/lor/claude-account"
 import type { ProposeLoopExecutor } from "@repo/lor/loops"
 import type { StartPlanInput } from "@repo/lor/plans"
 import { toRealtimePlan } from "@repo/lor/plans"
@@ -920,38 +920,6 @@ export function createLorRespondProcessor(
               )
               .catch(() => [])
 
-            // Hosted beta fails closed on unavailable billing or pending debits.
-            // Legacy billing retains its existing outage behavior.
-            // Claude Code and Codex turns run on the sender's own plan instead.
-            const gate =
-              session.harness === "claude_code" || session.harness === "codex"
-                ? { allowed: true }
-                : await checkCredits(workspaceId)
-            if (!gate.allowed) {
-              logger.info(
-                { workspaceId, lorMessageId },
-                "Lor refused; workspace out of credits"
-              )
-              await db
-                .update(schema.message)
-                .set({ content: OUT_OF_CREDITS_MESSAGE, status: "failed" })
-                .where(eq(schema.message.id, lorMessageId))
-                .catch(() => {})
-              emit(OUT_OF_CREDITS_MESSAGE, true, "failed")
-              await runWriter.transition("failed", {
-                stopReason: "out_of_credits",
-              })
-              execution?.stop()
-              await settlePlan("failed", "out_of_credits")
-              await emitThreadSummary()
-              drainQueue()
-              emitter.to(workspaceRoom(workspaceId)).emit("billing:updated", {
-                workspaceId,
-                reason: "out_of_credits",
-              })
-              return
-            }
-
             touchTarget = {
               workspaceId,
               channelId,
@@ -993,107 +961,76 @@ export function createLorRespondProcessor(
               channelId,
               userId: triggerUserId,
             }
-            // Whose plan runs the turn: its sender, or for the channel agent's
-            // own messages in a session it started, the person it started it
-            // for (reference/always-on-agents.md, decision 34).
-            // The creator's plan only while they can still see the channel.
-            const creatorPlan =
-              session.origin === "agent" &&
-              triggerUserId === LOR_USER_ID &&
-              session.creatorId &&
-              (await resolveChannelAccess(session.creatorId, channelId)
-                .then((access) => access.ok)
-                .catch(() => false))
-                ? session.creatorId
+            const previousRun =
+              continueOnly && harnessState?.lastRunId
+                ? await db
+                    .select({
+                      context: schema.agentRun.context,
+                      funding: schema.agentRun.inferenceFunding,
+                      harnessAccount: schema.agentRun.harnessAccount,
+                    })
+                    .from(schema.agentRun)
+                    .where(eq(schema.agentRun.id, harnessState.lastRunId))
+                    .then((rows) => rows[0])
                 : null
-            // A paused turn's saved plan owner may have left the channel since.
-            const stillInChannel = async (userId: string | null) =>
-              userId &&
-              (await resolveChannelAccess(userId, channelId)
-                .then((access) => access.ok)
-                .catch(() => false))
-                ? userId
-                : null
-            const planUserId =
-              triggerUserId && triggerUserId !== LOR_USER_ID
+            const previousContext =
+              execution.handle.resume?.context ?? previousRun?.context
+            const pinnedAccount =
+              execution.handle.harnessAccount ??
+              previousRun?.harnessAccount ??
+              previousContext?.harnessAccount
+            if (!execution.handle.funding && previousRun?.funding)
+              await execution.handle.pinInferenceFunding?.(previousRun.funding)
+            const legacyUserId =
+              session.harness === "claude_code"
+                ? previousContext?.claudeCodeUserId
+                : previousContext?.codexUserId
+            const directUserId =
+              !automated && triggerUserId && triggerUserId !== LOR_USER_ID
                 ? triggerUserId
-                : creatorPlan
-
-            // A Claude Code turn runs only on its sender's own subscription,
-            // in the mode they picked: never a Loop fire, an Act event or
-            // someone else's message. A run that continues a paused turn
-            // keeps that turn's sender and mode, whoever decided its
-            // approvals.
-            const claudeTurn =
-              session.harness !== "claude_code" || automated
-                ? null
-                : continueOnly && harnessState?.lastRunId
-                  ? await db
-                      .select({
-                        userId: sql<
-                          string | null
-                        >`${schema.agentRun.context} ->> 'claudeCodeUserId'`,
-                        mode: sql<ClaudeCodeMode | null>`${schema.agentRun.context} ->> 'claudeCodeMode'`,
-                      })
-                      .from(schema.agentRun)
-                      .where(eq(schema.agentRun.id, harnessState.lastRunId))
-                      .then(async ([row]) =>
-                        row
-                          ? { ...row, userId: await stillInChannel(row.userId) }
-                          : null
-                      )
-                  : planUserId
-                    ? {
-                        userId: planUserId,
-                        ...(triggerMessageId
-                          ? await db
-                              .select({ mode: schema.message.claudeCodeMode })
-                              .from(schema.message)
-                              .where(eq(schema.message.id, triggerMessageId))
-                              .then((rows) => rows[0] ?? null)
-                          : null),
-                      }
-                    : null
-            const claudeUserId = claudeTurn?.userId ?? null
-            const claudeCodeMode: ClaudeCodeMode = claudeTurn?.mode ?? "auto"
-            const claudeToken = claudeUserId
-              ? await claudeSubscriptionToken(claudeUserId)
-              : null
-            // A Codex turn, the same way, on its sender's own ChatGPT plan.
-            const codexUserId =
-              session.harness !== "codex" || automated
-                ? null
-                : continueOnly && harnessState?.lastRunId
-                  ? await db
-                      .select({
-                        userId: sql<
-                          string | null
-                        >`${schema.agentRun.context} ->> 'codexUserId'`,
-                      })
-                      .from(schema.agentRun)
-                      .where(eq(schema.agentRun.id, harnessState.lastRunId))
-                      .then(([row]) => stillInChannel(row?.userId ?? null))
-                  : planUserId
-            const codexSignIn = codexUserId
-              ? await chatgptCredential(codexUserId).catch((err: unknown) => {
-                  if (err instanceof ChatgptSignInError) return err
-                  throw err
-                })
-              : null
-            const codexCredential =
-              codexSignIn instanceof ChatgptSignInError ? null : codexSignIn
-            const refusal =
-              session.harness === "claude_code" && !claudeToken
-                ? automated
-                  ? "Claude Code sessions only run on a person's own messages."
-                  : "This message needs its sender's Claude subscription. Connect it in Settings → Linked accounts."
-                : session.harness === "codex" && !codexCredential
-                  ? automated
-                    ? "Codex sessions only run on a person's own messages."
-                    : codexSignIn instanceof ChatgptSignInError
-                      ? codexSignIn.message
-                      : "This message needs its sender's ChatGPT plan. Connect it in Settings → Linked accounts."
-                  : null
+                : null
+            const accountUserId = pinnedAccount
+              ? pinnedAccount.userId
+              : (legacyUserId ?? directUserId)
+            const stillAuthorized = accountUserId
+              ? await resolveChannelAccess(accountUserId, channelId)
+                  .then((access) => access.ok)
+                  .catch(() => false)
+              : true
+            let harnessAccount: HarnessAccountRoute | undefined
+            let refusal: string | null = null
+            if (
+              session.harness === "claude_code" ||
+              session.harness === "codex"
+            ) {
+              if (!stillAuthorized)
+                refusal =
+                  "The person who started this turn no longer has access to the channel."
+              else {
+                try {
+                  harnessAccount = await resolveHarnessAccount(
+                    { workspaceId, userId: accountUserId },
+                    session.harness === "claude_code" ? "claude" : "chatgpt",
+                    { pinned: pinnedAccount }
+                  )
+                } catch (error) {
+                  refusal =
+                    error instanceof Error
+                      ? error.message
+                      : "Couldn't select an account for this turn."
+                }
+              }
+            }
+            const claudeCodeMode: ClaudeCodeMode =
+              previousContext?.claudeCodeMode ??
+              (triggerMessageId
+                ? await db
+                    .select({ mode: schema.message.claudeCodeMode })
+                    .from(schema.message)
+                    .where(eq(schema.message.id, triggerMessageId))
+                    .then((rows) => rows[0]?.mode)
+                : null) ??
+              "auto"
             // The model, effort and fast mode the turn's sender picked, for
             // any harness; a run that continues a paused turn keeps that
             // turn's picks. Fast mode is for subscription harnesses only.
@@ -1163,6 +1100,38 @@ export function createLorRespondProcessor(
               await settlePlan("failed")
               await emitThreadSummary()
               drainQueue()
+              return
+            }
+
+            // Hosted beta fails closed on unavailable billing or pending debits.
+            // Legacy billing retains its existing outage behavior.
+            // Claude Code and Codex turns run on the sender's own plan instead.
+            const gate =
+              harnessAccount?.source === "subscription"
+                ? { allowed: true }
+                : await checkCredits(workspaceId)
+            if (!gate.allowed) {
+              logger.info(
+                { workspaceId, lorMessageId },
+                "Lor refused; workspace out of credits"
+              )
+              await db
+                .update(schema.message)
+                .set({ content: OUT_OF_CREDITS_MESSAGE, status: "failed" })
+                .where(eq(schema.message.id, lorMessageId))
+                .catch(() => {})
+              emit(OUT_OF_CREDITS_MESSAGE, true, "failed")
+              await runWriter.transition("failed", {
+                stopReason: "out_of_credits",
+              })
+              execution?.stop()
+              await settlePlan("failed", "out_of_credits")
+              await emitThreadSummary()
+              drainQueue()
+              emitter.to(workspaceRoom(workspaceId)).emit("billing:updated", {
+                workspaceId,
+                reason: "out_of_credits",
+              })
               return
             }
 
@@ -1312,23 +1281,19 @@ export function createLorRespondProcessor(
                       },
                     }
                   : {}),
-                ...(claudeToken && claudeUserId
+                ...(harnessAccount ? { harnessAccount } : {}),
+                ...(session.harness === "claude_code"
                   ? {
                       claudeCode: {
-                        token: claudeToken,
-                        userId: claudeUserId,
+                        userId: accountUserId,
                         mode: claudeCodeMode,
                       },
                     }
                   : {}),
-                ...(codexCredential && codexUserId
-                  ? {
-                      codex: {
-                        userId: codexUserId,
-                        credential: codexCredential,
-                      },
-                    }
+                ...(session.harness === "codex"
+                  ? { codex: { userId: accountUserId } }
                   : {}),
+                autonomous: !directUserId,
                 turn,
                 ...(commandText?.startsWith("/")
                   ? { command: { text: commandText } }
@@ -1987,10 +1952,18 @@ export function createLorRespondProcessor(
           // brain writes are create-only and edits compare-and-swap per page
           // (reference/planned/session-memory.md Step 3).
           try {
+            if (
+              !(await autonomousUsesSubscription(workspaceId)) &&
+              !(await checkCredits(workspaceId)).allowed
+            ) {
+              await runWriter.close()
+              return
+            }
             await writeBack(
               {
                 workspaceId,
                 channelId,
+                runId: execution?.runId,
                 priorMessages: answer.messages,
                 gateText,
               },

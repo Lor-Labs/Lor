@@ -147,9 +147,19 @@ export async function refreshChatgptTokens(
   }
 }
 
-const chatgptAccount = (userId: string) =>
+const chatgptAccount = (
+  userId: string | null,
+  accountId?: string,
+  workspaceId?: string
+) =>
   and(
-    eq(schema.personalAccount.userId, userId),
+    userId
+      ? eq(schema.personalAccount.userId, userId)
+      : eq(
+          schema.personalAccount.workspaceId,
+          workspaceId ?? "00000000-0000-0000-0000-000000000000"
+        ),
+    ...(accountId ? [eq(schema.personalAccount.id, accountId)] : []),
     eq(schema.personalAccount.provider, "chatgpt")
   )
 
@@ -158,7 +168,9 @@ const chatgptAccount = (userId: string) =>
 // the margin is left; the row lock keeps two turns from spending the same
 // refresh token. Null when none is connected.
 export async function chatgptCredential(
-  userId: string
+  userId: string | null,
+  accountId?: string,
+  workspaceId?: string
 ): Promise<ChatgptCredential | null> {
   assertHostedHarness("codex")
   const key = env.INTEGRATION_ENCRYPTION_KEY
@@ -166,13 +178,14 @@ export async function chatgptCredential(
   return db.transaction(async (tx) => {
     const [row] = await tx
       .select({
+        id: schema.personalAccount.id,
         externalId: schema.personalAccount.externalId,
         accessToken: schema.personalAccount.accessToken,
         accessTokenExpiresAt: schema.personalAccount.accessTokenExpiresAt,
         refreshToken: schema.personalAccount.refreshToken,
       })
       .from(schema.personalAccount)
-      .where(chatgptAccount(userId))
+      .where(chatgptAccount(userId, accountId, workspaceId))
       .limit(1)
       .for("update")
     if (!row) return null
@@ -199,7 +212,7 @@ export async function chatgptCredential(
         refreshToken: encryptSecret(refreshed.refreshToken, key),
         accessTokenExpiresAt: details?.accessTokenExpiresAt ?? null,
       })
-      .where(chatgptAccount(userId))
+      .where(eq(schema.personalAccount.id, row.id))
     return { ...current, accessToken: refreshed.accessToken }
   })
 }
@@ -207,22 +220,27 @@ export async function chatgptCredential(
 // The models the person's Codex reported on their last turn (their plan
 // decides the list), for the composer's picker.
 export async function chatgptModels(
-  userId: string
+  userId: string,
+  accountId?: string,
+  workspaceId?: string
 ): Promise<ReportedHarnessModel[] | null> {
+  if (!accountId) return null
   const [account] = await db
     .select({ models: schema.personalAccount.models })
     .from(schema.personalAccount)
-    .where(chatgptAccount(userId))
+    .where(chatgptAccount(userId, accountId, workspaceId))
     .limit(1)
   return account?.models ?? null
 }
 
 export async function saveChatgptModels(
-  userId: string,
-  models: ReportedHarnessModel[]
+  userId: string | null,
+  models: ReportedHarnessModel[],
+  accountId: string,
+  workspaceId?: string
 ): Promise<void> {
   await db
     .update(schema.personalAccount)
     .set({ models })
-    .where(chatgptAccount(userId))
+    .where(chatgptAccount(userId, accountId, workspaceId))
 }

@@ -27,6 +27,7 @@ async function sandboxWorkspaces(names: string[]) {
       .filter((id) => UUID.test(id))
   const sessionIds = ids("ses-")
   const callIds = ids("call-")
+  const runIds = ids("run-")
   const sessions = sessionIds.length
     ? await db
         .select({
@@ -45,7 +46,17 @@ async function sandboxWorkspaces(names: string[]) {
         .from(schema.voiceSession)
         .where(inArray(schema.voiceSession.id, callIds))
     : []
+  const runs = runIds.length
+    ? await db
+        .select({
+          id: schema.agentRun.id,
+          workspaceId: schema.agentRun.workspaceId,
+        })
+        .from(schema.agentRun)
+        .where(inArray(schema.agentRun.id, runIds))
+    : []
   return new Map<string, string>([
+    ...runs.map((r): [string, string] => [`run-${r.id}`, r.workspaceId]),
     ...sessions.map((s): [string, string] => [`ses-${s.id}`, s.workspaceId]),
     ...calls.map((c): [string, string] => [`call-${c.id}`, c.workspaceId]),
   ])

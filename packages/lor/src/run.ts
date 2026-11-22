@@ -3,6 +3,7 @@ import type {
   ApprovalKind,
   ClaudeCodeAnswers,
   ClaudeCodeMode,
+  HarnessAccountRoute,
   TurnSandboxMode,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
@@ -124,6 +125,7 @@ export type RunStepRecord = {
 // nothing changed), the counters its steps did not already record, and the
 // approvals it paused on.
 export type RunTurnRecord = {
+  partial?: boolean
   save: PiTurnSave | null
   // Usage in Pi's turn total beyond the recorded steps and compactions:
   // cache warming.
@@ -193,6 +195,8 @@ export type RunResume = {
 }
 
 export type RunHandle = {
+  harnessAccount?: HarnessAccountRoute
+  pinHarnessAccount?: (route: HarnessAccountRoute) => Promise<void>
   funding?: InferenceFunding
   // Saves the turn's payer and model on the run, for its retries.
   pinInferenceFunding?: (funding: InferenceFunding) => Promise<InferenceFunding>

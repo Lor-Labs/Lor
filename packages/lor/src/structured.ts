@@ -1,4 +1,4 @@
-import { generateText, tool } from "ai"
+import { generateText, type LanguageModel, tool } from "ai"
 import type { z } from "zod"
 import { aiRuntimeContext, aiTelemetry } from "./ai-observability"
 import { lorSmallModel, smallGatewayOptions } from "./models"
@@ -12,13 +12,18 @@ export async function generateSmallObject<T>({
   schema,
   prompt,
   abortSignal,
+  model,
+  beforeRequest,
 }: {
   schema: z.ZodType<T>
   prompt: string
   abortSignal?: AbortSignal
+  model?: LanguageModel
+  beforeRequest?: () => Promise<void>
 }) {
   const result = await generateText({
-    model: lorSmallModel,
+    model: model ?? lorSmallModel,
+    onStepStart: beforeRequest,
     reasoning: "low",
     prompt: `${prompt}\n\nCall submit_result exactly once with your answer. Do not answer in prose.`,
     tools: {
