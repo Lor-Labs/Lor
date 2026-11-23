@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { Pressable, ScrollView, Text, View } from "react-native"
+import { AgentCreature } from "@/components/agent-creature"
 import { Avatar } from "@/components/ui/avatar"
 import type { MentionCandidate } from "@/lib/mentions"
 import { BROADCAST_MENTION_IDS } from "@/lib/mentions"
@@ -58,13 +59,15 @@ export function MentionSuggestionMenu({
                 : candidate.id === "channel"
                   ? "Notify everyone who can see this channel"
                   : "Notify channel members who are online right now"
-              : candidate.name !== candidate.label
-                ? candidate.name
-                : candidate.isBot
-                  ? "App"
-                  : candidate.status === "online"
-                    ? "Online"
-                    : "Offline"
+              : candidate.creature
+                ? "Channel agent"
+                : candidate.name !== candidate.label
+                  ? candidate.name
+                  : candidate.isBot
+                    ? "App"
+                    : candidate.status === "online"
+                      ? "Online"
+                      : "Offline"
 
             return (
               <Pressable
@@ -77,6 +80,14 @@ export function MentionSuggestionMenu({
                 {isBroadcast ? (
                   <View className="size-8 items-center justify-center rounded-lor-sm bg-default">
                     <HugeiconsIcon color={accent} icon={AtSignIcon} size={17} />
+                  </View>
+                ) : candidate.creature ? (
+                  <View className="size-8 items-center justify-center">
+                    <AgentCreature
+                      creature={candidate.creature}
+                      size={30}
+                      still
+                    />
                   </View>
                 ) : (
                   <Avatar
@@ -97,7 +108,9 @@ export function MentionSuggestionMenu({
                     {secondary}
                   </Text>
                 </View>
-                {candidate.status === "online" && !isBroadcast ? (
+                {candidate.status === "online" &&
+                !isBroadcast &&
+                !candidate.creature ? (
                   <View
                     accessibilityLabel="Online"
                     className="size-[7px] rounded-full bg-success"

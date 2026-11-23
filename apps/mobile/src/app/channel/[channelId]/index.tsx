@@ -8,6 +8,7 @@ import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Pressable, Text, View } from "react-native"
+import { AgentCreature } from "@/components/agent-creature"
 import { ChannelOptionsSheet } from "@/components/channel-options-sheet"
 import { ChannelSearchOverlay } from "@/components/channel-search-overlay"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
@@ -32,6 +33,11 @@ import { VoiceCallScreen } from "@/components/voice/voice-call-screen"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
+import {
+  AGENT_STATE_TEXT,
+  useChannelAgent,
+  useChannelAgentState,
+} from "@/hooks/use-channel-agent"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
@@ -108,6 +114,8 @@ function ChannelScreen() {
   const permissions = useChannelPermissions(workspace?.id)
   // The channel agent's proposal cards in the chat stay live.
   useChannelProposals(channelId)
+  const agent = useChannelAgent()
+  const agentState = useChannelAgentState()
   const channelState = useChannelDetail({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
@@ -253,7 +261,15 @@ function ChannelScreen() {
   }
   const channel = channelState.channel
   const channelName = channel.name ?? "channel"
-  const memberItems = mentions.members.map(workspaceMemberToListItem)
+  // The agent is listed above the people, as itself, so Lor isn't a person.
+  const memberItems = mentions.members
+    .filter((member) => !(agent && member.userId === LOR_USER_ID))
+    .map(workspaceMemberToListItem)
+  const openAgent = () =>
+    router.push({
+      pathname: "/channel/[channelId]/agent",
+      params: { channelId },
+    })
   const onlineMemberCount = memberItems.filter(
     (member) => member.status === "online"
   ).length
@@ -403,6 +419,22 @@ function ChannelScreen() {
               </Text>
             </Pressable>
           </View>
+          {agent ? (
+            <Pressable
+              accessibilityHint="Opens its settings"
+              accessibilityLabel={`${agent.name} ${AGENT_STATE_TEXT[agentState]}`}
+              accessibilityRole="button"
+              className="size-10 items-center justify-center rounded-lor-sm active:bg-surface-secondary"
+              hitSlop={4}
+              onPress={openAgent}
+            >
+              <AgentCreature
+                creature={agent.creature}
+                size={30}
+                state={agentState}
+              />
+            </Pressable>
+          ) : null}
           <IconButton
             accessibilityLabel="Search channel"
             onPress={openSearch}
@@ -556,11 +588,31 @@ function ChannelScreen() {
           })
           setIsOptionsOpen(false)
         }}
+        onOpenAgent={
+          agent
+            ? () => {
+                openAgent()
+                setIsOptionsOpen(false)
+              }
+            : undefined
+        }
         onOpenChange={setIsOptionsOpen}
         workspaceName={workspace.name}
         workspaceSlug={workspace.slug}
       />
       <MemberListSheet
+        agent={
+          agent
+            ? {
+                ...agent,
+                state: agentState,
+                onPress: () => {
+                  setIsMembersOpen(false)
+                  openAgent()
+                },
+              }
+            : null
+        }
         error={mentions.error}
         isLoading={mentions.isLoading}
         isOpen={isMembersOpen}

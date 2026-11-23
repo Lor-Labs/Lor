@@ -11,6 +11,7 @@ import Notification03Icon from "@hugeicons/core-free-icons/Notification03Icon"
 import NotificationOff03Icon from "@hugeicons/core-free-icons/NotificationOff03Icon"
 import Pin02Icon from "@hugeicons/core-free-icons/Pin02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
+import { channelAgentIdentity } from "@repo/utils/bestiary"
 import * as Clipboard from "expo-clipboard"
 import { SymbolView } from "expo-symbols"
 import { BottomSheet } from "heroui-native/bottom-sheet"
@@ -19,6 +20,7 @@ import { Spinner } from "heroui-native/spinner"
 import { useEffect, useState } from "react"
 import { Alert, Pressable, Text, View } from "react-native"
 import { KeyboardController } from "react-native-keyboard-controller"
+import { AgentCreature } from "@/components/agent-creature"
 import { Button } from "@/components/ui/button"
 import { SectionLabel } from "@/components/ui/section-label"
 import { LorMark } from "@/components/voice/lor-window"
@@ -42,6 +44,7 @@ export function ChannelOptionsSheet({
   onOpenPinnedMessages,
   onOpenSessions,
   onOpenLoops,
+  onOpenAgent,
   onOpenChange,
   workspaceName,
   workspaceSlug,
@@ -55,6 +58,8 @@ export function ChannelOptionsSheet({
   onOpenPinnedMessages: () => void
   onOpenSessions: () => void
   onOpenLoops: () => void
+  // Set for a text channel: opens its agent's settings.
+  onOpenAgent?: () => void
   onOpenChange: (isOpen: boolean) => void
   workspaceName: string
   workspaceSlug: string
@@ -244,6 +249,13 @@ export function ChannelOptionsSheet({
                     />
                   ) : null}
                 </View>
+
+                {onOpenAgent ? (
+                  <View className="gap-three px-one">
+                    <SectionLabel>Agent</SectionLabel>
+                    <AgentRow channel={channel} onPress={onOpenAgent} />
+                  </View>
+                ) : null}
 
                 <View className="gap-three px-one">
                   <SectionLabel>Notifications</SectionLabel>
@@ -526,6 +538,47 @@ function EditChannelView({
         </Button>
       </View>
     </>
+  )
+}
+
+function AgentRow({
+  channel,
+  onPress,
+}: {
+  channel: ChannelDetail
+  onPress: () => void
+}) {
+  const foreground = useThemeColor("foreground")
+  const agent = channelAgentIdentity(channel)
+  return (
+    <Pressable
+      accessibilityHint="Opens its settings"
+      accessibilityLabel={agent.name}
+      accessibilityRole="button"
+      className="min-h-14 flex-row items-center gap-three rounded-lor-sm bg-surface-secondary px-three py-three active:bg-surface-tertiary"
+      onPress={onPress}
+    >
+      <View className="size-9 items-center justify-center">
+        <AgentCreature creature={agent.creature} size={34} still />
+      </View>
+      <View className="min-w-0 flex-1 gap-px">
+        <Text className="text-[15px] font-semibold text-foreground">
+          {agent.name}
+        </Text>
+        <Text className="text-xs leading-4 text-muted">
+          Name, creature, brief, facts and follow-ups
+        </Text>
+      </View>
+      <SymbolView
+        name={{
+          ios: "chevron.right",
+          android: "chevron_right",
+          web: "chevron_right",
+        }}
+        size={17}
+        tintColor={foreground}
+      />
+    </Pressable>
   )
 }
 

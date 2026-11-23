@@ -1169,7 +1169,8 @@ Discord, a session the agent starts on a person's real plan). Then:
    `apps/web/src/components/agent/agent-face.tsx` draws the frame and
    drives the pose (pointer, glances, blinks, looking about while working,
    bowed asleep); `apps/mobile/src/components/agent-creature.tsx` draws the
-   resting pose with a bob and a blink. Discord's avatar is the creature's
+   same with no pointer to follow (glances, looking about, a bob, blinks,
+   breathing, the pop and the badge pulse). Discord's avatar is the creature's
    flat still (`packages/utils/src/face-stills.ts`, decision 42), uploaded
    by `packages/lor/src/discord.ts` and again when its `stillKey` changes.
    `PixelCreature` is the unused detailed set, shown only on
