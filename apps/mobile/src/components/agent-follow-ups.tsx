@@ -6,10 +6,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useThemeColor } from "heroui-native/hooks"
 import { useToast } from "heroui-native/toast"
 import { useEffect, useMemo } from "react"
-import { Text, View } from "react-native"
+import { Pressable, Text, View } from "react-native"
 import { IconButton } from "@/components/ui/icon-button"
 import { SectionLabel } from "@/components/ui/section-label"
 import { useSocket } from "@/context/socket-context"
+import { useChannelRoom } from "@/hooks/use-channel-room"
 import { useWorkspaceMembers } from "@/hooks/use-workspace-members"
 import { api, responseMessage } from "@/lib/api"
 import { toSearchPreviewText } from "@/lib/message-markdown"
@@ -34,7 +35,7 @@ const MENTION_TOKEN = /<@([0-9a-f-]{36})>/gi
 // The follow-ups the channel agent set for itself with wake_up
 // (reference/always-on-agents.md, decision 10): when it will look again and
 // why. Anyone here can cancel one. Kept live by agent:wake-ups:updated. As
-// web's follow-ups-section.tsx; shows nothing when there are none.
+// web's follow-ups-section.tsx; shows nothing when it has none.
 export function AgentFollowUps({
   workspaceSlug,
   channelId,
@@ -53,7 +54,10 @@ export function AgentFollowUps({
     () => new Map(members.map((member) => [member.userId, member.name])),
     [members]
   )
-  const { data } = useQuery({
+  // agent:wake-ups:updated reaches the channel room, which the channel
+  // screen leaves when this screen replaces it; held here (refcounted).
+  useChannelRoom(socket, channelId)
+  const { data, isError, isRefetching, refetch } = useQuery({
     queryKey: wakeUpsKey(channelId),
     queryFn: async (): Promise<WakeUp[]> => {
       const res = await api.v1.workspaces[":workspaceSlug"].channels[
@@ -105,6 +109,27 @@ export function AgentFollowUps({
   })
 
   const wakeUps = data ?? []
+  // A failed load isn't "none": say so, with a way to try again.
+  if (isError && data === undefined) {
+    return (
+      <View className="gap-two">
+        <SectionLabel>Follow-ups</SectionLabel>
+        <Pressable
+          accessibilityRole="button"
+          className="rounded-lor-lg bg-surface-secondary px-three py-three active:opacity-70"
+          disabled={isRefetching}
+          onPress={() => void refetch()}
+        >
+          <Text className="text-sm text-muted">
+            Couldn't load the follow-ups.{" "}
+            <Text className="font-semibold text-foreground">
+              {isRefetching ? "Trying again…" : "Try again"}
+            </Text>
+          </Text>
+        </Pressable>
+      </View>
+    )
+  }
   if (wakeUps.length === 0) return null
   // The agent writes people as mention tokens in its notes.
   const readable = (note: string) =>

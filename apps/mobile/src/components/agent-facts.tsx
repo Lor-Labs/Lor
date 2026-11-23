@@ -79,13 +79,15 @@ export function AgentFacts({
       }
       return (await res.json()) as AgentFact
     },
-    onSuccess: (saved, submitted) => {
+    onSuccess: async (saved, submitted) => {
       // A draft changed while this saved stays open.
       setEditing((current) =>
         current?.id === submitted.id && current.text.trim() === submitted.text
           ? null
           : current
       )
+      // A fetch that started before the save would put the old text back.
+      await queryClient.cancelQueries({ queryKey: agentFactsKey(channelId) })
       queryClient.setQueryData<AgentFact[]>(agentFactsKey(channelId), (list) =>
         list?.map((fact) => (fact.id === saved.id ? saved : fact))
       )
@@ -109,10 +111,12 @@ export function AgentFacts({
       }
       return id
     },
-    onSuccess: (id) =>
+    onSuccess: async (id) => {
+      await queryClient.cancelQueries({ queryKey: agentFactsKey(channelId) })
       queryClient.setQueryData<AgentFact[]>(agentFactsKey(channelId), (list) =>
         list?.filter((fact) => fact.id !== id)
-      ),
+      )
+    },
     onError: (error) =>
       toast.show({
         variant: "danger",

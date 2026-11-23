@@ -1,14 +1,10 @@
 import { LOR_USER_ID } from "@repo/db/constants"
-import type {
-  ChannelActivity,
-  TypingIndicatorEvent,
-} from "@repo/realtime-types"
+import type { TypingIndicatorEvent } from "@repo/realtime-types"
 import {
   type CreatureId,
   type CreatureState,
   channelAgentIdentity,
 } from "@repo/utils/bestiary"
-import { useQueryClient } from "@tanstack/react-query"
 import {
   createContext,
   type ReactNode,
@@ -16,12 +12,11 @@ import {
   useEffect,
   useMemo,
   useState,
-  useSyncExternalStore,
 } from "react"
 import { useSocket } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
-import { workspaceActivityKey } from "@/hooks/use-workspace-activity"
+import { useWorkspaceActivity } from "@/hooks/use-workspace-activity"
 
 export type ChannelAgent = {
   channelId: string
@@ -72,16 +67,12 @@ function useAgentWorking(channelId: string) {
   return working
 }
 
-// Needs you while one of its approvals or questions waits on you. Read from
-// the Channels tab's snapshot without becoming one of its observers, so this
-// never changes how that query fetches.
+// Needs you while one of its approvals or questions waits on you, from the
+// workspace activity snapshot. The channel screens keep that snapshot
+// themselves: a channel opened by a link has no Channels tab under it to
+// fetch it or hear its pushes.
 function useAgentNeedsYou(workspaceId: string | undefined, channelId: string) {
-  const queryClient = useQueryClient()
-  const key = workspaceActivityKey(workspaceId ?? "")
-  const activity = useSyncExternalStore(
-    (onChange) => queryClient.getQueryCache().subscribe(onChange),
-    () => queryClient.getQueryData<ChannelActivity[]>(key)
-  )
+  const { data: activity } = useWorkspaceActivity(workspaceId)
   return Boolean(
     activity?.find((row) => row.channelId === channelId)?.agentNeeds.length
   )

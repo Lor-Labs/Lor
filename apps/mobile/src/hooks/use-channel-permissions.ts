@@ -1,7 +1,11 @@
-import { workspaceAuthorityHasPermissions } from "@repo/auth/permissions"
+import {
+  isWorkspaceRole,
+  workspaceAuthorityHasPermissions,
+} from "@repo/auth/permissions"
 import { useMemo } from "react"
 import { useWorkspace } from "@/context/workspace-context"
 import { useActiveMember } from "@/hooks/use-active-member"
+import { useWorkspaceRoles } from "@/hooks/use-workspace-roles"
 import { authClient } from "@/lib/auth-client"
 
 type ChannelPermissions = {
@@ -24,6 +28,7 @@ const EMPTY_PERMISSIONS: ChannelPermissions = {
 
 export function useChannelPermissions(workspaceId?: string) {
   const member = useActiveMember(workspaceId)
+  const customRoles = useWorkspaceRoles(workspaceId)
   const { workspace } = useWorkspace()
   const { data: session } = authClient.useSession()
   const isOwner = Boolean(
@@ -41,9 +46,19 @@ export function useChannelPermissions(workspaceId?: string) {
       return EMPTY_PERMISSIONS
     }
 
-    // Custom roles degrade to member-tier affordances here — mobile doesn't
-    // fetch custom-role grants yet; the server enforces real grants.
-    const authority = { role, isOwner }
+    // A custom role's grants come from the workspace's roles; until they
+    // load, nothing is offered. The server enforces the real grants.
+    const isCustom = !isOwner && !isWorkspaceRole(role)
+    if (isCustom && customRoles.isPending) {
+      return { ...EMPTY_PERMISSIONS, isLoading: true }
+    }
+    const authority = {
+      role,
+      isOwner,
+      customGrants:
+        customRoles.data?.find((custom) => custom.role === role)?.grants ??
+        null,
+    }
     return {
       canCreateChannel: workspaceAuthorityHasPermissions(authority, {
         channel: ["create"],
@@ -62,5 +77,12 @@ export function useChannelPermissions(workspaceId?: string) {
       }),
       isLoading: false,
     }
-  }, [workspaceId, member.isPending, member.data, isOwner])
+  }, [
+    workspaceId,
+    member.isPending,
+    member.data,
+    isOwner,
+    customRoles.isPending,
+    customRoles.data,
+  ])
 }

@@ -213,6 +213,10 @@ function AgentSettings({
       }),
   })
 
+  // A save clears the edited marks, so nothing changes while one is in
+  // flight: an edit made then would be dropped from the next save.
+  const saving = save.isPending
+
   return (
     <Screen className="bg-background" edges={["top", "bottom"]}>
       <ScreenHeader
@@ -221,11 +225,11 @@ function AgentSettings({
           canEdit ? (
             <Button
               className="mr-one"
-              isDisabled={!hasChanges || save.isPending}
+              isDisabled={!hasChanges || saving}
               onPress={() => save.mutate()}
               size="sm"
             >
-              {save.isPending ? "Saving…" : "Save"}
+              {saving ? "Saving…" : "Save"}
             </Button>
           ) : null
         }
@@ -261,6 +265,7 @@ function AgentSettings({
               <Label>Name</Label>
               <Input
                 autoCapitalize="words"
+                isDisabled={saving}
                 maxLength={AGENT_NAME_MAX}
                 onChangeText={(text) => {
                   setAgentName(text)
@@ -291,6 +296,7 @@ function AgentSettings({
                             ? "border-accent bg-surface-secondary"
                             : "border-transparent"
                         }`}
+                        disabled={saving}
                         onPress={() => {
                           triggerHaptic("selection")
                           setCreature(option.id)
@@ -323,6 +329,7 @@ function AgentSettings({
             <View className="gap-two">
               <SectionLabel>Answers</SectionLabel>
               <RadioGroup
+                isDisabled={saving}
                 onValueChange={(value) => {
                   setWakeMode(value as WakeMode)
                   edit("wakeMode")
@@ -355,6 +362,7 @@ function AgentSettings({
                 accessibilityLabel={`Model, ${modelName}`}
                 accessibilityRole="button"
                 className="min-h-[52px] flex-row items-center gap-two rounded-lor-md border border-border bg-surface px-four py-three active:opacity-70"
+                disabled={saving}
                 onPress={() => setIsModelOpen(true)}
               >
                 <Text
@@ -377,6 +385,7 @@ function AgentSettings({
             <TextField>
               <Label>Brief</Label>
               <TextArea
+                isDisabled={saving}
                 maxLength={4000}
                 numberOfLines={5}
                 onChangeText={(text) => {
