@@ -102,6 +102,7 @@ export function AgentFollowUps({
       queryClient.setQueryData<WakeUp[]>(wakeUpsKey(channelId), (list) =>
         list?.filter((wakeUp) => wakeUp.id !== wakeUpId)
       )
+      void queryClient.invalidateQueries({ queryKey: wakeUpsKey(channelId) })
     },
     onError: (error) =>
       toast.show({

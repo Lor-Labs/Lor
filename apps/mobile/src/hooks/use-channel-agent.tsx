@@ -53,11 +53,15 @@ function useAgentWorking(channelId: string, snapshotWorking: boolean) {
         until: payload.working ? Date.now() + WORKING_FOR_MS : 0,
       })
     }
+    // Events missed while offline: the snapshot refreshed on connect decides.
+    const onConnect = () => setDeadline({ channelId: null, until: 0 })
     socket.on("typing:update", onTyping)
     socket.on("agent:working", onWorking)
+    socket.on("connect", onConnect)
     return () => {
       socket.off("typing:update", onTyping)
       socket.off("agent:working", onWorking)
+      socket.off("connect", onConnect)
     }
   }, [socket, channelId])
   const pending = until > Date.now()

@@ -1123,6 +1123,7 @@ export function createLorRespondProcessor(
                 stopReason: "out_of_credits",
               })
               execution?.stop()
+              await reportToAgent("failed", OUT_OF_CREDITS_MESSAGE)
               await settlePlan("failed", "out_of_credits")
               await emitThreadSummary()
               drainQueue()

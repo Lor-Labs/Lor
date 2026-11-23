@@ -135,9 +135,20 @@ export function PersonalHarnessSettings() {
 
 // Without a workspace, linked accounts can still be disconnected.
 function UnscopedAccounts() {
-  const { data } = usePersonalAccounts()
+  const query = usePersonalAccounts()
   const disconnectClaude = useDisconnectClaudeAccount()
   const disconnectCodex = useDisconnectChatgptAccount()
+  if (query.isPending) return <Spinner />
+  if (query.isError)
+    return (
+      <div className="space-y-2 text-sm">
+        <p>Couldn't load your accounts.</p>
+        <Button variant="outline" size="sm" onClick={() => query.refetch()}>
+          Try again
+        </Button>
+      </div>
+    )
+  const data = query.data
   const pending = disconnectClaude.isPending || disconnectCodex.isPending
   const accounts = [
     ...(data?.claude.accounts ?? []).map((account) => ({

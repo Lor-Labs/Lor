@@ -37,18 +37,40 @@ import { HarnessTurnError } from "./session-core/harness-error"
 
 // The transcript goes as JSON text; inline images (posted images, view_image
 // results) go as image input after it, each marked by a numbered placeholder.
+// Only typed message and tool-result file parts are read; tool JSON stays as is.
 function harnessPrompt(messages: LanguageModelV4Prompt): UserModelMessage {
   const images: FilePart[] = []
-  const transcript = JSON.stringify(messages, (_key, value) => {
-    if (value?.type !== "file" || typeof value.mediaType !== "string")
-      return value
-    const file = value as LanguageModelV4FilePart
-    if (file.mediaType.startsWith("image") && file.data.type === "data") {
+  const placeholder = (file: Omit<LanguageModelV4FilePart, "type">) => {
+    if (file.mediaType.startsWith("image") && file.data?.type === "data") {
       images.push({ type: "file", data: file.data, mediaType: file.mediaType })
       return `[image ${images.length}, attached after the transcript]`
     }
     return `[file ${file.filename ?? file.mediaType}, not shown]`
-  })
+  }
+  const transcript = JSON.stringify(
+    messages.map((message) =>
+      message.role === "system"
+        ? message
+        : {
+            ...message,
+            content: message.content.map((part) =>
+              part.type === "file"
+                ? placeholder(part)
+                : part.type === "tool-result" && part.output.type === "content"
+                  ? {
+                      ...part,
+                      output: {
+                        ...part.output,
+                        value: part.output.value.map((item) =>
+                          item.type === "file" ? placeholder(item) : item
+                        ),
+                      },
+                    }
+                  : part
+            ),
+          }
+    )
+  )
   return {
     role: "user",
     content: [

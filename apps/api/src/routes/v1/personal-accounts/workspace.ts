@@ -394,6 +394,8 @@ const router = createRouter()
     const values = { ...previous, ...patch }
     const activated = (harness: typeof values.defaultHarness) =>
       values.defaultHarness === harness && previous.defaultHarness !== harness
+    const changed = (key: keyof typeof patch) =>
+      key in patch && patch[key] !== previous[key]
     assertHarnessEnabled(values.defaultHarness)
     await assertAccount(
       c.var.workspace.id,
@@ -407,13 +409,15 @@ const router = createRouter()
       "chatgpt",
       values.codexAccountId
     )
+    // A disconnect can null the account under enabled subscriptions (FK set
+    // null), so only writes that touch the pair must leave it valid.
     if (
       (values.claudeUseSubscriptions &&
         !values.claudeAccountId &&
-        !previous.claudeUseSubscriptions) ||
+        (changed("claudeUseSubscriptions") || changed("claudeAccountId"))) ||
       (values.codexUseSubscriptions &&
         !values.codexAccountId &&
-        !previous.codexUseSubscriptions)
+        (changed("codexUseSubscriptions") || changed("codexAccountId")))
     )
       throw new HTTPException(400, {
         message:
