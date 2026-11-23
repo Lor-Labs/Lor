@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react"
+import { useCallback, useMemo, useRef } from "react"
 import { Image, type LayoutChangeEvent, View } from "react-native"
 import { Gesture, GestureDetector } from "react-native-gesture-handler"
 import Animated, {
@@ -40,9 +40,16 @@ export function ZoomableImage({
   // Set by resetTransform: the active pinch's captured state is void until
   // the next pinch starts.
   const pinchStale = useSharedValue(false)
+  // Bumped by resetTransform, so a zoom notice queued on the UI thread
+  // before a reset can't land after its `false`.
+  const zoomEpoch = useSharedValue(0)
+  const shownEpoch = useRef(0)
 
   const notifyZoom = useCallback(
-    (zoomed: boolean) => onZoomChange?.(zoomed),
+    (zoomed: boolean, epoch: number) => {
+      if (epoch !== shownEpoch.current) return
+      onZoomChange?.(zoomed)
+    },
     [onZoomChange]
   )
 
@@ -70,7 +77,7 @@ export function ZoomableImage({
       tx.value = withSpring(0, springConfig)
       ty.value = withSpring(0, springConfig)
       savedScale.value = 1
-      scheduleOnRN(notifyZoom, false)
+      scheduleOnRN(notifyZoom, false, zoomEpoch.value)
     }
     const zoomTo = (s: number, nextX: number, nextY: number) => {
       "worklet"
@@ -79,7 +86,7 @@ export function ZoomableImage({
       tx.value = withSpring(clamp(nextX, max.x), springConfig)
       ty.value = withSpring(clamp(nextY, max.y), springConfig)
       savedScale.value = s
-      scheduleOnRN(notifyZoom, true)
+      scheduleOnRN(notifyZoom, true, zoomEpoch.value)
     }
 
     const pinch = Gesture.Pinch()
@@ -183,6 +190,7 @@ export function ZoomableImage({
     pinchContentY,
     pinchStale,
     pinching,
+    zoomEpoch,
     savedScale,
     scale,
     tx,
@@ -205,7 +213,9 @@ export function ZoomableImage({
     savedScale.value = 1
     tx.value = 0
     ty.value = 0
-    notifyZoom(false)
+    shownEpoch.current += 1
+    zoomEpoch.value = shownEpoch.current
+    onZoomChange?.(false)
   }
 
   const onLayout = (event: LayoutChangeEvent) => {

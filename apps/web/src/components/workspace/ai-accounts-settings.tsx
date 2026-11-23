@@ -46,12 +46,14 @@ export function AiAccountsSettings({
   const { open: openSettings } = useSettings()
   const [connect, setConnect] = useState<Provider | null>(null)
   const models = useQuery(agentModelsQueryOptions("pi", workspaceSlug))
+  // Refetch too: a save and a removal can answer out of order with stale lists.
   const changed = (data: Data) => {
     client.setQueryData(key, data)
+    void client.invalidateQueries({ queryKey: key })
     void client.invalidateQueries({ queryKey: ["agent-models"] })
   }
   const saveSettings = useMutation({
-    mutationFn: async (json: Settings) => {
+    mutationFn: async (json: Partial<Settings>) => {
       const res = await endpoint.autonomous.$put({
         param: { workspaceSlug },
         json,
@@ -83,7 +85,7 @@ export function AiAccountsSettings({
   const data = query.data
   const settings = data.settings
   const update = (patch: Partial<Settings>) => {
-    if (settings) saveSettings.mutate({ ...settings, ...patch })
+    if (settings) saveSettings.mutate(patch)
   }
   const remove = async (provider: Provider, accountId: string) => {
     const res = await endpoint.accounts[":provider"][":accountId"].$delete({

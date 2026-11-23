@@ -18,7 +18,13 @@ import {
   disconnectHarnessAccountQuerySchema,
   githubConnectUrlResponseSchema,
   personalAccountsResponseSchema,
+  validationErrorResponseSchema,
 } from "@/routes/v1/personal-accounts/schema"
+
+const invalidAccountId = jsonContent({
+  schema: validationErrorResponseSchema,
+  description: "Malformed account ID",
+})
 
 export const getPersonalAccounts = createRoute({
   path: "/personal-accounts",
@@ -148,6 +154,7 @@ export const disconnectClaudeAccount = createRoute({
       description: "Disconnected",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.UNPROCESSABLE_ENTITY]: invalidAccountId,
   },
 })
 
@@ -194,6 +201,7 @@ export const disconnectChatgptAccount = createRoute({
       description: "Disconnected",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.UNPROCESSABLE_ENTITY]: invalidAccountId,
   },
 })
 

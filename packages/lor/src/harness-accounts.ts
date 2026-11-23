@@ -1,4 +1,4 @@
-import { and, db, eq, schema } from "@repo/db"
+import { and, db, eq, schema, sql } from "@repo/db"
 import {
   harnessAccountOwner,
   resolveHarnessAccount,
@@ -6,6 +6,7 @@ import {
 import type { HarnessAccountRoute } from "@repo/db/schema"
 import { chatgptCredential } from "./chatgpt-account"
 import { claudeSubscriptionToken } from "./claude-account"
+import { logger } from "./logger"
 
 export type HarnessCredential =
   | { provider: "claude"; token: string }
@@ -104,16 +105,28 @@ export async function nextHarnessAccount(
 ) {
   const reset = harnessQuotaReset(error)
   if (!reset || !route.accountId || route.source !== "subscription") return null
-  await db
-    .update(schema.personalAccount)
-    .set({ unavailableUntil: reset })
-    .where(
-      and(
-        harnessAccountOwner(route),
-        eq(schema.personalAccount.id, route.accountId),
-        eq(schema.personalAccount.provider, route.provider)
+  // A shorter fallback never replaces a later known reset. A failed write
+  // returns no account so the caller keeps the provider's error.
+  try {
+    await db
+      .update(schema.personalAccount)
+      .set({
+        unavailableUntil: sql`greatest(${schema.personalAccount.unavailableUntil}, ${reset.toISOString()}::timestamptz)`,
+      })
+      .where(
+        and(
+          harnessAccountOwner(route),
+          eq(schema.personalAccount.id, route.accountId),
+          eq(schema.personalAccount.provider, route.provider)
+        )
       )
+  } catch (err) {
+    logger.error(
+      { err, accountId: route.accountId },
+      "Saving the account's quota cooldown failed"
     )
+    return null
+  }
   try {
     return await resolveHarnessAccount(route, route.provider, {
       pinned: route,

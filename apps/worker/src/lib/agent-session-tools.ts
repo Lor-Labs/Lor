@@ -130,6 +130,22 @@ async function activeRun(threadRootId: string) {
   return run ?? null
 }
 
+type TaskRoute = Awaited<ReturnType<typeof resolveHarnessAccount>> | undefined
+
+// Throws when the requester (or the workspace) has no usable account.
+async function taskRoute(
+  workspaceId: string,
+  harness: "pi" | "claude_code" | "codex",
+  requestUserId: string | null
+): Promise<TaskRoute> {
+  return harness === "pi"
+    ? undefined
+    : await resolveHarnessAccount(
+        { workspaceId, userId: requestUserId },
+        harness === "claude_code" ? "claude" : "chatgpt"
+      )
+}
+
 // The agent's brief or follow-up, as the session's next turn.
 async function runTask(
   deps: SessionToolDeps,
@@ -137,19 +153,11 @@ async function runTask(
     workspaceId: string
     channelId: string
     threadRootId: string
-    harness: "pi" | "claude_code" | "codex"
   },
   channelName: string | null,
   task: string,
-  requestUserId: string | null
+  harnessAccount: TaskRoute
 ): Promise<"started" | "busy" | "failed"> {
-  const harnessAccount =
-    session.harness === "pi"
-      ? undefined
-      : await resolveHarnessAccount(
-          { workspaceId: session.workspaceId, userId: requestUserId },
-          session.harness === "claude_code" ? "claude" : "chatgpt"
-        )
   const { messageId } = await postLorMessage(deps, {
     channelId: session.channelId,
     threadRootId: session.threadRootId,
@@ -271,6 +279,17 @@ export function agentSessionExecutors(
           error:
             "The selected coding agent is unavailable. Update your linked accounts or the workspace's autonomous settings.",
         }
+      let route: TaskRoute
+      try {
+        route = await taskRoute(workspaceId, harness, args.requestUserId)
+      } catch (err) {
+        return {
+          error:
+            err instanceof Error
+              ? err.message
+              : "Couldn't select an account for this session.",
+        }
+      }
 
       const audience = args.askerId
         ? await listChannelAudienceUserIds(channelId)
@@ -322,7 +341,7 @@ export function agentSessionExecutors(
         session,
         channelName,
         task,
-        args.requestUserId
+        route
       ).catch((err: unknown) => {
         logger.warn({ err, sessionId }, "Agent session first turn failed")
         return "failed" as const
@@ -427,7 +446,7 @@ export function agentSessionExecutors(
         session,
         channelName,
         message,
-        args.requestUserId
+        await taskRoute(workspaceId, session.harness, args.requestUserId)
       )
       if (started === "failed") {
         return {

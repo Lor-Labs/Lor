@@ -45,6 +45,7 @@ import {
 import {
   useDisconnectChatgptAccount,
   useDisconnectClaudeAccount,
+  usePersonalAccounts,
 } from "@/hooks/use-personal-accounts"
 import { AccountLimit } from "./account-limit"
 import { ChatgptConnectDialog } from "./chatgpt-connect-dialog"
@@ -121,12 +122,52 @@ export function PersonalHarnessSettings() {
       ) : workspaces.isPending ? (
         <Spinner />
       ) : (
-        <p className="text-sm text-muted-foreground">
-          Join a workspace to set your account preferences.
-        </p>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Join a workspace to set your account preferences.
+          </p>
+          <UnscopedAccounts />
+        </div>
       )}
     </div>
   )
+}
+
+// Without a workspace, linked accounts can still be disconnected.
+function UnscopedAccounts() {
+  const { data } = usePersonalAccounts()
+  const disconnectClaude = useDisconnectClaudeAccount()
+  const disconnectCodex = useDisconnectChatgptAccount()
+  const pending = disconnectClaude.isPending || disconnectCodex.isPending
+  const accounts = [
+    ...(data?.claude.accounts ?? []).map((account) => ({
+      id: account.id,
+      label: account.label ?? `Claude Code · ${account.tokenHint}`,
+      disconnect: disconnectClaude,
+    })),
+    ...(data?.chatgpt.accounts ?? []).map((account) => ({
+      id: account.id,
+      label: account.label ?? account.email ?? "Codex",
+      disconnect: disconnectCodex,
+    })),
+  ]
+  return accounts.map((account) => (
+    <div
+      key={account.id}
+      className="flex items-center gap-2 rounded-lg border bg-background px-3 py-2"
+    >
+      <p className="min-w-0 flex-1 truncate text-sm">{account.label}</p>
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={pending}
+        aria-label={`Disconnect ${account.label}`}
+        onClick={() => account.disconnect.mutate(account.id)}
+      >
+        Disconnect
+      </Button>
+    </div>
+  ))
 }
 
 function WorkspaceAccounts({ workspaceSlug }: { workspaceSlug: string }) {

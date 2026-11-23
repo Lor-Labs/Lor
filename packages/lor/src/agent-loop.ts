@@ -860,6 +860,14 @@ async function turnLoop(
       )
     )
     const ranApproved: ToolResultPart[] = []
+    const keepRanApproved = async () => {
+      if (ranApproved.length === 0) return
+      const checkpoint = approvedResultsCheckpoint(messages, ranApproved)
+      await save([checkpoint])
+      messages = [...messages, checkpoint]
+      turnMessages.push(checkpoint)
+      sentMessages += sentIn([checkpoint])
+    }
     const result = await generateText({
       model: withInferenceGuard(
         args.languageModel ?? lorGatewayModel(args.model),
@@ -905,18 +913,21 @@ async function turnLoop(
       },
       runtimeContext: aiRuntimeContext(),
       telemetry: aiTelemetry("lor.agent"),
-    }).catch((err: unknown) => {
-      rethrowUnlessDeadline(err)
-      return null
+    }).catch(async (err: unknown) => {
+      if (deadline.aborted && !run.abortSignal?.aborted) return null
+      // Any other inference failure (e.g. the key guard) still keeps approved
+      // results that already ran, so the retry does not lose them.
+      if (!run.abortSignal?.aborted)
+        await keepRanApproved().catch((saveErr: unknown) =>
+          logger.error(
+            { err: saveErr, runId: run.runId },
+            "Saving approved tool results after a failed call failed"
+          )
+        )
+      throw err
     })
     if (!result) {
-      if (ranApproved.length > 0) {
-        const checkpoint = approvedResultsCheckpoint(messages, ranApproved)
-        await save([checkpoint])
-        messages = [...messages, checkpoint]
-        turnMessages.push(checkpoint)
-        sentMessages += sentIn([checkpoint])
-      }
+      await keepRanApproved()
       stoppedFor = "budget_wall_clock"
       break
     }

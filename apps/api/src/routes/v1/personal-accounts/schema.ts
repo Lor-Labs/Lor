@@ -88,3 +88,9 @@ export const disconnectGithubAccountResponseSchema = z.object({
 export const disconnectHarnessAccountQuerySchema = z.object({
   accountId: z.string().uuid().optional(),
 })
+
+// The default validation hook's body for a malformed query.
+export const validationErrorResponseSchema = z.object({
+  success: z.literal(false),
+  error: z.unknown(),
+})

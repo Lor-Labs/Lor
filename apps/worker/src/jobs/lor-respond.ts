@@ -37,6 +37,7 @@ import {
   ClaudeCodeTurnError,
   formatSpeakerLine,
   groundCitations,
+  InferenceConfigError,
   pausedTurnExpired,
   respond,
   SandboxCapacityError,
@@ -933,19 +934,6 @@ export function createLorRespondProcessor(
               )
             )
 
-            // Named only once the run may spend: titling is metered too.
-            if (savedAnswer === null && threadRootId && job.data.runId) {
-              void titleSessionOnFirstRun({
-                emitter,
-                threadRootId,
-                runId: job.data.runId,
-                onUsage: (u) =>
-                  void recordUsage(u, { messageId: lorMessageId, channelId }),
-              }).catch((err) =>
-                logger.warn({ err, threadRootId }, "Session title failed")
-              )
-            }
-
             // Also selects the personal payer. A failed lookup must not turn a
             // direct request into workspace-funded work.
             const triggerUserId = triggerMessageId
@@ -1031,7 +1019,9 @@ export function createLorRespondProcessor(
             }
             const claudeCodeMode: ClaudeCodeMode =
               previousContext?.claudeCodeMode ??
-              (triggerMessageId
+              (savedAnswer === null &&
+              session.harness === "claude_code" &&
+              triggerMessageId
                 ? await db
                     .select({ mode: schema.message.claudeCodeMode })
                     .from(schema.message)
@@ -1141,6 +1131,19 @@ export function createLorRespondProcessor(
                 reason: "out_of_credits",
               })
               return
+            }
+
+            // Named only once the run may spend: titling is metered too.
+            if (savedAnswer === null && threadRootId && job.data.runId) {
+              void titleSessionOnFirstRun({
+                emitter,
+                threadRootId,
+                runId: job.data.runId,
+                onUsage: (u) =>
+                  void recordUsage(u, { messageId: lorMessageId, channelId }),
+              }).catch((err) =>
+                logger.warn({ err, threadRootId }, "Session title failed")
+              )
             }
 
             // A paused turn finishes first, or is dropped (stopped, or saved
@@ -1584,7 +1587,8 @@ export function createLorRespondProcessor(
                   ? SANDBOX_STARTING_MESSAGE
                   : err instanceof HarnessDisabledError ||
                       err instanceof BetaAccessError ||
-                      err instanceof ClaudeCodeTurnError
+                      err instanceof ClaudeCodeTurnError ||
+                      err instanceof InferenceConfigError
                     ? err.message
                     : LOR_ERROR_FALLBACK
             await persistFailure(failureText)

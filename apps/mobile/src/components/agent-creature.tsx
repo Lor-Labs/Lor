@@ -9,7 +9,7 @@ import {
 } from "@repo/utils/faces"
 import { useThemeColor } from "heroui-native/hooks"
 import { memo, useEffect, useMemo, useRef, useState } from "react"
-import { View } from "react-native"
+import { AccessibilityInfo, View } from "react-native"
 import Animated, {
   cancelAnimation,
   Easing,
@@ -162,6 +162,27 @@ function useTurnedPose(face: FaceSpec, driven: boolean, working: boolean) {
   return driven ? turned : null
 }
 
+// Reanimated's useReducedMotion reads the setting once at startup; the turn
+// loop must stop as soon as Reduce Motion is switched on.
+function useLiveReducedMotion() {
+  const [reduced, setReduced] = useState(useReducedMotion())
+  useEffect(() => {
+    let live = true
+    AccessibilityInfo.isReduceMotionEnabled().then((value) => {
+      if (live) setReduced(value)
+    })
+    const subscription = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReduced
+    )
+    return () => {
+      live = false
+      subscription.remove()
+    }
+  }, [])
+  return reduced
+}
+
 const POP_EASE = Easing.bezier(0.3, 0.7, 0.3, 1)
 
 // A channel agent's face, from the same 3D definition web draws
@@ -189,7 +210,7 @@ export const AgentCreature = memo(function AgentCreature({
   const asleep = state === "asleep"
   const working = state === "working"
   const needsYou = state === "needs_you"
-  const reduced = useReducedMotion()
+  const reduced = useLiveReducedMotion()
   const moves = !still && !reduced
   const [warning, background] = useThemeColor(["warning", "background"])
   const turned = useTurnedPose(face, moves && !asleep, working)
@@ -276,6 +297,12 @@ export const AgentCreature = memo(function AgentCreature({
   // The pop is for a change of state, not for arriving on screen.
   const shownState = useRef(state)
   useEffect(() => {
+    if (!moves) {
+      cancelAnimation(squashX)
+      cancelAnimation(squashY)
+      squashX.value = 1
+      squashY.value = 1
+    }
     if (shownState.current === state) return
     shownState.current = state
     if (!moves) return

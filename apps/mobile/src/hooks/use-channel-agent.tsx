@@ -27,12 +27,17 @@ export type ChannelAgent = {
 const WORKING_FOR_MS = 15_000
 
 // Working while a turn runs: the worker beats "agent:working" every 10s, and
-// the agent typing counts too. As web's channel-agent.tsx.
-function useAgentWorking(channelId: string) {
+// the agent typing counts too. As web's channel-agent.tsx. Until a live event
+// arrives, the activity snapshot says whether a turn is already running.
+function useAgentWorking(channelId: string, snapshotWorking: boolean) {
   const socket = useSocket()
   // The deadline belongs to the channel that set it.
-  const [deadline, setDeadline] = useState({ channelId, until: 0 })
-  const until = deadline.channelId === channelId ? deadline.until : 0
+  const [deadline, setDeadline] = useState<{
+    channelId: string | null
+    until: number
+  }>({ channelId: null, until: 0 })
+  const heard = deadline.channelId === channelId
+  const until = heard ? deadline.until : 0
   const [, setTick] = useState(0)
   useEffect(() => {
     if (!socket) return
@@ -55,27 +60,25 @@ function useAgentWorking(channelId: string) {
       socket.off("agent:working", onWorking)
     }
   }, [socket, channelId])
-  const working = until > Date.now()
+  const pending = until > Date.now()
   useEffect(() => {
-    if (!working) return
+    if (!pending) return
     const timer = setTimeout(
       () => setTick((tick) => tick + 1),
       until - Date.now() + 50
     )
     return () => clearTimeout(timer)
-  }, [working, until])
-  return working
+  }, [pending, until])
+  return heard ? pending : snapshotWorking
 }
 
-// Needs you while one of its approvals or questions waits on you, from the
-// workspace activity snapshot. The channel screens keep that snapshot
-// themselves: a channel opened by a link has no Channels tab under it to
-// fetch it or hear its pushes.
-function useAgentNeedsYou(workspaceId: string | undefined, channelId: string) {
+// The channel's row in the workspace activity snapshot: needs you while one
+// of its approvals or questions waits on you. The channel screens keep that
+// snapshot themselves: a channel opened by a link has no Channels tab under
+// it to fetch it or hear its pushes.
+function useAgentActivity(workspaceId: string | undefined, channelId: string) {
   const { data: activity } = useWorkspaceActivity(workspaceId)
-  return Boolean(
-    activity?.find((row) => row.channelId === channelId)?.agentNeeds.length
-  )
+  return activity?.find((row) => row.channelId === channelId)
 }
 
 const ChannelAgentContext = createContext<ChannelAgent | null>(null)
@@ -104,8 +107,9 @@ export function ChannelAgentProvider({
         : null,
     [channel]
   )
-  const working = useAgentWorking(channelId)
-  const needsYou = useAgentNeedsYou(workspace?.id, channelId)
+  const activity = useAgentActivity(workspace?.id, channelId)
+  const working = useAgentWorking(channelId, Boolean(activity?.agentWorking))
+  const needsYou = Boolean(activity?.agentNeeds.length)
   const state: CreatureState = needsYou
     ? "needs_you"
     : working

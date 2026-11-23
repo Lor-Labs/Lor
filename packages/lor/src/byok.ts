@@ -12,6 +12,7 @@ import {
   type KeyProvider,
   parseKeyModelId,
 } from "@repo/utils/inference"
+import { LOR_MODEL } from "./models"
 
 export function isByokModel(provider: KeyProvider, model: string) {
   return getBuiltinModels(provider).some((item) => item.id === model)
@@ -86,6 +87,16 @@ export async function nativeInference(
   return { provider: funding.provider, model: funding.model, auth }
 }
 
+// A missing or unusable workspace key or model setting; the message tells the
+// person what to update.
+export class InferenceConfigError extends Error {}
+
+// LOR_MODEL is provider-neutral (DeepSeek by default), so Claude Code API
+// turns use it only when it is a Claude model.
+export const CLAUDE_API_DEFAULT_MODEL = LOR_MODEL.startsWith("anthropic/")
+  ? LOR_MODEL.slice("anthropic/".length)
+  : "claude-opus-5-5"
+
 export async function harnessApiFunding(
   workspaceId: string,
   provider: KeyProvider,
@@ -98,7 +109,7 @@ export async function harnessApiFunding(
   if (billing === "byok") {
     const keyId = await workspaceInferenceKeyId(workspaceId, provider)
     if (!keyId)
-      throw new Error(
+      throw new InferenceConfigError(
         `The workspace's ${KEY_PROVIDER_NAMES[provider]} API key is missing. Update Workspace settings → Billing.`
       )
     return { source: "byok", keyId, provider, model }

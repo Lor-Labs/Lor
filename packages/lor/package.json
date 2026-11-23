@@ -98,6 +98,7 @@
     "@opentelemetry/sdk-node": "^0.301.0",
     "@pierre/storage": "1.17.1",
     "@posthog/ai": "^8.18.5",
+    "@repo/billing": "workspace:^",
     "@repo/connectors": "workspace:^",
     "@repo/db": "workspace:^",
     "@repo/env": "workspace:^",

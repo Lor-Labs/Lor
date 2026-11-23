@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { checkCredits } from "@repo/billing"
 import {
   BETTERSTACK_TOOLS,
   builtinApprovalTool,
@@ -105,8 +106,10 @@ import {
   BRAIN_SAVE_STEPS,
 } from "./brain-rules"
 import {
+  CLAUDE_API_DEFAULT_MODEL,
   harnessApiConnection,
   harnessApiFunding,
+  InferenceConfigError,
   keyFunding,
   nativeInference,
   nativeLanguageModel,
@@ -846,6 +849,7 @@ export type RespondCallbacks = {
   onHarnessCommands?: (list: HarnessCommandList) => void
 }
 
+export { InferenceConfigError } from "./byok"
 export { embedDocumentsWithUsage } from "./embeddings"
 export { buildInitialUserMessage } from "./initial-message"
 export type { InstructionsProposalEvent } from "./instructions"
@@ -2831,7 +2835,7 @@ async function respondImpl(
           ctx.harnessAccount.apiBilling ?? "lor",
           ctx.turn?.model,
           provider === "anthropic"
-            ? LOR_MODEL.replace(/^anthropic\//, "")
+            ? CLAUDE_API_DEFAULT_MODEL
             : CODEX_DEFAULT_MODEL
         )
       } else {
@@ -2841,7 +2845,7 @@ async function respondImpl(
           model: pick && inGatewayCatalog(pick) ? pick : LOR_MODEL,
         }
         if (pick?.startsWith("key:") && funding.source !== "byok")
-          throw new Error(
+          throw new InferenceConfigError(
             "The configured API key or model is unavailable. Update Workspace settings → AI accounts."
           )
       }
@@ -3397,19 +3401,23 @@ async function respondImpl(
       if (!run || !ctx.channelId) {
         throw new Error("A channel agent turn needs a run and a channel")
       }
-      const agentModel = ctx.harnessAccount
-        ? (harnessApi?.model ??
-          (ctx.harnessAccount.provider === "claude"
-            ? CLAUDE_CODE_DEFAULT_MODEL
-            : CODEX_DEFAULT_MODEL))
-        : native
-          ? `${native.provider}/${native.model}`
+      // The harness takes a bare BYOK model id; usage and the ledger need
+      // the provider-qualified one to price the own-key fee.
+      const harnessModel =
+        harnessApi?.model ??
+        (ctx.harnessAccount?.provider === "claude"
+          ? CLAUDE_CODE_DEFAULT_MODEL
+          : CODEX_DEFAULT_MODEL)
+      const agentModel = native
+        ? `${native.provider}/${native.model}`
+        : ctx.harnessAccount
+          ? harnessModel
           : (funding?.model ?? ctx.turn?.model ?? LOR_MODEL)
       const harnessInference =
         ctx.harnessAccount && !memoryInference
           ? agentHarnessModel({
               route: ctx.harnessAccount,
-              model: agentModel,
+              model: harnessModel,
               run:
                 ctx.agent.mode === "memory"
                   ? { ...run, pinHarnessAccount: undefined }
@@ -4739,10 +4747,12 @@ async function respondImpl(
               error,
               attempted
             )
-            if (!next) throw error
+            if (!next || abortSignal?.aborted) throw error
             // Without a native log, replaying a turn that ran tools could
-            // repeat writes. Keep the error instead of guessing what ran.
-            if (toolCallCount > 0 && !error.save) throw error
+            // repeat writes, and one that streamed text would answer twice.
+            // Keep the error instead of guessing what ran.
+            if ((toolCallCount > 0 || text.length > 0) && !error.save)
+              throw error
             if (error instanceof HarnessTurnError && error.save) {
               await harness.saveTurn({
                 partial: true,
@@ -4776,6 +4786,7 @@ async function respondImpl(
                 : (request.harnessPartial ?? false),
             }
             await run.saveContext({ context: request, instructions })
+            if (abortSignal?.aborted) throw error
             logger.info(
               {
                 runId: run.runId,
@@ -4856,7 +4867,8 @@ async function respondImpl(
         if (err instanceof HarnessTurnError && !abortSignal?.aborted) {
           try {
             await harness.saveTurn({
-              partial: true,
+              // A failure with nothing saved keeps the earlier marker.
+              partial: err.save ? true : (request.harnessPartial ?? false),
               save: err.save,
               extraUsage: null,
               toolCalls: toolCallCount,
@@ -5077,6 +5089,13 @@ export async function writeBack(
 ): Promise<void> {
   const inference = await autonomousInference(ctx.workspaceId, ctx.runId)
   try {
+    // The payer is resolved again here: billing may have left the
+    // subscription after the worker's credit gate skipped the check.
+    if (
+      !inference.subscription &&
+      !(await checkCredits(ctx.workspaceId)).allowed
+    )
+      return
     await writeBackImpl(ctx, callbacks, inference)
   } finally {
     await inference.close()

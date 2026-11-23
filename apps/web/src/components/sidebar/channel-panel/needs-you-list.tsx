@@ -135,71 +135,82 @@ export function NeedsYouGroup() {
     })
 
   const count = needs.length + waiting.length
-  if (count === 0) return null
+  const announcement =
+    count === 0
+      ? ""
+      : `${count} ${count === 1 ? "item needs" : "items need"} you`
 
   return (
-    <section aria-label="Needs you" className="mb-3">
-      <h3 className="flex items-center gap-1.5 px-2 pb-1 font-medium text-muted-foreground text-xs">
-        Needs you
-        <span className="rounded-full bg-warning/20 px-1.5 font-semibold text-[11px] text-warning-foreground tabular-nums">
-          {count}
-        </span>
-      </h3>
-      {needs.map((need) => (
-        <button
-          key={`${need.kind}-${need.messageId}`}
-          type="button"
-          onClick={() => openNeed(need)}
-          className={rowClass}
-        >
-          <AgentCreature
-            creature={agentOf(need.channelId).creature}
-            size={24}
-            still
-            className="-mt-0.5"
-          />
-          <span className="min-w-0 flex-1">
-            <span className="flex items-baseline gap-1.5">
-              <span className="min-w-0 flex-1 truncate font-medium">
-                <HugeiconsIcon
-                  icon={
-                    need.kind === "approval"
-                      ? SecurityCheckIcon
-                      : BubbleChatQuestionIcon
-                  }
-                  className="mr-1 inline size-3.5 -translate-y-px text-warning"
-                  strokeWidth={2}
-                  aria-label={
-                    need.kind === "approval" ? "Approval" : "Question"
-                  }
-                />
-                {agentOf(need.channelId).name}
-                <span className="font-normal text-muted-foreground">
-                  {" "}
-                  in #{channelName(need.channelId)}
+    <>
+      {/* Stays mounted while the group is hidden, so a new need is announced. */}
+      <span aria-live="polite" className="sr-only">
+        {announcement}
+      </span>
+      {count > 0 && (
+        <section aria-label="Needs you" className="mb-3">
+          <h3 className="flex items-center gap-1.5 px-2 pb-1 font-medium text-muted-foreground text-xs">
+            Needs you
+            <span className="rounded-full bg-warning/20 px-1.5 font-semibold text-[11px] text-warning-foreground tabular-nums">
+              {count}
+            </span>
+          </h3>
+          {needs.map((need) => (
+            <button
+              key={`${need.kind}-${need.messageId}`}
+              type="button"
+              onClick={() => openNeed(need)}
+              className={rowClass}
+            >
+              <AgentCreature
+                creature={agentOf(need.channelId).creature}
+                size={24}
+                still
+                className="-mt-0.5"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-baseline gap-1.5">
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    <HugeiconsIcon
+                      icon={
+                        need.kind === "approval"
+                          ? SecurityCheckIcon
+                          : BubbleChatQuestionIcon
+                      }
+                      className="mr-1 inline size-3.5 -translate-y-px text-warning"
+                      strokeWidth={2}
+                      aria-label={
+                        need.kind === "approval" ? "Approval" : "Question"
+                      }
+                    />
+                    {agentOf(need.channelId).name}
+                    <span className="font-normal text-muted-foreground">
+                      {" "}
+                      in #{channelName(need.channelId)}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-muted-foreground text-xs">
+                    {timeAgo(need.createdAt)}
+                  </span>
+                </span>
+                <span className="line-clamp-2 text-muted-foreground text-xs">
+                  {toSearchPreviewText(need.text, [], {
+                    dropUnresolvedMentions: true,
+                  }).trim()}
                 </span>
               </span>
-              <span className="shrink-0 text-muted-foreground text-xs">
-                {timeAgo(need.createdAt)}
-              </span>
-            </span>
-            <span className="line-clamp-2 text-muted-foreground text-xs">
-              {toSearchPreviewText(need.text, [], {
-                dropUnresolvedMentions: true,
-              }).trim()}
-            </span>
-          </span>
-        </button>
-      ))}
-      {waiting.map((row) => (
-        <SessionNeedRow
-          key={row.id}
-          row={row}
-          channel={channelName(row.channelId)}
-          onOpen={() => openSession(row)}
-        />
-      ))}
-    </section>
+            </button>
+          ))}
+          {waiting.map((row) => (
+            <SessionNeedRow
+              key={row.id}
+              row={row}
+              channel={channelName(row.channelId)}
+              onOpen={() => openSession(row)}
+            />
+          ))}
+        </section>
+      )}
+    </>
   )
 }
 

@@ -25,10 +25,12 @@ import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 
 const provider = z.enum(["claude", "chatgpt"])
 const params = z.object({ workspaceSlug: z.string() })
+// Postgres returns lowercase UUIDs; the saved order must match them.
+const accountUuid = z.string().uuid().toLowerCase()
 const preference = z.object({
-  accountId: z.string().uuid().nullable(),
+  accountId: accountUuid.nullable(),
   accountOrder: z
-    .array(z.string().uuid())
+    .array(accountUuid)
     .max(500)
     .refine((ids) => new Set(ids).size === ids.length, "Duplicate accounts")
     .optional(),
@@ -92,10 +94,13 @@ const savePreference = createRoute({
   method: "put",
   request: {
     params: params.extend({ provider }),
-    body: jsonContent({
-      schema: preference,
-      description: "Your default in this workspace",
-    }),
+    body: {
+      ...jsonContent({
+        schema: preference,
+        description: "Your default in this workspace",
+      }),
+      required: true,
+    },
   },
   responses: ok,
 })
@@ -105,10 +110,13 @@ const saveSettings = createRoute({
   method: "put",
   request: {
     params,
-    body: jsonContent({
-      schema: settings,
-      description: "Autonomous run settings",
-    }),
+    body: {
+      ...jsonContent({
+        schema: settings.partial(),
+        description: "Changed autonomous run settings",
+      }),
+      required: true,
+    },
   },
   responses: ok,
 })
@@ -118,10 +126,13 @@ const savePersonalSettings = createRoute({
   method: "put",
   request: {
     params,
-    body: jsonContent({
-      schema: personalSettings,
-      description: "Your agent for direct requests in this workspace",
-    }),
+    body: {
+      ...jsonContent({
+        schema: personalSettings,
+        description: "Your agent for direct requests in this workspace",
+      }),
+      required: true,
+    },
   },
   responses: ok,
 })
@@ -131,15 +142,23 @@ const connect = createRoute({
   method: "post",
   request: {
     params: params.extend({ provider }),
-    body: jsonContent({
-      schema: z.object({
-        credential: z.string().min(1).max(20_000),
-        label: z.string().trim().min(1).max(80),
+    body: {
+      ...jsonContent({
+        schema: z.object({
+          credential: z.string().min(1).max(20_000),
+          label: z.string().trim().min(1).max(80),
+        }),
+        description: "Connect a dedicated Lor account",
       }),
-      description: "Connect a dedicated Lor account",
+      required: true,
+    },
+  },
+  responses: {
+    200: jsonContent({
+      schema: z.object({ success: z.literal(true) }),
+      description: "Connected",
     }),
   },
-  responses: ok,
 })
 const disconnect = createRoute({
   ...common,
@@ -347,8 +366,12 @@ const router = createRouter()
   })
   .openapi(saveSettings, async (c) => {
     assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
-    const values = c.req.valid("json")
+    // A patch of changed fields, so concurrent admin edits don't revert each other.
+    const patch = c.req.valid("json")
     const previous = await getWorkspaceHarnessSettings(c.var.workspace.id)
+    const values = { ...previous, ...patch }
+    const activated = (harness: typeof values.defaultHarness) =>
+      values.defaultHarness === harness && previous.defaultHarness !== harness
     assertHarnessEnabled(values.defaultHarness)
     await assertAccount(
       c.var.workspace.id,
@@ -374,34 +397,51 @@ const router = createRouter()
         message:
           "Choose a dedicated Lor account before enabling subscription billing.",
       })
+    // Check funding only when a choice changes or becomes active, so an admin
+    // can still switch away from a route whose key was removed.
     if (
       values.apiModel &&
+      (values.apiModel !== previous.apiModel || activated("pi")) &&
       !isLorCreditModel(values.apiModel) &&
       !(await keyFunding(c.var.workspace.id, values.apiModel))
     )
       throw new HTTPException(400, {
         message: "Choose an available API model and billing source.",
       })
-    for (const [provider, billing, subscription] of [
-      ["anthropic", values.claudeApiBilling, values.claudeUseSubscriptions],
-      ["openai", values.codexApiBilling, values.codexUseSubscriptions],
+    for (const [provider, harness, billing, subscription, was] of [
+      [
+        "anthropic",
+        "claude_code",
+        values.claudeApiBilling,
+        values.claudeUseSubscriptions,
+        [previous.claudeApiBilling, previous.claudeUseSubscriptions],
+      ],
+      [
+        "openai",
+        "codex",
+        values.codexApiBilling,
+        values.codexUseSubscriptions,
+        [previous.codexApiBilling, previous.codexUseSubscriptions],
+      ],
     ] as const) {
       if (
         !subscription &&
         billing === "byok" &&
+        (billing !== was[0] || was[1] || activated(harness)) &&
         !(await workspaceInferenceKeyId(c.var.workspace.id, provider))
       )
         throw new HTTPException(400, {
           message: `Add your ${provider === "anthropic" ? "Anthropic" : "OpenAI"} API key in Billing first.`,
         })
     }
-    await db
-      .insert(schema.workspaceHarnessSettings)
-      .values({ workspaceId: c.var.workspace.id, ...values })
-      .onConflictDoUpdate({
-        target: schema.workspaceHarnessSettings.workspaceId,
-        set: values,
-      })
+    if (Object.keys(patch).length)
+      await db
+        .insert(schema.workspaceHarnessSettings)
+        .values(values)
+        .onConflictDoUpdate({
+          target: schema.workspaceHarnessSettings.workspaceId,
+          set: patch,
+        })
     return c.json(await snapshot(c.var.workspace.id, c.var.user.id, true), 200)
   })
   .openapi(connect, async (c) => {
@@ -411,7 +451,7 @@ const router = createRouter()
       c.req.valid("param").provider,
       c.req.valid("json")
     )
-    return c.json(await snapshot(c.var.workspace.id, c.var.user.id, true), 200)
+    return c.json({ success: true as const }, 200)
   })
   .openapi(disconnect, async (c) => {
     assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })

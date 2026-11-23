@@ -355,11 +355,11 @@ export function stillSvg(
   )
 }
 
-// Changes whenever a face's drawing does: what a cached copy of its image
-// (a Discord webhook's avatar) is compared against.
+// Changes whenever a face's drawing does (its spec or the renderer): what a
+// cached copy of its image (a Discord webhook's avatar) is compared against.
 export function stillKey(face: StillSpec) {
   let hash = 2166136261
-  for (const char of JSON.stringify(face)) {
+  for (const char of stillSvg(face, { size: FACE_BOX })) {
     hash = Math.imul(hash ^ char.charCodeAt(0), 16777619)
   }
   return (hash >>> 0).toString(36)

@@ -221,11 +221,14 @@ export const AgentFace = memo(function AgentFace({
   )
   // Asleep it holds its bowed pose; otherwise the driver turns it.
   const driven = !still && !asleep && !reduced
-  // The pop is for a change of state, not for arriving on the page.
-  const mounted = useRef(false)
-  useEffect(() => {
-    mounted.current = true
-  }, [])
+  // The pop is for a change of state, not for arriving on the page or a
+  // pose update.
+  const [shownState, setShownState] = useState(state)
+  const [popped, setPopped] = useState(false)
+  if (shownState !== state) {
+    setShownState(state)
+    setPopped(true)
+  }
   const [restYaw, restPitch] = face.rest
   // Where the driver has it now; null while it holds its resting pose.
   const [turned, setTurned] = useState<FacePose | null>(null)
@@ -286,7 +289,7 @@ export const AgentFace = memo(function AgentFace({
         )}
       >
         {/* A change of state lands with a small squash and stretch. */}
-        <g key={state} className={cn(!still && mounted.current && "face-pop")}>
+        <g key={state} className={cn(!still && popped && "face-pop")}>
           {shapes.map((shape) =>
             shape.kind === "ellipse" ? (
               <ellipse

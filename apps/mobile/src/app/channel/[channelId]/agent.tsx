@@ -5,7 +5,6 @@ import {
   CREATURES,
   type CreatureId,
   channelAgentIdentity,
-  isCreatureId,
 } from "@repo/utils/bestiary"
 import { CHANNEL_AGENT_DEFAULT_MODEL } from "@repo/utils/inference"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -96,6 +95,12 @@ export default function ChannelAgentScreen() {
   )
 }
 
+// The picked creature, replaced ones read as their replacements; null for
+// the one derived from the channel id.
+function creatureDraft(channel: ChannelDetail): CreatureId | null {
+  return channel.agentCreature ? channelAgentIdentity(channel).creature : null
+}
+
 function AgentSettings({
   channel,
   onBack,
@@ -124,9 +129,7 @@ function AgentSettings({
   // Drafts start from the channel when the screen opens; only edited fields
   // are sent, so a stale draft never overwrites someone else's change.
   const [agentName, setAgentName] = useState(channel.agentName ?? "")
-  const [creature, setCreature] = useState<CreatureId | null>(
-    isCreatureId(channel.agentCreature) ? channel.agentCreature : null
-  )
+  const [creature, setCreature] = useState(creatureDraft(channel))
   const [wakeMode, setWakeMode] = useState<WakeMode>(
     channel.agentWakeMode ?? "mention"
   )
@@ -198,12 +201,21 @@ function AgentSettings({
     },
     onSuccess: (updated) => {
       onSaved(updated)
+      // The server normalizes what it saves (a name loses its "@").
+      setAgentName(updated.agentName ?? "")
+      setCreature(creatureDraft(updated))
+      setWakeMode(updated.agentWakeMode ?? "mention")
+      setModel(updated.agentModel ?? null)
+      setBrief(updated.agentBrief ?? "")
       setEdited({})
       // The Channels tab shows its name and face from the channel list.
       void queryClient.invalidateQueries({
         queryKey: ["channels", workspaceSlug],
       })
-      toast.show({ variant: "success", label: `${identity.name} saved` })
+      toast.show({
+        variant: "success",
+        label: `${channelAgentIdentity(updated).name} saved`,
+      })
     },
     onError: (error) =>
       toast.show({

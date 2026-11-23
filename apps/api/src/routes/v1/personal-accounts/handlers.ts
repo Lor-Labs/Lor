@@ -2,6 +2,7 @@ import { and, asc, db, eq, schema, sql } from "@repo/db"
 import { env } from "@repo/env/server"
 import { decryptSecret } from "@repo/utils/crypto"
 import { features } from "@repo/utils/features"
+import { HTTPException } from "hono/http-exception"
 import {
   exchangeGithubCode,
   fetchGithubProfile,
@@ -107,6 +108,21 @@ const toChatgptAccount = (row: {
   connectedAt: row.createdAt.toISOString(),
 })
 
+// The shared account helpers throw 400s; these routes document
+// `{ success: false, message }`, so return them in that shape.
+class BadRequest {
+  constructor(readonly message: string) {}
+}
+const asBadRequest = (err: unknown) => {
+  if (err instanceof HTTPException && err.status === 400)
+    return new BadRequest(err.message)
+  throw err
+}
+const badRequestBody = (err: BadRequest) => ({
+  success: false as const,
+  message: err.message,
+})
+
 export const getPersonalAccounts: AppRouteHandler<
   GetPersonalAccountsRoute
 > = async (c) => {
@@ -164,18 +180,22 @@ export const connectClaudeAccount: AppRouteHandler<
     { userId: c.var.user.id, workspaceId: "" },
     "claude",
     { credential: token, label }
-  )
+  ).catch(asBadRequest)
+  if (row instanceof BadRequest)
+    return c.json(badRequestBody(row), HttpStatusCodes.BAD_REQUEST)
   return c.json({ account: toClaudeAccount(row) }, HttpStatusCodes.OK)
 }
 
 export const disconnectClaudeAccount: AppRouteHandler<
   DisconnectClaudeAccountRoute
 > = async (c) => {
-  await disconnectHarnessAccount(
+  const result = await disconnectHarnessAccount(
     { userId: c.var.user.id, workspaceId: "" },
     "claude",
     c.req.valid("query").accountId
-  )
+  ).catch(asBadRequest)
+  if (result instanceof BadRequest)
+    return c.json(badRequestBody(result), HttpStatusCodes.BAD_REQUEST)
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
@@ -187,18 +207,22 @@ export const connectChatgptAccount: AppRouteHandler<
     { userId: c.var.user.id, workspaceId: "" },
     "chatgpt",
     { credential: authJson, label }
-  )
+  ).catch(asBadRequest)
+  if (row instanceof BadRequest)
+    return c.json(badRequestBody(row), HttpStatusCodes.BAD_REQUEST)
   return c.json({ account: toChatgptAccount(row) }, HttpStatusCodes.OK)
 }
 
 export const disconnectChatgptAccount: AppRouteHandler<
   DisconnectChatgptAccountRoute
 > = async (c) => {
-  await disconnectHarnessAccount(
+  const result = await disconnectHarnessAccount(
     { userId: c.var.user.id, workspaceId: "" },
     "chatgpt",
     c.req.valid("query").accountId
-  )
+  ).catch(asBadRequest)
+  if (result instanceof BadRequest)
+    return c.json(badRequestBody(result), HttpStatusCodes.BAD_REQUEST)
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 

@@ -15,6 +15,7 @@ import { formatSpeakerLine, sanitizeInlineLabel } from "./transcript"
 // itself for anything older.
 const INBOX_BATCH_MAX = 200
 const INBOX_WAKE_MAX = 50
+const CAN_START_CHUNK = 20
 
 const MAX_MESSAGE_CHARS = 8000
 
@@ -468,12 +469,13 @@ export async function loadInboxBatch(
   // its failures and its stop. Other fires wait too.
   let wake = pending.find((row) => row.lane === "wake")
   if (canStart) {
+    // Checked in parallel chunks; the first eligible wake in order wins.
+    const candidates = pending.filter((row) => row.lane === "wake")
     wake = undefined
-    for (const candidate of pending) {
-      if (candidate.lane === "wake" && (await canStart(candidate.messageId))) {
-        wake = candidate
-        break
-      }
+    for (let i = 0; i < candidates.length && !wake; i += CAN_START_CHUNK) {
+      const chunk = candidates.slice(i, i + CAN_START_CHUNK)
+      const ok = await Promise.all(chunk.map((row) => canStart(row.messageId)))
+      wake = chunk.find((_, j) => ok[j])
     }
   }
   if (!wake) return null

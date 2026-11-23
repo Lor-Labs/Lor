@@ -96,10 +96,13 @@ export function AgentFollowUps({
       }
       return wakeUpId
     },
-    onSuccess: (wakeUpId) =>
+    // An in-flight read would bring the cancelled follow-up back.
+    onSuccess: async (wakeUpId) => {
+      await queryClient.cancelQueries({ queryKey: wakeUpsKey(channelId) })
       queryClient.setQueryData<WakeUp[]>(wakeUpsKey(channelId), (list) =>
         list?.filter((wakeUp) => wakeUp.id !== wakeUpId)
-      ),
+      )
+    },
     onError: (error) =>
       toast.show({
         variant: "danger",

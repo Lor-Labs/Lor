@@ -372,15 +372,20 @@ export async function postAgentToDiscord(input: {
   // of how one is drawn, changes its key and uploads it again.
   const face = STILLS[identity.creature]
   const avatarKey = stillKey(face)
+  // A failed avatar refresh never blocks the post; the old key retries it next time.
   if (link.webhookCreature !== avatarKey) {
-    await discordRequest(`/webhooks/${link.webhookId}`, {
-      method: "PATCH",
-      body: { avatar: await faceAvatar(face) },
-    })
-    await db
-      .update(schema.channelDiscordLink)
-      .set({ webhookCreature: avatarKey })
-      .where(eq(schema.channelDiscordLink.channelId, link.channelId))
+    try {
+      await discordRequest(`/webhooks/${link.webhookId}`, {
+        method: "PATCH",
+        body: { avatar: await faceAvatar(face) },
+      })
+      await db
+        .update(schema.channelDiscordLink)
+        .set({ webhookCreature: avatarKey })
+        .where(eq(schema.channelDiscordLink.channelId, link.channelId))
+    } catch (error) {
+      console.warn("Discord webhook avatar refresh failed", error)
+    }
   }
   const token = decryptSecret(link.webhookToken, encryptionKey())
   const { text, allowedUserIds } = await toDiscordContent(input.content)

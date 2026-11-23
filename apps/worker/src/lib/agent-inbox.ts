@@ -447,11 +447,16 @@ export async function flushAgentInbox(
     : await autonomousUsesSubscription(workspaceId)
   // Unfunded API work stays pending; personal subscriptions can still run.
   if (!subscription && !(await checkCredits(workspaceId)).allowed) {
+    const harnessByUser = new Map<string, Promise<string>>()
     batch = await loadInboxBatch(channelId, async (messageId) => {
       const userId = await channelRequestUserId(channelId, messageId)
-      return Boolean(
-        userId && (await personalRequestHarness(workspaceId, userId)) !== "pi"
-      )
+      if (!userId) return false
+      let harness = harnessByUser.get(userId)
+      if (!harness) {
+        harness = personalRequestHarness(workspaceId, userId)
+        harnessByUser.set(userId, harness)
+      }
+      return (await harness) !== "pi"
     })
     if (!batch) return "skipped"
   }

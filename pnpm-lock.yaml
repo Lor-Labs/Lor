@@ -1116,6 +1116,9 @@ importers:
       '@posthog/ai':
         specifier: ^8.18.5
         version: 8.18.5(@ai-sdk/provider@4.0.31)(@anthropic-ai/sdk@0.129.0(zod@4.3.6))(@google/genai@2.21.0(@modelcontextprotocol/sdk@1.26.0(zod@4.3.6)))(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-http@0.301.0(@opentelemetry/api@1.10.0))(openai@7.19.0(@aws-sdk/credential-provider-node@3.972.87)(@smithy/hash-node@4.2.11)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)(zod@4.3.6))(posthog-node@5.63.1(@opentelemetry/api@1.10.0)(rxjs@7.8.2))
+      '@repo/billing':
+        specifier: workspace:^
+        version: link:../billing
       '@repo/connectors':
         specifier: workspace:^
         version: link:../connectors

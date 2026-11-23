@@ -12,8 +12,10 @@ import { assertHarnessEnabled } from "@repo/utils/features"
 import type { InferenceFunding } from "@repo/utils/inference"
 import { agentHarnessModel } from "./agent-harness-model"
 import {
+  CLAUDE_API_DEFAULT_MODEL,
   harnessApiConnection,
   harnessApiFunding,
+  InferenceConfigError,
   keyFunding,
   nativeInference,
   nativeLanguageModel,
@@ -45,9 +47,7 @@ export async function autonomousInference(workspaceId: string, runId?: string) {
       provider === "claude" ? "anthropic" : "openai",
       route.apiBilling ?? "lor",
       undefined,
-      provider === "claude"
-        ? LOR_MODEL.replace(/^anthropic\//, "")
-        : CODEX_DEFAULT_MODEL
+      provider === "claude" ? CLAUDE_API_DEFAULT_MODEL : CODEX_DEFAULT_MODEL
     )
   } else if (!subscription) {
     funding = (await keyFunding(
@@ -61,7 +61,9 @@ export async function autonomousInference(workspaceId: string, runId?: string) {
           : LOR_MODEL,
     }
     if (settings.apiModel?.startsWith("key:") && funding.source !== "byok")
-      throw new Error("The autonomous API key or model is unavailable.")
+      throw new InferenceConfigError(
+        "The autonomous API key or model is unavailable."
+      )
   }
   const assertCanInfer = async () => {
     await assertWorkspaceActive(workspaceId)
