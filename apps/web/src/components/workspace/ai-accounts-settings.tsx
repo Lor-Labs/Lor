@@ -45,6 +45,12 @@ export function AiAccountsSettings({
   const query = useQuery(harnessAccountsQueryOptions(workspaceSlug))
   const { open: openSettings } = useSettings()
   const [connect, setConnect] = useState<Provider | null>(null)
+  // Kept after close so the dialog's text doesn't change while it fades out.
+  const [replacing, setReplacing] = useState<{
+    accountId: string
+    name: string
+  } | null>(null)
+  const [replaceOpen, setReplaceOpen] = useState(false)
   const models = useQuery(agentModelsQueryOptions("pi", workspaceSlug))
   // Refetch too: a save and a removal can answer out of order with stale lists.
   const changed = (data: Data) => {
@@ -302,6 +308,22 @@ export function AiAccountsSettings({
                         </p>
                         <AccountLimit until={account.unavailableUntil} />
                       </div>
+                      {claude && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Replace token for ${labelFor(account)}`}
+                          onClick={() => {
+                            setReplacing({
+                              accountId: account.id,
+                              name: labelFor(account),
+                            })
+                            setReplaceOpen(true)
+                          }}
+                        >
+                          Replace token
+                        </Button>
+                      )}
                       <InlineConfirmButton
                         label={`Disconnect ${labelFor(account)}`}
                         confirmLabel="Disconnect"
@@ -327,6 +349,12 @@ export function AiAccountsSettings({
           if (!open) setConnect(null)
         }}
         workspaceSlug={workspaceSlug}
+      />
+      <ClaudeConnectDialog
+        open={replaceOpen}
+        onOpenChange={setReplaceOpen}
+        workspaceSlug={workspaceSlug}
+        replace={replacing ?? undefined}
       />
       <ChatgptConnectDialog
         open={connect === "chatgpt"}

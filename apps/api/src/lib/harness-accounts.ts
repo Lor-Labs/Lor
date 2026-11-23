@@ -1,4 +1,4 @@
-import { and, db, eq, schema } from "@repo/db"
+import { and, db, eq, ne, schema } from "@repo/db"
 import { harnessAccountOwner } from "@repo/db/queries/personal-accounts"
 import type { HarnessAccountScope } from "@repo/db/schema"
 import { env } from "@repo/env/server"
@@ -16,11 +16,7 @@ import {
   verifyClaudeToken,
 } from "./claude-account"
 
-export async function connectHarnessAccount(
-  scope: HarnessAccountScope,
-  provider: "claude" | "chatgpt",
-  input: { credential: string; label?: string }
-) {
+function linkingKey(provider: "claude" | "chatgpt") {
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key)
     throw new HTTPException(400, {
@@ -32,29 +28,82 @@ export async function connectHarnessAccount(
     throw new HTTPException(400, {
       message: "This harness is temporarily unavailable.",
     })
+  return key
+}
+
+async function claudeAccountValues(credential: string, key: string) {
+  const token = normalizeClaudeToken(credential)
+  if (!token)
+    throw new HTTPException(400, {
+      message: "Paste the complete token from claude setup-token.",
+    })
+  const verified = await verifyClaudeToken(token)
+  if (verified !== "ok")
+    throw new HTTPException(400, {
+      message:
+        verified === "rejected"
+          ? "Anthropic rejected that token. Run claude setup-token again."
+          : "Couldn't reach Anthropic to verify the token. Try again.",
+    })
+  return {
+    ...claudeTokenDetails(token),
+    accessToken: encryptSecret(token, key),
+    refreshToken: null,
+    name: null,
+    email: null,
+  }
+}
+
+// Reconnect keeps the account ID, so preferences and orders still point at it.
+export async function replaceClaudeToken(
+  scope: HarnessAccountScope,
+  accountId: string,
+  credential: string
+) {
+  const key = linkingKey("claude")
+  const owned = and(
+    harnessAccountOwner(scope),
+    eq(schema.personalAccount.provider, "claude")
+  )
+  const [current] = await db
+    .select({ id: schema.personalAccount.id })
+    .from(schema.personalAccount)
+    .where(and(owned, eq(schema.personalAccount.id, accountId)))
+  if (!current)
+    throw new HTTPException(404, { message: "Claude account not found." })
+  const values = await claudeAccountValues(credential, key)
+  const [duplicate] = await db
+    .select({ id: schema.personalAccount.id })
+    .from(schema.personalAccount)
+    .where(
+      and(
+        owned,
+        eq(schema.personalAccount.externalId, values.externalId),
+        ne(schema.personalAccount.id, accountId)
+      )
+    )
+  if (duplicate)
+    throw new HTTPException(400, {
+      message: "That token is already linked to another account.",
+    })
+  const [row] = await db
+    .update(schema.personalAccount)
+    .set({ ...values, models: null, unavailableUntil: null })
+    .where(and(owned, eq(schema.personalAccount.id, accountId)))
+    .returning()
+  if (!row)
+    throw new HTTPException(404, { message: "Claude account not found." })
+  return row
+}
+
+export async function connectHarnessAccount(
+  scope: HarnessAccountScope,
+  provider: "claude" | "chatgpt",
+  input: { credential: string; label?: string }
+) {
+  const key = linkingKey(provider)
   const values = await (async () => {
-    if (provider === "claude") {
-      const token = normalizeClaudeToken(input.credential)
-      if (!token)
-        throw new HTTPException(400, {
-          message: "Paste the complete token from claude setup-token.",
-        })
-      const verified = await verifyClaudeToken(token)
-      if (verified !== "ok")
-        throw new HTTPException(400, {
-          message:
-            verified === "rejected"
-              ? "Anthropic rejected that token. Run claude setup-token again."
-              : "Couldn't reach Anthropic to verify the token. Try again.",
-        })
-      return {
-        ...claudeTokenDetails(token),
-        accessToken: encryptSecret(token, key),
-        refreshToken: null,
-        name: null,
-        email: null,
-      }
-    }
+    if (provider === "claude") return claudeAccountValues(input.credential, key)
     const pasted = parseCodexAuthJson(input.credential)
     if (!pasted)
       throw new HTTPException(400, {

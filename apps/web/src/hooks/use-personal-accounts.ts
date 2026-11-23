@@ -63,20 +63,39 @@ export function useConnectGithubAccount() {
 
 // The token `claude setup-token` printed; the server checks it with
 // Anthropic before storing it, so its message is the reason to show.
+// With `accountId`, the token replaces that account's token in place.
 export function useConnectClaudeAccount(workspaceSlug?: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ token, label }: { token: string; label: string }) => {
-      const res = workspaceSlug
-        ? await apiClient.v1.workspaces[":workspaceSlug"][
-            "ai-accounts"
-          ].accounts[":provider"].$post({
-            param: { workspaceSlug, provider: "claude" },
-            json: { credential: token, label },
-          })
-        : await apiClient.v1["personal-accounts"].claude.$post({
-            json: { token, label },
-          })
+    mutationFn: async ({
+      token,
+      label,
+      accountId,
+    }: {
+      token: string
+      label: string
+      accountId?: string
+    }) => {
+      const workspaceAccounts =
+        apiClient.v1.workspaces[":workspaceSlug"]["ai-accounts"].accounts
+      const res = accountId
+        ? workspaceSlug
+          ? await workspaceAccounts.claude[":accountId"].$put({
+              param: { workspaceSlug, accountId },
+              json: { credential: token },
+            })
+          : await apiClient.v1["personal-accounts"].claude[":accountId"].$put({
+              param: { accountId },
+              json: { token },
+            })
+        : workspaceSlug
+          ? await workspaceAccounts[":provider"].$post({
+              param: { workspaceSlug, provider: "claude" },
+              json: { credential: token, label },
+            })
+          : await apiClient.v1["personal-accounts"].claude.$post({
+              json: { token, label },
+            })
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
           message?: string

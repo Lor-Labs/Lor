@@ -4,6 +4,7 @@ import jsonContent from "@/lib/helpers/openapi/json-content"
 import {
   badRequestSchema,
   internalServerErrorSchema,
+  notFoundSchema,
   unauthorizedSchema,
 } from "@/lib/helpers/openapi/schemas"
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
@@ -18,6 +19,8 @@ import {
   disconnectHarnessAccountQuerySchema,
   githubConnectUrlResponseSchema,
   personalAccountsResponseSchema,
+  replaceClaudeAccountBodySchema,
+  replaceClaudeAccountParamsSchema,
   validationErrorResponseSchema,
 } from "@/routes/v1/personal-accounts/schema"
 
@@ -137,6 +140,38 @@ export const connectClaudeAccount = createRoute({
 })
 
 export type ConnectClaudeAccountRoute = typeof connectClaudeAccount
+
+export const replaceClaudeAccount = createRoute({
+  path: "/personal-accounts/claude/{accountId}",
+  method: "put",
+  summary: "Replace the token of your Claude subscription",
+  description:
+    "Checks a new `claude setup-token` token with Anthropic and stores it on the existing account, keeping its ID, name and priority.",
+  tags: ["Personal Accounts"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: replaceClaudeAccountParamsSchema,
+    body: {
+      ...jsonContent({
+        schema: replaceClaudeAccountBodySchema,
+        description: "The pasted token",
+      }),
+      required: true,
+    },
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: connectClaudeAccountResponseSchema,
+      description: "Token replaced",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.UNPROCESSABLE_ENTITY]: invalidAccountId,
+  },
+})
+
+export type ReplaceClaudeAccountRoute = typeof replaceClaudeAccount
 
 export const disconnectClaudeAccount = createRoute({
   path: "/personal-accounts/claude",

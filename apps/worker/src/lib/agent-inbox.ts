@@ -121,6 +121,10 @@ export type InboxFlushOutcome =
 
 const OUT_OF_CREDITS_MESSAGE =
   "This workspace is out of Lor credits. An admin can top up in Settings → Billing."
+const PAUSED_OUT_OF_CREDITS_MESSAGE =
+  "This workspace is out of Lor credits. The approved work will go on once an admin tops up in Settings → Billing."
+// One notice per paused run; a pause that outlives this may say it again.
+const PAUSED_CREDITS_NOTICE_MS = 7 * 24 * 60 * 60_000
 const FAILED_MESSAGE =
   "Something went wrong and I stopped before finishing. Mention me to try again."
 const APPROVAL_MESSAGE = "I need an approval before I go on."
@@ -368,6 +372,25 @@ async function createTurnRun(args: {
   }
 }
 
+// A turn's credit gate: subscription turns run on their own plan.
+async function turnFunded(
+  workspaceId: string,
+  run: {
+    harnessAccount: { source: string } | null
+    funding: unknown
+    requestUserId: string | null
+  }
+): Promise<boolean> {
+  const subscription = run.harnessAccount
+    ? run.harnessAccount.source === "subscription"
+    : !run.funding &&
+      (run.requestUserId
+        ? (await personalRequestHarness(workspaceId, run.requestUserId)) !==
+          "pi"
+        : await autonomousUsesSubscription(workspaceId))
+  return subscription || (await checkCredits(workspaceId)).allowed
+}
+
 // Reads one channel's inbox: starts a turn for its pending items, or lets a
 // turn paused on approvals go on once they are all decided. One turn at a
 // time; whatever arrives meanwhile waits for the next flush
@@ -400,9 +423,55 @@ export async function flushAgentInbox(
       .select({
         triggerMessageId: schema.agentRun.triggerMessageId,
         loopId: schema.agentRun.loopId,
+        funding: schema.agentRun.inferenceFunding,
+        harnessAccount: schema.agentRun.harnessAccount,
+        hasDeliveries: sql<boolean>`exists (select 1 from trigger_delivery d where d.run_id = ${schema.agentRun.id})`,
       })
       .from(schema.agentRun)
       .where(eq(schema.agentRun.id, paused.runId))
+    // The continuation copies the pause's account and funding; it would meet
+    // the same gate in runAgentTurn. Unfunded: say so once and keep the pause.
+    const funded = await turnFunded(workspaceId, {
+      harnessAccount: pausedRun?.harnessAccount ?? null,
+      funding: pausedRun?.funding ?? null,
+      requestUserId: pausedRun?.harnessAccount
+        ? pausedRun.harnessAccount.userId
+        : pausedRun?.loopId || pausedRun?.hasDeliveries
+          ? null
+          : await channelRequestUserId(
+              channelId,
+              pausedRun?.triggerMessageId ?? null
+            ),
+    })
+    if (!funded) {
+      const first =
+        (await deps.redis.set(`agent:paused-credits:${paused.runId}`, "1", {
+          NX: true,
+          PX: PAUSED_CREDITS_NOTICE_MS,
+        })) === "OK"
+      if (first) {
+        await postLorMessage(deps, {
+          channelId,
+          content: PAUSED_OUT_OF_CREDITS_MESSAGE,
+          type: "agent_post",
+        })
+          .then((posted) =>
+            postAgentToDiscord({
+              channelId,
+              messageId: posted.messageId,
+              content: PAUSED_OUT_OF_CREDITS_MESSAGE,
+              threadRootId: null,
+            })
+          )
+          .catch((err) =>
+            logger.error({ err, channelId }, "Agent notice failed")
+          )
+        deps.emitter
+          .to(workspaceRoom(workspaceId))
+          .emit("billing:updated", { workspaceId, reason: "out_of_credits" })
+      }
+      return "skipped"
+    }
     const turnRun = await createTurnRun({
       workspaceId,
       channelId,
@@ -935,16 +1004,12 @@ export async function runAgentTurnJob(
       throw new Error(
         "The person who started this turn no longer has access to the channel."
       )
-    const subscription = execution.handle.harnessAccount
-      ? execution.handle.harnessAccount.source === "subscription"
-      : !execution.handle.funding &&
-        (requestUserId
-          ? (await personalRequestHarness(workspaceId, requestUserId)) !== "pi"
-          : await autonomousUsesSubscription(workspaceId))
-    const gate = subscription
-      ? { allowed: true }
-      : await checkCredits(workspaceId)
-    if (!gate.allowed) {
+    const funded = await turnFunded(workspaceId, {
+      harnessAccount: execution.handle.harnessAccount ?? null,
+      funding: execution.handle.funding ?? null,
+      requestUserId,
+    })
+    if (!funded) {
       // Said only to a person who asked: events and Loops would repeat it.
       if (userId) await notice(OUT_OF_CREDITS_MESSAGE)
       // The inbox sweep wakes the agent again once credits are back.

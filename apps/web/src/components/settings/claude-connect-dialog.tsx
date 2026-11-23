@@ -26,9 +26,12 @@ export function ClaudeConnectDialog({
   open,
   onOpenChange,
   workspaceSlug,
+  replace,
 }: {
   open: boolean
   workspaceSlug?: string
+  // Replace this account's token in place instead of adding an account.
+  replace?: { accountId: string; name: string }
   onOpenChange: (open: boolean) => void
 }) {
   const connect = useConnectClaudeAccount(workspaceSlug)
@@ -49,12 +52,15 @@ export function ClaudeConnectDialog({
   }, [open, connect.reset])
 
   const submit = () => {
-    if (!label.trim() || !token.trim() || connect.isPending) return
+    if ((!replace && !label.trim()) || !token.trim() || connect.isPending)
+      return
     connect.mutate(
-      { token, label },
+      { token, label, accountId: replace?.accountId },
       {
         onSuccess: () => {
-          toast.success("Claude subscription connected")
+          toast.success(
+            replace ? "Claude token replaced" : "Claude subscription connected"
+          )
           onOpenChange(false)
         },
       }
@@ -71,29 +77,35 @@ export function ClaudeConnectDialog({
       <DialogPopup className="max-w-xl">
         <DialogHeader>
           <DialogTitle>
-            {workspaceSlug
-              ? "Connect a Claude Code subscription dedicated to Lor"
-              : "Connect a Claude account"}
+            {replace
+              ? `Replace the token for ${replace.name}`
+              : workspaceSlug
+                ? "Connect a Claude Code subscription dedicated to Lor"
+                : "Connect a Claude account"}
           </DialogTitle>
           <DialogDescription>
-            {workspaceSlug
-              ? "Only for autonomous work Lor starts in this workspace, such as loops and events. Your direct requests use your personal subscriptions. Enable this dedicated account in Autonomous runs after connecting. Provider terms still apply."
-              : "Use this subscription for requests you send to Lor and Claude Code turns you start. Set its priority for each workspace here in Settings → Linked accounts."}
+            {replace
+              ? "The account keeps its name, priority and settings. Only the stored token changes."
+              : workspaceSlug
+                ? "Only for autonomous work Lor starts in this workspace, such as loops and events. Your direct requests use your personal subscriptions. Enable this dedicated account in Autonomous runs after connecting. Provider terms still apply."
+                : "Use this subscription for requests you send to Lor and Claude Code turns you start. Set its priority for each workspace here in Settings → Linked accounts."}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-6">
-          <div className="space-y-2">
-            <label htmlFor="account-label" className="text-sm font-medium">
-              Account name
-            </label>
-            <Input
-              id="account-label"
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-              maxLength={80}
-              placeholder={workspaceSlug ? "Lor's account" : "Work account"}
-            />
-          </div>
+          {!replace && (
+            <div className="space-y-2">
+              <label htmlFor="account-label" className="text-sm font-medium">
+                Account name
+              </label>
+              <Input
+                id="account-label"
+                value={label}
+                onChange={(event) => setLabel(event.target.value)}
+                maxLength={80}
+                placeholder={workspaceSlug ? "Lor's account" : "Work account"}
+              />
+            </div>
+          )}
           <Step number={1} title="In a terminal on your own computer, run:">
             <div className="flex items-center gap-2">
               <code className="flex-1 rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono text-sm">
@@ -163,10 +175,10 @@ export function ClaudeConnectDialog({
           </Button>
           <Button
             loading={connect.isPending}
-            disabled={!label.trim() || !token.trim()}
+            disabled={(!replace && !label.trim()) || !token.trim()}
             onClick={submit}
           >
-            Verify & connect
+            {replace ? "Verify & replace" : "Verify & connect"}
           </Button>
         </DialogFooter>
       </DialogPopup>

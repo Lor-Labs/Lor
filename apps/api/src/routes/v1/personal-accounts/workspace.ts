@@ -14,6 +14,7 @@ import { HTTPException } from "hono/http-exception"
 import {
   connectHarnessAccount,
   disconnectHarnessAccount,
+  replaceClaudeToken,
 } from "@/lib/harness-accounts"
 import { createRouter } from "@/lib/helpers/app/create-app"
 import jsonContent from "@/lib/helpers/openapi/json-content"
@@ -157,6 +158,27 @@ const connect = createRoute({
     200: jsonContent({
       schema: z.object({ success: z.literal(true) }),
       description: "Connected",
+    }),
+  },
+})
+const replaceClaude = createRoute({
+  ...common,
+  path: `${path}/accounts/claude/{accountId}`,
+  method: "put",
+  request: {
+    params: params.extend({ accountId: z.string().uuid() }),
+    body: {
+      ...jsonContent({
+        schema: z.object({ credential: z.string().min(1).max(2_000) }),
+        description: "Replace a dedicated Claude account's token",
+      }),
+      required: true,
+    },
+  },
+  responses: {
+    200: jsonContent({
+      schema: z.object({ success: z.literal(true) }),
+      description: "Token replaced",
     }),
   },
 })
@@ -450,6 +472,15 @@ const router = createRouter()
       { workspaceId: c.var.workspace.id, userId: null },
       c.req.valid("param").provider,
       c.req.valid("json")
+    )
+    return c.json({ success: true as const }, 200)
+  })
+  .openapi(replaceClaude, async (c) => {
+    assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
+    await replaceClaudeToken(
+      { workspaceId: c.var.workspace.id, userId: null },
+      c.req.valid("param").accountId,
+      c.req.valid("json").credential
     )
     return c.json({ success: true as const }, 200)
   })

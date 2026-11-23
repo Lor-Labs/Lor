@@ -174,6 +174,12 @@ function WorkspaceAccounts({ workspaceSlug }: { workspaceSlug: string }) {
   const query = useQuery(harnessAccountsQueryOptions(workspaceSlug))
   const client = useQueryClient()
   const [connecting, setConnecting] = useState<Provider | null>(null)
+  // Kept after close so the dialog's text doesn't change while it fades out.
+  const [replacing, setReplacing] = useState<{
+    accountId: string
+    name: string
+  } | null>(null)
+  const [replaceOpen, setReplaceOpen] = useState(false)
   const disconnectClaude = useDisconnectClaudeAccount()
   const disconnectCodex = useDisconnectChatgptAccount()
   const saveAgent = useMutation({
@@ -362,6 +368,17 @@ function WorkspaceAccounts({ workspaceSlug }: { workspaceSlug: string }) {
                     : disconnectCodex
                   ).mutate(id)
                 }
+                onReplace={
+                  provider === "claude"
+                    ? (account) => {
+                        setReplacing({
+                          accountId: account.id,
+                          name: accountLabel(account),
+                        })
+                        setReplaceOpen(true)
+                      }
+                    : undefined
+                }
               />
             ) : (
               <p className="text-sm text-muted-foreground">
@@ -388,6 +405,11 @@ function WorkspaceAccounts({ workspaceSlug }: { workspaceSlug: string }) {
         open={connecting === "claude"}
         onOpenChange={(open) => !open && setConnecting(null)}
       />
+      <ClaudeConnectDialog
+        open={replaceOpen}
+        onOpenChange={setReplaceOpen}
+        replace={replacing ?? undefined}
+      />
       <ChatgptConnectDialog
         open={connecting === "chatgpt"}
         onOpenChange={(open) => !open && setConnecting(null)}
@@ -403,6 +425,7 @@ function AccountOrder({
   fallback,
   onReorder,
   onDisconnect,
+  onReplace,
 }: {
   provider: Provider
   accounts: Account[]
@@ -410,6 +433,7 @@ function AccountOrder({
   fallback: boolean
   onReorder: (ids: string[]) => void
   onDisconnect: (id: string) => void
+  onReplace?: (account: Account) => void
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -466,6 +490,7 @@ function AccountOrder({
               disabled={disabled || accounts.length < 2}
               fallback={fallback}
               onDisconnect={() => onDisconnect(account.id)}
+              onReplace={onReplace && (() => onReplace(account))}
               disconnectDisabled={disabled}
             />
           ))}
@@ -482,6 +507,7 @@ function AccountRow({
   disconnectDisabled,
   fallback,
   onDisconnect,
+  onReplace,
 }: {
   account: Account
   position: number
@@ -489,6 +515,7 @@ function AccountRow({
   disconnectDisabled: boolean
   fallback: boolean
   onDisconnect: () => void
+  onReplace?: () => void
 }) {
   const {
     attributes,
@@ -544,6 +571,17 @@ function AccountRow({
         </p>
         <AccountLimit until={account.unavailableUntil} />
       </div>
+      {onReplace && (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={disconnectDisabled}
+          aria-label={`Replace token for ${label}`}
+          onClick={onReplace}
+        >
+          Replace token
+        </Button>
+      )}
       <Button
         variant="ghost"
         size="sm"

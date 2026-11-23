@@ -15,6 +15,7 @@ import {
 import {
   connectHarnessAccount,
   disconnectHarnessAccount,
+  replaceClaudeToken,
 } from "@/lib/harness-accounts"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -27,6 +28,7 @@ import type {
   DisconnectClaudeAccountRoute,
   DisconnectGithubAccountRoute,
   GetPersonalAccountsRoute,
+  ReplaceClaudeAccountRoute,
   StartGithubAccountConnectRoute,
 } from "@/routes/v1/personal-accounts/routes"
 
@@ -108,17 +110,23 @@ const toChatgptAccount = (row: {
   connectedAt: row.createdAt.toISOString(),
 })
 
-// The shared account helpers throw 400s; these routes document
+// The shared account helpers throw 400 and 404 errors; these routes document
 // `{ success: false, message }`, so return them in that shape.
-class BadRequest {
-  constructor(readonly message: string) {}
+class ClientError {
+  constructor(
+    readonly message: string,
+    readonly notFound = false
+  ) {}
 }
-const asBadRequest = (err: unknown) => {
-  if (err instanceof HTTPException && err.status === 400)
-    return new BadRequest(err.message)
+const asClientError = (err: unknown) => {
+  if (
+    err instanceof HTTPException &&
+    (err.status === 400 || err.status === 404)
+  )
+    return new ClientError(err.message, err.status === 404)
   throw err
 }
-const badRequestBody = (err: BadRequest) => ({
+const clientErrorBody = (err: ClientError) => ({
   success: false as const,
   message: err.message,
 })
@@ -180,9 +188,24 @@ export const connectClaudeAccount: AppRouteHandler<
     { userId: c.var.user.id, workspaceId: "" },
     "claude",
     { credential: token, label }
-  ).catch(asBadRequest)
-  if (row instanceof BadRequest)
-    return c.json(badRequestBody(row), HttpStatusCodes.BAD_REQUEST)
+  ).catch(asClientError)
+  if (row instanceof ClientError)
+    return c.json(clientErrorBody(row), HttpStatusCodes.BAD_REQUEST)
+  return c.json({ account: toClaudeAccount(row) }, HttpStatusCodes.OK)
+}
+
+export const replaceClaudeAccount: AppRouteHandler<
+  ReplaceClaudeAccountRoute
+> = async (c) => {
+  const row = await replaceClaudeToken(
+    { userId: c.var.user.id, workspaceId: "" },
+    c.req.valid("param").accountId,
+    c.req.valid("json").token
+  ).catch(asClientError)
+  if (row instanceof ClientError)
+    return row.notFound
+      ? c.json(clientErrorBody(row), HttpStatusCodes.NOT_FOUND)
+      : c.json(clientErrorBody(row), HttpStatusCodes.BAD_REQUEST)
   return c.json({ account: toClaudeAccount(row) }, HttpStatusCodes.OK)
 }
 
@@ -193,9 +216,9 @@ export const disconnectClaudeAccount: AppRouteHandler<
     { userId: c.var.user.id, workspaceId: "" },
     "claude",
     c.req.valid("query").accountId
-  ).catch(asBadRequest)
-  if (result instanceof BadRequest)
-    return c.json(badRequestBody(result), HttpStatusCodes.BAD_REQUEST)
+  ).catch(asClientError)
+  if (result instanceof ClientError)
+    return c.json(clientErrorBody(result), HttpStatusCodes.BAD_REQUEST)
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
@@ -207,9 +230,9 @@ export const connectChatgptAccount: AppRouteHandler<
     { userId: c.var.user.id, workspaceId: "" },
     "chatgpt",
     { credential: authJson, label }
-  ).catch(asBadRequest)
-  if (row instanceof BadRequest)
-    return c.json(badRequestBody(row), HttpStatusCodes.BAD_REQUEST)
+  ).catch(asClientError)
+  if (row instanceof ClientError)
+    return c.json(clientErrorBody(row), HttpStatusCodes.BAD_REQUEST)
   return c.json({ account: toChatgptAccount(row) }, HttpStatusCodes.OK)
 }
 
@@ -220,9 +243,9 @@ export const disconnectChatgptAccount: AppRouteHandler<
     { userId: c.var.user.id, workspaceId: "" },
     "chatgpt",
     c.req.valid("query").accountId
-  ).catch(asBadRequest)
-  if (result instanceof BadRequest)
-    return c.json(badRequestBody(result), HttpStatusCodes.BAD_REQUEST)
+  ).catch(asClientError)
+  if (result instanceof ClientError)
+    return c.json(clientErrorBody(result), HttpStatusCodes.BAD_REQUEST)
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 

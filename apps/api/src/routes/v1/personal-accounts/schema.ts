@@ -53,6 +53,17 @@ export const connectClaudeAccountBodySchema = z.object({
   token: z.string().min(1).max(2_000),
 })
 
+export const replaceClaudeAccountParamsSchema = z.object({
+  accountId: z
+    .string()
+    .uuid()
+    .openapi({ param: { name: "accountId", in: "path", required: true } }),
+})
+
+export const replaceClaudeAccountBodySchema = z.object({
+  token: z.string().min(1).max(2_000),
+})
+
 export const connectClaudeAccountResponseSchema = z.object({
   account: claudeAccountSchema,
 })
