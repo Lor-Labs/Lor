@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { checkCredits } from "@repo/billing"
 import {
   BETTERSTACK_TOOLS,
   builtinApprovalTool,
@@ -27,10 +28,16 @@ import {
   type LorRunScope,
   resolveLorRunScope,
 } from "@repo/db/queries/channel-access"
+import {
+  getWorkspaceHarnessSettings,
+  personalRequestHarness,
+  resolveHarnessAccount,
+} from "@repo/db/queries/personal-accounts"
 import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import type {
   AgentRunContext,
   ClaudeCodeMode,
+  HarnessAccountRoute,
   HarnessCommandList,
   LorToolCall,
   LorToolCallUpdate,
@@ -55,6 +62,7 @@ import {
   type UserModelMessage,
 } from "ai"
 import { z } from "zod"
+import { agentHarnessModel } from "./agent-harness-model"
 import {
   type AgentTurnResult,
   agentMemoryPass,
@@ -80,6 +88,7 @@ import { readAttachmentPieces } from "./attachments/read"
 import { searchAttachments } from "./attachments/search"
 import { attioTools, resolveWorkspaceAttio } from "./attio"
 import { attioWriteTools } from "./attio-write"
+import { autonomousInference } from "./autonomous-inference"
 import { BETTERSTACK_PROMPT_LINE, betterstackMcpTools } from "./betterstack"
 import {
   type BrainWriteEvent,
@@ -96,7 +105,15 @@ import {
   BRAIN_SAVE_BAR,
   BRAIN_SAVE_STEPS,
 } from "./brain-rules"
-import { keyFunding, nativeInference } from "./byok"
+import {
+  CLAUDE_API_DEFAULT_MODEL,
+  harnessApiConnection,
+  harnessApiFunding,
+  InferenceConfigError,
+  keyFunding,
+  nativeInference,
+  nativeLanguageModel,
+} from "./byok"
 import {
   parseCallTime,
   readCall,
@@ -121,11 +138,7 @@ import {
   channelProfileSection,
   loadChannelProfile,
 } from "./channel-profile"
-import {
-  type ChatgptCredential,
-  chatgptCredential,
-  saveChatgptModels,
-} from "./chatgpt-account"
+import { chatgptCredential, saveChatgptModels } from "./chatgpt-account"
 import {
   classifyToken,
   extractCitationTokens,
@@ -154,6 +167,7 @@ import {
 import { sessionSetupTool } from "./dev-env/session-setup"
 import { embedBrainQueryWithUsage } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
+import { loadHarnessCredential, nextHarnessAccount } from "./harness-accounts"
 import {
   discoverRepoCommands,
   expandPiCommand,
@@ -162,6 +176,7 @@ import {
   parseHarnessCommand,
 } from "./harness-commands"
 import { saveHarnessModels } from "./harness-models"
+import { loadHarnessState as reloadHarnessState } from "./harness-store"
 import { fetchImageForView, isViewableImage, MAX_IMAGE_BYTES } from "./images"
 import { buildInitialUserMessage } from "./initial-message"
 import {
@@ -188,9 +203,9 @@ import { messageActionTools, type OnMessageReaction } from "./message-actions"
 import {
   LOR_FALLBACK_MODELS,
   LOR_MODEL,
-  lorModel,
   mainGatewayOptions,
   piGatewayAuth,
+  withInferenceGuard,
 } from "./models"
 import { notionTools, resolveWorkspaceNotion } from "./notion"
 import { notionWriteTools } from "./notion-write"
@@ -255,6 +270,7 @@ import {
   sandboxToolApproval,
 } from "./sandbox/sandbox-approval"
 import {
+  API_TOKEN_PLACEHOLDER,
   CHATGPT_TOKEN_PLACEHOLDER,
   CLAUDE_TOKEN_PLACEHOLDER,
   grantHarnessAccess,
@@ -273,7 +289,6 @@ import {
 import {
   CLAUDE_CODE_BINDING,
   CLAUDE_CODE_DEFAULT_MODEL,
-  ClaudeCodeTurnError,
   type ClaudeCodeTurnInput,
   runClaudeCodeTurn,
 } from "./session-core/claude-runtime"
@@ -283,6 +298,7 @@ import {
   type CodexTurnInput,
   runCodexTurn,
 } from "./session-core/codex-runtime"
+import { HarnessTurnError } from "./session-core/harness-error"
 import {
   inGatewayCatalog,
   PI_BINDING,
@@ -752,9 +768,10 @@ export type RespondContext = {
   // they picked (saved with the request, so a paused turn continues on the
   // same person's subscription and mode). Claude Code runs the turn instead
   // of Pi, and Lor credits are not charged.
+  autonomous?: boolean
+  harnessAccount?: HarnessAccountRoute
   claudeCode?: {
-    token: string
-    userId: string
+    userId: string | null
     mode: ClaudeCodeMode
   }
   // A Codex session's turn (chunks 8d and 8f): the turn starter's own
@@ -762,8 +779,7 @@ export type RespondContext = {
   // continues on the same person's plan). Codex runs the turn instead of Pi,
   // and Lor credits are not charged.
   codex?: {
-    userId: string
-    credential: ChatgptCredential
+    userId: string | null
   }
   // The model, effort and fast mode the turn's sender picked, as the
   // session's harness names them. Saved with the request so a paused turn
@@ -833,6 +849,7 @@ export type RespondCallbacks = {
   onHarnessCommands?: (list: HarnessCommandList) => void
 }
 
+export { InferenceConfigError } from "./byok"
 export { embedDocumentsWithUsage } from "./embeddings"
 export { buildInitialUserMessage } from "./initial-message"
 export type { InstructionsProposalEvent } from "./instructions"
@@ -915,6 +932,7 @@ export type RespondResult = {
 
 export type WriteBackContext = {
   workspaceId: string
+  runId?: string
   // Write-back memory inherits the channel's scope (project/private memory
   // stays scoped). Absent = workspace scope.
   channelId?: string
@@ -2735,21 +2753,101 @@ async function respondImpl(
     }
   }
   await assertWorkspaceActive(ctx.workspaceId)
+  const memoryInference =
+    ctx.agent?.mode === "memory"
+      ? await autonomousInference(ctx.workspaceId, run?.runId)
+      : null
+  if (memoryInference && run) {
+    ctx = {
+      ...ctx,
+      autonomous: true,
+      harnessAccount: memoryInference.route ?? undefined,
+    }
+    // Memory has a separate workspace payer; never alter the answer's pinned route.
+    run = {
+      ...run,
+      harnessAccount: memoryInference.route ?? undefined,
+      funding: memoryInference.funding,
+      resume: null,
+      pinHarnessAccount: undefined,
+      pinInferenceFunding: undefined,
+      assertCanInfer: memoryInference.assertCanInfer,
+    }
+  }
+  const policy =
+    ctx.autonomous || (ctx.agent && ctx.autonomous !== false)
+      ? await getWorkspaceHarnessSettings(ctx.workspaceId)
+      : null
+  if (ctx.agent) {
+    const pinned = run?.harnessAccount ?? run?.resume?.context.harnessAccount
+    const selected =
+      pinned?.provider === "claude"
+        ? "claude_code"
+        : pinned?.provider === "chatgpt"
+          ? "codex"
+          : run?.funding
+            ? "pi"
+            : !ctx.autonomous && ctx.userId
+              ? await personalRequestHarness(ctx.workspaceId, ctx.userId)
+              : policy?.defaultHarness
+    if (selected === "claude_code" || selected === "codex") {
+      const route = await resolveHarnessAccount(
+        {
+          workspaceId: ctx.workspaceId,
+          userId: pinned
+            ? pinned.userId
+            : !ctx.autonomous
+              ? (ctx.userId ?? null)
+              : null,
+        },
+        selected === "claude_code" ? "claude" : "chatgpt",
+        { pinned }
+      )
+      ctx = { ...ctx, harnessAccount: route }
+    }
+  }
+  if (
+    ctx.harnessAccount &&
+    (ctx.harnessAccount.accountId !== run?.harnessAccount?.accountId ||
+      ctx.harnessAccount.source !== run?.harnessAccount?.source)
+  ) {
+    await run?.pinHarnessAccount?.(ctx.harnessAccount)
+    if (run) run.harnessAccount = ctx.harnessAccount
+  }
   await run?.assertCanInfer?.()
-  assertHostedHarness(
-    ctx.claudeCode ? "claude_code" : ctx.codex ? "codex" : "pi"
-  )
+  const selectedHarness =
+    ctx.claudeCode || ctx.harnessAccount?.provider === "claude"
+      ? "claude_code"
+      : ctx.codex || ctx.harnessAccount?.provider === "chatgpt"
+        ? "codex"
+        : "pi"
+  assertHostedHarness(selectedHarness)
+  const subscription = ctx.harnessAccount?.source === "subscription"
   let funding = run?.funding
-  if (!ctx.claudeCode && !ctx.codex) {
-    // The composer pick decides who pays: a "key:" model runs on the
-    // workspace's key, anything else on Lor credits. A pick the payer can't
-    // serve (key removed, model gone) quietly runs on Lor's default model.
-    // Retries keep the payer and model pinned by the first attempt.
+  if (!subscription) {
     if (!funding) {
-      const pick = ctx.turn?.model
-      funding = (await keyFunding(ctx.workspaceId, pick)) ?? {
-        source: "lor",
-        model: pick && inGatewayCatalog(pick) ? pick : LOR_MODEL,
+      if (ctx.harnessAccount?.source === "api") {
+        const provider =
+          ctx.harnessAccount.provider === "claude" ? "anthropic" : "openai"
+        funding = await harnessApiFunding(
+          ctx.workspaceId,
+          provider,
+          ctx.harnessAccount.apiBilling ?? "lor",
+          ctx.turn?.model,
+          provider === "anthropic"
+            ? CLAUDE_API_DEFAULT_MODEL
+            : CODEX_DEFAULT_MODEL
+        )
+      } else {
+        const pick = policy?.apiModel ?? ctx.turn?.model
+        funding = (await keyFunding(ctx.workspaceId, pick)) ?? {
+          source: "lor",
+          model: pick && inGatewayCatalog(pick) ? pick : LOR_MODEL,
+        }
+        if (pick?.startsWith("key:") && funding.source !== "byok")
+          throw new InferenceConfigError(
+            "The configured API key or model is unavailable. Update Workspace settings → AI accounts."
+          )
       }
       funding = (await run?.pinInferenceFunding?.(funding)) ?? funding
     }
@@ -2759,9 +2857,16 @@ async function respondImpl(
     funding?.source === "byok"
       ? await nativeInference(ctx.workspaceId, funding)
       : null
-  assertHarnessEnabled(
-    ctx.claudeCode ? "claude_code" : ctx.codex ? "codex" : "pi"
-  )
+  const apiProvider =
+    ctx.harnessAccount?.source === "api"
+      ? ctx.harnessAccount.provider === "claude"
+        ? "anthropic"
+        : "openai"
+      : null
+  const harnessApi = apiProvider
+    ? harnessApiConnection(apiProvider, funding, native)
+    : null
+  assertHarnessEnabled(selectedHarness)
   const respondStart = performance.now()
   const budgets = run?.budgets ?? defaultRunBudgets()
   // Live plan pointer: seeded from ctx, written when start_plan adopts the
@@ -3296,117 +3401,162 @@ async function respondImpl(
       if (!run || !ctx.channelId) {
         throw new Error("A channel agent turn needs a run and a channel")
       }
-      const agentModel = ctx.turn?.model ?? LOR_MODEL
-      const agentTools = guardTools(
-        withTouchHints(tools, {
-          workspaceId: ctx.workspaceId,
-          privateContainerChannelId: runScope.privateContainerChannelId,
-          threadRootId: null,
-        }),
-        { store: run.toolResults }
-      ).tools
-      const agentApproval: Record<string, ToolApprovalStatus> = {}
-      for (const name of Object.keys(agentTools)) {
-        const target = toolTargets.targetFor(name)
-        if (target !== null && approvalGates.has(target)) {
-          agentApproval[name] = "user-approval"
+      // The harness takes a bare BYOK model id; usage and the ledger need
+      // the provider-qualified one to price the own-key fee.
+      const harnessModel =
+        harnessApi?.model ??
+        (ctx.harnessAccount?.provider === "claude"
+          ? CLAUDE_CODE_DEFAULT_MODEL
+          : CODEX_DEFAULT_MODEL)
+      const agentModel = native
+        ? `${native.provider}/${native.model}`
+        : ctx.harnessAccount
+          ? harnessModel
+          : (funding?.model ?? ctx.turn?.model ?? LOR_MODEL)
+      const harnessInference =
+        ctx.harnessAccount && !memoryInference
+          ? agentHarnessModel({
+              route: ctx.harnessAccount,
+              model: harnessModel,
+              run:
+                ctx.agent.mode === "memory"
+                  ? { ...run, pinHarnessAccount: undefined }
+                  : run,
+              api: harnessApi,
+            })
+          : null
+      const languageModel =
+        memoryInference?.model ??
+        harnessInference?.model ??
+        (native ? nativeLanguageModel(native) : undefined)
+      const agentUsage = subscription ? undefined : onUsage
+      try {
+        const agentTools = guardTools(
+          withTouchHints(tools, {
+            workspaceId: ctx.workspaceId,
+            privateContainerChannelId: runScope.privateContainerChannelId,
+            threadRootId: null,
+          }),
+          { store: run.toolResults }
+        ).tools
+        const agentApproval: Record<string, ToolApprovalStatus> = {}
+        for (const name of Object.keys(agentTools)) {
+          const target = toolTargets.targetFor(name)
+          if (target !== null && approvalGates.has(target)) {
+            agentApproval[name] = "user-approval"
+          }
         }
-      }
-      if (Object.hasOwn(agentTools, "request_approval")) {
-        agentApproval.request_approval = "user-approval"
-      }
-      if (ctx.agent.mode === "memory") {
-        const ledger = usageLedger({
-          workspaceId: ctx.workspaceId,
-          runId: run.runId,
-          model: agentModel,
-          label: "memory",
-          ...(onUsage ? { onUsage } : {}),
-        })
-        let calls = 0
-        const memory = await agentMemoryPass({
+        if (Object.hasOwn(agentTools, "request_approval")) {
+          agentApproval.request_approval = "user-approval"
+        }
+        if (ctx.agent.mode === "memory") {
+          const ledger = usageLedger({
+            workspaceId: ctx.workspaceId,
+            runId: run.runId,
+            model: agentModel,
+            languageModel,
+            byok: funding?.source === "byok",
+            label: "memory",
+            ...(agentUsage ? { onUsage: agentUsage } : {}),
+          })
+          let calls = 0
+          const memory = await agentMemoryPass({
+            workspaceId: ctx.workspaceId,
+            channelId: ctx.channelId,
+            turnRunId: run.runId,
+            model: agentModel,
+            languageModel,
+            assertCanInfer: run.assertCanInfer,
+            byok: funding?.source === "byok",
+            tools: agentTools,
+            toolsContext,
+            gated: new Set(Object.keys(agentApproval)),
+            record: (usage) => {
+              calls += 1
+              ledger.add(usage)
+            },
+            ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
+          }).finally(() => ledger.charge(calls))
+          return {
+            text: "",
+            messages: [],
+            agent: { approvals: [], promptTokens: 0, sentMessages: 0, memory },
+          }
+        }
+        if (ctx.agent.mode === "compact") {
+          const ledger = usageLedger({
+            workspaceId: ctx.workspaceId,
+            runId: run.runId,
+            model: agentModel,
+            languageModel,
+            byok: funding?.source === "byok",
+            label: "compact",
+            ...(agentUsage ? { onUsage: agentUsage } : {}),
+          })
+          const agent = ctx.agent
+          const compacted = await compactAgentConversation({
+            workspaceId: ctx.workspaceId,
+            channelId: ctx.channelId,
+            model: agentModel,
+            languageModel,
+            assertCanInfer: run.assertCanInfer,
+            byok: funding?.source === "byok",
+            tools: agentTools,
+            record: async (usage) => {
+              const counters = await agent.recordUsage(usage, "compaction")
+              ledger.add(usage, counters.costUsd)
+            },
+            ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
+          }).finally(() => ledger.charge(0))
+          return {
+            text: "",
+            messages: [],
+            agent: {
+              approvals: [],
+              promptTokens: 0,
+              sentMessages: 0,
+              compacted: Boolean(compacted),
+            },
+          }
+        }
+        // The profile and log are read here but only used when the epoch's
+        // prompt is frozen: later changes arrive as change notes.
+        const [workspaceInstructions, rosterText, profile, agentLog] =
+          await Promise.all([
+            loadWorkspaceInstructions(ctx.workspaceId),
+            loadMentionRoster(ctx.workspaceId),
+            loadChannelProfile(ctx.channelId),
+            channelAgentLog(ctx.channelId),
+          ])
+        const turn = await runAgentTurn({
           workspaceId: ctx.workspaceId,
           channelId: ctx.channelId,
-          turnRunId: run.runId,
+          agent: ctx.agent,
+          run,
           model: agentModel,
+          languageModel,
+          byok: funding?.source === "byok",
+          instructions: `${buildSystemPrompt(connectorPromptLines, ANSWERING)}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}\n\n${channelAgentPromptSection(ctx.agent)}\n\n${channelProfileSection(profile)}${agentLog ? `\n\n${agentLog}` : ""}${rosterText}`,
           tools: agentTools,
           toolsContext,
-          gated: new Set(Object.keys(agentApproval)),
-          record: (usage) => {
-            calls += 1
-            ledger.add(usage)
-          },
-          ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
-        }).finally(() => ledger.charge(calls))
-        return {
-          text: "",
-          messages: [],
-          agent: { approvals: [], promptTokens: 0, sentMessages: 0, memory },
-        }
-      }
-      if (ctx.agent.mode === "compact") {
-        const ledger = usageLedger({
-          workspaceId: ctx.workspaceId,
-          runId: run.runId,
-          model: agentModel,
-          label: "compact",
-          ...(onUsage ? { onUsage } : {}),
+          approval: agentApproval,
+          targetFor: (name) => toolTargets.targetFor(name),
+          describe: toolLabel,
+          ...(agentUsage ? { onUsage: agentUsage } : {}),
         })
-        const agent = ctx.agent
-        const compacted = await compactAgentConversation({
-          workspaceId: ctx.workspaceId,
-          channelId: ctx.channelId,
-          model: agentModel,
-          tools: agentTools,
-          record: async (usage) => {
-            const counters = await agent.recordUsage(usage, "compaction")
-            ledger.add(usage, counters.costUsd)
-          },
-          ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
-        }).finally(() => ledger.charge(0))
         return {
-          text: "",
-          messages: [],
+          text: turn.text,
+          messages: turn.messages,
+          ...(turn.stoppedFor ? { stoppedFor: turn.stoppedFor } : {}),
           agent: {
-            approvals: [],
-            promptTokens: 0,
-            sentMessages: 0,
-            compacted: Boolean(compacted),
+            approvals: turn.approvals,
+            promptTokens: turn.promptTokens,
+            sentMessages: turn.sentMessages,
           },
         }
-      }
-      // The profile and log are read here but only used when the epoch's
-      // prompt is frozen: later changes arrive as change notes.
-      const [workspaceInstructions, rosterText, profile, agentLog] =
-        await Promise.all([
-          loadWorkspaceInstructions(ctx.workspaceId),
-          loadMentionRoster(ctx.workspaceId),
-          loadChannelProfile(ctx.channelId),
-          channelAgentLog(ctx.channelId),
-        ])
-      const turn = await runAgentTurn({
-        workspaceId: ctx.workspaceId,
-        channelId: ctx.channelId,
-        agent: ctx.agent,
-        run,
-        model: agentModel,
-        instructions: `${buildSystemPrompt(connectorPromptLines, ANSWERING)}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}\n\n${channelAgentPromptSection(ctx.agent)}\n\n${channelProfileSection(profile)}${agentLog ? `\n\n${agentLog}` : ""}${rosterText}`,
-        tools: agentTools,
-        toolsContext,
-        approval: agentApproval,
-        targetFor: (name) => toolTargets.targetFor(name),
-        describe: toolLabel,
-        ...(onUsage ? { onUsage } : {}),
-      })
-      return {
-        text: turn.text,
-        messages: turn.messages,
-        ...(turn.stoppedFor ? { stoppedFor: turn.stoppedFor } : {}),
-        agent: {
-          approvals: turn.approvals,
-          promptTokens: turn.promptTokens,
-          sentMessages: turn.sentMessages,
-        },
+      } finally {
+        await harnessInference?.close()
+        await memoryInference?.close()
       }
     }
 
@@ -3451,11 +3601,14 @@ async function respondImpl(
         ...(harness.continueOnly ? { continueOnly: true } : {}),
         ...(ctx.claudeCode
           ? {
-              claudeCodeUserId: ctx.claudeCode.userId,
+              ...(ctx.claudeCode.userId
+                ? { claudeCodeUserId: ctx.claudeCode.userId }
+                : {}),
               claudeCodeMode: ctx.claudeCode.mode,
             }
           : {}),
-        ...(ctx.codex ? { codexUserId: ctx.codex.userId } : {}),
+        ...(ctx.codex?.userId ? { codexUserId: ctx.codex.userId } : {}),
+        ...(ctx.harnessAccount ? { harnessAccount: ctx.harnessAccount } : {}),
         turnModel:
           ctx.turn?.model ??
           (ctx.claudeCode
@@ -4016,7 +4169,8 @@ async function respondImpl(
         byModel.set(usage.model, total)
       }
       const codexModel = ctx.turn?.model ?? CODEX_DEFAULT_MODEL
-      const piModel = native?.model ?? ctx.turn?.model ?? LOR_MODEL
+      const piModel =
+        native?.model ?? funding?.model ?? ctx.turn?.model ?? LOR_MODEL
       let stepModel = native ? `${native.provider}/${native.model}` : piModel
       let stepGatewayCost: number | undefined
       // Set by the first finish-step of an assistant message, cleared when
@@ -4024,8 +4178,10 @@ async function respondImpl(
       let stepBilled = false
       // Claude Code and Codex turns run on their starter's own plan: no Lor
       // credits, no spend limit.
-      const billed = !ctx.claudeCode && !ctx.codex
-      const answeringModel = piModel
+      const billed = !subscription
+      const answeringModel = native
+        ? `${native.provider}/${native.model}`
+        : piModel
       // Each model's summed USD, as the spend counter priced it; null once a
       // price is missing, so the ledger prices that model's tokens itself.
       const costByModel = new Map<string, number | null>()
@@ -4277,14 +4433,33 @@ async function respondImpl(
       }
       // The proxy adds the turn starter's Claude token to Anthropic requests
       // for this turn only (code-sessions-runbook.md chunk 7).
-      const claudeCodeTurn = async (claude: {
-        token: string
-        userId: string
-        mode: ClaudeCodeMode
-      }) => {
-        const access = grantHarnessAccess(harness.owner, {
-          claudeToken: claude.token,
-        })
+      let accountRoute = ctx.harnessAccount
+      let attemptSaved = harness.saved
+      const interruptedPrompt = {
+        role: "user" as const,
+        content:
+          "The provider's usage limit interrupted this turn. Continue the existing request from the saved conversation. Preserve completed work and do not repeat completed actions.",
+      }
+      let attemptPrompt = run.resume?.context.harnessPartial
+        ? interruptedPrompt
+        : prompt
+      const claudeCodeTurn = async (
+        claude: NonNullable<RespondContext["claudeCode"]>
+      ) => {
+        if (!accountRoute)
+          throw new Error("A Claude turn needs an account route")
+        const credential = harnessApi
+          ? null
+          : await loadHarnessCredential(accountRoute)
+        const token =
+          harnessApi?.token ??
+          (credential?.provider === "claude" ? credential.token : "")
+        const access = grantHarnessAccess(
+          harness.owner,
+          harnessApi
+            ? { apiToken: token, baseUrl: harnessApi.baseUrl }
+            : { claudeToken: token }
+        )
         // The credential diagnostic for this turn, started once the routing
         // rule is live and read only if the turn fails, so a working turn
         // never waits on it. It carries the turn's signal: stopping or
@@ -4298,26 +4473,50 @@ async function respondImpl(
             access,
             bridgeLink ?? harnessBridge(harness.owner),
           ])
-          credentialProbe =
-            sandbox.provider === "boat"
+          credentialProbe = harnessApi
+            ? Promise.resolve("API billing")
+            : sandbox.provider === "boat"
               ? Promise.resolve("not applicable: Boat uses the token directly")
               : probeClaudeCredential(sandbox.session, abortSignal)
           const input = {
             sessionId: conversationId,
-            saved: harness.saved,
+            saved: attemptSaved,
             sandbox: sandbox.session,
             // Boat has no proxy to fill it in, so the token itself goes.
             tokenPlaceholder:
               sandbox.provider === "boat"
-                ? claude.token
-                : CLAUDE_TOKEN_PLACEHOLDER,
+                ? token
+                : harnessApi
+                  ? API_TOKEN_PLACEHOLDER
+                  : CLAUDE_TOKEN_PLACEHOLDER,
+            ...(harnessApi
+              ? {
+                  api: {
+                    baseUrl: harnessApi.baseUrl,
+                    gateway: harnessApi.gateway,
+                  },
+                }
+              : {}),
             mode: claude.mode,
-            ...(ctx.turn?.model ? { model: ctx.turn.model } : {}),
+            ...(harnessApi?.model
+              ? { model: harnessApi.model }
+              : ctx.turn?.model
+                ? { model: ctx.turn.model }
+                : {}),
             ...(ctx.turn?.effort ? { effort: ctx.turn.effort } : {}),
             ...(ctx.turn?.fast ? { fast: true } : {}),
             // The composer offers the models the person's plan has.
             onModels: (models) =>
-              void saveClaudeModels(claude.userId, models).catch((err) =>
+              void (
+                accountRoute?.accountId
+                  ? saveClaudeModels(
+                      claude.userId,
+                      models,
+                      accountRoute.accountId,
+                      ctx.workspaceId
+                    )
+                  : Promise.resolve()
+              ).catch((err) =>
                 logger.warn(
                   { err, sessionId: conversationId },
                   "Saving the Claude Code model list failed"
@@ -4332,7 +4531,7 @@ async function respondImpl(
             ...(decisions && !pausedDropped ? { decisions } : {}),
             ...(answers && !pausedDropped ? { answers } : {}),
             ...(pausedDropped ? { dropPaused: true } : {}),
-            ...(prompt ? { prompt } : {}),
+            ...(attemptPrompt ? { prompt: attemptPrompt } : {}),
             tools: guarded.tools,
             toolsContext,
             toolApproval: limitedToolApproval,
@@ -4354,7 +4553,13 @@ async function respondImpl(
             const [credentialProbeResult, storedTokenCheck] = await Promise.all(
               [
                 credentialProbe ?? Promise.resolve("not started"),
-                claudeStoredTokenCheck(claude.userId),
+                harnessApi
+                  ? Promise.resolve("API billing")
+                  : claudeStoredTokenCheck(
+                      claude.userId,
+                      accountRoute.accountId ?? undefined,
+                      ctx.workspaceId
+                    ),
               ]
             )
             // The deciding pair goes in the message, not only in the log
@@ -4386,19 +4591,31 @@ async function respondImpl(
       // requests for this turn only (code-sessions-runbook.md chunk 8f). It
       // lasts about an hour, so a long turn is granted each refreshed token;
       // grants run one at a time and finish before the revoke.
-      const codexTurn = async (codex: {
-        userId: string
-        credential: ChatgptCredential
-      }) => {
-        let token = codex.credential.accessToken
-        const access = grantHarnessAccess(harness.owner, {
-          chatgptToken: token,
-        })
+      const codexTurn = async (codex: NonNullable<RespondContext["codex"]>) => {
+        if (!accountRoute)
+          throw new Error("A Codex turn needs an account route")
+        const credential = harnessApi
+          ? null
+          : await loadHarnessCredential(accountRoute)
+        let token =
+          harnessApi?.token ??
+          (credential?.provider === "chatgpt" ? credential.accessToken : "")
+        const access = grantHarnessAccess(
+          harness.owner,
+          harnessApi
+            ? { apiToken: token, baseUrl: harnessApi.baseUrl }
+            : { chatgptToken: token }
+        )
         let regrant: Promise<void> = access.catch(() => {})
         const refresher = setInterval(() => {
           regrant = regrant
             .then(async () => {
-              const fresh = await chatgptCredential(codex.userId)
+              if (harnessApi || !accountRoute?.accountId) return
+              const fresh = await chatgptCredential(
+                codex.userId,
+                accountRoute.accountId,
+                ctx.workspaceId
+              )
               if (!fresh || fresh.accessToken === token) return
               token = fresh.accessToken
               await grantHarnessAccess(harness.owner, { chatgptToken: token })
@@ -4417,13 +4634,19 @@ async function respondImpl(
           ])
           const input = {
             sessionId: conversationId,
-            saved: harness.saved,
+            saved: attemptSaved,
             sandbox: sandbox.session,
             // Boat has no proxy to fill it in, so the token itself goes.
             tokenPlaceholder:
-              sandbox.provider === "boat" ? token : CHATGPT_TOKEN_PLACEHOLDER,
-            accountId: codex.credential.accountId,
-            model: codexModel,
+              sandbox.provider === "boat"
+                ? token
+                : harnessApi
+                  ? API_TOKEN_PLACEHOLDER
+                  : CHATGPT_TOKEN_PLACEHOLDER,
+            ...(harnessApi ? { apiBaseUrl: harnessApi.baseUrl } : {}),
+            accountId:
+              credential?.provider === "chatgpt" ? credential.accountId : "",
+            model: harnessApi?.model ?? codexModel,
             ...(ctx.turn?.effort ? { effort: ctx.turn.effort } : {}),
             ...(command?.kind === "compact"
               ? { command: { type: "compact" as const } }
@@ -4440,7 +4663,7 @@ async function respondImpl(
             instructions,
             ...(decisions && !pausedDropped ? { decisions } : {}),
             ...(pausedDropped ? { dropPaused: true } : {}),
-            ...(prompt ? { prompt } : {}),
+            ...(attemptPrompt ? { prompt: attemptPrompt } : {}),
             tools: guarded.tools,
             toolsContext,
             toolApproval: limitedToolApproval,
@@ -4450,7 +4673,14 @@ async function respondImpl(
             // shared list is the start for people with no Codex turn yet.
             onModels: (models) => {
               void Promise.all([
-                saveChatgptModels(codex.userId, models),
+                accountRoute?.accountId
+                  ? saveChatgptModels(
+                      codex.userId,
+                      models,
+                      accountRoute.accountId,
+                      ctx.workspaceId
+                    )
+                  : Promise.resolve(),
                 saveHarnessModels("codex", models),
               ]).catch((err) =>
                 logger.warn(
@@ -4497,77 +4727,148 @@ async function respondImpl(
           await uncommitted?.flush()
         }
       }
-      const turn = await (ctx.claudeCode
-        ? claudeCodeTurn(ctx.claudeCode)
-        : ctx.codex
-          ? codexTurn(ctx.codex)
-          : runPiTurn({
-              sessionId: conversationId,
-              sessionKey: conversationId,
-              saved: harness.saved,
-              sandbox: sandbox.session,
-              systemPrompt: instructions,
-              ...(workFolder?.status === "ready" && workFolder.instructions
-                ? { contextFiles: [workFolder.instructions] }
-                : {}),
-              ...(decisions ? { decisions } : {}),
-              ...(harness.pausedDropped ? { dropPaused: true } : {}),
-              ...(prompt ? { prompt } : {}),
-              ...(command?.kind === "compact"
-                ? { compact: { instructions: command.instructions } }
-                : {}),
-              skills: repoCommands.flatMap((file) =>
-                file.kind === "skill"
-                  ? [
-                      {
-                        name: file.name,
-                        description: file.description,
-                        filePath: file.path,
-                      },
-                    ]
-                  : []
-              ),
-              tools: guarded.tools,
-              toolsContext,
-              toolApproval: limitedToolApproval,
-              inactiveBuiltinTools: SANDBOX_BUILTIN_TOOLS.filter(
-                (name) => !selectedBuiltinTools.has(name)
-              ),
-              builtinToolApproval: (call) => sandboxApproval.decide(call),
-              onPrompt: () => {
-                if (!finishingPaused) return
-                activeSandboxMode = harness.sandboxMode
-                sandboxApproval = makeSandboxApproval(requestSandboxContext)
+      const nativeTurn = async () => {
+        const attempted: string[] = []
+        while (true) {
+          if (accountRoute?.accountId) attempted.push(accountRoute.accountId)
+          try {
+            if (ctx.claudeCode) return await claudeCodeTurn(ctx.claudeCode)
+            if (ctx.codex) return await codexTurn(ctx.codex)
+            throw new Error("Missing native harness")
+          } catch (error) {
+            if (
+              !accountRoute ||
+              !(error instanceof HarnessTurnError) ||
+              abortSignal?.aborted
+            )
+              throw error
+            const next = await nextHarnessAccount(
+              accountRoute,
+              error,
+              attempted
+            )
+            if (!next || abortSignal?.aborted) throw error
+            // Without a native log, replaying a turn that ran tools could
+            // repeat writes, and one that streamed text would answer twice.
+            // Keep the error instead of guessing what ran.
+            if ((toolCallCount > 0 || text.length > 0) && !error.save)
+              throw error
+            if (error instanceof HarnessTurnError && error.save) {
+              await harness.saveTurn({
+                partial: true,
+                save: error.save,
+                extraUsage: null,
+                toolCalls: 0,
+                toolOutputBytes: 0,
+                approvals: [],
+                planId: planRef.current?.id ?? null,
+                pausedSandbox: null,
+                coveredMessageIds: coveredAmbient,
+                contextUsage: null,
+              })
+              attemptSaved = await reloadHarnessState(
+                harness.owner,
+                ctx.workspaceId
+              )
+              attemptPrompt = {
+                role: "user",
+                content:
+                  "The provider's usage limit interrupted this turn. Continue the existing request from the saved conversation. Preserve completed work and do not repeat completed actions.",
+              }
+            }
+            await run.pinHarnessAccount?.(next)
+            accountRoute = next
+            request = {
+              ...request,
+              harnessAccount: next,
+              harnessPartial: error.save
+                ? true
+                : (request.harnessPartial ?? false),
+            }
+            await run.saveContext({ context: request, instructions })
+            if (abortSignal?.aborted) throw error
+            logger.info(
+              {
+                runId: run.runId,
+                accountId: next.accountId,
+                provider: next.provider,
               },
-              model: {
-                id: piModel,
-                fallbacks: native
-                  ? []
-                  : LOR_FALLBACK_MODELS.filter((id) => id !== piModel),
-                contextWindow: env.LOR_CONTEXT_WINDOW,
-              },
-              ...(native ? { nativeProvider: native.provider } : {}),
-              ...(ctx.turn?.effort ? { thinkingLevel: ctx.turn.effort } : {}),
-              gatewayAuth: native?.auth ?? piGatewayAuth(),
-              gatewayOptions: mainGatewayOptions,
-              beforeRequest: run.assertCanInfer,
-              abortSignal,
-              onAssistantModel: (model, gatewayCostUsd) => {
-                stepModel = billedModel(model)
-                stepGatewayCost = gatewayCostUsd
-                stepBilled = false
-              },
-              toolBlock,
-              compaction,
-              onBoundary,
-              onPart,
-            })
+              "Continuing with the next linked account"
+            )
+          }
+        }
+      }
+      const turn = await (ctx.claudeCode || ctx.codex
+        ? nativeTurn()
+        : runPiTurn({
+            sessionId: conversationId,
+            sessionKey: conversationId,
+            saved: harness.saved,
+            sandbox: sandbox.session,
+            systemPrompt: instructions,
+            ...(workFolder?.status === "ready" && workFolder.instructions
+              ? { contextFiles: [workFolder.instructions] }
+              : {}),
+            ...(decisions ? { decisions } : {}),
+            ...(harness.pausedDropped ? { dropPaused: true } : {}),
+            ...(prompt ? { prompt } : {}),
+            ...(command?.kind === "compact"
+              ? { compact: { instructions: command.instructions } }
+              : {}),
+            skills: repoCommands.flatMap((file) =>
+              file.kind === "skill"
+                ? [
+                    {
+                      name: file.name,
+                      description: file.description,
+                      filePath: file.path,
+                    },
+                  ]
+                : []
+            ),
+            tools: guarded.tools,
+            toolsContext,
+            toolApproval: limitedToolApproval,
+            inactiveBuiltinTools: SANDBOX_BUILTIN_TOOLS.filter(
+              (name) => !selectedBuiltinTools.has(name)
+            ),
+            builtinToolApproval: (call) => sandboxApproval.decide(call),
+            onPrompt: () => {
+              if (!finishingPaused) return
+              activeSandboxMode = harness.sandboxMode
+              sandboxApproval = makeSandboxApproval(requestSandboxContext)
+            },
+            model: {
+              id: piModel,
+              fallbacks: native
+                ? []
+                : LOR_FALLBACK_MODELS.filter((id) => id !== piModel),
+              contextWindow: env.LOR_CONTEXT_WINDOW,
+            },
+            ...(native ? { nativeProvider: native.provider } : {}),
+            ...(ctx.turn?.effort ? { thinkingLevel: ctx.turn.effort } : {}),
+            gatewayAuth: native?.auth ?? piGatewayAuth(),
+            gatewayOptions: mainGatewayOptions,
+            beforeRequest: run.assertCanInfer,
+            abortSignal,
+            onAssistantModel: (model, gatewayCostUsd) => {
+              stepModel = billedModel(model)
+              stepGatewayCost = gatewayCostUsd
+              stepBilled = false
+            },
+            toolBlock,
+            compaction,
+            onBoundary,
+            onPart,
+          })
       ).catch(async (err: unknown) => {
         // A failed turn still charges the steps that finished.
         await chargeTurn(null)
-        if (err instanceof ClaudeCodeTurnError && !abortSignal?.aborted) {
+        if (err instanceof HarnessTurnError && !abortSignal?.aborted) {
           try {
             await harness.saveTurn({
+              // A failure with nothing saved keeps the earlier marker.
+              partial: err.save ? true : (request.harnessPartial ?? false),
               save: err.save,
               extraUsage: null,
               toolCalls: toolCallCount,
@@ -4774,7 +5075,8 @@ export async function respond(
     {
       sessionId:
         ctx.aiSessionId ?? ctx.threadRootId ?? ctx.channelId ?? ctx.runId,
-      distinctId: ctx.userId ?? ctx.claudeCode?.userId ?? ctx.codex?.userId,
+      distinctId:
+        ctx.userId ?? ctx.claudeCode?.userId ?? ctx.codex?.userId ?? undefined,
       traceName: "lor.respond",
     },
     () => respondImpl(ctx, callbacks, run)
@@ -4783,14 +5085,41 @@ export async function respond(
 
 export async function writeBack(
   ctx: WriteBackContext,
-  { onMemoryWritten, onUsage, onInstructionsProposal }: WriteBackCallbacks
+  callbacks: WriteBackCallbacks
 ): Promise<void> {
+  const inference = await autonomousInference(ctx.workspaceId, ctx.runId)
+  try {
+    // The payer is resolved again here: billing may have left the
+    // subscription after the worker's credit gate skipped the check.
+    if (
+      !inference.subscription &&
+      !(await checkCredits(ctx.workspaceId)).allowed
+    )
+      return
+    await writeBackImpl(ctx, callbacks, inference)
+  } finally {
+    await inference.close()
+  }
+}
+
+async function writeBackImpl(
+  ctx: WriteBackContext,
+  { onMemoryWritten, onUsage, onInstructionsProposal }: WriteBackCallbacks,
+  inference: Awaited<ReturnType<typeof autonomousInference>>
+): Promise<void> {
+  const modelUsage: OnUsage | undefined =
+    inference.subscription || !onUsage
+      ? undefined
+      : (usage) =>
+          onUsage({ ...usage, ...(inference.byok ? { byok: true } : {}) })
   const gate = await generateSmallObject({
+    model: inference.model,
+    beforeRequest: inference.assertCanInfer,
     // reason first so the model commits to a justification before the verdict.
     schema: z.object({ reason: z.string(), worthSaving: z.boolean() }),
     prompt: `${ctx.gateText}\n\n---\n${GATE_QUESTION}`,
   })
-  emitGenerateUsage(onUsage, ctx.workspaceId, "lor.writeback.gate", gate)
+  emitGenerateUsage(modelUsage, ctx.workspaceId, "lor.writeback.gate", gate)
   logger.info(
     { workspaceId: ctx.workspaceId, ...gate.object },
     "Write-back salience gate"
@@ -4803,7 +5132,7 @@ export async function writeBack(
 
   const workspaceInstructions = await loadWorkspaceInstructions(ctx.workspaceId)
   const body = await generateText({
-    model: lorModel,
+    model: withInferenceGuard(inference.model, inference.assertCanInfer),
     reasoning: "high",
     instructions: `${buildSystemPrompt([])}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}`,
     messages: [
@@ -4835,7 +5164,7 @@ export async function writeBack(
     runtimeContext: aiRuntimeContext(),
     telemetry: aiTelemetry("lor.writeback"),
   })
-  emitGenerateUsage(onUsage, ctx.workspaceId, "lor.writeback", body)
+  emitGenerateUsage(modelUsage, ctx.workspaceId, "lor.writeback", body)
 }
 
 function sha256(text: string): string {

@@ -15,6 +15,7 @@ import { formatSpeakerLine, sanitizeInlineLabel } from "./transcript"
 // itself for anything older.
 const INBOX_BATCH_MAX = 200
 const INBOX_WAKE_MAX = 50
+const CAN_START_CHUNK = 20
 
 const MAX_MESSAGE_CHARS = 8000
 
@@ -241,7 +242,7 @@ export function channelAgentPromptSection(agent: RunAgentContext): string {
   const name = sanitizeInlineLabel(agent.agentName)
   return `## You are ${name}, ${channel}'s agent
 
-You are ${name}, the always-on agent for ${channel}: one teammate the whole channel shares, shown in the app as a pixel-art ${agent.creature.toLowerCase()}. The team picked your name and can change it. Lor is the app you live in: its mentions of you (<@${LOR_USER_ID}>) appear to people as @${name}. Call yourself ${name}. People and you talk in the channel's chat.
+You are ${name}, the always-on agent for ${channel}: one teammate the whole channel shares, shown in the app as a little ${agent.creature.toLowerCase()}. The team picked your name and can change it. Lor is the app you live in: its mentions of you (<@${LOR_USER_ID}>) appear to people as @${name}. Call yourself ${name}. People and you talk in the channel's chat.
 
 - Each turn starts from your inbox, after the time. "Since you last looked" lists what people said in the chat that was not for you: read it as context and do not answer it line by line. "What woke you" is what you are asked to handle now.
 - Nothing you write here reaches anyone. This conversation is your private working notes. To speak, call send_message: it posts in the channel's chat for everyone.
@@ -433,7 +434,8 @@ export type InboxBatch = {
 // Everything pending for the channel, as the text of one wake line. Null when
 // nothing in the wake lane is pending: unread items alone never start a turn.
 export async function loadInboxBatch(
-  channelId: string
+  channelId: string,
+  canStart?: (triggerMessageId: string | null) => Promise<boolean>
 ): Promise<InboxBatch | null> {
   // Payloads (notes, content, attachments) load only for the rows shown.
   const pending = await db
@@ -444,6 +446,8 @@ export async function loadInboxBatch(
       loopId: schema.agentInbox.loopId,
       sourceId: schema.agentInbox.sourceId,
       messageId: schema.message.id,
+      authorId: schema.message.authorId,
+      authorIsBot: schema.user.isBot,
       threadRootId: schema.message.threadRootId,
     })
     .from(schema.agentInbox)
@@ -451,6 +455,7 @@ export async function loadInboxBatch(
       schema.message,
       eq(schema.agentInbox.messageId, schema.message.id)
     )
+    .leftJoin(schema.user, eq(schema.message.authorId, schema.user.id))
     .where(
       and(
         eq(schema.agentInbox.channelId, channelId),
@@ -462,10 +467,30 @@ export async function loadInboxBatch(
   // first wake picks: wakes from elsewhere wait for the next turn. One Loop
   // fire per turn: its run is that fire in the Loop's history, and carries
   // its failures and its stop. Other fires wait too.
-  const place = pending.find((row) => row.lane === "wake")?.threadRootId ?? null
+  let wake = pending.find((row) => row.lane === "wake")
+  if (canStart) {
+    // Checked in parallel chunks; the first eligible wake in order wins.
+    const candidates = pending.filter((row) => row.lane === "wake")
+    wake = undefined
+    for (let i = 0; i < candidates.length && !wake; i += CAN_START_CHUNK) {
+      const chunk = candidates.slice(i, i + CAN_START_CHUNK)
+      const ok = await Promise.all(chunk.map((row) => canStart(row.messageId)))
+      wake = chunk.find((_, j) => ok[j])
+    }
+  }
+  if (!wake) return null
+  const place = wake.threadRootId ?? null
   const here = pending.filter((row) => (row.threadRootId ?? null) === place)
-  const loopFire = here.find((row) => row.loopId)
-  const rows = here.filter((row) => !row.loopId || row === loopFire)
+  const humanWake = Boolean(wake.authorId && !wake.authorIsBot)
+  // Each human request gets its own payer. Autonomous wakes wait for their own turn.
+  const samePayer = here.filter((row) => {
+    if (row === wake) return true
+    if (humanWake && (row.loopId || row.deliveryId)) return false
+    if (row.lane !== "wake") return true
+    return !humanWake && !(row.authorId && !row.authorIsBot)
+  })
+  const loopFire = samePayer.find((row) => row.loopId)
+  const rows = samePayer.filter((row) => !row.loopId || row === loopFire)
   const firstWake = rows.find((row) => row.lane === "wake")
   if (!firstWake) return null
 

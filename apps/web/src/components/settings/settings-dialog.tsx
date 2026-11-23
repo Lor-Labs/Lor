@@ -1,13 +1,9 @@
 import {
   ComputerTerminal01Icon,
-  GlobeIcon,
-  KeyboardIcon,
   Link01Icon,
-  Message01Icon,
   Notification01Icon,
   PaintBrush01Icon,
   Search01Icon,
-  Settings01Icon,
   UserIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
@@ -60,10 +56,6 @@ const settingsNav = [
   { id: "appearance", name: "Appearance", icon: PaintBrush01Icon },
   { id: "notifications", name: "Notifications", icon: Notification01Icon },
   { id: "sandbox", name: "Sandbox", icon: ComputerTerminal01Icon },
-  { id: "messages", name: "Messages & Media", icon: Message01Icon },
-  { id: "language", name: "Language & Region", icon: GlobeIcon },
-  { id: "accessibility", name: "Accessibility", icon: KeyboardIcon },
-  { id: "advanced", name: "Advanced", icon: Settings01Icon },
 ] as const satisfies readonly SettingsNav[]
 
 export function SettingsDialog() {
@@ -184,12 +176,8 @@ export function SettingsDialog() {
                 <AppearanceSettings />
               ) : activeItem.id === "notifications" ? (
                 <NotificationSettings />
-              ) : activeItem.id === "sandbox" ? (
-                <SandboxSettings />
               ) : (
-                <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-                  {activeItem.name} settings coming soon.
-                </div>
+                <SandboxSettings />
               )}
             </div>
             {appVersion ? (

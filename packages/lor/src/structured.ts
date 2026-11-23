@@ -1,7 +1,11 @@
-import { generateText, tool } from "ai"
+import { generateText, type LanguageModel, tool } from "ai"
 import type { z } from "zod"
 import { aiRuntimeContext, aiTelemetry } from "./ai-observability"
-import { lorSmallModel, smallGatewayOptions } from "./models"
+import {
+  lorSmallModel,
+  smallGatewayOptions,
+  withInferenceGuard,
+} from "./models"
 
 /**
  * Ask the small model for schema-validated data without relying on a provider's
@@ -12,13 +16,17 @@ export async function generateSmallObject<T>({
   schema,
   prompt,
   abortSignal,
+  model,
+  beforeRequest,
 }: {
   schema: z.ZodType<T>
   prompt: string
   abortSignal?: AbortSignal
+  model?: LanguageModel
+  beforeRequest?: () => Promise<void>
 }) {
   const result = await generateText({
-    model: lorSmallModel,
+    model: withInferenceGuard(model ?? lorSmallModel, beforeRequest),
     reasoning: "low",
     prompt: `${prompt}\n\nCall submit_result exactly once with your answer. Do not answer in prose.`,
     tools: {

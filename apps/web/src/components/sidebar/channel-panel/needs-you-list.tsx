@@ -33,27 +33,25 @@ type SessionRow = SidebarSession & { channelId: string }
 
 // What needs the person, gathered from every channel
 // (reference/always-on-agents.md §9, decision 24): the channel agents'
-// approvals and questions for them, the sessions waiting on them, and the
-// sessions running. Requests get lost in chat scroll; here they stay until
-// answered.
-export function useNeedsYou() {
+// approvals and questions for them, and the sessions waiting on them.
+// Requests get lost in chat scroll; here they stay until answered.
+function useNeedsYou() {
   const channels = useAllChannelActivity()
   return useMemo(() => {
     const needs: NeedRow[] = []
     const waiting: SessionRow[] = []
-    const running: SessionRow[] = []
     for (const activity of channels.values()) {
       for (const need of activity.agentNeeds) {
         needs.push({ ...need, channelId: activity.channelId })
       }
       for (const session of activity.sessions) {
-        const row = { ...session, channelId: activity.channelId }
-        if (session.state === "needs_you") waiting.push(row)
-        else if (session.state === "running") running.push(row)
+        if (session.state === "needs_you") {
+          waiting.push({ ...session, channelId: activity.channelId })
+        }
       }
     }
     needs.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    return { needs, waiting, running, count: needs.length + waiting.length }
+    return { needs, waiting }
   }, [channels])
 }
 
@@ -69,14 +67,16 @@ function timeAgo(iso: string) {
 const rowClass =
   "flex w-full cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-sidebar-accent"
 
-export function NeedsYouList() {
+// The group above the channels. It shows only while something waits, so
+// the sidebar has one list and no tab to check.
+export function NeedsYouGroup() {
   const { workspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()
   const socket = useSocket()
   const queryClient = useQueryClient()
   const workspaceId = useActivityWorkspaceId()
   const { data: session } = authClient.useSession()
-  const { needs, waiting, running } = useNeedsYou()
+  const { needs, waiting } = useNeedsYou()
   const { data: channels } = useQuery(
     workspaceChannelsQueryOptions(workspaceSlug ?? "")
   )
@@ -134,21 +134,25 @@ export function NeedsYouList() {
       params: { workspaceSlug, sessionId: row.id },
     })
 
-  if (needs.length + waiting.length + running.length === 0) {
-    return (
-      <p className="px-3 py-6 text-center text-muted-foreground text-xs text-pretty">
-        Nothing needs you right now. Approvals and questions for you show up
-        here, with the sessions that are running.
-      </p>
-    )
-  }
+  const count = needs.length + waiting.length
+  const announcement =
+    count === 0
+      ? ""
+      : `${count} ${count === 1 ? "item needs" : "items need"} you`
 
   return (
-    <div className="space-y-4 px-2 pt-1">
-      {needs.length + waiting.length > 0 && (
-        <section>
-          <h3 className="px-2 pb-1 font-medium text-muted-foreground text-xs">
+    <>
+      {/* Stays mounted while the group is hidden, so a new need is announced. */}
+      <span aria-live="polite" className="sr-only">
+        {announcement}
+      </span>
+      {count > 0 && (
+        <section aria-label="Needs you" className="mb-3">
+          <h3 className="flex items-center gap-1.5 px-2 pb-1 font-medium text-muted-foreground text-xs">
             Needs you
+            <span className="rounded-full bg-warning/20 px-1.5 font-semibold text-[11px] text-warning-foreground tabular-nums">
+              {count}
+            </span>
           </h3>
           {needs.map((need) => (
             <button
@@ -174,12 +178,15 @@ export function NeedsYouList() {
                       }
                       className="mr-1 inline size-3.5 -translate-y-px text-warning"
                       strokeWidth={2}
+                      aria-label={
+                        need.kind === "approval" ? "Approval" : "Question"
+                      }
                     />
-                    {agentOf(need.channelId).name}{" "}
-                    {need.kind === "approval"
-                      ? "needs an approval"
-                      : "asked you"}{" "}
-                    in #{channelName(need.channelId)}
+                    {agentOf(need.channelId).name}
+                    <span className="font-normal text-muted-foreground">
+                      {" "}
+                      in #{channelName(need.channelId)}
+                    </span>
                   </span>
                   <span className="shrink-0 text-muted-foreground text-xs">
                     {timeAgo(need.createdAt)}
@@ -203,22 +210,7 @@ export function NeedsYouList() {
           ))}
         </section>
       )}
-      {running.length > 0 && (
-        <section>
-          <h3 className="px-2 pb-1 font-medium text-muted-foreground text-xs">
-            Running
-          </h3>
-          {running.map((row) => (
-            <SessionNeedRow
-              key={row.id}
-              row={row}
-              channel={channelName(row.channelId)}
-              onOpen={() => openSession(row)}
-            />
-          ))}
-        </section>
-      )}
-    </div>
+    </>
   )
 }
 

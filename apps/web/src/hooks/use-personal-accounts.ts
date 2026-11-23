@@ -63,13 +63,39 @@ export function useConnectGithubAccount() {
 
 // The token `claude setup-token` printed; the server checks it with
 // Anthropic before storing it, so its message is the reason to show.
-export function useConnectClaudeAccount() {
+// With `accountId`, the token replaces that account's token in place.
+export function useConnectClaudeAccount(workspaceSlug?: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (token: string) => {
-      const res = await apiClient.v1["personal-accounts"].claude.$post({
-        json: { token },
-      })
+    mutationFn: async ({
+      token,
+      label,
+      accountId,
+    }: {
+      token: string
+      label: string
+      accountId?: string
+    }) => {
+      const workspaceAccounts =
+        apiClient.v1.workspaces[":workspaceSlug"]["ai-accounts"].accounts
+      const res = accountId
+        ? workspaceSlug
+          ? await workspaceAccounts.claude[":accountId"].$put({
+              param: { workspaceSlug, accountId },
+              json: { credential: token },
+            })
+          : await apiClient.v1["personal-accounts"].claude[":accountId"].$put({
+              param: { accountId },
+              json: { token },
+            })
+        : workspaceSlug
+          ? await workspaceAccounts[":provider"].$post({
+              param: { workspaceSlug, provider: "claude" },
+              json: { credential: token, label },
+            })
+          : await apiClient.v1["personal-accounts"].claude.$post({
+              json: { token, label },
+            })
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
           message?: string
@@ -82,6 +108,7 @@ export function useConnectClaudeAccount() {
     onSuccess: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: personalAccountsKey }),
+        queryClient.invalidateQueries({ queryKey: ["ai-accounts"] }),
         queryClient.invalidateQueries({
           queryKey: agentModelsKey("claude_code"),
         }),
@@ -92,25 +119,44 @@ export function useConnectClaudeAccount() {
 export function useDisconnectClaudeAccount() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async () => {
-      const res = await apiClient.v1["personal-accounts"].claude.$delete()
+    mutationFn: async (accountId: string) => {
+      const res = await apiClient.v1["personal-accounts"].claude.$delete({
+        query: { accountId },
+      })
       if (!res.ok) throw new Error("Couldn't disconnect Claude")
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: personalAccountsKey }),
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: personalAccountsKey }),
+        queryClient.invalidateQueries({ queryKey: ["ai-accounts"] }),
+        queryClient.invalidateQueries({ queryKey: ["agent-models"] }),
+      ]),
     onError: (err) => toast.error(err.message),
   })
 }
 
 // The auth.json `codex login` saved; the server refreshes it with OpenAI
 // before storing it, so its message is the reason to show.
-export function useConnectChatgptAccount() {
+export function useConnectChatgptAccount(workspaceSlug?: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (authJson: string) => {
-      const res = await apiClient.v1["personal-accounts"].chatgpt.$post({
-        json: { authJson },
-      })
+    mutationFn: async ({
+      authJson,
+      label,
+    }: {
+      authJson: string
+      label: string
+    }) => {
+      const res = workspaceSlug
+        ? await apiClient.v1.workspaces[":workspaceSlug"][
+            "ai-accounts"
+          ].accounts[":provider"].$post({
+            param: { workspaceSlug, provider: "chatgpt" },
+            json: { credential: authJson, label },
+          })
+        : await apiClient.v1["personal-accounts"].chatgpt.$post({
+            json: { authJson, label },
+          })
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
           message?: string
@@ -123,6 +169,7 @@ export function useConnectChatgptAccount() {
     onSuccess: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: personalAccountsKey }),
+        queryClient.invalidateQueries({ queryKey: ["ai-accounts"] }),
         queryClient.invalidateQueries({ queryKey: agentModelsKey("codex") }),
       ]),
   })
@@ -131,12 +178,18 @@ export function useConnectChatgptAccount() {
 export function useDisconnectChatgptAccount() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async () => {
-      const res = await apiClient.v1["personal-accounts"].chatgpt.$delete()
+    mutationFn: async (accountId: string) => {
+      const res = await apiClient.v1["personal-accounts"].chatgpt.$delete({
+        query: { accountId },
+      })
       if (!res.ok) throw new Error("Couldn't disconnect ChatGPT")
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: personalAccountsKey }),
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: personalAccountsKey }),
+        queryClient.invalidateQueries({ queryKey: ["ai-accounts"] }),
+        queryClient.invalidateQueries({ queryKey: ["agent-models"] }),
+      ]),
     onError: (err) => toast.error(err.message),
   })
 }
@@ -149,7 +202,11 @@ export function useDisconnectGithubAccount() {
       if (!res.ok) throw new Error("Couldn't disconnect GitHub")
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: personalAccountsKey }),
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: personalAccountsKey }),
+        queryClient.invalidateQueries({ queryKey: ["ai-accounts"] }),
+        queryClient.invalidateQueries({ queryKey: ["agent-models"] }),
+      ]),
     onError: (err) => toast.error(err.message),
   })
 }

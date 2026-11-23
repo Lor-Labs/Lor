@@ -3,6 +3,7 @@ import LockedIcon from "@hugeicons/core-free-icons/LockedIcon"
 import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { LOR_USER_ID } from "@repo/db/constants"
+import { channelAgentIdentity } from "@repo/utils/bestiary"
 import { isHarnessAllowedInBeta, isHarnessEnabled } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { router } from "expo-router"
@@ -75,6 +76,7 @@ import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRunQueue } from "@/hooks/use-run-queue"
+import { SessionAgentProvider } from "@/hooks/use-session-agent"
 import {
   changeTotals,
   useLiveSessionChanges,
@@ -392,6 +394,18 @@ export function ThreadView({
   )
   // Memoized: the list re-renders its rows only when its items change, and
   // the heading is one, so it changes them exactly when its content does.
+  // The channel's agent, for a session it started or briefed.
+  const sessionChannel = channelState.channel
+  const sessionChannelAgent = useMemo(
+    () =>
+      lorSession && sessionChannel?.type === "text"
+        ? {
+            channelId: sessionChannel.id,
+            ...channelAgentIdentity(sessionChannel),
+          }
+        : null,
+    [lorSession, sessionChannel]
+  )
   const sessionHeading = useMemo(() => {
     if (!lorSession) return undefined
     const starter = memberById(lorSession.creatorId)
@@ -424,7 +438,7 @@ export function ThreadView({
             : lorSession.origin === "trigger"
               ? "Started by an automation"
               : lorSession.origin === "agent"
-                ? "Started by the channel's agent"
+                ? `Started by ${sessionChannelAgent?.name ?? "the channel's agent"}`
                 : `Started by ${nameOf(lorSession.creatorId)}`
         }
         starter={
@@ -439,7 +453,14 @@ export function ThreadView({
         title={lorSession.title}
       />
     )
-  }, [lorSession, sourceSession, channelName, memberById, nameOf])
+  }, [
+    lorSession,
+    sourceSession,
+    channelName,
+    memberById,
+    nameOf,
+    sessionChannelAgent,
+  ])
 
   useEffect(() => {
     setReplyingTo(null)
@@ -743,7 +764,10 @@ export function ThreadView({
   )
 
   return (
-    <>
+    <SessionAgentProvider
+      channelAgent={sessionChannelAgent}
+      harness={lorSession?.harness ?? null}
+    >
       {header}
       {callTabs}
       <ChatKeyboardLayout
@@ -1063,6 +1087,6 @@ export function ThreadView({
         }}
         user={profileUser}
       />
-    </>
+    </SessionAgentProvider>
   )
 }

@@ -80,7 +80,7 @@ proposal that he has not objected to and should confirm.
 | 21 | Discord is the first chat app after Lor | Jacob, 11-18 |
 | 22 | A channel's chat lives in one place, Lor or Discord. When Discord is linked, Lor shows it read-only | Jacob, 11-18 |
 | 23 | Approvals work as they do today: an action needs approval only where an approval rule or a session's safety check says so. Who is asked: the person or role the rule names, else the session's subscribers, else whoever gave the instructions (§5) | Jacob, 11-18 |
-| 24 | The sidebar has two tabs: what needs you with running sessions, and channels | Jacob, 11-18 |
+| 24 | The sidebar is one list: a Needs you group that shows only while something waits, then the channels. Each channel row carries its agent's creature with its state and a count of sessions running there, and lists the person's own sessions under it. It was two tabs (Needs you, Channels) until 11-21 | Jacob, 11-18; one list 11-21 |
 | 26 | No product limit on how many sessions a channel runs. A safety ceiling of 15 at once | Jacob, 11-18 |
 | 25 | Later: a persistent computer and its own repo per agent, agents talking to each other, custom apps | Jacob, 11-17 |
 | 27 | The agent's turn runs on a loop Lor owns: Lor stores every step and assembles the prompt by hand. It does not run on a session's engine. Sessions keep their harnesses | Jacob, 11-18 |
@@ -92,7 +92,13 @@ proposal that he has not objected to and should confirm.
 | 33 | Each channel's agent has a creature from a bestiary of 8 to 10 high-quality pixel-art creatures, animated by its real state (asleep, working, needs you) | Jacob, 11-21 |
 | 34 | Code sessions run on Claude Code or Codex only; Lor's own agent (Pi) is no longer a session harness. Sessions are the channel agent's tools, or ones a person starts | Jacob, 11-21 |
 | 35 | Discord ships in this batch (slice 6), with the chat-location choice in the channel's Agent settings | Jacob, 11-21 |
-| 36 | Next, after a brief QA of this batch: each agent gets its own computer (decisions 25 and 29), and people can watch what it is doing on it, as Grok Bot and Dots show theirs. Still to decide: whether channels become "agents" with the agent in the sidebar, and a better visual style for the creatures (§13, Next) | Jacob, 11-21 |
+| 36 | Next, after a brief QA of this batch: each agent gets its own computer (decisions 25 and 29), and people can watch what it is doing on it, as Grok Bot and Dots show theirs. Still to decide: a better visual style for the creatures (§13, Next) | Jacob, 11-21 |
+| 37 | Channels stay channels, with the "#". The agent lives in the channel and shows on its sidebar row; the sidebar has no separate list of agents or of sessions. The bet: the next Slack is a shared workspace where a team and its agents work, not a chat app and not a list of bots | Jacob, 11-21 |
+| 38 | In a code session the one answering is shown as Claude or Codex, with that agent's mark, on its replies, the composer's "To" pill and the turn rail. The channel agent's brief to a session shows under the channel agent's own name and creature, and the heading says who started it. Sessions on Lor's own agent keep Lor's mark. On mobile too, except the turn rail, which mobile doesn't have | Jacob, 11-21 |
+| 39 | The channel agents' creatures are drawn as simple faces: one silhouette in one saturated colour (a second tone where it makes the creature), small light eyes set high, a sprung gaze that follows the pointer. There is no setting: a per-device choice of style was built and removed the same day, because two people could then see different creatures for one agent. The detailed pixel-art bestiary of decision 33 is kept in the code, unused, in case it comes back. The golem became the skeleton and the griffin an alien, ids included (`skeleton`, `alien`). Discord avatars are drawn from the same faces, on a transparent background. Mobile draws them too, with motion only for state (no pointer to follow). The faces stay flat data, not 3D models: on web a look turns the head by layers, with features (a beak, a nose, a marking) following the eyes by their `depth`, the eye nearer the edge narrowing and the silhouette leaning (Jacob chose this layered version for now on 11-22; real 3D stays open, and would mean redrawing every creature as a mesh and a harder road to custom faces) | Jacob, 11-21 |
+| 40 | Teams will be able to make their own faces later. Not built, but the faces are built for it: a face is plain data (`FaceSpec` in `packages/utils/src/faces.ts`), a short list of solids a model can write from a description, and web, mobile and Discord all draw from that data, so a custom face is one more spec with no new drawing code (§13, Later) | Jacob, 11-21 |
+| 41 | The faces are 3D. Each creature is a handful of solids (balls, limbs, boxes) with two eyes on its surface, turned in space and drawn flat, with no WebGL and no shading: it turns to look at the pointer, the far eye thins and goes round the head, a snout shows in profile. It replaces the flat faces of decision 39, which a try-out of both settled; the palette, the eyes and the one-colour rule carry over. One definition (`packages/utils/src/faces.ts`) draws on web and on mobile; chat apps get a flat still (decision 42) | Jacob, 11-22 |
+| 42 | A chat app's avatar is a flat still, not the 3D face frozen: each creature keeps a hand-drawn front view (`packages/utils/src/face-stills.ts`) for Discord now and Slack later, kept for the long run. A 3D face at one angle reads worse than a drawing made for the front: the kraken's back legs fall behind its front ones and its four legs become a row of lines. A face with no still (a team's own, later) would fall back to its 3D face seen from the front | Jacob, 11-22 |
 
 Considered and dropped, so they are not added back by accident:
 
@@ -363,8 +369,9 @@ gateway send today.
 - **Setup** holds the brief, the model, the tools, the triggers and Loops,
   and where the chat lives.
 - **Activity** is the log.
-- **The sidebar has two tabs:** what needs you with the sessions that are
-  running, and the channels.
+- **The sidebar is one list** (decisions 24 and 37): what needs you, shown
+  only while something waits, then the channels, each with its agent's
+  creature and the person's own sessions under it.
 - **New session** starts a code session directly, as today.
 - **Needs you:** an approval or question the agent sent also shows in the
   sidebar, because requests get lost in chat scroll.
@@ -936,7 +943,13 @@ than half an hour.
     PM on weekdays") and are editable in the Loop panel ("Through the
     day": how often, from, until, days), so people change the check-in's
     hours there, or pause or delete it.
-- [x] 5.3 Needs you, and the two tabs. Built 2026-11-20.
+- [x] 5.3 Needs you, and the two tabs. Built 2026-11-20. The tabs became
+  one list on 2026-11-21 (decisions 24 and 37): Needs you is a group above
+  the channels, without the running sessions, and each text channel's row
+  shows its agent's creature (asleep, working, needs you) and how many
+  sessions are running there. The snapshot gained `agentWorking` and
+  `runningSessions` per channel for it. Mobile's channel list shows the
+  same face and count, with a Needs you group above its Sessions row.
   - The sidebar has two tabs, Needs you and Channels (the choice is kept
     per device). Needs you carries a count of what waits on the person.
   - Needs you lists the channel agents' approvals the person can decide
@@ -980,7 +993,8 @@ clocks. Lor's check-in skips the model when nothing is unread, so its
 cadence costs nothing on a quiet channel.
 - "Answered" means the person wrote anything in that place since the
   question, which can clear a question too early.
-- Mobile has no Needs you tab, Follow-ups or "Through the day" editor yet.
+- Mobile has no Follow-ups or "Through the day" editor yet. (It has the
+  Needs you group since 2026-11-21.)
 - A wake-up set in a thread turn answers in the chat.
 
 **Slice 6: Discord**
@@ -1143,25 +1157,52 @@ Discord, a session the agent starts on a person's real plan). Then:
    own, for installing things and using websites, code still goes to
    sessions, and a tool starts it, never a turn. Step 1.6 (no sandbox on a
    turn) holds until this is built.
-2. **To decide: channels or agents.** Whether these stay "channels" or are
-   called "agents", with the agent itself in the sidebar as Grok Bot has
-   it. In Jacob's screenshots each agent is a row in the sidebar: its face,
-   its name, a small status badge on the face, and its latest line beside
-   it; with the sidebar collapsed, the face alone with a tooltip. It
-   touches decision 24 (the sidebar's two tabs) and decision 32 (the name
-   is the agent's, not the channel's).
-3. **A better visual style for the creatures.** The bestiary (decision 33,
-   step 7.3) does not have the charm of the reference: very simple flat
-   faces, a round shape with two eyes, whose eyes follow the cursor when it
-   comes near, in a cute way. Ours don't feel like that, and the visual
-   style can be better overall. Not picked yet: simplify the creatures we
-   have, or draw a new style.
+2. **Decided 2026-11-21: channels, with the agent on the row** (decision
+   37, built the same day). Not built: the agent's name or its latest line
+   on the row (the name is in the row's tooltip), and the face alone when
+   the sidebar is collapsed.
+3. **Decided: 3D faces, the detailed pixel set kept in the code**
+   (decisions 39 and 41; flat faces built 2026-11-21, 3D on 2026-11-22).
+   The faces are data in `packages/utils/src/faces.ts`: `FACES` holds the
+   ten creatures as solids, `faceFrame` turns one to a pose and flattens it
+   into shapes, and `faceSvg` makes a still.
+   `apps/web/src/components/agent/agent-face.tsx` draws the frame and
+   drives the pose (pointer, glances, blinks, looking about while working,
+   bowed asleep); `apps/mobile/src/components/agent-creature.tsx` draws the
+   same with no pointer to follow (glances, looking about, a bob, blinks,
+   breathing, the pop and the badge pulse). Discord's avatar is the creature's
+   flat still (`packages/utils/src/face-stills.ts`, decision 42), uploaded
+   by `packages/lor/src/discord.ts` and again when its `stillKey` changes.
+   `PixelCreature` is the unused detailed set, shown only on
+   `/prototype/faces` (dev only). Creatures replaced along the way, ids
+   included: the golem by the skeleton, the griffin by the alien
+   (`packages/db/src/scripts/rename-creatures.ts` moves channels that
+   picked the old one; none had on the dev database). Rough edges: seams
+   show where solids join, and an eye can show through a part in front of
+   it at some angles.
 
 The screenshots are in the 2026-11-21 session (Grok Bot and "pump" in a
 sidebar).
 
 **Later**
 
+- **Faces a team makes itself** (decision 40; designed for, not built).
+  - A custom face is a `FaceSpec`, the same JSON the built-in creatures
+    are: a colour, a list of solids and two eyes. Nothing that draws a
+    face knows whether it is built in.
+  - Store them per workspace (a table of named specs), so one face can be
+    used by several channels, and let `channel.agent_creature` hold either
+    a built-in id or a reference to one. `channelAgentIdentity` is the one
+    place that would resolve it to a spec.
+  - Validate a spec on the server before saving: a bounded number of
+    parts, numbers inside the 24-unit box, hex colours. Never accept SVG
+    from a person; the server builds it from the spec (`faceSvg`).
+  - Already in place: `AgentFace` takes a `face` prop. A custom face has
+    no drawn still, so its Discord avatar would be its 3D face from the
+    front (`faceSvg`), keyed by `faceKey(spec)` so an edit uploads again.
+  - To build: the table and API, the resolver, a way to make one (the
+    agent writing a spec from a description, with a live preview), and passing
+    the spec where the web app passes a creature id today.
 - Its own repo per agent.
 - Agents messaging each other.
 - Slack, in the same shape as Discord.

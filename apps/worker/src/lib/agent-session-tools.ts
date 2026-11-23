@@ -14,7 +14,11 @@ import {
   sql,
 } from "@repo/db"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
-import { hasPersonalAccount } from "@repo/db/queries/personal-accounts"
+import {
+  getWorkspaceHarnessSettings,
+  personalRequestHarness,
+  resolveHarnessAccount,
+} from "@repo/db/queries/personal-accounts"
 import { createSession, toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import { type AgentSessionTools, addInboxNote } from "@repo/lor/channel-agent"
 import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
@@ -126,6 +130,22 @@ async function activeRun(threadRootId: string) {
   return run ?? null
 }
 
+type TaskRoute = Awaited<ReturnType<typeof resolveHarnessAccount>> | undefined
+
+// Throws when the requester (or the workspace) has no usable account.
+async function taskRoute(
+  workspaceId: string,
+  harness: "pi" | "claude_code" | "codex",
+  requestUserId: string | null
+): Promise<TaskRoute> {
+  return harness === "pi"
+    ? undefined
+    : await resolveHarnessAccount(
+        { workspaceId, userId: requestUserId },
+        harness === "claude_code" ? "claude" : "chatgpt"
+      )
+}
+
 // The agent's brief or follow-up, as the session's next turn.
 async function runTask(
   deps: SessionToolDeps,
@@ -135,7 +155,8 @@ async function runTask(
     threadRootId: string
   },
   channelName: string | null,
-  task: string
+  task: string,
+  harnessAccount: TaskRoute
 ): Promise<"started" | "busy" | "failed"> {
   const { messageId } = await postLorMessage(deps, {
     channelId: session.channelId,
@@ -152,6 +173,7 @@ async function runTask(
     threadRootId: session.threadRootId,
     scopeKey: session.threadRootId,
     triggerMessageId: messageId,
+    harnessAccount,
   }).catch(async (err: unknown) => {
     // Failed before a run took the brief: remove it. Once a run exists it
     // may point at the brief as its trigger, so it stays.
@@ -188,75 +210,6 @@ async function runTask(
   return started
 }
 
-// The harness and plan a session the agent starts runs on: Claude Code when
-// the person has Claude connected, else Codex, unless the agent asked for
-// one. An error the agent reads when there is no such plan.
-async function planFor(
-  userId: string | null,
-  wanted: "claude_code" | "codex" | undefined
-): Promise<
-  | { userId: string; name: string; harness: "claude_code" | "codex" }
-  | { error: string }
-> {
-  if (!userId) {
-    return {
-      error:
-        "No person started this turn, so there is no Claude or ChatGPT plan to run a session on. Ask someone in the chat to start it with you.",
-    }
-  }
-  const [[person], claude, chatgpt] = await Promise.all([
-    db
-      .select({ name: schema.user.name })
-      .from(schema.user)
-      .where(eq(schema.user.id, userId)),
-    hasPersonalAccount(userId, "claude"),
-    hasPersonalAccount(userId, "chatgpt"),
-  ])
-  const name = person?.name ?? "This person"
-  const offered = (harness: "claude_code" | "codex") =>
-    isHarnessEnabled(harness)
-  const harness =
-    wanted ??
-    (claude && offered("claude_code")
-      ? "claude_code"
-      : chatgpt && offered("codex")
-        ? "codex"
-        : null)
-  const codexToo = chatgpt && offered("codex")
-  const claudeToo = claude && offered("claude_code")
-  if (harness === "claude_code" && !offered("claude_code")) {
-    return {
-      error: `Claude Code is switched off on this Lor server${codexToo ? `, but you can use Codex on ${name}'s ChatGPT plan` : ""}.`,
-    }
-  }
-  if (harness === "codex" && !offered("codex")) {
-    return {
-      error: `Codex is switched off on this Lor server${claudeToo ? `, but you can use Claude Code on ${name}'s Claude subscription` : ""}.`,
-    }
-  }
-  if (harness === "claude_code" && !claude) {
-    return {
-      error: `${name} hasn't connected a Claude subscription, so Claude Code can't run for them. They can connect one in Settings → Linked accounts${codexToo ? ", or you can use Codex on their ChatGPT plan" : ""}.`,
-    }
-  }
-  if (harness === "codex" && !chatgpt) {
-    return {
-      error: `${name} hasn't connected a ChatGPT plan, so Codex can't run for them. They can connect one in Settings → Linked accounts${claudeToo ? ", or you can use Claude Code on their Claude subscription" : ""}.`,
-    }
-  }
-  if (!harness && (claude || chatgpt)) {
-    return {
-      error: `${claude ? "Claude Code" : "Codex"}${claude && chatgpt ? " and Codex are" : " is"} switched off on this Lor server, so ${name}'s linked plan can't run a code session.`,
-    }
-  }
-  if (!harness) {
-    return {
-      error: `${name} hasn't connected a Claude or ChatGPT plan, and code sessions run on one. They can connect one in Settings → Linked accounts.`,
-    }
-  }
-  return { userId, name, harness }
-}
-
 export function agentSessionExecutors(
   deps: SessionToolDeps,
   args: {
@@ -265,9 +218,9 @@ export function agentSessionExecutors(
     channelName: string | null
     // Who woke the agent: they follow the sessions it starts for them.
     askerId: string | null
-    // Whose Claude or ChatGPT plan runs the sessions it starts: the asker,
-    // or on a turn no person started, whoever set up its Loop or trigger.
     planUserId: string | null
+    // Set only for a direct request; automation attribution is not a payer.
+    requestUserId: string | null
   }
 ): AgentSessionTools {
   const { workspaceId, channelId, channelName } = args
@@ -315,10 +268,28 @@ export function agentSessionExecutors(
         }
       }
 
-      // Sessions run on a person's own Claude Code or Codex plan
-      // (reference/always-on-agents.md, decisions 16 and 34).
-      const plan = await planFor(args.planUserId, wanted)
-      if ("error" in plan) return plan
+      const settings = await getWorkspaceHarnessSettings(workspaceId)
+      const harness =
+        wanted ??
+        (args.requestUserId
+          ? await personalRequestHarness(workspaceId, args.requestUserId)
+          : settings.defaultHarness)
+      if (!isHarnessEnabled(harness))
+        return {
+          error:
+            "The selected coding agent is unavailable. Update your linked accounts or the workspace's autonomous settings.",
+        }
+      let route: TaskRoute
+      try {
+        route = await taskRoute(workspaceId, harness, args.requestUserId)
+      } catch (err) {
+        return {
+          error:
+            err instanceof Error
+              ? err.message
+              : "Couldn't select an account for this session.",
+        }
+      }
 
       const audience = args.askerId
         ? await listChannelAudienceUserIds(channelId)
@@ -331,10 +302,9 @@ export function agentSessionExecutors(
           workspaceId,
           channelId,
           authorId: LOR_USER_ID,
-          // The person whose plan runs its turns.
-          creatorId: plan.userId,
+          creatorId: args.askerId,
           origin: "agent",
-          harness: plan.harness,
+          harness,
           title,
           code: {
             repoFullName: allowed.repo.fullName,
@@ -366,12 +336,16 @@ export function agentSessionExecutors(
       }).catch((err) =>
         logger.warn({ err, sessionId }, "Agent session line failed")
       )
-      const started = await runTask(deps, session, channelName, task).catch(
-        (err: unknown) => {
-          logger.warn({ err, sessionId }, "Agent session first turn failed")
-          return "failed" as const
-        }
-      )
+      const started = await runTask(
+        deps,
+        session,
+        channelName,
+        task,
+        route
+      ).catch((err: unknown) => {
+        logger.warn({ err, sessionId }, "Agent session first turn failed")
+        return "failed" as const
+      })
       if (started !== "started") {
         logger.warn({ sessionId, started }, "Agent session did not start")
         return {
@@ -385,7 +359,7 @@ export function agentSessionExecutors(
       return {
         sessionId,
         title,
-        runsOn: `${plan.harness === "codex" ? "Codex" : "Claude Code"} on ${plan.name}'s plan`,
+        runsOn: `${harness === "pi" ? "Lor" : harness === "codex" ? "Codex" : "Claude Code"} with ${args.requestUserId && harness !== "pi" ? "the requester's personal subscription" : "workspace API or autonomous billing"}`,
         repo: allowed.repo.fullName,
         baseBranch: branch,
         branch: newBranch,
@@ -467,7 +441,13 @@ export function agentSessionExecutors(
             "The session is working. Wait for its report, or stop it first.",
         }
       }
-      const started = await runTask(deps, session, channelName, message)
+      const started = await runTask(
+        deps,
+        session,
+        channelName,
+        message,
+        await taskRoute(workspaceId, session.harness, args.requestUserId)
+      )
       if (started === "failed") {
         return {
           error: "The follow-up did not start. You can send it again.",

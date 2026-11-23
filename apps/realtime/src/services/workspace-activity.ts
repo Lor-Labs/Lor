@@ -84,8 +84,21 @@ export async function getWorkspaceActivity(
 
   const [runs, plans, approvals, sessions, questions] = await Promise.all([
     db
-      .select({ threadRootId: schema.agentRun.threadRootId })
+      .select({
+        threadRootId: schema.agentRun.threadRootId,
+        channelId: schema.agentRun.channelId,
+        scopeKey: schema.agentRun.scopeKey,
+        // Set when the run's thread is an unarchived session.
+        sessionId: schema.agentSession.id,
+      })
       .from(schema.agentRun)
+      .leftJoin(
+        schema.agentSession,
+        and(
+          eq(schema.agentSession.threadRootId, schema.agentRun.threadRootId),
+          isNull(schema.agentSession.archivedAt)
+        )
+      )
       .where(
         and(
           eq(schema.agentRun.workspaceId, workspaceId),
@@ -214,8 +227,21 @@ export async function getWorkspaceActivity(
   // Session state is keyed by the session's thread root.
   const running = new Set<string>()
   const needsYou = new Set<string>()
+  // Per channel: the agent's own turn (its run holds the channel, with no
+  // thread), and every session with a run in progress.
+  const agentWorking = new Set<string>()
+  const runningSessions = new Map<string, Set<string>>()
   for (const run of runs) {
     if (run.threadRootId) running.add(run.threadRootId)
+    if (!run.channelId) continue
+    if (!run.threadRootId && run.scopeKey === run.channelId) {
+      agentWorking.add(run.channelId)
+    }
+    if (run.sessionId) {
+      const ids = runningSessions.get(run.channelId) ?? new Set()
+      ids.add(run.sessionId)
+      runningSessions.set(run.channelId, ids)
+    }
   }
   const agentApprovals: { channelId: string; need: AgentNeed }[] = []
   // "Needs you": a question from Lor needs anyone in the session; an
@@ -267,11 +293,20 @@ export async function getWorkspaceActivity(
   const activityOf = (channelId: string) => {
     let activity = channels.get(channelId)
     if (!activity) {
-      activity = { channelId, sessions: [], agentNeeds: [] }
+      activity = {
+        channelId,
+        sessions: [],
+        agentNeeds: [],
+        agentWorking: agentWorking.has(channelId),
+        runningSessions: runningSessions.get(channelId)?.size ?? 0,
+      }
       channels.set(channelId, activity)
     }
     return activity
   }
+  // A channel with nothing of the caller's still shows its agent at work.
+  for (const channelId of agentWorking) activityOf(channelId)
+  for (const channelId of runningSessions.keys()) activityOf(channelId)
   for (const question of questions) {
     if (!accessible.has(question.channelId)) continue
     activityOf(question.channelId).agentNeeds.push({

@@ -1,14 +1,18 @@
-import { relations } from "drizzle-orm"
+import { relations, sql } from "drizzle-orm"
 import {
+  boolean,
+  check,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
 import { user } from "./users"
+import { workspace } from "./workspaces"
 
 // One model a harness offered the person, as its SDK reports it (Claude
 // Code's supportedModels) or the provider's models API lists it, with the
@@ -47,9 +51,13 @@ export const personalAccount = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date())
       .notNull(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => user.id, { onDelete: "cascade" }),
+    // Workspace-owned accounts are exclusively for Lor's autonomous runs.
+    workspaceId: uuid("workspace_id").references(() => workspace.id, {
+      onDelete: "cascade",
+    }),
+    label: text("label"),
+    unavailableUntil: timestamp("unavailable_until", { withTimezone: true }),
     provider: personalAccountProviderEnum("provider").notNull(),
     // The provider's user id (GitHub's numeric id). Claude: a fingerprint of
     // the token, which carries no account identity. ChatGPT: the account id
@@ -79,12 +87,118 @@ export const personalAccount = pgTable(
     models: jsonb("models").$type<ReportedHarnessModel[]>(),
   },
   (table) => [
-    uniqueIndex("personal_account_user_provider_uidx").on(
+    uniqueIndex("personal_account_github_uidx")
+      .on(table.userId, table.provider)
+      .where(sql`${table.provider} = 'github'`),
+    uniqueIndex("personal_account_identity_uidx").on(
       table.userId,
-      table.provider
+      table.provider,
+      table.externalId
+    ),
+    uniqueIndex("workspace_account_identity_uidx").on(
+      table.workspaceId,
+      table.provider,
+      table.externalId
+    ),
+    check(
+      "personal_account_owner_check",
+      sql`(${table.userId} is not null and ${table.workspaceId} is null) or (${table.userId} is null and ${table.workspaceId} is not null and ${table.provider} <> 'github')`
     ),
   ]
 )
+
+export const harnessAccountPreference = pgTable(
+  "harness_account_preference",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: ["claude", "chatgpt"] }).notNull(),
+    accountId: uuid("account_id").references(() => personalAccount.id, {
+      onDelete: "set null",
+    }),
+    accountOrder: jsonb("account_order")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    autoFallback: boolean("auto_fallback").notNull().default(true),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.workspaceId, table.provider] }),
+  ]
+)
+
+export const workspaceHarnessSettings = pgTable("workspace_harness_settings", {
+  workspaceId: uuid("workspace_id")
+    .primaryKey()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  defaultHarness: text("default_harness", {
+    enum: ["pi", "claude_code", "codex"],
+  })
+    .notNull()
+    .default("pi"),
+  // API model picks use the same key:provider/model syntax as the composer.
+  apiModel: text("api_model"),
+  claudeApiBilling: text("claude_api_billing", { enum: ["lor", "byok"] })
+    .notNull()
+    .default("lor"),
+  codexApiBilling: text("codex_api_billing", { enum: ["lor", "byok"] })
+    .notNull()
+    .default("lor"),
+  claudeAccountId: uuid("claude_account_id").references(
+    () => personalAccount.id,
+    { onDelete: "set null" }
+  ),
+  codexAccountId: uuid("codex_account_id").references(
+    () => personalAccount.id,
+    { onDelete: "set null" }
+  ),
+  claudeUseSubscriptions: boolean("claude_use_subscriptions")
+    .notNull()
+    .default(false),
+  codexUseSubscriptions: boolean("codex_use_subscriptions")
+    .notNull()
+    .default(false),
+  claudeAutoFallback: boolean("claude_auto_fallback").notNull().default(true),
+  codexAutoFallback: boolean("codex_auto_fallback").notNull().default(true),
+})
+
+export const personalHarnessSettings = pgTable(
+  "personal_harness_settings",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    defaultHarness: text("default_harness", {
+      enum: ["auto", "pi", "claude_code", "codex"],
+    })
+      .notNull()
+      .default("auto"),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.workspaceId] })]
+)
+
+export type HarnessAccountScope = {
+  workspaceId: string
+  // Null for autonomous work. Never borrow an automation creator's account.
+  userId: string | null
+}
+
+export type HarnessAccountRoute = HarnessAccountScope & {
+  provider: "claude" | "chatgpt"
+  source: "subscription" | "api"
+  apiBilling?: "lor" | "byok"
+  accountId: string | null
+}
+
+export type WorkspaceHarnessSettings =
+  typeof workspaceHarnessSettings.$inferSelect
 
 export const personalAccountRelations = relations(
   personalAccount,

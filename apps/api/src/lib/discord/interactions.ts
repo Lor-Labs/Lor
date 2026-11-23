@@ -307,7 +307,6 @@ async function handleLink(
     discordChannelId: interaction.channel_id,
     discordChannelName: interaction.channel?.name ?? null,
     ...hook,
-    webhookCreature: identity.creature,
     linkedById: data.userId,
   })
   await notifyLinkChanged(channel.id)

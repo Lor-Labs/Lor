@@ -400,8 +400,10 @@ export async function claimAgentRun(
   // Set when a Lor turn picks its model (pinInferenceFunding); null until
   // then and for subscription runs (Claude Code, Codex).
   let funding = claimed.inferenceFunding
+  let harnessAccount = claimed.harnessAccount ?? claimed.context?.harnessAccount
   const assertCanInfer = async () => {
     await assertWorkspaceActive(claimed.workspaceId)
+    if (harnessAccount?.source === "subscription") return
     await assertInferenceKeyCurrent(claimed.workspaceId, funding)
     await assertBetaSandbox(claimed.workspaceId)
     const check = await checkBetaCredits(claimed.workspaceId)
@@ -439,7 +441,12 @@ export async function claimAgentRun(
   // The stop flag rides the heartbeat and every checkpoint, so a working run
   // notices within one step boundary or one heartbeat, whichever is sooner.
   const heartbeat = setInterval(() => {
-    if (hostedBetaConfig().enabled || funding?.source === "byok") {
+    if (harnessAccount?.source === "subscription") {
+      if (hostedBetaConfig().enabled)
+        void assertWorkspaceActive(claimed.workspaceId).catch(() =>
+          requestStop()
+        )
+    } else if (hostedBetaConfig().enabled || funding?.source === "byok") {
       void assertWorkspaceActive(claimed.workspaceId)
         .then(() => assertInferenceKeyCurrent(claimed.workspaceId, funding))
         .then(() => assertBetaSandbox(claimed.workspaceId))
@@ -491,7 +498,11 @@ export async function claimAgentRun(
     cachedInputTokens?: number
     outputTokens?: number
   }
-  const priceFor = async (u: Priced, oneRequest: boolean) => {
+  const priceFor = async (
+    u: Priced,
+    oneRequest: boolean,
+    ownKey = funding?.source === "byok"
+  ) => {
     if (!u.model) return null
     if ((u.inputTokens ?? 0) === 0 && (u.outputTokens ?? 0) === 0) return null
     const tokens = {
@@ -500,7 +511,7 @@ export async function claimAgentRun(
       outputTokens: u.outputTokens,
     }
     // Own key: the provider's list price, of which only the fee is charged.
-    const listPrice = funding?.source === "byok" ? byokPrice(u.model) : null
+    const listPrice = ownKey ? byokPrice(u.model) : null
     const rate = listPrice
       ? { ...listPrice, conversionRate: env.CREDIT_CONVERSION_RATE }
       : await getRate(
@@ -511,18 +522,23 @@ export async function claimAgentRun(
     return { usd: computeCostUsd(tokens, rate), rate }
   }
   // Also the call's USD, which the turn's debit sums (RunHarness.recordUsage).
+  // Post-answer work (write-back) passes its own payer: the turn's
+  // subscription or key pin does not apply to it.
   const creditsFor = async (
     u: Priced,
-    oneRequest = false
+    oneRequest = false,
+    postAnswer?: { byok: boolean }
   ): Promise<{ credits: number; usd: number }> => {
-    const price = await priceFor(u, oneRequest)
+    if (!postAnswer && harnessAccount?.source === "subscription")
+      return { credits: 0, usd: 0 }
+    const ownKey = postAnswer ? postAnswer.byok : funding?.source === "byok"
+    const price = await priceFor(u, oneRequest, ownKey)
     if (!price) return { credits: 0, usd: 0 }
-    const share =
-      funding?.source === "byok"
-        ? byokFeeShare(price.rate.conversionRate)
-        : betaRun
-          ? 1
-          : price.rate.conversionRate
+    const share = ownKey
+      ? byokFeeShare(price.rate.conversionRate)
+      : betaRun
+        ? 1
+        : price.rate.conversionRate
     attemptCredits += (price.usd * share) / CREDIT_USD
     const whole = Math.ceil(attemptCredits)
     const added = whole - attemptCounted
@@ -534,7 +550,7 @@ export async function claimAgentRun(
 
   let betaUsageSequence = 0
   const settleBetaStep = async (usage: RunStepRecord, costUsd: number) => {
-    if (!betaRun) return
+    if (!betaRun || harnessAccount?.source === "subscription") return
     betaUsageSequence += 1
     try {
       await recordBillingUsage(
@@ -603,19 +619,14 @@ export async function claimAgentRun(
     if (turn.extraUsage) await settleBetaStep(turn.extraUsage, usd)
     // The turn's coverage, paused sandbox state and context count ride the
     // save, so a lost lease never records one without the other.
-    const context =
-      runContext &&
-      (turn.pausedSandbox ||
-        turn.contextUsage ||
-        turn.coveredMessageIds.length > 0)
-        ? {
-            ...mergeRunContextCoverage(runContext, turn.coveredMessageIds),
-            ...(turn.pausedSandbox
-              ? { pausedSandbox: turn.pausedSandbox }
-              : {}),
-            ...(turn.contextUsage ? { contextUsage: turn.contextUsage } : {}),
-          }
-        : null
+    const context = runContext
+      ? {
+          ...mergeRunContextCoverage(runContext, turn.coveredMessageIds),
+          harnessPartial: turn.partial ?? false,
+          ...(turn.pausedSandbox ? { pausedSandbox: turn.pausedSandbox } : {}),
+          ...(turn.contextUsage ? { contextUsage: turn.contextUsage } : {}),
+        }
+      : null
     const row = await db
       .transaction(async (tx) => {
         if (turn.save) {
@@ -796,6 +807,31 @@ export async function claimAgentRun(
   }
 
   const handle: RunHandle = {
+    harnessAccount,
+    pinHarnessAccount: async (route) => {
+      const rows = await db
+        .update(schema.agentRun)
+        .set({
+          harnessAccount: route,
+          ...(runContext
+            ? {
+                context: sql`${schema.agentRun.context} || ${JSON.stringify({ harnessAccount: route })}::jsonb`,
+              }
+            : {}),
+        })
+        .where(
+          and(
+            eq(schema.agentRun.id, runId),
+            eq(schema.agentRun.leaseOwner, WORKER_ID),
+            eq(schema.agentRun.state, "working")
+          )
+        )
+        .returning({ id: schema.agentRun.id })
+      if (!rows[0]) throw new LeaseLostError()
+      harnessAccount = route
+      handle.harnessAccount = route
+      if (runContext) runContext = { ...runContext, harnessAccount: route }
+    },
     funding: funding ?? undefined,
     pinInferenceFunding: async (resolved) => {
       if (funding) return funding
@@ -884,7 +920,9 @@ export async function claimAgentRun(
       // lease guard — it only feeds observability and the skip floor.
       addUsage: (u) => {
         void (async () => {
-          const { credits } = await creditsFor(u)
+          const { credits } = await creditsFor(u, false, {
+            byok: u.byok === true,
+          })
           await db
             .update(schema.agentRun)
             .set({

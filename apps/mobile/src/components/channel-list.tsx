@@ -6,11 +6,16 @@ import HashtagIcon from "@hugeicons/core-free-icons/HashtagIcon"
 import SquareLock02Icon from "@hugeicons/core-free-icons/SquareLock02Icon"
 import VolumeHighIcon from "@hugeicons/core-free-icons/VolumeHighIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
-import type { SidebarSession, SidebarSessionState } from "@repo/realtime-types"
+import type {
+  ChannelActivity,
+  SidebarSession,
+  SidebarSessionState,
+} from "@repo/realtime-types"
 import {
   type OwnVoicePresence,
   withOwnVoicePresence,
 } from "@repo/realtime-types/voice-presence"
+import { type CreatureId, channelAgentIdentity } from "@repo/utils/bestiary"
 import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react"
@@ -20,6 +25,7 @@ import Animated, {
   LayoutAnimationConfig,
   useReducedMotion,
 } from "react-native-reanimated"
+import { AgentCreature } from "@/components/agent-creature"
 import {
   ChannelSessionRows,
   SessionStateIndicator,
@@ -46,6 +52,7 @@ import type { VoiceParticipant } from "@/hooks/use-voice-sessions"
 import { useWorkspaceActivity } from "@/hooks/use-workspace-activity"
 import type { Channel, ChannelCategory } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
+import { toSearchPreviewText } from "@/lib/message-markdown"
 import {
   CSS_EASE_OUT,
   LIST_REFLOW,
@@ -83,6 +90,19 @@ export function MentionBadge({ count }: { count: number }) {
   )
 }
 
+export type ChannelRowAgent = {
+  name: string
+  creature: CreatureId
+  state: "asleep" | "working" | "needs_you"
+  running: number
+}
+
+const AGENT_STATE_LABELS = {
+  asleep: "is asleep",
+  working: "is working",
+  needs_you: "needs you",
+} as const
+
 export function ChannelRow({
   channel,
   mentionCount,
@@ -91,6 +111,7 @@ export function ChannelRow({
   selected = false,
   sessionToggle,
   unread,
+  agent,
 }: {
   channel: Channel
   mentionCount: number
@@ -106,8 +127,15 @@ export function ChannelRow({
     rollup: SidebarSessionState | undefined
   }
   unread: boolean
+  // A text channel's agent, on its row: its face with what it is doing now,
+  // and how many sessions are running in the channel. As on web's sidebar.
+  agent?: ChannelRowAgent
 }) {
-  const [foreground, muted] = useThemeColor(["foreground", "muted"])
+  const [foreground, muted, accent] = useThemeColor([
+    "foreground",
+    "muted",
+    "accent",
+  ])
   const reduced = useReducedMotion()
   const isVoice = channel.type === "voice"
   // Standalone private channels wear a lock instead of their type glyph;
@@ -127,6 +155,10 @@ export function ChannelRow({
             : unread
               ? ", unread messages"
               : ""
+        }${agent ? `, ${agent.name} ${AGENT_STATE_LABELS[agent.state]}` : ""}${
+          agent && agent.running > 0
+            ? `, ${agent.running} ${agent.running === 1 ? "session" : "sessions"} running`
+            : ""
         }`}
         accessibilityActions={
           onLongPress
@@ -206,11 +238,33 @@ export function ChannelRow({
             <MentionBadge count={mentionCount} />
           </Animated.View>
         ) : null}
+        {agent && agent.running > 0 ? (
+          <View className="flex-row items-center">
+            <SessionStateIndicator state="running" />
+            <Text
+              className="text-xs text-accent"
+              style={{ color: accent, fontVariant: ["tabular-nums"] }}
+            >
+              {agent.running}
+            </Text>
+          </View>
+        ) : null}
         {sessionToggle?.collapsed && sessionToggle.rollup ? (
           <SessionStateIndicator state={sessionToggle.rollup} />
         ) : null}
-        {/* Keeps the row's trailing content clear of the toggle beside it. */}
-        {sessionToggle ? <View className="w-7" /> : null}
+        {/* Still unless working: a row seen all day doesn't move for
+            decoration. */}
+        {agent ? (
+          <AgentCreature
+            creature={agent.creature}
+            size={24}
+            state={agent.state}
+            still={agent.state !== "working"}
+          />
+        ) : null}
+        {/* Keeps the row's trailing content clear of the toggle beside it.
+            Every agent row keeps the slot, so the faces line up. */}
+        {sessionToggle || agent ? <View className="w-7" /> : null}
       </PressableRow>
       {/* Beside the row, not inside it: a pressable inside a pressable
           fights it for the touch, and both would show a highlight. */}
@@ -505,6 +559,10 @@ export function ChannelList({
       ),
     [activity]
   )
+  const activityByChannel = useMemo(
+    () => new Map((activity ?? []).map((row) => [row.channelId, row])),
+    [activity]
+  )
   const presence = useVoicePresence(workspace?.slug, workspace?.id)
   const user = auth?.user
   const inCall = useMemo(() => {
@@ -610,6 +668,19 @@ export function ChannelList({
   const renderRow = (channel: Channel) => {
     const sessions = sessionsByChannel.get(channel.id) ?? []
     const collapsed = sessionCollapse.collapsed.has(channel.id)
+    const channelActivity = activityByChannel.get(channel.id)
+    const agent: ChannelRowAgent | undefined =
+      channel.type === "text"
+        ? {
+            ...channelAgentIdentity(channel),
+            state: channelActivity?.agentNeeds.length
+              ? "needs_you"
+              : channelActivity?.agentWorking
+                ? "working"
+                : "asleep",
+            running: channelActivity?.runningSessions ?? 0,
+          }
+        : undefined
     return (
       <Fragment key={channel.id}>
         <Animated.View
@@ -618,6 +689,7 @@ export function ChannelList({
           layout={LIST_REFLOW}
         >
           <ChannelRow
+            agent={agent}
             channel={channel}
             mentionCount={getMentionCount(channel.id)}
             onLongPress={onLongPress}
@@ -631,8 +703,13 @@ export function ChannelList({
                 ? {
                     collapsed,
                     onToggle: () => sessionCollapse.toggle(channel.id),
+                    // Running ones are in the row's count already.
                     rollup: collapsed
-                      ? strongestSessionState(sessions)
+                      ? strongestSessionState(
+                          sessions.filter(
+                            (session) => session.state !== "running"
+                          )
+                        )
                       : undefined,
                   }
                 : undefined
@@ -674,6 +751,10 @@ export function ChannelList({
   }
 
   const allSessions = (activity ?? []).flatMap((channel) => channel.sessions)
+  const allChannels = [
+    ...data.uncategorized,
+    ...data.categories.flatMap((category) => category.channels),
+  ]
 
   return (
     // The list fades in over the placeholder as one piece. The rows already
@@ -685,6 +766,7 @@ export function ChannelList({
         <View className="pb-seven">
           {/* Failed activity isn't zero sessions: the entry stays, and the
               Sessions screen offers a retry. */}
+          <NeedsYouGroup activity={activity} channels={allChannels} />
           {onOpenSessions && (allSessions.length > 0 || activityFailed) ? (
             <SessionsSummaryRow
               onPress={() => {
@@ -736,6 +818,99 @@ function useSessionsSettled(loaded: boolean, waiting: boolean) {
     return () => clearTimeout(timer)
   }, [waiting, loaded])
   return loaded || gaveUp
+}
+
+// What the channel agents are waiting on you for, above the channels: an
+// approval you can decide, or a question one asked you. It shows only while
+// something waits (reference/always-on-agents.md, decision 24). Sessions
+// that need you are counted on the Sessions row under it.
+function NeedsYouGroup({
+  activity,
+  channels,
+}: {
+  activity: ChannelActivity[] | undefined
+  channels: Channel[]
+}) {
+  const needs = (activity ?? [])
+    .flatMap((row) =>
+      row.agentNeeds.map((need) => ({ ...need, channelId: row.channelId }))
+    )
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  if (needs.length === 0) return null
+  const byId = new Map(channels.map((channel) => [channel.id, channel]))
+
+  return (
+    <Animated.View className="mb-two" layout={LIST_REFLOW}>
+      <View className="flex-row items-center gap-two px-two pb-one">
+        <Text className="text-xs font-medium text-muted">Needs you</Text>
+        <View className="h-5 items-center justify-center rounded-full bg-warning-soft px-two">
+          <Text
+            className="text-[11px] font-bold leading-[13px] text-warning-soft-foreground"
+            style={{ fontVariant: ["tabular-nums"] }}
+          >
+            {needs.length}
+          </Text>
+        </View>
+      </View>
+      {needs.map((need) => {
+        const channel = byId.get(need.channelId)
+        const agent = channelAgentIdentity(channel ?? { id: need.channelId })
+        const where = `#${channel?.name ?? "channel"}`
+        return (
+          <PressableRow
+            accessibilityHint={
+              need.kind === "approval"
+                ? "Opens the approval in its channel"
+                : "Opens the question in its channel"
+            }
+            accessibilityLabel={`${agent.name} in ${where}: ${need.text}`}
+            accessibilityRole="button"
+            className="min-h-11 flex-row items-start gap-two px-two py-two"
+            key={`${need.kind}-${need.messageId}`}
+            onPress={() =>
+              router.push(
+                (need.threadRootId
+                  ? {
+                      pathname: "/channel/[channelId]/thread/[threadRootId]",
+                      params: {
+                        channelId: need.channelId,
+                        threadRootId: need.threadRootId,
+                        focusMessageId: need.messageId,
+                      },
+                    }
+                  : {
+                      pathname: "/channel/[channelId]",
+                      params: {
+                        channelId: need.channelId,
+                        focusMessageId: need.messageId,
+                      },
+                    }) as never
+              )
+            }
+          >
+            <View className="size-7 items-center justify-center">
+              <AgentCreature creature={agent.creature} size={24} still />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-[15px] leading-[20px]" numberOfLines={1}>
+                <Text className="font-semibold text-foreground">
+                  {agent.name}
+                </Text>
+                <Text className="text-muted"> in {where}</Text>
+              </Text>
+              <Text className="text-xs text-muted" numberOfLines={2}>
+                {toSearchPreviewText(
+                  // The mention of you that made it a question.
+                  need.text.replace(/<@[0-9a-f-]+>/g, "").trim(),
+                  []
+                )}
+              </Text>
+            </View>
+          </PressableRow>
+        )
+      })}
+    </Animated.View>
+  )
 }
 
 // Every session you follow, in one place: the first row of the list, with

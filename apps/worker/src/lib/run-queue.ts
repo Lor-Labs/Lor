@@ -10,6 +10,7 @@ import {
   sql,
 } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
+import type { HarnessAccountRoute } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { loadThreadSummary } from "@repo/messaging"
 import type { LorRespondJobData, RealtimeMessage } from "@repo/realtime-types"
@@ -276,6 +277,7 @@ export type ScopeRunStart = {
   threadRootId: string | null
   scopeKey: string
   triggerMessageId: string
+  harnessAccount?: HarnessAccountRoute
   // Loop fires carry their loop: pause stops runs by it, history lists by it.
   loopId?: string
   scheduledFor?: Date
@@ -329,6 +331,7 @@ export async function startScopeRun(
     threadRootId,
     triggerMessageId: args.triggerMessageId,
     scopeKey,
+    ...(args.harnessAccount ? { harnessAccount: args.harnessAccount } : {}),
   }
   const placed: Promise<{ id: string }[]> = args.queuedRunId
     ? db

@@ -1,6 +1,7 @@
 import { createGateway } from "@ai-sdk/gateway"
 import { LOR_EMBED_DIMENSIONS } from "@repo/db/constants"
 import { env } from "@repo/env/server"
+import { type LanguageModel, wrapLanguageModel } from "ai"
 
 function parseList(value: string): string[] {
   return value
@@ -67,6 +68,29 @@ export const lorSmallModel = gatewayTransport.languageModel(LOR_SMALL_MODEL)
 // the role models above.
 export const lorGatewayModel = (id: string) =>
   gatewayTransport.languageModel(id)
+
+// Notification hooks swallow errors. Guard the transport so every retry and
+// subsequent step rechecks permission before sending a provider request.
+export function withInferenceGuard(
+  model: LanguageModel,
+  assertCanInfer?: () => Promise<void>
+): LanguageModel {
+  if (!assertCanInfer) return model
+  return wrapLanguageModel({
+    model: typeof model === "string" ? lorGatewayModel(model) : model,
+    middleware: {
+      specificationVersion: "v4",
+      async wrapGenerate({ doGenerate }) {
+        await assertCanInfer()
+        return doGenerate()
+      },
+      async wrapStream({ doStream }) {
+        await assertCanInfer()
+        return doStream()
+      },
+    },
+  })
+}
 export const lorEmbeddingModel =
   gatewayTransport.textEmbeddingModel(LOR_EMBED_MODEL)
 

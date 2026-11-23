@@ -20,6 +20,7 @@ import type {
 import { aiRuntimeContext, aiTelemetry } from "../ai-observability"
 import { CHATGPT_CODEX_BASE_URL } from "../chatgpt-account"
 import { codexHeadOf } from "./codex-branch"
+import { HarnessTurnError } from "./harness-error"
 import {
   checkCompatibility,
   type HarnessBinding,
@@ -75,6 +76,7 @@ export type CodexTurnInput = {
   // The turn starter's ChatGPT access token reaches ChatGPT through the
   // sandbox proxy; Codex only ever sees this placeholder. Codex sends the
   // account id beside it.
+  apiBaseUrl?: string
   tokenPlaceholder: string
   accountId: string
   // The model the sender picked, as Codex names it ("gpt-6.1-sol"); unset:
@@ -156,7 +158,7 @@ export async function runCodexTurn(
     harness: createCodex({
       auth: {
         CODEX_API_KEY: input.tokenPlaceholder,
-        OPENAI_BASE_URL: CHATGPT_CODEX_BASE_URL,
+        OPENAI_BASE_URL: input.apiBaseUrl ?? CHATGPT_CODEX_BASE_URL,
       },
       port: input.bridge.port,
       portEndpoint: input.bridge.endpoint,
@@ -164,7 +166,9 @@ export async function runCodexTurn(
       ...(input.command ? { command: input.command } : {}),
     }),
     model: input.model ?? CODEX_DEFAULT_MODEL,
-    headers: { "ChatGPT-Account-ID": input.accountId },
+    ...(input.apiBaseUrl
+      ? {}
+      : { headers: { "ChatGPT-Account-ID": input.accountId } }),
     instructions: input.instructions,
     tools: prepareTools(
       { ...missingToolStubs(paused, input.tools), ...input.tools },
@@ -217,10 +221,15 @@ export async function runCodexTurn(
   let settled = false
   try {
     let aborted = false
+    let failure: HarnessTurnError | null = null
     const results: Awaited<ReturnType<typeof agent.stream>>[] = []
     const drain = async (result: Awaited<ReturnType<typeof agent.stream>>) => {
       results.push(result)
       for await (const part of result.stream) {
+        if (part.type === "error") {
+          failure ??= new HarnessTurnError(part.error)
+          continue
+        }
         if (part.type === "abort") aborted = true
         if (part.type === "finish") {
           // The harness sets it on finish; the AI SDK type does not declare it.
@@ -243,11 +252,12 @@ export async function runCodexTurn(
       )
     }
     // A continued turn that paused again leaves the prompt for a later turn.
-    if (input.prompt && !aborted && !session.hasUnfinishedTurn()) {
+    if (input.prompt && !aborted && !failure && !session.hasUnfinishedTurn()) {
       await drain(
         await agent.stream({ session, messages: [input.prompt], ...abort })
       )
     }
+    if (failure) throw failure
     aborted ||= Boolean(input.abortSignal?.aborted)
     const totals = await Promise.all(
       results.map((result) =>
@@ -307,6 +317,22 @@ export async function runCodexTurn(
       pendingToolResults: [...(continuation?.pendingToolResults ?? [])],
       contextUsage: rollout.text ? codexContextUsage(rollout.text) : null,
     }
+  } catch (err) {
+    if (err instanceof HarnessTurnError && !input.abortSignal?.aborted) {
+      const state = await session.stop().catch(() => null)
+      if (state) settled = true
+      const threadId = (state?.data as { threadId?: unknown } | null)?.threadId
+      const rollout = await readRollout(
+        sandbox,
+        codexHome,
+        typeof threadId === "string"
+          ? threadId
+          : (saved?.head.harnessSessionId ?? null),
+        saved
+      ).catch(() => null)
+      err.save = rollout ? withContinuation(rollout.save, saved, null) : null
+    }
+    throw err
   } finally {
     // Lor supplies the sandbox, so neither leaves it running down.
     if (!settled) await session.destroy().catch(() => {})

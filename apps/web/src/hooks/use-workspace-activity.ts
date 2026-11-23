@@ -184,7 +184,13 @@ export function patchSidebarSession(
       ? channels
       : [
           ...channels,
-          { channelId: target.channelId, sessions: [], agentNeeds: [] },
+          {
+            channelId: target.channelId,
+            sessions: [],
+            agentNeeds: [],
+            agentWorking: false,
+            runningSessions: 0,
+          },
         ]
     return withChannel.map((channel) => {
       if (channel.channelId !== target.channelId) return channel

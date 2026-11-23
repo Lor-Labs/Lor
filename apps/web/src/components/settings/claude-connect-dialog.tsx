@@ -25,12 +25,18 @@ const INSTALL_DOCS = "https://code.claude.com/docs/en/setup"
 export function ClaudeConnectDialog({
   open,
   onOpenChange,
+  workspaceSlug,
+  replace,
 }: {
   open: boolean
+  workspaceSlug?: string
+  // Replace this account's token in place instead of adding an account.
+  replace?: { accountId: string; name: string }
   onOpenChange: (open: boolean) => void
 }) {
-  const connect = useConnectClaudeAccount()
+  const connect = useConnectClaudeAccount(workspaceSlug)
   const [token, setToken] = useState("")
+  const [label, setLabel] = useState("")
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -41,17 +47,24 @@ export function ClaudeConnectDialog({
   useEffect(() => {
     if (!open) return
     setToken("")
+    setLabel("")
     connect.reset()
   }, [open, connect.reset])
 
   const submit = () => {
-    if (!token.trim() || connect.isPending) return
-    connect.mutate(token, {
-      onSuccess: () => {
-        toast.success("Claude subscription connected")
-        onOpenChange(false)
-      },
-    })
+    if ((!replace && !label.trim()) || !token.trim() || connect.isPending)
+      return
+    connect.mutate(
+      { token, label, accountId: replace?.accountId },
+      {
+        onSuccess: () => {
+          toast.success(
+            replace ? "Claude token replaced" : "Claude subscription connected"
+          )
+          onOpenChange(false)
+        },
+      }
+    )
   }
 
   return (
@@ -63,14 +76,36 @@ export function ClaudeConnectDialog({
     >
       <DialogPopup className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Connect your Claude subscription</DialogTitle>
+          <DialogTitle>
+            {replace
+              ? `Replace the token for ${replace.name}`
+              : workspaceSlug
+                ? "Connect a Claude Code subscription dedicated to Lor"
+                : "Connect a Claude account"}
+          </DialogTitle>
           <DialogDescription>
-            Use your own Claude Pro or Max plan for Claude Code sessions. Only
-            your own messages use it; Lor's own agent and your teammates never
-            do.
+            {replace
+              ? "The account keeps its name, priority and settings. Only the stored token changes."
+              : workspaceSlug
+                ? "Only for autonomous work Lor starts in this workspace, such as loops and events. Your direct requests use your personal subscriptions. Enable this dedicated account in Autonomous runs after connecting. Provider terms still apply."
+                : "Use this subscription for requests you send to Lor and Claude Code turns you start. Set its priority for each workspace here in Settings → Linked accounts."}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-6">
+          {!replace && (
+            <div className="space-y-2">
+              <label htmlFor="account-label" className="text-sm font-medium">
+                Account name
+              </label>
+              <Input
+                id="account-label"
+                value={label}
+                onChange={(event) => setLabel(event.target.value)}
+                maxLength={80}
+                placeholder={workspaceSlug ? "Lor's account" : "Work account"}
+              />
+            </div>
+          )}
           <Step number={1} title="In a terminal on your own computer, run:">
             <div className="flex items-center gap-2">
               <code className="flex-1 rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono text-sm">
@@ -140,10 +175,10 @@ export function ClaudeConnectDialog({
           </Button>
           <Button
             loading={connect.isPending}
-            disabled={!token.trim()}
+            disabled={(!replace && !label.trim()) || !token.trim()}
             onClick={submit}
           >
-            Verify & connect
+            {replace ? "Verify & replace" : "Verify & connect"}
           </Button>
         </DialogFooter>
       </DialogPopup>

@@ -5,33 +5,47 @@ import { env } from "@repo/env/server"
 import { decryptSecret } from "@repo/utils/crypto"
 import { logger } from "./logger"
 
-const claudeAccount = (userId: string) =>
+const claudeAccount = (
+  userId: string | null,
+  accountId?: string,
+  workspaceId?: string
+) =>
   and(
-    eq(schema.personalAccount.userId, userId),
+    userId
+      ? eq(schema.personalAccount.userId, userId)
+      : eq(
+          schema.personalAccount.workspaceId,
+          workspaceId ?? "00000000-0000-0000-0000-000000000000"
+        ),
+    ...(accountId ? [eq(schema.personalAccount.id, accountId)] : []),
     eq(schema.personalAccount.provider, "claude")
   )
 
 // The models for the composer's picker: the person's Claude Code's own list
 // from their last turn, or the starting list from Anthropic before one.
 export async function claudeModels(
-  userId: string
+  userId: string,
+  accountId?: string
 ): Promise<ReportedHarnessModel[] | null> {
+  if (!accountId) return null
   const [account] = await db
     .select({ models: schema.personalAccount.models })
     .from(schema.personalAccount)
-    .where(claudeAccount(userId))
+    .where(claudeAccount(userId, accountId))
     .limit(1)
   return account?.models ?? null
 }
 
 export async function saveClaudeModels(
-  userId: string,
-  models: ReportedHarnessModel[]
+  userId: string | null,
+  models: ReportedHarnessModel[],
+  accountId: string,
+  workspaceId?: string
 ): Promise<void> {
   await db
     .update(schema.personalAccount)
     .set({ models })
-    .where(claudeAccount(userId))
+    .where(claudeAccount(userId, accountId, workspaceId))
 }
 
 // Effort levels as Anthropic's models API names them, lowest first.
@@ -56,10 +70,12 @@ type AnthropicModel = {
 // fast mode included, when the first turn reports it. Saved only while no
 // turn has reported, so it never overwrites Claude Code's list.
 export async function startingClaudeModels(
-  userId: string
+  userId: string,
+  accountId?: string
 ): Promise<ReportedHarnessModel[] | null> {
+  if (!accountId) return null
   try {
-    const token = await claudeSubscriptionToken(userId)
+    const token = await claudeSubscriptionToken(userId, accountId)
     if (!token) return null
     const res = await fetch("https://api.anthropic.com/v1/models?limit=100", {
       headers: {
@@ -97,7 +113,12 @@ export async function startingClaudeModels(
     await db
       .update(schema.personalAccount)
       .set({ models })
-      .where(and(claudeAccount(userId), isNull(schema.personalAccount.models)))
+      .where(
+        and(
+          claudeAccount(userId, accountId),
+          isNull(schema.personalAccount.models)
+        )
+      )
     return models
   } catch (err) {
     logger.warn({ err }, "Claude starting model list failed")
@@ -109,7 +130,9 @@ export async function startingClaudeModels(
 // Claude Code turns they start themselves, never anyone else's
 // (code-sessions-runbook.md chunk 7). Null when none is connected.
 export async function claudeSubscriptionToken(
-  userId: string
+  userId: string | null,
+  accountId?: string,
+  workspaceId?: string
 ): Promise<string | null> {
   assertHostedHarness("claude_code")
   const key = env.INTEGRATION_ENCRYPTION_KEY
@@ -117,7 +140,7 @@ export async function claudeSubscriptionToken(
   const [account] = await db
     .select({ accessToken: schema.personalAccount.accessToken })
     .from(schema.personalAccount)
-    .where(claudeAccount(userId))
+    .where(claudeAccount(userId, accountId, workspaceId))
     .limit(1)
   return account ? decryptSecret(account.accessToken, key) : null
 }
@@ -130,9 +153,13 @@ export async function claudeSubscriptionToken(
 // placeholder. A short label only; the token is never returned or logged.
 const STORED_TOKEN_CHECK_TIMEOUT_MS = 5_000
 
-export async function claudeStoredTokenCheck(userId: string): Promise<string> {
+export async function claudeStoredTokenCheck(
+  userId: string | null,
+  accountId?: string,
+  workspaceId?: string
+): Promise<string> {
   try {
-    const token = await claudeSubscriptionToken(userId)
+    const token = await claudeSubscriptionToken(userId, accountId, workspaceId)
     if (!token) return "no token stored"
     const res = await fetch("https://api.anthropic.com/v1/models?limit=1", {
       headers: {

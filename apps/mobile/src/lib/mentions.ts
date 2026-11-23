@@ -1,4 +1,5 @@
 import { LOR_USER_ID } from "@repo/db/constants"
+import type { CreatureId } from "@repo/utils/bestiary"
 import type { WorkspaceMember } from "@/lib/api-types"
 
 // @Lor in stored content: from chat or a human thread, the send starts a
@@ -16,6 +17,8 @@ export type MentionCandidate = Pick<
   "userId" | "name" | "image" | "isBot" | "status"
 > & {
   avatarColor?: string | null
+  // Lor under a channel: its agent's creature, drawn in place of an avatar.
+  creature?: CreatureId
   id: string
   label: string
   search: string

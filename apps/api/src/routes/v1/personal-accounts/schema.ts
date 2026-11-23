@@ -8,6 +8,9 @@ export const githubAccountSchema = z.object({
 })
 
 export const claudeAccountSchema = z.object({
+  id: z.string().uuid(),
+  label: z.string().nullable(),
+  unavailableUntil: z.string().nullable(),
   // The token's last four characters.
   tokenHint: z.string(),
   connectedAt: z.string(),
@@ -15,6 +18,9 @@ export const claudeAccountSchema = z.object({
 })
 
 export const chatgptAccountSchema = z.object({
+  id: z.string().uuid(),
+  label: z.string().nullable(),
+  unavailableUntil: z.string().nullable(),
   // The sign-in's email; null when the token didn't carry one.
   email: z.string().nullable(),
   // The ChatGPT plan ("plus", "pro"), as the token names it.
@@ -32,15 +38,29 @@ export const personalAccountsResponseSchema = z.object({
     // False when the server can't encrypt tokens.
     available: z.boolean(),
     account: claudeAccountSchema.nullable(),
+    accounts: z.array(claudeAccountSchema),
   }),
   chatgpt: z.object({
     // False when Codex is off or the server can't encrypt tokens.
     available: z.boolean(),
     account: chatgptAccountSchema.nullable(),
+    accounts: z.array(chatgptAccountSchema),
   }),
 })
 
 export const connectClaudeAccountBodySchema = z.object({
+  label: z.string().trim().max(80).optional(),
+  token: z.string().min(1).max(2_000),
+})
+
+export const replaceClaudeAccountParamsSchema = z.object({
+  accountId: z
+    .string()
+    .uuid()
+    .openapi({ param: { name: "accountId", in: "path", required: true } }),
+})
+
+export const replaceClaudeAccountBodySchema = z.object({
   token: z.string().min(1).max(2_000),
 })
 
@@ -50,6 +70,7 @@ export const connectClaudeAccountResponseSchema = z.object({
 
 export const connectChatgptAccountBodySchema = z.object({
   // The whole auth.json `codex login` saved.
+  label: z.string().trim().max(80).optional(),
   authJson: z.string().min(1).max(20_000),
 })
 
@@ -73,4 +94,14 @@ export const connectGithubAccountResponseSchema = z.object({
 
 export const disconnectGithubAccountResponseSchema = z.object({
   success: z.literal(true),
+})
+
+export const disconnectHarnessAccountQuerySchema = z.object({
+  accountId: z.string().uuid().optional(),
+})
+
+// The default validation hook's body for a malformed query.
+export const validationErrorResponseSchema = z.object({
+  success: z.literal(false),
+  error: z.unknown(),
 })

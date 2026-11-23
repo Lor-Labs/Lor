@@ -55,6 +55,12 @@ export type ChannelActivity = {
   sessions: SidebarSession[]
   // What the channel's agent is waiting on the caller for, newest first.
   agentNeeds: AgentNeed[]
+  // The channel agent has a turn in progress (the sidebar's creature state;
+  // "agent:working" only reaches people with the channel open).
+  agentWorking: boolean
+  // Sessions with a run in progress here, the caller's or not: the count on
+  // the channel row. The rows under it stay the caller's own.
+  runningSessions: number
 }
 
 export type WorkspaceActivityAck = (

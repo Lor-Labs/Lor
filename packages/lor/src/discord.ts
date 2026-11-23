@@ -1,8 +1,14 @@
 import { db, eq, inArray, LOR_USER_ID, schema, sql } from "@repo/db"
 import { env } from "@repo/env/server"
 import { type CreatureId, channelAgentIdentity } from "@repo/utils/bestiary"
-import { creaturePng } from "@repo/utils/bestiary-png"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
+import {
+  STILLS,
+  type StillSpec,
+  stillKey,
+  stillSvg,
+} from "@repo/utils/face-stills"
+import sharp from "sharp"
 
 // Lor's Discord bot over REST (reference/always-on-agents.md §10). The
 // gateway connection that hears Discord lives in the API
@@ -110,8 +116,14 @@ export function webhookSafeName(name: string) {
   return name.replace(/discord|clyde/gi, "Lor").slice(0, 80) || "Lor"
 }
 
-function creatureAvatar(creature: CreatureId) {
-  return `data:image/png;base64,${creaturePng(creature, 8).toString("base64")}`
+// The agent's face as a Discord avatar: its flat still, drawn to be seen
+// from the front (the app's 3D face frozen at one angle reads worse), on a
+// transparent background, with room around it because Discord crops
+// avatars to a circle.
+async function faceAvatar(face: StillSpec) {
+  const svg = stillSvg(face, { size: 256, pad: 3.5 })
+  const png = await sharp(Buffer.from(svg)).png().toBuffer()
+  return `data:image/png;base64,${png.toString("base64")}`
 }
 
 export type DiscordLink = typeof schema.channelDiscordLink.$inferSelect
@@ -160,25 +172,27 @@ export async function withDiscordLinkLock<T>(
   })
 }
 
-// The webhook the agent posts through, wearing its creature.
+// The webhook the agent posts through, wearing its face.
 export async function createAgentWebhook(input: {
   discordChannelId: string
   name: string
   creature: CreatureId
 }) {
+  const face = STILLS[input.creature]
   const hook = await discordRequest<{ id: string; token: string }>(
     `/channels/${input.discordChannelId}/webhooks`,
     {
       method: "POST",
       body: {
         name: webhookSafeName(input.name),
-        avatar: creatureAvatar(input.creature),
+        avatar: await faceAvatar(face),
       },
     }
   )
   return {
     webhookId: hook.id,
     webhookToken: encryptSecret(hook.token, encryptionKey()),
+    webhookCreature: stillKey(face),
   }
 }
 
@@ -354,16 +368,24 @@ export async function postAgentToDiscord(input: {
   const identity = channelAgentIdentity(channel)
   await syncAgentRole(input.channelId).catch(() => {})
   // Discord's webhook avatar can't be set per message without a public URL,
-  // so the webhook's own avatar follows the creature.
-  if (link.webhookCreature !== identity.creature) {
-    await discordRequest(`/webhooks/${link.webhookId}`, {
-      method: "PATCH",
-      body: { avatar: creatureAvatar(identity.creature) },
-    })
-    await db
-      .update(schema.channelDiscordLink)
-      .set({ webhookCreature: identity.creature })
-      .where(eq(schema.channelDiscordLink.channelId, link.channelId))
+  // so the webhook's own avatar follows the face: a change of creature, or
+  // of how one is drawn, changes its key and uploads it again.
+  const face = STILLS[identity.creature]
+  const avatarKey = stillKey(face)
+  // A failed avatar refresh never blocks the post; the old key retries it next time.
+  if (link.webhookCreature !== avatarKey) {
+    try {
+      await discordRequest(`/webhooks/${link.webhookId}`, {
+        method: "PATCH",
+        body: { avatar: await faceAvatar(face) },
+      })
+      await db
+        .update(schema.channelDiscordLink)
+        .set({ webhookCreature: avatarKey })
+        .where(eq(schema.channelDiscordLink.channelId, link.channelId))
+    } catch (error) {
+      console.warn("Discord webhook avatar refresh failed", error)
+    }
   }
   const token = decryptSecret(link.webhookToken, encryptionKey())
   const { text, allowedUserIds } = await toDiscordContent(input.content)

@@ -1,13 +1,15 @@
-// The bestiary: each channel's agent wears one of these pixel-art creatures
-// (reference/always-on-agents.md, decision 33). 24x24 frames, one character
+// The bestiary: the creatures a channel's agent can be, with their names
+// (reference/always-on-agents.md, decisions 33 and 39). The app draws them
+// as the simple faces in ./faces; the pixel art here is the earlier
+// detailed set, kept in case it comes back. 24x24 frames, one character
 // per pixel indexing the creature's palette, "." transparent. `closed` is the
 // same creature with its eyes shut, for blinking and sleeping.
 
 export type CreatureId =
   | "dragon"
-  | "griffin"
+  | "alien"
   | "owl"
-  | "golem"
+  | "skeleton"
   | "ghost"
   | "slime"
   | "fox"
@@ -118,9 +120,11 @@ export const CREATURES: readonly Creature[] = [
     ],
   },
   {
-    id: "griffin",
-    label: "Griffin",
-    names: ["Talon", "Aurel", "Gale"],
+    id: "alien",
+    // The griffin until 2026-11-22: the pixel art below, unused since the
+    // simple faces (decision 39), is still the griffin's.
+    label: "Alien",
+    names: ["Zorp", "Blip", "Orbit"],
     palette: [
       "#2b2620",
       "#1a1108",
@@ -279,9 +283,11 @@ export const CREATURES: readonly Creature[] = [
     ],
   },
   {
-    id: "golem",
-    label: "Golem",
-    names: ["Cobble", "Flint", "Boulder"],
+    id: "skeleton",
+    // The golem until 2026-11-21: the pixel art below, unused since the
+    // simple faces (decision 39), is still the golem's.
+    label: "Skeleton",
+    names: ["Bones", "Rattle", "Marrow"],
     palette: [
       "#1c2129",
       "#7cc451",
@@ -870,6 +876,15 @@ function hash(text: string, seed: number) {
   return h
 }
 
+// Creatures that were replaced, ids included. A channel that picked the old
+// one shows as its replacement, so nothing changes face before
+// rename-creatures.ts (packages/db/src/scripts) has run on a database, or
+// while a server on older code still writes the old id during a deploy.
+const REPLACED_CREATURES = new Map<string, CreatureId>([
+  ["golem", "skeleton"],
+  ["griffin", "alien"],
+])
+
 export const AGENT_NAME_MAX = 24
 
 // A name people typed for the agent, cleaned; null when nothing usable is
@@ -889,8 +904,10 @@ export function channelAgentIdentity(channel: {
   agentName?: string | null
   agentCreature?: string | null
 }): { name: string; creature: CreatureId } {
-  const creature = isCreatureId(channel.agentCreature)
-    ? channel.agentCreature
+  const picked =
+    REPLACED_CREATURES.get(channel.agentCreature ?? "") ?? channel.agentCreature
+  const creature = isCreatureId(picked)
+    ? picked
     : (CREATURES[hash(channel.id, 2166136261) % CREATURES.length] as Creature)
         .id
   const names = creatureById(creature).names

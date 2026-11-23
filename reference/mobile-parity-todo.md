@@ -29,6 +29,20 @@ The phone matches web's session model: `@Lor` starts a session, Lor works only i
 - [x] Every session you follow, across channels (LOR-168, 2026-11-12): a Sessions row at the top of the Home list (what needs you and what is working beside it) opens `app/sessions.tsx`, the rows grouped Needs you / Working / Unread / Recent with their channel. Web has no such page: its sidebar shows every channel's rows at once.
 - [x] An action row under Lor's finished replies in a session (LOR-168, 2026-11-12, `lor-reply-actions.tsx`): Copy, Reply, Forward, Fork, More (the long-press menu), then the model the reply ran on and when. As web's row; reactions stay in the menu.
 
+## Always-on agents (catch-up pass 2026-11-21, `reference/always-on-agents.md` decisions 24, 38, 39)
+
+Type-checked only: none of this has run on a device yet. The faces were seen
+moving in the Expo web build's playground; the screens need a device, since
+the web build can't authenticate (its API client sends the session cookie as
+a header, which browsers forbid).
+
+- [x] Agent faces: the simple faces from `@repo/utils/faces` replace the pixel creatures (`agent-creature.tsx`). Motion is for state only: a bob while working, a blink where the face is large; faces in lists are still unless working. `app/playground.tsx` (States) shows every face in every state.
+- [x] Channels tab: each text channel's row shows its agent's face with its state and a count of sessions running there; a Needs you group above the Sessions row lists the agents' approvals and questions for you and opens the message.
+- [x] Sessions: Claude's or Codex's mark on its replies and "To Claude" / "To Codex" in the composer; the channel agent's brief shows under its own name and face; the heading says "Started by <agent>".
+- [x] Agent settings on the phone (2026-11-22): `app/channel/[channelId]/agent.tsx`, opened from the agent's face in the channel header, its row in the members sheet, or the Agent row in channel options. Name and creature (channel managers and the channel's creator), how it answers, model and brief (managers), then facts (`agent-facts.tsx`, anyone; deleting asks first) and follow-ups (`agent-follow-ups.tsx`, anyone can cancel). Moving the chat to Discord and the agent profile stay web only.
+- [x] The channel agent's state (working, needs you) in the channel header and the members sheet (2026-11-22), from `use-channel-agent.tsx` (`useChannelAgentState`, kept apart from its identity so message rows don't re-render); its face in the typing indicator and the mention menu.
+- [x] Face motion as web, without a pointer (2026-11-22): idle glances and looking about while working, driven on the JS thread at up to 30 frames a second; breathing asleep, the pop on a change of state and the needs-you badge pulse on Reanimated.
+
 ## Code sessions (catch-up pass started 2026-10-26, `reference/planned/code-sessions-runbook.md`)
 
 Goal (Jacob): mobile works with code sessions, including starting one, without web's full capability yet.

@@ -4,6 +4,8 @@ import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { AnimatePresence, motion } from "motion/react"
 import type { ReactNode, RefObject } from "react"
+import { HarnessLogo } from "@/components/session/harness-logo"
+import { useSessionAgent } from "@/components/session/session-agent"
 
 // Where the composer's message goes: @Lor in channel chat or a human thread
 // wakes the channel agent, which answers there; inside a session a message
@@ -50,6 +52,8 @@ export function DestinationBar({
   lorPillRef?: RefObject<HTMLSpanElement | null>
 }) {
   const isSession = destination === "session"
+  // A code session's messages go to its coding agent, Claude or Codex.
+  const sessionAgent = useSessionAgent()
   // A session message reaches its subscribers, and the people it mentions
   // follow once it sends: mentioned first, so "+N" never hides them.
   const reached: SubscriberFace[] = [
@@ -86,8 +90,15 @@ export function DestinationBar({
                       : "bg-agent/10 font-medium text-agent"
                   }
                 >
-                  <img src="/lor-mark.svg" alt="" className="size-3.5" />
-                  To Lor
+                  {sessionAgent ? (
+                    <HarnessLogo
+                      harness={sessionAgent.harness}
+                      className="size-3.5"
+                    />
+                  ) : (
+                    <img src="/lor-mark.svg" alt="" className="size-3.5" />
+                  )}
+                  To {sessionAgent?.name ?? "Lor"}
                 </DestinationPill>
               </span>
             )}

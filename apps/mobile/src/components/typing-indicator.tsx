@@ -1,3 +1,4 @@
+import { LOR_USER_ID } from "@repo/db/constants"
 import { useEffect, useState } from "react"
 import { Text, View } from "react-native"
 import Animated, {
@@ -12,7 +13,9 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated"
+import { AgentCreature } from "@/components/agent-creature"
 import { Avatar } from "@/components/ui/avatar"
+import { useChannelAgent } from "@/hooks/use-channel-agent"
 
 type TypingUser = {
   userId: string
@@ -58,7 +61,16 @@ function TypingDots() {
   )
 }
 
-export function TypingIndicator({ users }: { users: TypingUser[] }) {
+export function TypingIndicator({ users: typers }: { users: TypingUser[] }) {
+  // The channel agent types under its own name, with its creature at work.
+  const agent = useChannelAgent()
+  const agentTyping =
+    agent !== null && typers.some((user) => user.userId === LOR_USER_ID)
+  const users = agent
+    ? typers.map((user) =>
+        user.userId === LOR_USER_ID ? { ...user, name: agent.name } : user
+      )
+    : typers
   if (users.length === 0) return null
 
   return (
@@ -67,6 +79,9 @@ export function TypingIndicator({ users }: { users: TypingUser[] }) {
       entering={FadeIn.duration(150)}
       exiting={FadeOut.duration(150)}
     >
+      {agentTyping && agent ? (
+        <AgentCreature creature={agent.creature} size={20} state="working" />
+      ) : null}
       <Text
         accessibilityLiveRegion="polite"
         className="shrink text-xs text-muted"

@@ -1,14 +1,17 @@
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet"
 import UserGroupIcon from "@hugeicons/core-free-icons/UserGroupIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import type { CreatureId, CreatureState } from "@repo/utils/bestiary"
 import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { useMemo } from "react"
 import { Pressable, Text, View } from "react-native"
 import { KeyboardController } from "react-native-keyboard-controller"
+import { AgentCreature } from "@/components/agent-creature"
 import { Avatar } from "@/components/ui/avatar"
 import { SectionLabel } from "@/components/ui/section-label"
 import { Skeleton } from "@/components/ui/skeleton"
+import { AGENT_STATE_TEXT } from "@/hooks/use-channel-agent"
 import type { WorkspaceMember } from "@/lib/api-types"
 
 export type MemberListItem = {
@@ -23,7 +26,18 @@ export type MemberListItem = {
   status: WorkspaceMember["status"]
 }
 
+// A channel's agent, listed above its people: its creature in its real
+// state. As web's channel member panel (reference/always-on-agents.md,
+// decision 33).
+export type MemberListAgent = {
+  name: string
+  creature: CreatureId
+  state: CreatureState
+  onPress?: () => void
+}
+
 export function MemberListSheet({
+  agent,
   error = null,
   isLoading = false,
   isOpen,
@@ -35,6 +49,7 @@ export function MemberListSheet({
   onRetry,
   title,
 }: {
+  agent?: MemberListAgent | null
   error?: string | null
   isLoading?: boolean
   isOpen: boolean
@@ -100,6 +115,8 @@ export function MemberListSheet({
               <BottomSheet.Close />
             </View>
 
+            {agent ? <AgentSection agent={agent} /> : null}
+
             {isLoading && members.length === 0 ? (
               <MemberListSkeleton />
             ) : error && members.length === 0 ? (
@@ -161,6 +178,53 @@ export function MemberListSheet({
     </BottomSheet>
   )
 }
+
+function AgentSection({ agent }: { agent: MemberListAgent }) {
+  return (
+    <View className="gap-two px-one">
+      <SectionLabel>Channel agent</SectionLabel>
+      <Pressable
+        accessibilityHint={agent.onPress ? "Opens its settings" : undefined}
+        accessibilityLabel={`${agent.name}, channel agent, ${AGENT_STATE_TEXT[agent.state]}`}
+        accessibilityRole={agent.onPress ? "button" : undefined}
+        className={`min-h-[68px] flex-row items-center gap-three overflow-hidden rounded-lor-lg bg-surface-secondary px-three py-two ${
+          agent.onPress ? "active:bg-surface-tertiary" : ""
+        }`}
+        disabled={!agent.onPress}
+        onPress={agent.onPress}
+      >
+        <View className="size-10 items-center justify-center">
+          <AgentCreature
+            creature={agent.creature}
+            size={40}
+            state={agent.state}
+          />
+        </View>
+        <View className="min-w-0 flex-1 gap-px">
+          <Text
+            className="text-[15px] font-semibold text-foreground"
+            numberOfLines={1}
+          >
+            {agent.name}
+          </Text>
+          <Text className="text-xs text-muted" numberOfLines={1}>
+            Channel agent
+          </Text>
+        </View>
+        <Text className="text-xs font-medium text-muted">
+          {AGENT_STATE_LABELS[agent.state]}
+        </Text>
+      </Pressable>
+    </View>
+  )
+}
+
+const AGENT_STATE_LABELS = {
+  asleep: "Resting",
+  idle: "Here",
+  working: "Working",
+  needs_you: "Needs you",
+} as const satisfies Record<CreatureState, string>
 
 function MemberSection({
   label,

@@ -5,8 +5,10 @@ import { useThemeColor } from "heroui-native/hooks"
 import type { ReactNode } from "react"
 import { Pressable, Text, View } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
+import { HarnessLogo } from "@/components/harness-logo"
 import { Avatar } from "@/components/ui/avatar"
 import { LorMark } from "@/components/voice/lor-window"
+import { useSessionCoder } from "@/hooks/use-session-agent"
 import type { Message } from "@/lib/api-types"
 import type { MentionCandidate } from "@/lib/mentions"
 
@@ -108,6 +110,8 @@ export function DestinationBar({
   onSwitch?: () => void
 }) {
   const isSession = destination === "session"
+  // A code session's messages go to its coding agent, Claude or Codex.
+  const coder = useSessionCoder()
   // A session message reaches its subscribers, and the people it mentions
   // follow once it sends: mentioned first, so "+N" never hides them.
   const reached = [
@@ -132,14 +136,18 @@ export function DestinationBar({
           {/* Quiet in a session, where Lor is the default; chat and threads
               tint it, since there it changes what the send does. */}
           <DestinationPill onSwitch={onSwitch} tinted={!isSession}>
-            <LorMark size={14} />
+            {coder ? (
+              <HarnessLogo harness={coder.harness} size={14} />
+            ) : (
+              <LorMark size={14} />
+            )}
             <Text
               className={`shrink text-xs font-medium ${
                 isSession ? "text-muted" : "text-accent"
               }`}
               numberOfLines={1}
             >
-              To Lor
+              To {coder?.name ?? "Lor"}
             </Text>
           </DestinationPill>
           {pinged.length > 0 ? (
