@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm"
 import {
   boolean,
   check,
+  foreignKey,
   jsonb,
   pgEnum,
   pgTable,
@@ -131,40 +132,50 @@ export const harnessAccountPreference = pgTable(
   ]
 )
 
-export const workspaceHarnessSettings = pgTable("workspace_harness_settings", {
-  workspaceId: uuid("workspace_id")
-    .primaryKey()
-    .references(() => workspace.id, { onDelete: "cascade" }),
-  defaultHarness: text("default_harness", {
-    enum: ["pi", "claude_code", "codex"],
-  })
-    .notNull()
-    .default("pi"),
-  // API model picks use the same key:provider/model syntax as the composer.
-  apiModel: text("api_model"),
-  claudeApiBilling: text("claude_api_billing", { enum: ["lor", "byok"] })
-    .notNull()
-    .default("lor"),
-  codexApiBilling: text("codex_api_billing", { enum: ["lor", "byok"] })
-    .notNull()
-    .default("lor"),
-  claudeAccountId: uuid("claude_account_id").references(
-    () => personalAccount.id,
-    { onDelete: "set null" }
-  ),
-  codexAccountId: uuid("codex_account_id").references(
-    () => personalAccount.id,
-    { onDelete: "set null" }
-  ),
-  claudeUseSubscriptions: boolean("claude_use_subscriptions")
-    .notNull()
-    .default(false),
-  codexUseSubscriptions: boolean("codex_use_subscriptions")
-    .notNull()
-    .default(false),
-  claudeAutoFallback: boolean("claude_auto_fallback").notNull().default(true),
-  codexAutoFallback: boolean("codex_auto_fallback").notNull().default(true),
-})
+export const workspaceHarnessSettings = pgTable(
+  "workspace_harness_settings",
+  {
+    workspaceId: uuid("workspace_id")
+      .primaryKey()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    defaultHarness: text("default_harness", {
+      enum: ["pi", "claude_code", "codex"],
+    })
+      .notNull()
+      .default("pi"),
+    // API model picks use the same key:provider/model syntax as the composer.
+    apiModel: text("api_model"),
+    claudeApiBilling: text("claude_api_billing", { enum: ["lor", "byok"] })
+      .notNull()
+      .default("lor"),
+    codexApiBilling: text("codex_api_billing", { enum: ["lor", "byok"] })
+      .notNull()
+      .default("lor"),
+    claudeAccountId: uuid("claude_account_id"),
+    codexAccountId: uuid("codex_account_id"),
+    claudeUseSubscriptions: boolean("claude_use_subscriptions")
+      .notNull()
+      .default(false),
+    codexUseSubscriptions: boolean("codex_use_subscriptions")
+      .notNull()
+      .default(false),
+    claudeAutoFallback: boolean("claude_auto_fallback").notNull().default(true),
+    codexAutoFallback: boolean("codex_auto_fallback").notNull().default(true),
+  },
+  (table) => [
+    // Explicit names: the auto-generated ones exceed Postgres's 63-byte limit.
+    foreignKey({
+      columns: [table.claudeAccountId],
+      foreignColumns: [personalAccount.id],
+      name: "workspace_harness_settings_claude_account_fk",
+    }).onDelete("set null"),
+    foreignKey({
+      columns: [table.codexAccountId],
+      foreignColumns: [personalAccount.id],
+      name: "workspace_harness_settings_codex_account_fk",
+    }).onDelete("set null"),
+  ]
+)
 
 export const personalHarnessSettings = pgTable(
   "personal_harness_settings",
