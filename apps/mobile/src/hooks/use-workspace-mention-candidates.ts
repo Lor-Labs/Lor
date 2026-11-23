@@ -23,8 +23,8 @@ export function useWorkspaceMentionCandidates({
   broadcasts?: boolean
 }) {
   const membersState = useWorkspaceMembers(workspaceSlug)
-  // Under a channel, Lor goes by its agent's name (decision 32).
-  const agentName = useChannelAgent()?.name
+  // Under a channel, Lor goes by its agent's name and creature (decision 32).
+  const agent = useChannelAgent()
   const candidates = useMemo<MentionCandidate[]>(
     () => [
       ...(broadcasts ? broadcastMentionCandidates(channelAudience) : []),
@@ -32,23 +32,18 @@ export function useWorkspaceMentionCandidates({
         .filter((member) => member.userId !== currentUserId)
         .map((member) => {
           const candidate = workspaceMemberToMentionCandidate(member)
-          return agentName && member.userId === LOR_USER_ID
+          return agent && member.userId === LOR_USER_ID
             ? {
                 ...candidate,
-                name: agentName,
-                label: agentName,
-                search: `${agentName} lor`.toLocaleLowerCase(),
+                name: agent.name,
+                label: agent.name,
+                search: `${agent.name} lor`.toLocaleLowerCase(),
+                creature: agent.creature,
               }
             : candidate
         }),
     ],
-    [
-      membersState.members,
-      currentUserId,
-      channelAudience,
-      broadcasts,
-      agentName,
-    ]
+    [membersState.members, currentUserId, channelAudience, broadcasts, agent]
   )
 
   return { ...membersState, candidates }

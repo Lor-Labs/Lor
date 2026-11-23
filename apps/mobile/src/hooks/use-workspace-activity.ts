@@ -18,6 +18,9 @@ import type { AppSocket } from "@/lib/socket"
 // Bursty invalidations (run transition + plan update) collapse into one
 // fetch. Fixed deadline: a constant stream cannot postpone it.
 const COALESCE_MS = 100
+// Shared by every mount of the hook (the Channels tab and an open channel
+// both keep the snapshot), so one push is one fetch, not one per mount.
+const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const FETCH_TIMEOUT_MS = 10_000
 
 export const workspaceActivityKey = (workspaceId: string) =>
@@ -67,11 +70,10 @@ export function useWorkspaceActivity(workspaceId?: string) {
 
   useEffect(() => {
     if (!socket || !workspaceId) return
-    let coalesceTimer: ReturnType<typeof setTimeout> | undefined
     const refresh = () => {
-      if (coalesceTimer) return
-      coalesceTimer = setTimeout(() => {
-        coalesceTimer = undefined
+      if (refreshTimers.has(workspaceId)) return
+      const timer = setTimeout(() => {
+        refreshTimers.delete(workspaceId)
         if (
           queryClient.isMutating({ mutationKey: sidebarSessionMutationKey }) > 0
         ) {
@@ -81,6 +83,7 @@ export function useWorkspaceActivity(workspaceId?: string) {
           queryKey: workspaceActivityKey(workspaceId),
         })
       }, COALESCE_MS)
+      refreshTimers.set(workspaceId, timer)
     }
     const onActivityUpdated = (payload: { workspaceId: string }) => {
       if (payload.workspaceId === workspaceId) refresh()
@@ -108,7 +111,6 @@ export function useWorkspaceActivity(workspaceId?: string) {
     // Reading a session (on any of the user's devices) clears its dot.
     socket.on("thread-read:updated", refresh)
     return () => {
-      if (coalesceTimer) clearTimeout(coalesceTimer)
       appState.remove()
       socket.off("connect", refresh)
       socket.off("workspace:activity:updated", onActivityUpdated)

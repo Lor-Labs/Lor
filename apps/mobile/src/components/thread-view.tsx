@@ -399,7 +399,10 @@ export function ThreadView({
   const sessionChannelAgent = useMemo(
     () =>
       lorSession && sessionChannel?.type === "text"
-        ? channelAgentIdentity(sessionChannel)
+        ? {
+            channelId: sessionChannel.id,
+            ...channelAgentIdentity(sessionChannel),
+          }
         : null,
     [lorSession, sessionChannel]
   )
