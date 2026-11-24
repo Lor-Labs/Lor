@@ -20,10 +20,15 @@ import { useNavigate, useParams } from "@tanstack/react-router"
 import { type ReactNode, useMemo, useState } from "react"
 import { ArtifactBody } from "@/components/artifacts/artifact-body"
 import { CsvGrid } from "@/components/artifacts/csv-grid"
+import type { ImageGallery } from "@/components/artifacts/image-preview"
 import { PdfPreview, servesAsPdf } from "@/components/artifacts/pdf-preview"
 import type { OpenFile } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { useArtifact, useArtifactContent } from "@/hooks/use-artifact"
-import { useCloseFile } from "@/hooks/use-file-panel"
+import {
+  useCloseFile,
+  useOpenFile,
+  useOpenUpload,
+} from "@/hooks/use-file-panel"
 import { locationQuery } from "@/hooks/use-message-search-navigation"
 import { formatFileSize } from "@/lib/attachments"
 import { parseCsvData } from "@/lib/csv"
@@ -61,6 +66,7 @@ export function FilePanel({ file }: { file: OpenFile }) {
 
 function ArtifactFilePanel({ artifactId }: { artifactId: string }) {
   const { data, isPending, isError, refetch } = useArtifact(artifactId)
+  const openFile = useOpenFile()
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
   const version = data?.versions.find((v) => v.version === selectedVersion)
   const artifact = data
@@ -92,6 +98,24 @@ function ArtifactFilePanel({ artifactId }: { artifactId: string }) {
       isPending={isPending}
       isError={isError}
       onRetry={() => void refetch()}
+      gallery={
+        data?.images && {
+          images: data.images.map((image) => ({
+            src:
+              image.artifactId === artifactId
+                ? (artifact?.url ?? image.url)
+                : image.url,
+            alt: image.path,
+            vector:
+              filePreviewMime(image.path, image.contentType) ===
+              "image/svg+xml",
+          })),
+          onSelect: (index) => {
+            const image = data.images[index]
+            if (image) openFile(image.artifactId)
+          },
+        }
+      }
       versionSelect={
         data &&
         data.versions.length > 1 && (
@@ -133,6 +157,12 @@ function UploadFilePanel({
     enabled: Boolean(workspaceSlug),
   })
   const upload = data?.attachments?.[index]
+  const openUpload = useOpenUpload()
+  const images = (data?.attachments ?? [])
+    .map((image, index) => ({ image, index }))
+    .filter(({ image }) =>
+      filePreviewMime(image.filename, image.contentType).startsWith("image/")
+    )
 
   return (
     <FileView
@@ -149,6 +179,19 @@ function UploadFilePanel({
       isPending={isPending}
       isError={isError || (data !== undefined && !upload)}
       onRetry={() => void refetch()}
+      gallery={{
+        images: images.map(({ image }) => ({
+          src: image.url,
+          alt: image.filename,
+          vector:
+            filePreviewMime(image.filename, image.contentType) ===
+            "image/svg+xml",
+        })),
+        onSelect: (index) => {
+          const image = images[index]
+          if (image) openUpload(messageId, image.index)
+        },
+      }}
     />
   )
 }
@@ -160,6 +203,7 @@ function FileView({
   isError,
   onRetry,
   versionSelect,
+  gallery,
 }: {
   file:
     | {
@@ -177,6 +221,7 @@ function FileView({
   isError: boolean
   onRetry: () => void
   versionSelect?: ReactNode
+  gallery?: ImageGallery
 }) {
   const navigate = useNavigate()
   const { workspaceSlug, sessionId: routeSessionId } = useParams({
@@ -311,6 +356,7 @@ function FileView({
                 mime={file.mime}
                 url={file.url}
                 size={file.size}
+                gallery={gallery}
               />
             )}
           </div>
