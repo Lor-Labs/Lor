@@ -3,8 +3,8 @@
 **Status:** Decided with Jacob on 2026-11-23 and 11-24, and built step by
 step from §9. Step 1 (agents apart from channels) is built, all on 11-24: its
 first cut, then Jacob's fixes to it (several agents per channel in the data,
-no private agents, run settings per agent, the two dialogs, and a channel's
-agents in its right panel). Lint and type checks pass, the data move and the app were
+no private agents, run settings per agent, the two dialogs, a channel's
+agents in its right panel, and its loops in its agent's dialog). Lint and type checks pass, the data move and the app were
 run on throwaway databases, and `db:push` on the shared databases is owed
 (§9, rollout). Steps 2 to 5 are not started, so every chat with an agent in a
 channel still shares that channel's one queue. It changes the shape built
@@ -71,8 +71,9 @@ objected to and should confirm.
 | 16 | Accounts are owned by the workspace and each agent picks its own, so two agents can share one and deleting an agent deletes none. The workspace's "Autonomous runs" section is gone: the settings are each agent's | Jacob, 11-24 |
 | 17 | An agent runs as Lor on a model, or on Claude Code or Codex, for its own turns and the sessions it starts. A plan can pay for either (the first cut of this doc said only for sessions, which was wrong) | As built 11-22 |
 | 18 | No signup question about where the team chats. Linking a channel to a chat app already decides it, per channel | Default |
-| 19 | A channel's agents are at the top of its right panel: a row opens that agent's dialog, and an Add agent row lists the workspace's other agents and makes a new one. The left sidebar is for chats and channels only, and a channel's row shows no agent face, since a channel can hold several. It replaced an Agents group in the left sidebar, built earlier the same day | Jacob, 11-24 |
+| 19 | A channel's agents are at the top of its right panel, and nowhere else on the channel: no agent in its header, and no face on its row in the sidebar, since a channel can hold several. A row opens that agent's dialog. A channel with room shows an Add agent row; a full one shows a button on the agent's row that swaps it, so nothing offers to add where the app would replace. The left sidebar is for chats and channels only. It replaced an Agents group in the left sidebar, built earlier the same day | Jacob, 11-24 |
 | 20 | An agent's settings are in its own dialog. A channel's dialog says which agent is in it and what the team wants from it there | Jacob, 11-24 |
+| 21 | A channel's loops are listed in its agent's dialog, under Loops, and not in the channel's right panel: each fire wakes that channel's agent, so they are that agent's. A loop is still stored on its channel (`loop.channel_id`) until step 3 moves it to the agent (decision 15), so a channel that swaps its agent hands its loops to the new one. A channel with no agent still lists its own loops in its right panel, where nothing runs them | Jacob, 11-24 |
 
 Considered and dropped:
 
@@ -277,18 +278,19 @@ Each step ends in something the team uses. Steps 2 to 5 are not sized.
 - [x] **Web:**
   - a channel's right panel starts with its agents
     (`right-panel/channel-agents-section.tsx`, decision 19): a row per
-    agent, and an Add agent row for people who manage channels, which lists
-    the workspace's other agents (a name opens that agent's dialog, so one
-    in no channel is still reachable) and makes a new one. At the limit of
-    one, the agent picked replaces the one there. The left sidebar and its
-    channel rows show no agents;
+    agent. For people who manage channels, a channel with room has an Add
+    agent row, and a full one has a swap button on the agent's row. Both
+    open the workspace's other agents (a name opens that agent's dialog, so
+    one in no channel is still reachable) and New agent. The header, the
+    left sidebar and its channel rows show no agents;
   - the agent dialog (`components/agent/agent-dialog.tsx`, opened by
-    `?agent=<id>`): Profile, Memory, Channels and Runs;
+    `?agent=<id>`): Profile, Memory, Channels, Loops and Runs. Loops
+    (`components/agent/agent-loops.tsx`, decision 21) lists the loops of
+    every channel the agent is in; one opens in its channel's right panel
+    through `?loop=<id>`;
   - the channel dialog, redesigned on the same shell
     (`components/ui/pane-dialog.tsx`): Overview, Agent (who is here, and
-    instructions for this channel), Tools and Webhooks;
-  - the channel's header shows the agent that answers there, and nothing
-    when it has none.
+    instructions for this channel), Tools and Webhooks.
 - [x] **Mobile:** follows the same data. Which agent a channel has, and how
   an agent runs, are set on web.
 - [x] **Checked** on throwaway Postgres databases:

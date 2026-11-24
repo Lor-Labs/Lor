@@ -1,6 +1,7 @@
 import {
   Brain02Icon,
   HashtagIcon,
+  Infinity01Icon,
   UserCircleIcon,
   ZapIcon,
 } from "@hugeicons/core-free-icons"
@@ -26,6 +27,7 @@ import {
   agentChanges,
   agentDraftOf,
 } from "@/components/agent/agent-fields"
+import { AgentLoops } from "@/components/agent/agent-loops"
 import { AgentRuns } from "@/components/agent/agent-runs"
 import { AgentFactsList } from "@/components/sidebar/channel-panel/agent-facts-list"
 import { InlineConfirmButton } from "@/components/ui/inline-confirm-button"
@@ -64,6 +66,7 @@ const TABS: PaneTab<AgentDialogTab>[] = [
   { id: "profile", label: "Profile", icon: UserCircleIcon },
   { id: "memory", label: "Memory", icon: Brain02Icon },
   { id: "channels", label: "Channels", icon: HashtagIcon },
+  { id: "loops", label: "Loops", icon: Infinity01Icon },
   { id: "runs", label: "Runs", icon: ZapIcon },
 ]
 
@@ -188,7 +191,7 @@ function AgentDialog({
         open={open}
         onOpenChange={onOpenChange}
         title={`${agent.name}'s settings`}
-        description="This agent's profile, memory, channels and how it runs."
+        description="This agent's profile, memory, channels, loops and how it runs."
         identity={
           <Identity
             draft={draft}
@@ -278,6 +281,13 @@ function AgentDialog({
               agent={agent}
               canManage={canManage}
             />
+          </PaneBody>
+        ) : shownTab === "loops" ? (
+          <PaneBody
+            title="Loops"
+            description={`What ${agent.name} does on a schedule. A loop runs in the channel it was set up in.`}
+          >
+            <AgentLoops workspaceSlug={workspaceSlug} agent={agent} />
           </PaneBody>
         ) : (
           <PaneBody

@@ -638,3 +638,12 @@ apps/realtime `services/lor.ts`, card rendering in web
   channel → 400; non-active → 409. Web: "Run now" item (Refresh01Icon) at
   the top of the panel's … menu, active loops only (`useRunLoopNow` in
   loop-actions.tsx, success toast).
+- 2026-11-24 — Loops are listed per agent on web
+  (`agents-and-chats.md`, decision 21). A text channel's loops moved from
+  the overview panel's Loops section to its agent's dialog
+  (`components/agent/agent-loops.tsx`), which lists the loops of every
+  channel that agent is in. A row opens the loop's detail panel in its
+  channel through `?loop=<id>` on the channel route. The section stays in
+  the overview panel only for a channel with no agent. No schema change: a
+  loop still belongs to its channel, and its fires wake that channel's
+  agent.

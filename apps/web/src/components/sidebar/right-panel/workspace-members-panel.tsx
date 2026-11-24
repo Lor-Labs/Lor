@@ -520,6 +520,11 @@ export function WorkspaceMembersPanel({
     enabled: Boolean(view.workspaceSlug && view.channelId),
   })
   const peopleOnly = channelDetail?.type === "text"
+  // A channel's loops are listed in its agent's dialog, since that agent
+  // runs them. Only a channel with no agent lists its own here.
+  const loopsHere =
+    channelDetail !== undefined &&
+    !(channelDetail.type === "text" && channelDetail.agentIds.length > 0)
   const members = (data?.members ?? []).filter(
     (member) => !(peopleOnly && member.userId === LOR_USER_ID)
   )
@@ -669,10 +674,12 @@ export function WorkspaceMembersPanel({
                 )}
               </div>
             </section>
-            <LoopsOverviewSection
-              workspaceSlug={view.workspaceSlug}
-              channelId={view.channelId}
-            />
+            {loopsHere && (
+              <LoopsOverviewSection
+                workspaceSlug={view.workspaceSlug}
+                channelId={view.channelId}
+              />
+            )}
             <FollowUpsSection
               workspaceSlug={view.workspaceSlug}
               channelId={view.channelId}

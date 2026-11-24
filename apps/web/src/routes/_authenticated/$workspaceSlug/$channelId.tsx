@@ -92,6 +92,9 @@ type ChannelSearchParams = {
   // Opens the channel's Sessions list in the right panel (the channel menus'
   // "View Sessions"). Cleared once applied.
   panel?: "sessions"
+  // Opens one of the channel's loops in the right panel (the agent dialog's
+  // Loops). Cleared once applied.
+  loop?: string
 }
 
 export const Route = createFileRoute(
@@ -118,6 +121,7 @@ export const Route = createFileRoute(
       typeof search.draft === "string" ? search.draft.slice(0, 500) : undefined,
     about: typeof search.about === "string" ? search.about : undefined,
     panel: search.panel === "sessions" ? "sessions" : undefined,
+    loop: typeof search.loop === "string" ? search.loop : undefined,
   }),
 })
 
@@ -175,7 +179,7 @@ function ChannelRoute() {
 
 function ChannelView() {
   const { workspaceSlug, channelId } = Route.useParams()
-  const { msgId, threadId, threadMessageId, draft, about, panel } =
+  const { msgId, threadId, threadMessageId, draft, about, panel, loop } =
     Route.useSearch()
   const navigate = Route.useNavigate()
   // A pending `about` question belongs to the channel it was asked in.
@@ -218,6 +222,7 @@ function ChannelView() {
     threadId,
     threadMessageId,
     panel,
+    loopId: loop,
   })
 
   const { data, isPending, isError, error } = useQuery(

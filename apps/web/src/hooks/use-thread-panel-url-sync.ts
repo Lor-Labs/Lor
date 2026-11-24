@@ -16,6 +16,7 @@ export function useThreadPanelUrlSync({
   callAt,
   transientThreadRootId = null,
   panel,
+  loopId,
 }: {
   workspaceSlug: string
   channelId: string
@@ -26,6 +27,8 @@ export function useThreadPanelUrlSync({
   transientThreadRootId?: string | null
   // ?panel=sessions: open the channel's Sessions list, then drop the param.
   panel?: "sessions"
+  // ?loop=<id>: open that loop's panel, then drop the param.
+  loopId?: string
 }) {
   const { view, setView, clearView, isCollapsed, toggleCollapsed } =
     useRightSidebar()
@@ -78,6 +81,16 @@ export function useThreadPanelUrlSync({
       replace: true,
     })
   }, [panel, setView, toggleCollapsed, workspaceSlug, channelId, navigate])
+
+  useEffect(() => {
+    if (!loopId) return
+    setView({ type: "loop", workspaceSlug, channelId, loopId })
+    if (isCollapsedRef.current) toggleCollapsed()
+    void navigate({
+      search: (prev) => ({ ...prev, loop: undefined }),
+      replace: true,
+    })
+  }, [loopId, setView, toggleCollapsed, workspaceSlug, channelId, navigate])
 
   // Mirror view → URL (the mount effect does URL → view). Skip views for
   // another channel: a cross-channel jump (search result, Lor citation) sets

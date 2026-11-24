@@ -1,7 +1,12 @@
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { useCallback } from "react"
 
-export type AgentDialogTab = "profile" | "memory" | "channels" | "runs"
+export type AgentDialogTab =
+  | "profile"
+  | "memory"
+  | "channels"
+  | "loops"
+  | "runs"
 
 // The agent dialog is URL-driven like the settings dialogs, so anything can
 // open it and a link to an agent's settings works: ?agent=<id|new>&agentTab=.
