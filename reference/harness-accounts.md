@@ -46,7 +46,9 @@ model and API key identity separately. Recovery and approval continuations keep
 the original payer; a removed API key or disconnected pinned account stops the
 turn. Approval decisions do not make the approver the payer.
 
-Only provider usage/quota errors rotate subscriptions. The configured default
+Only provider usage/quota errors rotate subscriptions, including native CLI
+messages such as Claude's "You've hit your 5-hour limit" and Codex's
+"You’ve hit your usage limit". The configured default
 is first, followed by accounts of the same provider and owner in the person's
 saved workspace order. Newly linked accounts are appended; deleted account IDs
 are ignored. Dedicated autonomous accounts retain connection order after their
