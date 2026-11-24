@@ -99,6 +99,7 @@ proposal that he has not objected to and should confirm.
 | 40 | Teams will be able to make their own faces later. Not built, but the faces are built for it: a face is plain data (`FaceSpec` in `packages/utils/src/faces.ts`), a short list of solids a model can write from a description, and web, mobile and Discord all draw from that data, so a custom face is one more spec with no new drawing code (§13, Later) | Jacob, 11-21 |
 | 41 | The faces are 3D. Each creature is a handful of solids (balls, limbs, boxes) with two eyes on its surface, turned in space and drawn flat, with no WebGL and no shading: it turns to look at the pointer, the far eye thins and goes round the head, a snout shows in profile. It replaces the flat faces of decision 39, which a try-out of both settled; the palette, the eyes and the one-colour rule carry over. One definition (`packages/utils/src/faces.ts`) draws on web and on mobile; chat apps get a flat still (decision 42) | Jacob, 11-22 |
 | 42 | A chat app's avatar is a flat still, not the 3D face frozen: each creature keeps a hand-drawn front view (`packages/utils/src/face-stills.ts`) for Discord now and Slack later, kept for the long run. A 3D face at one angle reads worse than a drawing made for the front: the kraken's back legs fall behind its front ones and its four legs become a row of lines. A face with no still (a team's own, later) would fall back to its 3D face seen from the front | Jacob, 11-22 |
+| 43 | Which provider runs what: Boat becomes the default for coding sessions, with Blaxel as the fallback, since Blaxel costs about nine times as much per running hour and Lor charges $0.10 for an 8 GB hour. The agent's computer gets its own desktop image, built for both providers and designed so its files alone bring it back; a spike on both picks its default. No Mac boxes until someone asks; phone testing goes through Expo Simulators on the team's own account (`planned/agent-computer.md`, `boat-fallback.md`) | Jacob, 11-24 |
 
 Considered and dropped, so they are not added back by accident:
 
@@ -1156,7 +1157,11 @@ Discord, a session the agent starts on a person's real plan). Then:
    Decisions 25 and 29 are the starting point: the computer is the agent's
    own, for installing things and using websites, code still goes to
    sessions, and a tool starts it, never a turn. Step 1.6 (no sandbox on a
-   turn) holds until this is built.
+   turn) holds until this is built. Designed 2026-11-24 in
+   `planned/agent-computer.md` (decision 43): its own desktop image, its
+   logins and apps on storage that outlives the machine, a spend cap per
+   channel, and a spike on Blaxel and Boat before any build. Today's
+   sandbox has a browser on a screen, not a desktop.
 2. **Decided 2026-11-21: channels, with the agent on the row** (decision
    37, built the same day). Not built: the agent's name or its latest line
    on the row (the name is in the row's tooltip), and the face alone when
