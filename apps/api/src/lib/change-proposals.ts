@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto"
 import { isWorkspaceRole } from "@repo/auth/permissions"
 import { isConnectorEvent } from "@repo/connectors"
 import { and, db, eq, isUniqueViolation, max, schema, sql } from "@repo/db"
+import { defaultAgentFor } from "@repo/db/queries/agents"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type {
   ChangeOperation,
@@ -140,6 +141,8 @@ async function applyOperation(
 ): Promise<OperationResult> {
   switch (spec.op) {
     case "create_channel": {
+      // Like a channel a person makes: the workspace's first agent is in it.
+      const agent = await defaultAgentFor(ctx.workspaceId, null, ctx.tx)
       const inserted = await ctx.tx
         .insert(schema.channel)
         .values({
@@ -148,6 +151,7 @@ async function applyOperation(
           topic: spec.topic,
           type: "text",
           audience: "workspace",
+          agentId: agent?.id ?? null,
         })
         .returning({ id: schema.channel.id })
         .then((rows) => rows[0])

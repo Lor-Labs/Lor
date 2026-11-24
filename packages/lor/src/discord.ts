@@ -1,6 +1,7 @@
 import { db, eq, inArray, LOR_USER_ID, schema, sql } from "@repo/db"
+import { loadChannelAgent } from "@repo/db/queries/agents"
 import { env } from "@repo/env/server"
-import { type CreatureId, channelAgentIdentity } from "@repo/utils/bestiary"
+import { agentIdentityFor, type CreatureId } from "@repo/utils/bestiary"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import {
   STILLS,
@@ -231,16 +232,9 @@ export async function syncAgentRole(channelId: string): Promise<string | null> {
   if (!discordConfigured()) return null
   const link = await discordLinkFor(channelId)
   if (!link) return null
-  const [channel] = await db
-    .select({
-      id: schema.channel.id,
-      agentName: schema.channel.agentName,
-      agentCreature: schema.channel.agentCreature,
-    })
-    .from(schema.channel)
-    .where(eq(schema.channel.id, channelId))
-  if (!channel) return null
-  const name = channelAgentIdentity(channel).name.slice(0, 100)
+  const agent = await loadChannelAgent(channelId)
+  if (!agent) return null
+  const name = agent.name.slice(0, 100)
   if (link.agentRoleId && link.agentRoleName === name) return link.agentRoleId
   // A server that didn't grant Manage Roles is asked again at most every
   // 10 minutes, not on every post.
@@ -356,16 +350,10 @@ export async function postAgentToDiscord(input: {
     ? await discordThreadForRoot(input.threadRootId)
     : null
   if (input.threadRootId && !threadId) return null
-  const [channel] = await db
-    .select({
-      id: schema.channel.id,
-      agentName: schema.channel.agentName,
-      agentCreature: schema.channel.agentCreature,
-    })
-    .from(schema.channel)
-    .where(eq(schema.channel.id, input.channelId))
-  if (!channel) return null
-  const identity = channelAgentIdentity(channel)
+  const agent = await loadChannelAgent(input.channelId)
+  if (!agent) return null
+  // A stored creature id is one of the bestiary's; this only guards the type.
+  const identity = agentIdentityFor(agent.id, agent)
   await syncAgentRole(input.channelId).catch(() => {})
   // Discord's webhook avatar can't be set per message without a public URL,
   // so the webhook's own avatar follows the face: a change of creature, or

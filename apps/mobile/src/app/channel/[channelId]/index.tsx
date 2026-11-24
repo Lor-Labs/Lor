@@ -37,6 +37,7 @@ import {
   AGENT_STATE_TEXT,
   useChannelAgent,
   useChannelAgentState,
+  useChannelHasNoAgent,
 } from "@/hooks/use-channel-agent"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
@@ -75,10 +76,11 @@ export default function ChannelRoute() {
 
 function writeAskDraft(
   composer: MessageComposerMentionHandle | null,
+  agentName: string,
   prompt?: string
 ) {
   if (prompt) composer?.replaceDraft(`${prompt} `)
-  composer?.insertMention({ id: LOR_USER_ID, label: "Lor" })
+  composer?.insertMention({ id: LOR_USER_ID, label: agentName })
 }
 
 function ChannelScreen() {
@@ -96,12 +98,16 @@ function ChannelScreen() {
   // Leaving an edit restores the draft from before it, so a question asked
   // mid-edit waits until the composer has done that.
   const pendingAskRef = useRef<{ prompt?: string } | null>(null)
+  const agent = useChannelAgent()
+  const agentState = useChannelAgentState()
+  const noAgent = useChannelHasNoAgent()
+  const agentName = agent?.name ?? "Lor"
   useEffect(() => {
     const pending = pendingAskRef.current
     if (editingMessage || !pending) return
     pendingAskRef.current = null
-    writeAskDraft(composerMentionRef.current, pending.prompt)
-  }, [editingMessage])
+    writeAskDraft(composerMentionRef.current, agentName, pending.prompt)
+  }, [editingMessage, agentName])
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
@@ -114,8 +120,6 @@ function ChannelScreen() {
   const permissions = useChannelPermissions(workspace?.id)
   // The channel agent's proposal cards in the chat stay live.
   useChannelProposals(channelId)
-  const agent = useChannelAgent()
-  const agentState = useChannelAgentState()
   const channelState = useChannelDetail({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
@@ -262,8 +266,9 @@ function ChannelScreen() {
   const channel = channelState.channel
   const channelName = channel.name ?? "channel"
   // The agent is listed above the people, as itself, so Lor isn't a person.
+  // A channel with no agent has no Lor in it either.
   const memberItems = mentions.members
-    .filter((member) => !(agent && member.userId === LOR_USER_ID))
+    .filter((member) => !((agent || noAgent) && member.userId === LOR_USER_ID))
     .map(workspaceMemberToListItem)
   const openAgent = () =>
     router.push({
@@ -293,7 +298,7 @@ function ChannelScreen() {
       pendingAskRef.current = { prompt }
       return
     }
-    writeAskDraft(composerMentionRef.current, prompt)
+    writeAskDraft(composerMentionRef.current, agentName, prompt)
   }
   const openProfileFromMemberList = (member: MemberListItem) => {
     setIsMembersOpen(false)
@@ -516,7 +521,7 @@ function ChannelScreen() {
               messages={chat.messages}
               onLoadAround={chat.loadAround}
               onOpenThread={openThread}
-              onAskLor={askLorAbout}
+              onAskLor={noAgent ? undefined : askLorAbout}
               onDelete={confirmDelete}
               onEdit={startEditing}
               onPressAuthor={openAuthorProfile}
@@ -561,6 +566,7 @@ function ChannelScreen() {
         />
       ) : null}
       <ChannelOptionsSheet
+        agent={agent}
         canDeleteChannel={permissions.canDeleteChannel}
         canUpdateChannel={permissions.canUpdateChannel}
         channel={channel}
@@ -588,14 +594,10 @@ function ChannelScreen() {
           })
           setIsOptionsOpen(false)
         }}
-        onOpenAgent={
-          agent
-            ? () => {
-                openAgent()
-                setIsOptionsOpen(false)
-              }
-            : undefined
-        }
+        onOpenAgent={() => {
+          openAgent()
+          setIsOptionsOpen(false)
+        }}
         onOpenChange={setIsOptionsOpen}
         workspaceName={workspace.name}
         workspaceSlug={workspace.slug}

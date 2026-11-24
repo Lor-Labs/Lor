@@ -4,7 +4,6 @@ import {
   AGENT_NAME_MAX,
   CREATURES,
   type CreatureId,
-  channelAgentIdentity,
 } from "@repo/utils/bestiary"
 import { CHANNEL_AGENT_DEFAULT_MODEL } from "@repo/utils/inference"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -13,7 +12,6 @@ import { Description } from "heroui-native/description"
 import { useThemeColor } from "heroui-native/hooks"
 import { Input } from "heroui-native/input"
 import { Label } from "heroui-native/label"
-import { Radio } from "heroui-native/radio"
 import { TextArea } from "heroui-native/text-area"
 import { TextField } from "heroui-native/text-field"
 import { useToast } from "heroui-native/toast"
@@ -26,13 +24,19 @@ import { AgentFollowUps } from "@/components/agent-follow-ups"
 import { PickerSheet } from "@/components/picker-sheet"
 import { Button } from "@/components/ui/button"
 import { triggerHaptic } from "@/components/ui/haptics"
-import { RadioGroup } from "@/components/ui/radio-group"
 import { Screen } from "@/components/ui/screen"
 import { ScreenHeader } from "@/components/ui/screen-header"
 import { SectionLabel } from "@/components/ui/section-label"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useWorkspace } from "@/context/workspace-context"
 import { agentModelsQueryOptions } from "@/hooks/use-agent-models"
+import {
+  agentCreature,
+  agentsKey,
+  channelAgentOf,
+  useAgentsById,
+  type WorkspaceAgent,
+} from "@/hooks/use-agents"
 import {
   AGENT_STATE_TEXT,
   useChannelAgentState,
@@ -42,27 +46,23 @@ import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { api, responseMessage } from "@/lib/api"
 import type { ChannelDetail } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
+import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels"
 
-type WakeMode = NonNullable<ChannelDetail["agentWakeMode"]>
-
-const WAKE_MODES: { value: WakeMode; label: string }[] = [
-  { value: "mention", label: "When mentioned or replied to" },
-  { value: "every_message", label: "To every message" },
-]
-
-// A channel agent's settings on the phone: its name and creature, how it
-// answers, its model and brief, then its facts and follow-ups. As web's
-// Agent tab (edit-channel-dialog.tsx) and the follow-ups in its member
-// panel. Who edits what follows the API: channel managers everything, the
-// channel's creator the name and creature, anyone in the channel the facts
-// and follow-ups.
+// The settings of the agent in a channel, on the phone: its name and
+// creature, its model and brief, then its facts and this channel's
+// follow-ups (reference/agents-and-chats.md). They are the agent's, so they
+// apply in every channel it is in. Which agent a channel has is picked on
+// web. Who edits what follows the API: channel managers everything, the
+// agent's creator its name and creature, anyone who sees it the facts and
+// follow-ups.
 export default function ChannelAgentScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>()
   const { workspace } = useWorkspace()
-  const { channel, replaceChannel } = useChannelDetail({
+  const { channel } = useChannelDetail({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
   })
+  const agent = channelAgentOf(channel, useAgentsById(workspace?.slug))
   const back = () =>
     channelId
       ? router.replace({
@@ -71,46 +71,40 @@ export default function ChannelAgentScreen() {
         })
       : router.replace("/")
 
-  if (!workspace || !channel || channel.type !== "text") {
+  if (!workspace || !channel || !agent) {
     return (
       <Screen className="bg-background" edges={["top", "bottom"]}>
         <ScreenHeader onBack={back} title="Agent" />
         <StatePanel
           className="flex-1"
-          detail="Only text channels have an agent."
-          title="No agent here"
+          detail="Add one from the channel's settings on web."
+          title="No agent in this channel"
         />
       </Screen>
     )
   }
   return (
     <AgentSettings
+      agent={agent}
       channel={channel}
-      key={channel.id}
+      key={agent.id}
       onBack={back}
-      onSaved={replaceChannel}
       workspaceId={workspace.id}
       workspaceSlug={workspace.slug}
     />
   )
 }
 
-// The picked creature, replaced ones read as their replacements; null for
-// the one derived from the channel id.
-function creatureDraft(channel: ChannelDetail): CreatureId | null {
-  return channel.agentCreature ? channelAgentIdentity(channel).creature : null
-}
-
 function AgentSettings({
+  agent,
   channel,
   onBack,
-  onSaved,
   workspaceId,
   workspaceSlug,
 }: {
+  agent: WorkspaceAgent
   channel: ChannelDetail
   onBack: () => void
-  onSaved: (channel: ChannelDetail) => void
   workspaceId: string
   workspaceSlug: string
 }) {
@@ -124,21 +118,31 @@ function AgentSettings({
   // Its creator may name the agent and pick its creature too.
   const canEdit =
     canManage ||
-    (Boolean(channel.creatorId) && channel.creatorId === session?.user.id)
+    (Boolean(agent.createdById) && agent.createdById === session?.user.id)
 
-  // Drafts start from the channel when the screen opens; only edited fields
-  // are sent, so a stale draft never overwrites someone else's change.
-  const [agentName, setAgentName] = useState(channel.agentName ?? "")
-  const [creature, setCreature] = useState(creatureDraft(channel))
-  const [wakeMode, setWakeMode] = useState<WakeMode>(
-    channel.agentWakeMode ?? "mention"
+  // The other channels it is in, by name, among those this person sees.
+  const { data: channels } = useQuery(
+    workspaceChannelsQueryOptions(workspaceSlug)
   )
-  const [model, setModel] = useState(channel.agentModel ?? null)
-  const [brief, setBrief] = useState(channel.agentBrief ?? "")
+  const channelNames = new Map(
+    [
+      ...(channels?.uncategorized ?? []),
+      ...(channels?.categories.flatMap((category) => category.channels) ?? []),
+    ].map((item) => [item.id, item.name])
+  )
+  const alsoIn = agent.channelIds
+    .filter((id) => id !== channel.id)
+    .flatMap((id) => channelNames.get(id) ?? [])
+
+  // Drafts start from the agent when the screen opens; only edited fields
+  // are sent, so a stale draft never overwrites someone else's change.
+  const [agentName, setAgentName] = useState(agent.name)
+  const [creature, setCreature] = useState<CreatureId>(agentCreature(agent))
+  const [model, setModel] = useState(agent.model)
+  const [brief, setBrief] = useState(agent.brief ?? "")
   const [edited, setEdited] = useState<{
     agentName?: boolean
     creature?: boolean
-    wakeMode?: boolean
     model?: boolean
     brief?: boolean
   }>({})
@@ -165,33 +169,23 @@ function AgentSettings({
     modelOptions.find((option) => option.value === selectedModel)?.label ??
     selectedModel
 
-  // What it will be called and look like once saved: a blank name takes the
-  // creature's default (reference/always-on-agents.md, decision 32).
-  const identity = channelAgentIdentity({
-    id: channel.id,
-    agentName: agentName.trim() || null,
-    agentCreature: creature,
-  })
-  const defaultName = channelAgentIdentity({
-    id: channel.id,
-    agentCreature: creature,
-  }).name
+  // What it will be called and look like once saved. A name can't be blank.
+  const identity = { name: agentName.trim() || agent.name, creature }
 
   const hasChanges = Object.values(edited).some(Boolean)
   const save = useMutation({
     mutationFn: async () => {
-      const res = await api.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
+      const res = await api.v1.workspaces[":workspaceSlug"].agents[
+        ":agentId"
       ].$patch({
-        param: { workspaceSlug, channelId: channel.id },
+        param: { workspaceSlug, agentId: agent.id },
         json: {
-          ...(edited.agentName ? { agentName: agentName.trim() || null } : {}),
-          ...(edited.creature ? { agentCreature: creature } : {}),
-          ...(canManage && edited.wakeMode ? { agentWakeMode: wakeMode } : {}),
-          ...(canManage && edited.model ? { agentModel: model } : {}),
-          ...(canManage && edited.brief
-            ? { agentBrief: brief.trim() || null }
+          ...(edited.agentName && agentName.trim()
+            ? { name: agentName.trim() }
             : {}),
+          ...(edited.creature ? { creature } : {}),
+          ...(canManage && edited.model ? { model } : {}),
+          ...(canManage && edited.brief ? { brief: brief.trim() || null } : {}),
         },
       })
       if (!res.ok) {
@@ -200,22 +194,19 @@ function AgentSettings({
       return res.json()
     },
     onSuccess: (updated) => {
-      onSaved(updated)
       // The server normalizes what it saves (a name loses its "@").
-      setAgentName(updated.agentName ?? "")
-      setCreature(creatureDraft(updated))
-      setWakeMode(updated.agentWakeMode ?? "mention")
-      setModel(updated.agentModel ?? null)
-      setBrief(updated.agentBrief ?? "")
+      setAgentName(updated.name)
+      setCreature(agentCreature(updated))
+      setModel(updated.model)
+      setBrief(updated.brief ?? "")
       setEdited({})
-      // The Channels tab shows its name and face from the channel list.
-      void queryClient.invalidateQueries({
-        queryKey: ["channels", workspaceSlug],
-      })
-      toast.show({
-        variant: "success",
-        label: `${channelAgentIdentity(updated).name} saved`,
-      })
+      // Every channel it is in shows the new name and face.
+      queryClient.setQueryData<WorkspaceAgent[]>(
+        agentsKey(workspaceSlug),
+        (list) => list?.map((item) => (item.id === updated.id ? updated : item))
+      )
+      void queryClient.invalidateQueries({ queryKey: agentsKey(workspaceSlug) })
+      toast.show({ variant: "success", label: `${updated.name} saved` })
     },
     onError: (error) =>
       toast.show({
@@ -237,7 +228,7 @@ function AgentSettings({
           canEdit ? (
             <Button
               className="mr-one"
-              isDisabled={!hasChanges || saving}
+              isDisabled={!hasChanges || saving || !agentName.trim()}
               onPress={() => save.mutate()}
               size="sm"
             >
@@ -269,6 +260,12 @@ function AgentSettings({
             {identity.name} {AGENT_STATE_TEXT[state]}
             {state === "asleep" ? ". Mention it to wake it." : "."}
           </Text>
+          {alsoIn.length > 0 ? (
+            <Text className="text-center text-xs leading-4 text-muted">
+              Also in {alsoIn.map((name) => `#${name}`).join(", ")}. Its
+              settings and facts are the same there.
+            </Text>
+          ) : null}
         </View>
 
         {canEdit ? (
@@ -283,12 +280,10 @@ function AgentSettings({
                   setAgentName(text)
                   edit("agentName")
                 }}
-                placeholder={defaultName}
                 value={agentName}
               />
               <Description>
-                What the channel calls its agent. People mention it as @
-                {identity.name}.
+                What the team calls it. People mention it as @{identity.name}.
               </Description>
             </TextField>
 
@@ -331,42 +326,13 @@ function AgentSettings({
           </>
         ) : (
           <Text className="text-sm leading-5 text-muted">
-            People who manage channels, and the channel's creator, can change
-            its name and creature.
+            People who manage channels, and whoever made {identity.name}, can
+            change its name and creature.
           </Text>
         )}
 
         {canManage ? (
           <>
-            <View className="gap-two">
-              <SectionLabel>Answers</SectionLabel>
-              <RadioGroup
-                isDisabled={saving}
-                onValueChange={(value) => {
-                  setWakeMode(value as WakeMode)
-                  edit("wakeMode")
-                }}
-                value={wakeMode}
-              >
-                {WAKE_MODES.map((mode) => (
-                  <RadioGroup.Item
-                    className="min-h-[52px] rounded-lor-md border border-border bg-surface px-four py-three"
-                    key={mode.value}
-                    value={mode.value}
-                  >
-                    <Text className="min-w-0 flex-1 text-[15px] font-semibold text-foreground">
-                      {mode.label}
-                    </Text>
-                    <Radio />
-                  </RadioGroup.Item>
-                ))}
-              </RadioGroup>
-              <Text className="text-xs leading-4 text-muted">
-                {identity.name} reads every message here either way. This sets
-                which ones it answers right away.
-              </Text>
-            </View>
-
             <View className="gap-two">
               <SectionLabel>Model</SectionLabel>
               <Pressable
@@ -404,11 +370,11 @@ function AgentSettings({
                   setBrief(text)
                   edit("brief")
                 }}
-                placeholder={`What ${identity.name} should know and do here, e.g. “Watch deploys and tell us in two lines when one fails.”`}
+                placeholder={`What ${identity.name} should know and do, e.g. “Watch deploys and tell us in two lines when one fails.”`}
                 value={brief}
               />
               <Description>
-                Standing instructions for {identity.name} in this channel. Only
+                Standing instructions for {identity.name}, wherever it is. Only
                 people write the brief.
               </Description>
             </TextField>
@@ -416,8 +382,8 @@ function AgentSettings({
         ) : null}
 
         <AgentFacts
+          agentId={agent.id}
           agentName={identity.name}
-          channelId={channel.id}
           workspaceSlug={workspaceSlug}
         />
         <AgentFollowUps
@@ -427,7 +393,8 @@ function AgentSettings({
         />
         {canManage ? (
           <Text className="text-xs leading-4 text-muted">
-            Moving the chat to Discord and the agent's profile are set on web.
+            Which agent is in a channel, moving the chat to Discord and the
+            channel's tools are set on web.
           </Text>
         ) : null}
       </KeyboardAwareScrollView>

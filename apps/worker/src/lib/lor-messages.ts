@@ -8,7 +8,6 @@ import {
 import type { RealtimeMessage } from "@repo/realtime-types"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import { channelRoom, threadRoom, userRoom } from "@repo/realtime-types/rooms"
-import { channelAgentIdentity } from "@repo/utils/bestiary"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
@@ -40,8 +39,7 @@ async function loadChannel(channelId: string) {
       workspaceId: schema.channel.workspaceId,
       name: schema.channel.name,
       type: schema.channel.type,
-      agentName: schema.channel.agentName,
-      agentCreature: schema.channel.agentCreature,
+      agentName: schema.agent.name,
       workspaceName: schema.workspace.name,
     })
     .from(schema.channel)
@@ -49,6 +47,7 @@ async function loadChannel(channelId: string) {
       schema.workspace,
       eq(schema.workspace.id, schema.channel.workspaceId)
     )
+    .leftJoin(schema.agent, eq(schema.agent.id, schema.channel.agentId))
     .where(eq(schema.channel.id, channelId))
     .then((rows) => rows[0] ?? null)
 }
@@ -104,7 +103,7 @@ export async function fanoutLorMessage(
         id: input.messageId,
         content: input.content,
         author: {
-          name: asAgent ? channelAgentIdentity(channel).name : author.name,
+          name: (asAgent && channel.agentName) || author.name,
           image: author.image,
         },
         attachments: [],

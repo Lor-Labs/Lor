@@ -9,7 +9,7 @@ import { AgentsSidebar } from "./agents-sidebar"
 import { AgentsStore, useProto } from "./agents-store"
 import { ChannelView } from "./channel-view"
 
-// Dev-only prototype of reference/planned/agents-and-chats.md: agents are
+// Dev-only prototype of reference/agents-and-chats.md: agents are
 // separate from channels and added to them, a chat is one piece of work with
 // an agent, and the agent starts code sessions under a chat.
 export function AgentsPrototype() {

@@ -4,8 +4,9 @@ import { spawn } from "node:child_process"
 // push the schema to a throwaway eval DB) without touching your .env DATABASE_URL.
 // The url is applied to the spawned processes' env only, so drizzle.config.ts
 // (dialect/schema/out) is otherwise unchanged. Any other flags (--force, etc.)
-// pass straight through to `drizzle-kit push`. Required extensions are created
-// first (src/scripts/ensure-extensions.ts): drizzle-kit can't create them.
+// pass straight through to `drizzle-kit push`. The scripts in BEFORE_PUSH run
+// first: drizzle-kit can't create extensions, and a push that drops columns
+// must not run before their data is moved.
 const argv = process.argv.slice(2)
 const passthrough = []
 let url
@@ -43,6 +44,18 @@ function run(command, args) {
   })
 }
 
-const ensured = await run("tsx", ["src/scripts/ensure-extensions.ts"])
+// Before the push, in order: extensions, then data moves the push would
+// otherwise destroy (agents-from-channels.ts copies each channel's agent
+// settings onto `agent` rows before their columns are dropped).
+const BEFORE_PUSH = [
+  "src/scripts/ensure-extensions.ts",
+  "src/scripts/agents-from-channels.ts",
+]
+
+let code = 0
+for (const script of BEFORE_PUSH) {
+  code = await run("tsx", [script])
+  if (code !== 0) break
+}
 process.exitCode =
-  ensured === 0 ? await run("drizzle-kit", ["push", ...passthrough]) : ensured
+  code === 0 ? await run("drizzle-kit", ["push", ...passthrough]) : code

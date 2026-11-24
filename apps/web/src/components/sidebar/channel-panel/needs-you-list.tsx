@@ -10,7 +10,7 @@ import type {
   SidebarSession,
 } from "@repo/realtime-types"
 import { cn } from "@repo/ui/lib/utils"
-import { channelAgentIdentity } from "@repo/utils/bestiary"
+import type { CreatureId } from "@repo/utils/bestiary"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useEffect, useMemo } from "react"
@@ -21,6 +21,11 @@ import {
   useAllChannelActivity,
 } from "@/components/sidebar/channel-panel/channel-activity"
 import { useSocket } from "@/context/socket-context"
+import {
+  agentCreature,
+  channelAgentOf,
+  useAgentsById,
+} from "@/hooks/use-agents"
 import { workspaceActivityKey } from "@/hooks/use-workspace-activity"
 import { toSearchPreviewText } from "@/lib/search-preview"
 import {
@@ -29,6 +34,16 @@ import {
 } from "@/lib/workspace-channels-query"
 
 type NeedRow = AgentNeed & { channelId: string }
+
+// The asking agent's face. An empty slot keeps the rows aligned when the
+// channel has no agent any more.
+function NeedFace({ creature }: { creature: CreatureId | null }) {
+  return creature ? (
+    <AgentCreature creature={creature} size={24} still className="-mt-0.5" />
+  ) : (
+    <span className="size-6 shrink-0" />
+  )
+}
 type SessionRow = SidebarSession & { channelId: string }
 
 // What needs the person, gathered from every channel
@@ -92,8 +107,14 @@ export function NeedsYouGroup() {
   )
   const channelName = (channelId: string) =>
     byId.get(channelId)?.name ?? "channel"
-  const agentOf = (channelId: string) =>
-    channelAgentIdentity(byId.get(channelId) ?? { id: channelId })
+  // A need whose channel has since lost its agent still shows, as Lor's.
+  const agents = useAgentsById(workspaceSlug)
+  const agentOf = (channelId: string) => {
+    const agent = channelAgentOf(byId.get(channelId), agents)
+    return agent
+      ? { name: agent.name, creature: agentCreature(agent) }
+      : { name: "Lor", creature: null }
+  }
 
   // A question leaves once the person writes where it was asked: the
   // snapshot doesn't refetch on every chat message, so their own does it.
@@ -161,12 +182,7 @@ export function NeedsYouGroup() {
               onClick={() => openNeed(need)}
               className={rowClass}
             >
-              <AgentCreature
-                creature={agentOf(need.channelId).creature}
-                size={24}
-                still
-                className="-mt-0.5"
-              />
+              <NeedFace creature={agentOf(need.channelId).creature} />
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline gap-1.5">
                   <span className="min-w-0 flex-1 truncate font-medium">

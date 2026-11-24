@@ -1,6 +1,9 @@
 import { LOR_USER_ID } from "@repo/db/constants"
 import { useMemo } from "react"
-import { useChannelAgent } from "@/hooks/use-channel-agent"
+import {
+  useChannelAgent,
+  useChannelHasNoAgent,
+} from "@/hooks/use-channel-agent"
 import { useWorkspaceMembers } from "@/hooks/use-workspace-members"
 import {
   broadcastMentionCandidates,
@@ -23,13 +26,19 @@ export function useWorkspaceMentionCandidates({
   broadcasts?: boolean
 }) {
   const membersState = useWorkspaceMembers(workspaceSlug)
-  // Under a channel, Lor goes by its agent's name and creature (decision 32).
+  // Under a channel, Lor goes by its agent's name and creature. A channel
+  // with no agent has nobody to mention.
   const agent = useChannelAgent()
+  const noAgent = useChannelHasNoAgent()
   const candidates = useMemo<MentionCandidate[]>(
     () => [
       ...(broadcasts ? broadcastMentionCandidates(channelAudience) : []),
       ...membersState.members
-        .filter((member) => member.userId !== currentUserId)
+        .filter(
+          (member) =>
+            member.userId !== currentUserId &&
+            !(noAgent && member.userId === LOR_USER_ID)
+        )
         .map((member) => {
           const candidate = workspaceMemberToMentionCandidate(member)
           return agent && member.userId === LOR_USER_ID
@@ -43,7 +52,14 @@ export function useWorkspaceMentionCandidates({
             : candidate
         }),
     ],
-    [membersState.members, currentUserId, channelAudience, broadcasts, agent]
+    [
+      membersState.members,
+      currentUserId,
+      channelAudience,
+      broadcasts,
+      agent,
+      noAgent,
+    ]
   )
 
   return { ...membersState, candidates }

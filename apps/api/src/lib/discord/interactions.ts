@@ -1,5 +1,6 @@
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto"
 import { db, eq, schema } from "@repo/db"
+import { loadChannelAgent } from "@repo/db/queries/agents"
 import { env } from "@repo/env/server"
 import {
   createAgentWebhook,
@@ -15,7 +16,7 @@ import {
   withDiscordLinkLock,
 } from "@repo/lor/discord"
 import { channelRoom } from "@repo/realtime-types"
-import { channelAgentIdentity } from "@repo/utils/bestiary"
+import { agentIdentityFor } from "@repo/utils/bestiary"
 import { getEmitter } from "@/lib/bot-messages"
 import { logger } from "@/lib/logger"
 import { getRedisClient } from "@/lib/redis"
@@ -281,15 +282,21 @@ async function handleLink(
       id: schema.channel.id,
       name: schema.channel.name,
       archivedAt: schema.channel.archivedAt,
-      agentName: schema.channel.agentName,
-      agentCreature: schema.channel.agentCreature,
     })
     .from(schema.channel)
     .where(eq(schema.channel.id, data.channelId))
   if (!channel || channel.archivedAt) {
     return reply(interaction, "That Lor channel no longer takes messages.")
   }
-  const identity = channelAgentIdentity(channel)
+  // The link posts under the agent's name and face, so there has to be one.
+  const agent = await loadChannelAgent(channel.id)
+  if (!agent) {
+    return reply(
+      interaction,
+      "That Lor channel has no agent. Add one in Lor, then link again."
+    )
+  }
+  const identity = agentIdentityFor(agent.id, agent)
   const hook = await createAgentWebhook({
     discordChannelId: interaction.channel_id,
     name: identity.name,

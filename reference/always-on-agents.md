@@ -8,15 +8,16 @@ the work ships in one batch (Jacob, 11-19). It replaces the proposal in `planned
 as the record of how the design was reached. Where the two differ, this doc
 wins.
 
-**Changing next:** `planned/agents-and-chats.md` (Jacob, 2026-11-24) takes the
-agent off the channel: agents are their own thing and are added to channels,
-and each piece of work with an agent is a chat with its own queue. It replaces
-decisions 1, 2, 8 and 32 below and is design only. This doc stays the record
-of what is built.
+**Changing now:** `agents-and-chats.md` (Jacob, 2026-11-24) takes the agent
+off the channel. Its step 1 is built: decisions 8 (wake mode), 15, 17, 19 and
+32 below now hold per agent, not per channel, a channel can have no agent,
+and the "every message" wake mode is gone. Decisions 1 and 2 (one chat, one
+queue per channel) still describe the code until its step 2. Where the two
+docs differ, that one says what the code does.
 
 The mock at `/prototype/orchestration` shows an earlier shape, with threads
 and a page per agent. §9 says which parts of it still apply. The mock at
-`/prototype/agents` now shows `planned/agents-and-chats.md`.
+`/prototype/agents` now shows `agents-and-chats.md`.
 
 ## 1. The product
 

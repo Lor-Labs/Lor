@@ -1,8 +1,12 @@
 import { LOR_USER_ID } from "@repo/db/constants"
-import { channelAgentIdentity } from "@repo/utils/bestiary"
 import { useQuery } from "@tanstack/react-query"
 import { useMemo } from "react"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
+import {
+  agentCreature,
+  channelAgentOf,
+  useAgentsById,
+} from "@/hooks/use-agents"
 import { apiClient } from "@/lib/api-client"
 import { broadcastMentionCandidates } from "@/lib/broadcast-mentions"
 import { channelQueryOptions } from "@/lib/channel-query"
@@ -58,13 +62,22 @@ export function useMentionCandidates(
     channelId
   )
 
+  const agents = useAgentsById(workspaceSlug)
+
   return useMemo<MentionCandidate[]>(() => {
     const humanOnly = channel?.type === "voice"
-    const identity =
-      agent && channel?.type === "text" ? channelAgentIdentity(channel) : null
+    // In a text channel's chat, Lor is the agent in that channel. A channel
+    // with no agent has nobody to mention.
+    const inChat = agent && channel?.type === "text"
+    const placed = inChat ? channelAgentOf(channel, agents) : null
+    const identity = placed
+      ? { name: placed.name, creature: agentCreature(placed) }
+      : null
     const audienceIds = new Set(audience?.userIds ?? [])
     const people = (members ?? []).filter((member) =>
-      member.isBot ? !humanOnly : audienceIds.has(member.userId)
+      member.isBot
+        ? !humanOnly && !(inChat && !placed && member.userId === LOR_USER_ID)
+        : audienceIds.has(member.userId)
     )
     return [
       ...people.map((member) =>
@@ -86,7 +99,7 @@ export function useMentionCandidates(
       ),
       ...(broadcasts ? broadcastMentionCandidates(audience?.audience) : []),
     ]
-  }, [members, channel, audience, broadcasts, agent])
+  }, [members, channel, audience, broadcasts, agent, agents])
 }
 
 // People who can see the channel, so who can follow its threads. Bots never

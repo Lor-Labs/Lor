@@ -112,6 +112,13 @@ sandbox (checked 2026-11-20):
 - **The worker** has no port, so `.lor/environment.json` does not list it.
   Start it yourself: `pnpm --filter @repo/worker dev`. Without it, Lor and
   the channel agents never answer.
+- **A worker on a throwaway database deletes real storage.** Its
+  maintenance sweeps compare outside resources with the database it points
+  at: `sweepCheckpointStorage` deletes every code-storage repo whose
+  workspace that database lacks. Against a local or eval database, start the
+  worker with `CODE_STORAGE_ORG`, `CODE_STORAGE_PRIVATE_KEY`, `BL_API_KEY` and
+  `BL_WORKSPACE` set to invalid placeholders (they cannot be blank), so every
+  outside call fails (found 2026-11-24).
 
 ## Repository map
 

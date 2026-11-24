@@ -61,13 +61,15 @@ export type CompleteAgentLoop = (input: {
   closingNote: string
 }) => Promise<{ ok: true } | { ok: false; error: string }>
 
-// Set on every run of a channel's agent. The worker binds the hooks, since
-// it owns the run's lease and billing.
+// Set on every run of an agent in a channel. The worker binds the hooks,
+// since it owns the run's lease and billing.
 export type RunAgentContext = {
   channelName: string | null
-  // The name the channel gave its agent, and its creature (decisions 32, 33).
+  // The agent's name and creature, and the other channels it is in
+  // (reference/agents-and-chats.md): each channel is its own conversation.
   agentName: string
   creature: string
+  otherChannels: string[]
   sendMessage: SendMessageExecutor
   // "compact" summarizes the conversation instead of running a turn;
   // "memory" runs the memory pass after a turn.
@@ -236,13 +238,42 @@ export const agentLoopTools = {
   }),
 }
 
-// Stable per channel, so it is safe in the system prompt.
+// A channel whose agent was changed starts a fresh conversation: the next
+// turn freezes a new system prompt (the new agent's name, brief and facts)
+// and reads none of the old history, which stays stored
+// (reference/agents-and-chats.md).
+export async function resetAgentConversation(channelId: string): Promise<void> {
+  const now = new Date()
+  await db
+    .update(schema.agentContext)
+    .set({
+      epoch: sql`${schema.agentContext.epoch} + 1`,
+      system: null,
+      toolsHash: null,
+      model: null,
+      reasoningCutSeq: null,
+      promptTokens: 0,
+      compactedAt: now,
+      notesThrough: now,
+    })
+    .where(eq(schema.agentContext.channelId, channelId))
+}
+
+// Frozen with the system prompt per conversation, so a channel added to the
+// agent later shows here only after the next compaction.
 export function channelAgentPromptSection(agent: RunAgentContext): string {
   const channel = agent.channelName ? `#${agent.channelName}` : "this channel"
   const name = sanitizeInlineLabel(agent.agentName)
-  return `## You are ${name}, ${channel}'s agent
+  const others = agent.otherChannels.map(
+    (other) => `#${sanitizeInlineLabel(other)}`
+  )
+  const elsewhere =
+    others.length > 0
+      ? ` You are also in ${others.join(", ")}. Each channel is its own conversation with its own history: what you learn in one reaches the others only through your facts, so nothing said elsewhere is in this history.`
+      : ""
+  return `## You are ${name}
 
-You are ${name}, the always-on agent for ${channel}: one teammate the whole channel shares, shown in the app as a little ${agent.creature.toLowerCase()}. The team picked your name and can change it. Lor is the app you live in: its mentions of you (<@${LOR_USER_ID}>) appear to people as @${name}. Call yourself ${name}. People and you talk in the channel's chat.
+You are ${name}, an always-on agent for this team: one teammate the team shares, shown in the app as a little ${agent.creature.toLowerCase()}. The team picked your name and can change it. Lor is the app you live in: its mentions of you (<@${LOR_USER_ID}>) appear to people as @${name}. Call yourself ${name}. This conversation is ${channel}: people and you talk in its chat.${elsewhere}
 
 - Each turn starts from your inbox, after the time. "Since you last looked" lists what people said in the chat that was not for you: read it as context and do not answer it line by line. "What woke you" is what you are asked to handle now.
 - Nothing you write here reaches anyone. This conversation is your private working notes. To speak, call send_message: it posts in the channel's chat for everyone.
@@ -256,6 +287,16 @@ You are ${name}, the always-on agent for ${channel}: one teammate the whole chan
 - In the chat, never narrate what woke you: no "my Loop ran", "a scheduled check", "an event came in" or "my inbox". Say what you noticed and what it means, the way a teammate who was keeping an eye on things would.
 - When you are done, end the turn. Any closing note to yourself is one short line.
 - Your conversation is kept across turns, and summarized when it grows long. read_agent_history reads your earlier turns word for word, and read_thread reads the chat. Use them before guessing at something you no longer see.`
+}
+
+// A channel with no agent takes nothing into an inbox: nobody would read it
+// (reference/agents-and-chats.md). Callers read "not added" as nothing to do.
+async function channelHasAgent(channelId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ agentId: schema.channel.agentId })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, channelId))
+  return Boolean(row?.agentId)
 }
 
 // An item that is not a chat message: a session's report, an event a trigger
@@ -273,6 +314,7 @@ export async function addInboxNote(
   },
   executor: Pick<DbTransaction, "insert"> = db
 ): Promise<boolean> {
+  if (!(await channelHasAgent(input.channelId))) return false
   const rows = await executor
     .insert(schema.agentInbox)
     .values({
@@ -401,6 +443,7 @@ export async function addInboxMessage(input: {
   messageId: string
   lane: AgentInboxLane
 }): Promise<boolean> {
+  if (!(await channelHasAgent(input.channelId))) return false
   const rows = await db
     .insert(schema.agentInbox)
     .values({

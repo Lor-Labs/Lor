@@ -54,7 +54,6 @@ import {
 } from "@repo/ui/components/tooltip"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
-import { channelAgentIdentity } from "@repo/utils/bestiary"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
@@ -88,6 +87,12 @@ import {
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUnread } from "@/context/unread-context"
+import {
+  agentCreature,
+  channelAgentOf,
+  useAgentsById,
+  useAgentsUpdates,
+} from "@/hooks/use-agents"
 import { useNewIds } from "@/hooks/use-appended-ids"
 import { useChannelCreated } from "@/hooks/use-channel-created"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
@@ -277,6 +282,8 @@ export function ChannelList() {
   useProjectUpdates(workspaceSlug)
   // Channels created elsewhere (a teammate, a proposal apply) appear live.
   useChannelCreated(workspaceSlug)
+  // An agent renamed, or moved in or out of a channel, shows live.
+  useAgentsUpdates(workspaceSlug)
 
   // Projects render distinctly (folder disclosure + dashed boundary); match
   // category ids against the project list so public projects get it too.
@@ -1098,9 +1105,14 @@ function SortableChannelItem({
         sessions.filter((session) => session.state !== "running")
       )
     : undefined
-  // The channel's agent on its row: its creature with what it is doing now,
-  // and how many sessions are running here, the person's own or not.
-  const agent = ch.type === "text" ? channelAgentIdentity(ch) : null
+  // The agent in the channel on its row, when it has one: its creature with
+  // what it is doing now. And how many sessions are running here, the
+  // person's own or not.
+  const { workspaceSlug } = useParams({ strict: false })
+  const placed = channelAgentOf(ch, useAgentsById(workspaceSlug))
+  const agent = placed
+    ? { name: placed.name, creature: agentCreature(placed) }
+    : null
   const agentState = activity?.agentNeeds.length
     ? "needs_you"
     : activity?.agentWorking

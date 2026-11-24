@@ -1,4 +1,5 @@
 import { APP_USER_ID, db, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
+import { loadChannelAgent } from "@repo/db/queries/agents"
 import { addInboxMessage, agentInThread } from "@repo/lor/channel-agent"
 import { ensureCheckInLoop } from "@repo/lor/check-in"
 import {
@@ -423,7 +424,9 @@ async function mirrorInto(
   }
 
   // Into the agent's inbox: a mention of the bot or a reply to the agent
-  // wakes it, anything else waits unless the channel wakes it every time.
+  // wakes it, anything else waits unread. A channel whose agent was removed
+  // only mirrors.
+  if (!(await loadChannelAgent(link.channelId))) return
   void ensureCheckInLoop(link.channelId).catch(() => {})
   // In a thread a mention or a reply to the agent reaches it, and so does
   // every message in a thread it's part of, as in Lor's own threads.
@@ -435,14 +438,7 @@ async function mirrorInto(
     event.referenced_message?.webhook_id === link.webhookId ||
     (threadRootId ? await agentInThread(threadRootId) : false)
   if (threadRootId && !addressed) return
-  const everyMessage = addressed
-    ? false
-    : await db
-        .select({ mode: schema.channel.agentWakeMode })
-        .from(schema.channel)
-        .where(eq(schema.channel.id, link.channelId))
-        .then((rows) => rows[0]?.mode === "every_message")
-  const lane = addressed || everyMessage ? "wake" : "wait"
+  const lane = addressed ? "wake" : "wait"
   const added = await addInboxMessage({
     workspaceId: channel.workspaceId,
     channelId: link.channelId,

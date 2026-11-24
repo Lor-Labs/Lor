@@ -3,7 +3,6 @@ import LockedIcon from "@hugeicons/core-free-icons/LockedIcon"
 import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { LOR_USER_ID } from "@repo/db/constants"
-import { channelAgentIdentity } from "@repo/utils/bestiary"
 import { isHarnessAllowedInBeta, isHarnessEnabled } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { router } from "expo-router"
@@ -62,6 +61,11 @@ import {
   useRewindSession,
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
+import {
+  agentCreature,
+  channelAgentOf,
+  useAgentsById,
+} from "@/hooks/use-agents"
 import {
   useChannelApprovals,
   usePausedLorMessageId,
@@ -395,16 +399,21 @@ export function ThreadView({
   // Memoized: the list re-renders its rows only when its items change, and
   // the heading is one, so it changes them exactly when its content does.
   // The channel's agent, for a session it started or briefed.
-  const sessionChannel = channelState.channel
+  const agentsById = useAgentsById(workspace?.slug)
+  const placedAgent = lorSession
+    ? channelAgentOf(channelState.channel, agentsById)
+    : null
   const sessionChannelAgent = useMemo(
     () =>
-      lorSession && sessionChannel?.type === "text"
+      placedAgent
         ? {
-            channelId: sessionChannel.id,
-            ...channelAgentIdentity(sessionChannel),
+            id: placedAgent.id,
+            channelId,
+            name: placedAgent.name,
+            creature: agentCreature(placedAgent),
           }
         : null,
-    [lorSession, sessionChannel]
+    [placedAgent, channelId]
   )
   const sessionHeading = useMemo(() => {
     if (!lorSession) return undefined

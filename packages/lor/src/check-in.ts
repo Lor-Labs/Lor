@@ -3,11 +3,11 @@ import type { Loop } from "@repo/db/schema"
 import { logger } from "./logger"
 import { nextLoopRunAt } from "./loop-schedule"
 
-// The check-in every text channel's agent comes with
+// The check-in every channel with an agent comes with
 // (reference/always-on-agents.md, decision 7): a Loop every 30 minutes, all
 // day, that wakes the agent only when something waits unread, so a quiet
 // channel's check-ins cost nothing. People change it or turn it off like any
-// Loop.
+// Loop. It belongs to the channel: an agent in three channels has three.
 
 export const CHECK_IN_NAME = "Check-in"
 // Every 30 minutes, all day (Jacob, 2026-11-20; was 9:00 to 18:00 on
@@ -48,14 +48,18 @@ export async function ensureCheckInLoop(
       type: schema.channel.type,
       archivedAt: schema.channel.archivedAt,
       checkInAt: schema.channel.agentCheckInAt,
+      agentId: schema.channel.agentId,
     })
     .from(schema.channel)
     .where(eq(schema.channel.id, channelId))
+  // A channel with no agent has nothing to check in: it gets its check-in
+  // when an agent is first added.
   if (
     !channel?.workspaceId ||
     channel.type !== "text" ||
     channel.archivedAt ||
-    channel.checkInAt
+    channel.checkInAt ||
+    !channel.agentId
   ) {
     return null
   }

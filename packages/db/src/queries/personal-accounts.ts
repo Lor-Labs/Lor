@@ -2,7 +2,6 @@ import { isHarnessEnabled } from "@repo/utils/features"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { LOR_USER_ID } from "../constants"
 import { db } from "../index"
-import { channel } from "../schemas/channels"
 import { message } from "../schemas/messages"
 import {
   type HarnessAccountRoute,
@@ -63,19 +62,17 @@ export async function channelRequestUserId(
       isBot: user.isBot,
       explicit: sql<boolean>`${message.content} like ${`%<@${LOR_USER_ID}>%`}`,
       threadRootId: message.threadRootId,
-      wakeMode: channel.agentWakeMode,
       repliedToLor: sql<boolean>`exists (select 1 from message r where r.id = ${message.referencedMessageId} and r.author_id = ${LOR_USER_ID}::uuid)`,
     })
     .from(message)
     .innerJoin(user, eq(user.id, message.authorId))
-    .innerJoin(channel, eq(channel.id, message.channelId))
     .where(
       and(eq(message.id, triggerMessageId), eq(message.channelId, channelId))
     )
   if (!trigger || trigger.isBot) return null
-  return trigger.explicit ||
-    trigger.repliedToLor ||
-    (trigger.wakeMode === "mention" && !trigger.threadRootId)
+  // In the chat only a mention or a reply wakes the agent, so a top-level
+  // trigger was addressed to it. In a thread it also hears the rest.
+  return trigger.explicit || trigger.repliedToLor || !trigger.threadRootId
     ? trigger.userId
     : null
 }

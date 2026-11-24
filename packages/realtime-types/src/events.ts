@@ -1003,6 +1003,9 @@ export interface ServerToClientEvents {
   "agent:wake-ups:updated": (payload: { channelId: string }) => void
   // A channel's Discord link was made or removed: refetch its status.
   "channel:discord:updated": (payload: { channelId: string }) => void
+  // An agent was made, changed or deleted, or a channel got a different
+  // agent (reference/agents-and-chats.md): refetch agents and channels.
+  "agents:updated": (payload: { workspaceId: string }) => void
   // A channel agent's turn started (beats every 10s) or ended.
   "agent:working": (payload: { channelId: string; working: boolean }) => void
   "message:pin:toggled": (payload: RealtimeMessagePinToggled) => void

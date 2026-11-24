@@ -72,7 +72,7 @@ import {
   threadRoom,
   workspaceRoom,
 } from "@repo/realtime-types/rooms"
-import { channelAgentIdentity, creatureById } from "@repo/utils/bestiary"
+import { creatureById, isCreatureId } from "@repo/utils/bestiary"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
@@ -405,10 +405,18 @@ export async function flushAgentInbox(
       workspaceId: schema.channel.workspaceId,
       type: schema.channel.type,
       archivedAt: schema.channel.archivedAt,
+      agentId: schema.channel.agentId,
     })
     .from(schema.channel)
     .where(eq(schema.channel.id, channelId))
-  if (!channel?.workspaceId || channel.type !== "text" || channel.archivedAt) {
+  // A channel with no agent wakes nothing: its items wait unread, and are
+  // read if an agent is added later.
+  if (
+    !channel?.workspaceId ||
+    channel.type !== "text" ||
+    channel.archivedAt ||
+    !channel.agentId
+  ) {
     return "skipped"
   }
   const workspaceId = channel.workspaceId
@@ -748,6 +756,43 @@ function agentProposeChange(
   }
 }
 
+// A channel with the agent in it, for a turn or a compaction: the agent's
+// name, face and model, and the other channels it is in. Null when the
+// channel has no agent (it was removed since the turn was queued).
+async function loadAgentChannel(channelId: string) {
+  const [row] = await db
+    .select({
+      id: schema.channel.id,
+      name: schema.channel.name,
+      workspaceId: schema.channel.workspaceId,
+      archivedAt: schema.channel.archivedAt,
+      agentId: schema.agent.id,
+      agentModel: schema.agent.model,
+      agentName: schema.agent.name,
+      agentCreature: schema.agent.creature,
+    })
+    .from(schema.channel)
+    .innerJoin(schema.agent, eq(schema.agent.id, schema.channel.agentId))
+    .where(eq(schema.channel.id, channelId))
+  if (!row?.workspaceId) return null
+  const others = await db
+    .select({ name: schema.channel.name })
+    .from(schema.channel)
+    .where(
+      and(
+        eq(schema.channel.agentId, row.agentId),
+        ne(schema.channel.id, channelId),
+        isNull(schema.channel.archivedAt)
+      )
+    )
+    .orderBy(asc(schema.channel.createdAt))
+  return {
+    ...row,
+    workspaceId: row.workspaceId,
+    otherChannels: others.flatMap((other) => other.name ?? []),
+  }
+}
+
 function agentHooks(
   deps: AgentDeps,
   execution: RunExecution,
@@ -755,8 +800,9 @@ function agentHooks(
     id: string
     name: string | null
     workspaceId: string
-    agentName: string | null
-    agentCreature: string | null
+    agentName: string
+    agentCreature: string
+    otherChannels: string[]
   },
   mode: RunAgentContext["mode"],
   onSent: () => void,
@@ -773,11 +819,13 @@ function agentHooks(
     threadRootId: null,
   }
 ): RunAgentContext {
-  const identity = channelAgentIdentity(channel)
   return {
     channelName: channel.name,
-    agentName: identity.name,
-    creature: creatureById(identity.creature).label,
+    agentName: channel.agentName,
+    creature: isCreatureId(channel.agentCreature)
+      ? creatureById(channel.agentCreature).label
+      : "creature",
+    otherChannels: channel.otherChannels,
     mode,
     sessions: agentSessionExecutors(deps, {
       workspaceId: channel.workspaceId,
@@ -887,20 +935,8 @@ export async function runAgentTurnJob(
   if (!execution) return
   const writer = execution.writer
   // A failed read releases the claim, so the run stays eligible for recovery.
-  const [[channel], [run]] = await Promise.all([
-    db
-      .select({
-        id: schema.channel.id,
-        name: schema.channel.name,
-        workspaceId: schema.channel.workspaceId,
-        agentModel: schema.channel.agentModel,
-        agentName: schema.channel.agentName,
-        agentCreature: schema.channel.agentCreature,
-        agentWakeMode: schema.channel.agentWakeMode,
-        archivedAt: schema.channel.archivedAt,
-      })
-      .from(schema.channel)
-      .where(eq(schema.channel.id, channelId)),
+  const [channel, [run]] = await Promise.all([
+    loadAgentChannel(channelId),
     db
       .select({
         triggerMessageId: schema.agentRun.triggerMessageId,
@@ -926,7 +962,7 @@ export async function runAgentTurnJob(
     execution.stop()
     throw err
   })
-  if (!channel?.workspaceId) {
+  if (!channel) {
     await writer.transition("failed", { stopReason: "error" })
     execution.stop()
     return
@@ -1023,26 +1059,17 @@ export async function runAgentTurnJob(
       return
     }
     // Typing only when a person addressed Lor: turns woken by an event, a
-    // session's report, "every message" or a thread it's part of often end
-    // quiet. A person's id marks a person's message (the trigger of a
+    // session's report or a thread it's part of often end quiet. A person's id marks a person's message (the trigger of a
     // note-only turn is null).
     const explicit =
       Boolean(run?.triggerContent?.includes(`<@${LOR_USER_ID}>`)) ||
       run?.triggerReplyAuthorId === LOR_USER_ID
-    const addressed =
-      Boolean(userId) &&
-      (explicit ||
-        (channel.agentWakeMode === "mention" && !turnPlace.threadRootId))
+    const addressed = Boolean(userId) && (explicit || !turnPlace.threadRootId)
     // Before the typing and working timers start, so a failed lookup can't
     // leave them running.
     turnPlace.planUserId = userId ?? (await setUpBy(runId))
     const typing = addressed
-      ? showTyping(
-          deps,
-          channelId,
-          turnPlace,
-          channelAgentIdentity(channel).name
-        )
+      ? showTyping(deps, channelId, turnPlace, channel.agentName)
       : { pause: () => {}, stop: () => {} }
     const stopWorking = showWorking(deps, channelId)
     // The memory pass reuses this context, so its tools and prompt match
@@ -1321,18 +1348,8 @@ export async function runAgentCompactJob(
   if (await hasPendingWake(channelId)) return
   if (await pausedAgentRun(channelId)) return
   if (await wakeUpDueSoon(channelId)) return
-  const [channel] = await db
-    .select({
-      id: schema.channel.id,
-      name: schema.channel.name,
-      workspaceId: schema.channel.workspaceId,
-      agentModel: schema.channel.agentModel,
-      agentName: schema.channel.agentName,
-      agentCreature: schema.channel.agentCreature,
-    })
-    .from(schema.channel)
-    .where(eq(schema.channel.id, channelId))
-  if (!channel?.workspaceId) return
+  const channel = await loadAgentChannel(channelId)
+  if (!channel) return
   const workspaceId = channel.workspaceId
   const context = await loadAgentContext(workspaceId, channelId)
   if (context.promptTokens < COMPACT_AT_TOKENS) return
@@ -1425,7 +1442,8 @@ export async function sweepStrandedInboxes(
         eq(schema.agentInbox.lane, "wake"),
         lt(schema.agentInbox.createdAt, before),
         eq(schema.channel.type, "text"),
-        isNull(schema.channel.archivedAt)
+        isNull(schema.channel.archivedAt),
+        isNotNull(schema.channel.agentId)
       )
     )
     .groupBy(schema.agentInbox.channelId)

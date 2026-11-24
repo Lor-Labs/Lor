@@ -2,7 +2,7 @@ import type { CreatureId } from "@repo/utils/bestiary"
 import { me, type Person, people } from "../prototype-data"
 
 // Made-up data for the agents-and-chats prototype
-// (reference/planned/agents-and-chats.md). An agent is a teammate for a role
+// (reference/agents-and-chats.md). An agent is a teammate for a role
 // and is added to channels. A channel is only a place where people talk. A
 // chat is one piece of work between some people and one agent, and the agent
 // starts code sessions under it.

@@ -67,6 +67,7 @@ import type {
   ListWorkspaceMembersResponse,
   WorkspaceMemberPresence,
 } from "@/lib/api-types"
+import { channelQueryOptions } from "@/lib/channel-query"
 import {
   canKickWorkspaceMembers,
   canManageWorkspaceMember,
@@ -282,9 +283,7 @@ function AgentMemberRow({ agent }: { agent: ChannelAgent }) {
       />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] font-medium">{agent.name}</div>
-        <div className="truncate text-[11px] text-muted-foreground">
-          Channel agent
-        </div>
+        <div className="truncate text-[11px] text-muted-foreground">Agent</div>
       </div>
       <span className="max-w-16 shrink-0 truncate pl-2 text-[11px] text-muted-foreground">
         {AGENT_STATE_LABELS[agent.state]}
@@ -551,7 +550,16 @@ export function WorkspaceMembersPanel({
     }
   }, [socket, workspaceId, queryClient, queryKey])
 
-  const members = data?.members ?? []
+  // A text channel with no agent is people only: Lor isn't listed there
+  // (reference/agents-and-chats.md).
+  const { data: channelDetail } = useQuery({
+    ...channelQueryOptions(view.workspaceSlug, view.channelId),
+    enabled: Boolean(view.workspaceSlug && view.channelId),
+  })
+  const noAgent = channelDetail?.type === "text" && !channelDetail.agentId
+  const members = (data?.members ?? []).filter(
+    (member) => !(noAgent && member.userId === LOR_USER_ID)
+  )
   const onlineMembers = members.filter((member) => member.status !== "offline")
   const offlineMembers = members.filter((member) => member.status === "offline")
   const isModerationDialogOpen = moderationDialog !== null

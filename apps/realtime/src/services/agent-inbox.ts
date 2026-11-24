@@ -33,12 +33,14 @@ function ensureCheckIn(
     })
 }
 
-// A message in the channel chat lands in the channel agent's inbox
-// (reference/always-on-agents.md §3). A mention or a reply to the
-// agent wakes it; anything else waits unread until its next turn, unless the
-// channel is set to wake it on every message. In a human thread a mention or
-// a reply to the agent reaches it, and so does every message in a thread
-// it's part of (it may stay quiet); the agent answers in that thread.
+// A message in the channel chat lands in the inbox of the agent in that
+// channel (reference/always-on-agents.md §3). A mention or a reply to the
+// agent wakes it; anything else waits unread until its next turn
+// (reference/agents-and-chats.md, decision 8: no "every message" setting).
+// In a human thread a mention or a reply to the agent reaches it, and so
+// does every message in a thread it's part of (it may stay quiet); the agent
+// answers in that thread. A channel with no agent is plain human chat:
+// nothing is queued.
 export async function addChatMessageToAgentInbox(args: {
   workspaceId: string
   channelId: string
@@ -49,6 +51,11 @@ export async function addChatMessageToAgentInbox(args: {
   // "addressed": a mention of Lor or a reply to it, which always wakes it.
   // "skipped": a thread reply not for the agent.
 }): Promise<"addressed" | "wake" | "wait" | "duplicate" | "skipped"> {
+  const [channel] = await db
+    .select({ agentId: schema.channel.agentId })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, args.channelId))
+  if (!channel?.agentId) return "skipped"
   ensureCheckIn(args.channelId, args.onCheckInMade)
   const threadRootId = args.message.threadRootId
   const addressed =
@@ -57,15 +64,7 @@ export async function addChatMessageToAgentInbox(args: {
   const inThread =
     threadRootId && !addressed ? await agentInThread(threadRootId) : false
   if (threadRootId && !addressed && !inThread) return "skipped"
-  const everyMessage =
-    addressed || threadRootId
-      ? false
-      : await db
-          .select({ mode: schema.channel.agentWakeMode })
-          .from(schema.channel)
-          .where(eq(schema.channel.id, args.channelId))
-          .then((rows) => rows[0]?.mode === "every_message")
-  const lane = addressed || inThread || everyMessage ? "wake" : "wait"
+  const lane = addressed || inThread ? "wake" : "wait"
   const added = await addInboxMessage({
     workspaceId: args.workspaceId,
     channelId: args.channelId,

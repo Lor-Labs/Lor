@@ -54,14 +54,8 @@ export const dmChannelSchema = selectChannelSchema
   .omit({
     agentProfileId: true,
     creatorId: true,
-    agentModel: true,
-    agentWakeMode: true,
-    agentBrief: true,
-    agentBriefUpdatedAt: true,
+    agentId: true,
     agentCheckInAt: true,
-    agentName: true,
-    agentCreature: true,
-    agentIdentityUpdatedAt: true,
   })
   .extend({
     members: z.array(dmMemberSchema),

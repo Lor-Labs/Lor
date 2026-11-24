@@ -12,8 +12,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { apiClient } from "@/lib/api-client"
 
-const agentFactsKey = (channelId: string) =>
-  ["channel-agent-facts", channelId] as const
+const agentFactsKey = (agentId: string) => ["agent-facts", agentId] as const
 
 type AgentFact = {
   id: string
@@ -30,24 +29,26 @@ function formatDate(iso: string) {
   })
 }
 
-// The channel agent's facts (reference/always-on-agents.md §7): what Lor
-// keeps after its turns, each with its source and date. Edits and deletes
-// save at once, apart from the dialog's Save, and reach the agent as a change
-// note on its next turn.
+// An agent's facts (reference/always-on-agents.md §7): what it keeps after
+// its turns, in any channel, each with its source and date. Edits and
+// deletes save at once, apart from the dialog's Save, and reach the agent as
+// a change note on its next turn.
 export function AgentFactsList({
   workspaceSlug,
-  channelId,
+  agentId,
+  agentName,
 }: {
   workspaceSlug: string
-  channelId: string
+  agentId: string
+  agentName: string
 }) {
   const queryClient = useQueryClient()
   const facts = useQuery({
-    queryKey: agentFactsKey(channelId),
+    queryKey: agentFactsKey(agentId),
     queryFn: async (): Promise<AgentFact[]> => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ]["agent-facts"].$get({ param: { workspaceSlug, channelId } })
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].agents[
+        ":agentId"
+      ].facts.$get({ param: { workspaceSlug, agentId } })
       if (!res.ok) throw new Error("Failed to load facts")
       return (await res.json()).facts
     },
@@ -58,10 +59,10 @@ export function AgentFactsList({
 
   const save = useMutation({
     mutationFn: async (input: { id: string; text: string }) => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ]["agent-facts"][":factId"].$patch({
-        param: { workspaceSlug, channelId, factId: input.id },
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].agents[
+        ":agentId"
+      ].facts[":factId"].$patch({
+        param: { workspaceSlug, agentId, factId: input.id },
         json: { text: input.text },
       })
       if (!res.ok) throw new Error("Failed to save the fact")
@@ -74,7 +75,7 @@ export function AgentFactsList({
           ? null
           : current
       )
-      queryClient.setQueryData<AgentFact[]>(agentFactsKey(channelId), (list) =>
+      queryClient.setQueryData<AgentFact[]>(agentFactsKey(agentId), (list) =>
         list?.map((fact) => (fact.id === saved.id ? saved : fact))
       )
     },
@@ -82,16 +83,16 @@ export function AgentFactsList({
   })
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ]["agent-facts"][":factId"].$delete({
-        param: { workspaceSlug, channelId, factId: id },
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].agents[
+        ":agentId"
+      ].facts[":factId"].$delete({
+        param: { workspaceSlug, agentId, factId: id },
       })
       if (!res.ok) throw new Error("Failed to delete the fact")
       return id
     },
     onSuccess: (id) =>
-      queryClient.setQueryData<AgentFact[]>(agentFactsKey(channelId), (list) =>
+      queryClient.setQueryData<AgentFact[]>(agentFactsKey(agentId), (list) =>
         list?.filter((fact) => fact.id !== id)
       ),
     onError: (error) => toast.error(error.message),
@@ -109,8 +110,9 @@ export function AgentFactsList({
         )}
       </div>
       <p className="text-xs text-muted-foreground">
-        What Lor keeps about this channel after its turns, in front of it on
-        every turn. Anyone here can edit or delete one.
+        What {agentName} keeps after its turns, in front of it on every turn in
+        every channel it is in. Anyone who sees {agentName} can edit or delete
+        one.
       </p>
       {facts.isPending ? (
         <p className="text-xs text-muted-foreground">Loading…</p>
@@ -127,8 +129,8 @@ export function AgentFactsList({
         </p>
       ) : list.length === 0 ? (
         <p className="rounded-md border border-border/70 border-dashed px-3 py-2 text-xs text-muted-foreground">
-          No facts yet. Lor adds them as it learns how this channel works, and
-          saves anything you ask it to remember.
+          No facts yet. {agentName} adds them as it learns how the team works,
+          and saves anything you ask it to remember.
         </p>
       ) : (
         <ul className="divide-y divide-border/60 rounded-md border border-border/70">

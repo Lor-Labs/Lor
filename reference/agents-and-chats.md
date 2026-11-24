@@ -1,10 +1,13 @@
 # Agents and chats: agents apart from channels
 
-**Status:** Design, decided with Jacob on 2026-11-23 and 2026-11-24. Nothing
-is built except the mock at `/prototype/agents`. It changes the shape built
-under `always-on-agents.md` (LOR-169): where the two differ, this doc is the
-plan and that doc is what the code does today. The build steps in §9 are an
-outline and are not sized.
+**Status:** Decided with Jacob on 2026-11-23 and 2026-11-24, and built step
+by step from §9. Step 1 (agents apart from channels) is built, 2026-11-24:
+lint and type checks pass, the data move and the app were run on a throwaway
+database, and `db:push` on the shared databases is owed (§9, rollout). Steps
+2 to 5 are not started, so every chat with an agent in a channel still shares
+that channel's one queue. It changes the shape built under
+`always-on-agents.md` (LOR-169): where a step here has landed, this doc says
+what the code does.
 
 ## 1. Why
 
@@ -203,20 +206,113 @@ tools all stay.
 - **Does the chat earn its place?** Chat sessions were dropped on 11-18 as
   barely used. New session stays a direct way to a coding agent.
 
-## 9. Build outline
+## 9. Build steps
 
-Not sized. Each step should end in something the team uses.
+Each step ends in something the team uses. Steps 2 to 5 are not sized.
 
-1. **Agents apart from channels.** The agent record, a channel's agent or
-   none, one agent in several Lor channels, facts and events per agent, the
-   agent's settings page.
-2. **Chats.** The chat record, a queue and context per chat, a mention that is
-   work starting one, New chat, session reports going back to their chat, the
-   sidebar.
-3. **Accounts per agent** and the payer order.
-4. **Discord in this shape.** One agent in many channels, a thread as a chat,
-   DMs to the agent.
-5. **Slack,** in the same shape.
+### Step 1: agents apart from channels (built 2026-11-24)
+
+- [x] **`agent` table** (`packages/db/src/schemas/agents.ts`): name, creature,
+  role, brief, model, `access_container_id` (who can see it), creator.
+  `channel.agent_id` points at it, or is null.
+- [x] **Off the channel:** `agent_name`, `agent_creature`,
+  `agent_identity_updated_at`, `agent_brief`, `agent_brief_updated_at`,
+  `agent_model`, and `agent_wake_mode` with its enum (decision 8).
+  `agent_check_in_at` and `agent_profile_id` stay.
+- [x] **Facts per agent:** `channel_agent_fact` is `agent_fact`, keyed by
+  `agent_id`. `channel_id` stays as where a fact was learned. The cap (100
+  facts, 4,000 characters) and the write lock are per agent.
+- [x] **The data move** (`packages/db/src/scripts/agents-from-channels.ts`):
+  every text channel's agent settings become an `agent` row with the name and
+  face people already see, and its facts follow. `scripts/push.mjs` runs it
+  before every `db:push`, because that push drops the old columns. It runs
+  once per database, in one transaction, and is a no-op after.
+- [x] **Turns:** the worker loads the agent through `channel.agent_id`
+  (`loadAgentChannel` in `apps/worker/src/lib/agent-inbox.ts`). The prompt
+  header names the other channels the agent is in and says each channel is
+  its own conversation. Profile change notes reach every channel of an agent.
+- [x] **No agent in a channel:** nothing is queued (`addInboxMessage` and
+  `addInboxNote` refuse), no check-in Loop is made, a Loop fire or an event
+  there is skipped, and nothing answers a mention.
+- [x] **Mentions only:** the "every message" wake mode is gone from realtime,
+  Discord inbound, the worker and the payer rule.
+- [x] **A different agent in a channel** starts a fresh conversation there
+  (`resetAgentConversation`), and the channel gets its check-in when its
+  first agent is added.
+- [x] **API:** `/v1/workspaces/:slug/agents` (list, create, change, delete)
+  and `/agents/:id/facts`. The channel routes take `agentId` and lose the
+  agent fields and the fact routes. New event `agents:updated`.
+- [x] **New channels:** left unpicked, a text channel gets the workspace's
+  first agent with its audience. A new workspace starts with one agent in
+  every text channel. A new private channel or project starts with none.
+- [x] **Audience rule** (decision 14): an agent is the whole workspace's or
+  one members-only container's, and can be added only to channels with that
+  audience. Checked on the server.
+- [x] **Web:** a channel's Agent tab picks the agent, or none, and edits that
+  agent's own settings; workspace settings has an Agents section (make, edit,
+  delete, see where each is). The sidebar, mentions, hints and empty states
+  follow a channel with no agent.
+- [x] **Mobile:** follows the same data. No agent picker there: a channel's
+  agent is picked on web.
+- [x] **Checked 2026-11-24** on a throwaway Postgres: the old schema pushed
+  and seeded (a picked name, derived names, a replaced creature, a private
+  category, facts), then `pnpm db:push`. Every agent kept the name and face
+  the old code showed, the private channel's agent became private to its
+  category, facts followed their agent, and a second push found nothing of
+  this step to change. In the app: one agent in two channels, a channel with
+  no agent (nothing queued, no agent offered as a mention), the Agents
+  section (make, rename, delete), and a live turn in a second channel that
+  answered from a fact learned in the first.
+
+Deviations and gaps:
+
+- **Tools stay on the channel.** A turn uses the tool profile of the channel
+  it runs in, as before, so one agent can have different tools in two
+  channels. §5 moves them to the agent; not done.
+- **Events and Loops stay on the channel** they report in, and the channel's
+  agent handles them. They do not move with an agent that leaves.
+- **The log and the open block are per channel.** An agent in three channels
+  does not see, in one, what is running in the others. Its facts are how
+  anything crosses.
+- **The session ceiling** is still 15 per channel.
+- **Permissions:** managing agents takes `channel:update`, the permission the
+  channel's agent settings took. The person who made an agent can still
+  rename it and change its face and role.
+- **The sidebar still lists channels only.** Agents get their own group with
+  chats under them in step 2.
+- **The mock's settings page** shows accounts, audience and events on the
+  agent. None of those are built.
+- **No audience picker yet.** A new agent made from a private channel's
+  settings is private to it; one made in workspace settings is the whole
+  workspace's. Changing an agent's audience is not built.
+
+Rollout, per environment, with API, realtime, worker, web and mobile together:
+
+1. `pnpm db:push`. It runs the data move first, then drops the old columns
+   (drizzle-kit asks before dropping; `--force` skips the question).
+2. Restart the workers, so no turn runs on old code.
+3. Rebuild web, desktop and mobile: the channel payload changed shape.
+4. Once every environment has pushed, take `agents-from-channels.ts` out of
+   `BEFORE_PUSH` in `packages/db/scripts/push.mjs`.
+
+### Step 2: chats
+
+The chat record, a queue and context per chat, a mention that is work
+starting one, New chat, session reports going back to their chat, and the
+sidebar's Agents group. The log and the open block become the agent's.
+
+### Step 3: accounts per agent
+
+The payer order of §5, and tools on the agent.
+
+### Step 4: Discord in this shape
+
+One agent in many channels works after step 1 through several Lor channels.
+Still to do: a thread as a chat, and DMs to the agent.
+
+### Step 5: Slack
+
+In the same shape.
 
 ## 10. The mock
 

@@ -9,6 +9,7 @@ import betaRouter from "@/routes/beta"
 import index from "@/routes/index.route"
 import agentModelsRouter from "@/routes/v1/agent-models/index"
 import agentProfilesRouter from "@/routes/v1/agent-profiles/index"
+import agentsRouter from "@/routes/v1/agents/index"
 import approvalPoliciesRouter from "@/routes/v1/approval-policies/index"
 import approvalsRouter from "@/routes/v1/approvals/index"
 import artifactsRouter from "@/routes/v1/artifacts/index"
@@ -130,6 +131,7 @@ const routes = app
   .route("/v1", personalAccountsRouter)
   .route("/v1", workspaceAccountsRouter)
   .route("/v1", agentModelsRouter)
+  .route("/v1", agentsRouter)
   .route("/v1", pushTokensRouter)
   .route("/v1", channelMutesRouter)
   .route("/v1", hintsRouter)

@@ -3,11 +3,7 @@ import type {
   ChannelActivity,
   TypingIndicatorEvent,
 } from "@repo/realtime-types"
-import {
-  type CreatureId,
-  type CreatureState,
-  channelAgentIdentity,
-} from "@repo/utils/bestiary"
+import type { CreatureId, CreatureState } from "@repo/utils/bestiary"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   createContext,
@@ -19,10 +15,17 @@ import {
   useSyncExternalStore,
 } from "react"
 import { useSocket } from "@/context/socket-context"
+import {
+  agentCreature,
+  channelAgentOf,
+  useAgentsById,
+} from "@/hooks/use-agents"
 import { workspaceActivityKey } from "@/hooks/use-workspace-activity"
 import { channelQueryOptions } from "@/lib/channel-query"
 
 export type ChannelAgent = {
+  // The agent's own id: one agent can be in several channels.
+  id: string
   channelId: string
   name: string
   creature: CreatureId
@@ -70,9 +73,9 @@ function useAgentWorking(channelId: string) {
   return working
 }
 
-// A text channel's agent: the name and creature the team picked (or the
-// derived ones), and what it is doing now (reference/always-on-agents.md,
-// decisions 32 and 33). Null for other channel types.
+// The agent in a channel: its name and creature, and what it is doing in
+// this channel now (reference/agents-and-chats.md). Null when the channel
+// has no agent.
 export function useChannelAgent(
   workspaceSlug: string | undefined,
   channelId: string
@@ -89,19 +92,22 @@ export function useChannelAgent(
     (onChange) => queryClient.getQueryCache().subscribe(onChange),
     () => queryClient.getQueryData<ChannelActivity[]>(activityKey)
   )
+  const agents = useAgentsById(workspaceSlug)
+  const agent = channelAgentOf(channel, agents)
   const working = useAgentWorking(channelId)
   const needsYou = Boolean(
     activity?.find((row) => row.channelId === channelId)?.agentNeeds.length
   )
   return useMemo(() => {
-    if (!channel || channel.type !== "text") return null
-    const identity = channelAgentIdentity(channel)
+    if (!agent) return null
     return {
+      id: agent.id,
       channelId,
-      ...identity,
+      name: agent.name,
+      creature: agentCreature(agent),
       state: needsYou ? "needs_you" : working ? "working" : "asleep",
     }
-  }, [channel, channelId, needsYou, working])
+  }, [agent, channelId, needsYou, working])
 }
 
 const ChannelAgentContext = createContext<ChannelAgent | null>(null)

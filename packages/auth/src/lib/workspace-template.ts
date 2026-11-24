@@ -1,4 +1,5 @@
 import { db, schema } from "@repo/db"
+import { createAgent } from "@repo/db/queries/agents"
 import { isChannelFeatureEnabled } from "@repo/utils/features"
 
 type TemplateChannel = Pick<
@@ -36,14 +37,21 @@ const STARTUP_CHANNELS: TemplateChannel[] = [
 
 // No Lor intro post: Lor never writes in channel chat
 // (reference/workspace-model.md); the New session view teaches what it does.
+// A new workspace starts with one agent, in every text channel: a team adds
+// more, or takes it out of a channel, when it wants to
+// (reference/agents-and-chats.md).
 export async function seedWorkspaceTemplate(workspaceId: string) {
-  await db.insert(schema.channel).values(
-    STARTUP_CHANNELS.filter(isChannelFeatureEnabled).map(
-      (channel, position) => ({
-        ...channel,
-        workspaceId,
-        position,
-      })
+  await db.transaction(async (tx) => {
+    const agent = await createAgent({ workspaceId }, tx)
+    await tx.insert(schema.channel).values(
+      STARTUP_CHANNELS.filter(isChannelFeatureEnabled).map(
+        (channel, position) => ({
+          ...channel,
+          agentId: channel.type === "text" ? agent.id : null,
+          workspaceId,
+          position,
+        })
+      )
     )
-  )
+  })
 }

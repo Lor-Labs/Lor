@@ -6,6 +6,7 @@ import {
   WebhookIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
+import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import {
   Dialog,
@@ -27,23 +28,23 @@ import {
 import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
-import {
-  AGENT_NAME_MAX,
-  CREATURES,
-  type CreatureId,
-  channelAgentIdentity,
-  isCreatureId,
-} from "@repo/utils/bestiary"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
-import { AgentCreature } from "@/components/agent/agent-creature"
+import {
+  type AgentDraft,
+  AgentFields,
+  agentChanges,
+  agentDraftOf,
+  createAgent,
+  saveAgent,
+} from "@/components/agent/agent-fields"
 import { DiscordChatSection } from "@/components/agent/discord-chat-section"
 import { AgentFactsList } from "@/components/sidebar/channel-panel/agent-facts-list"
-import { AgentModelSelect } from "@/components/sidebar/channel-panel/agent-model-select"
 import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
 import { MorphText } from "@/components/ui/morph-text"
 import { GrantedChips } from "@/components/workspace/agent-profiles-section"
+import { agentsKey, useAgents } from "@/hooks/use-agents"
 import { apiClient } from "@/lib/api-client"
 import type {
   AgentProfile,
@@ -56,14 +57,10 @@ import {
   upsertChannel,
 } from "@/lib/channel-list-cache"
 import { channelQueryOptions } from "@/lib/channel-query"
+import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels-query"
 
 const INHERIT = "__inherit__"
-
-// When the channel's agent takes a turn (reference/always-on-agents.md §3).
-const WAKE_MODES = [
-  { value: "mention", label: "When mentioned or replied to" },
-  { value: "every_message", label: "To every message" },
-] as const
+const NO_AGENT = "__none__"
 
 export type EditChannelTab = "overview" | "profile" | "webhooks"
 type Tab = EditChannelTab
@@ -114,22 +111,17 @@ export function EditChannelDialog({
   const [name, setName] = useState(channel.name ?? "")
   const [topic, setTopic] = useState(channel.topic ?? "")
   const [profileId, setProfileId] = useState(channel.agentProfileId ?? INHERIT)
-  const [agentModel, setAgentModel] = useState(channel.agentModel ?? null)
-  const [wakeMode, setWakeMode] = useState(channel.agentWakeMode ?? "mention")
-  const [brief, setBrief] = useState(channel.agentBrief ?? "")
-  const [agentName, setAgentName] = useState(channel.agentName ?? "")
-  const [agentCreature, setAgentCreature] = useState<CreatureId | null>(
-    isCreatureId(channel.agentCreature) ? channel.agentCreature : null
-  )
-  // Only edited agent fields are sent, so a stale draft never overwrites a
-  // change someone else saved while the dialog was open.
-  const [edited, setEdited] = useState<{
-    model?: boolean
-    wakeMode?: boolean
-    brief?: boolean
-    agentName?: boolean
-    agentCreature?: boolean
-  }>({})
+  // Which agent is in the channel (reference/agents-and-chats.md), and a
+  // draft of that agent's own settings. Both save with the dialog.
+  const [agentId, setAgentId] = useState<string | null>(channel.agentId)
+  const [agentDraft, setAgentDraft] = useState<AgentDraft | null>(null)
+  const agents = useAgents(workspaceSlug)
+  const selectedAgent = agents.find((agent) => agent.id === agentId) ?? null
+  const { data: session } = authClient.useSession()
+  const { data: channelList } = useQuery({
+    ...workspaceChannelsQueryOptions(workspaceSlug ?? ""),
+    enabled: open && !!workspaceSlug,
+  })
 
   // Drafts start from the channel when the dialog opens or switches channel,
   // not on every cache update, so an unsaved edit survives a rename's
@@ -144,16 +136,62 @@ export function EditChannelDialog({
       setName(channel.name ?? "")
       setTopic(channel.topic ?? "")
       setProfileId(channel.agentProfileId ?? INHERIT)
-      setAgentModel(channel.agentModel ?? null)
-      setWakeMode(channel.agentWakeMode ?? "mention")
-      setBrief(channel.agentBrief ?? "")
-      setAgentName(channel.agentName ?? "")
-      setAgentCreature(
-        isCreatureId(channel.agentCreature) ? channel.agentCreature : null
-      )
-      setEdited({})
+      setAgentId(channel.agentId)
     }
   }, [open, channel.id])
+
+  // The draft follows the agent picked, not every refetch of it, so an
+  // unsaved edit survives someone else's change.
+  const selectedAgentId = selectedAgent?.id ?? null
+  useEffect(() => {
+    setAgentDraft(open && selectedAgent ? agentDraftOf(selectedAgent) : null)
+  }, [open, selectedAgentId])
+  const agentEdits =
+    selectedAgent && agentDraft ? agentChanges(agentDraft, selectedAgent) : null
+  // Without channel:update, only the person who made the agent may change
+  // how it appears, and nobody changes which agent is here.
+  const madeAgent =
+    !!selectedAgent && selectedAgent.createdById === session?.user.id
+  const canEditAgent = !overviewOnly || madeAgent
+
+  // An agent carries what it hears, so only one with the channel's audience
+  // can be here: the whole workspace's, or this private container's.
+  const container = channel.parentId
+    ? channelList?.categories.find((cat) => cat.id === channel.parentId)
+    : channel
+  const agentAudience =
+    container?.audience === "members" ? (container?.id ?? null) : null
+  const fittingAgents = agents.filter(
+    (agent) => (agent.accessContainerId ?? null) === agentAudience
+  )
+  const channelNames = new Map(
+    [
+      ...(channelList?.uncategorized ?? []),
+      ...(channelList?.categories.flatMap((cat) => cat.channels) ?? []),
+    ].map((ch) => [ch.id, ch.name])
+  )
+  const alsoIn = (selectedAgent?.channelIds ?? [])
+    .filter((id) => id !== channel.id)
+    .flatMap((id) => channelNames.get(id) ?? [])
+
+  const newAgentMutation = useMutation({
+    mutationFn: async () => {
+      if (!workspaceSlug) throw new Error("Missing workspace slug")
+      return createAgent(workspaceSlug, {
+        accessContainerId: agentAudience,
+        role: channel.name,
+      })
+    },
+    onSuccess: async (made) => {
+      if (workspaceSlug) {
+        await queryClient.invalidateQueries({
+          queryKey: agentsKey(workspaceSlug),
+        })
+      }
+      setAgentId(made.id)
+    },
+    onError: (error) => toast.error(error.message),
+  })
 
   const { data: profilesData } = useQuery({
     queryKey: ["agent-profiles", workspaceSlug],
@@ -175,6 +213,11 @@ export function EditChannelDialog({
       }
 
       const validatedWorkspaceSlug = workspaceSlug
+      // The agent's own settings first: they are the agent's, and show in
+      // every channel it is in.
+      if (selectedAgent && agentEdits && canEditAgent) {
+        await saveAgent(validatedWorkspaceSlug, selectedAgent.id, agentEdits)
+      }
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
         ":channelId"
       ].$patch({
@@ -185,19 +228,10 @@ export function EditChannelDialog({
           ...(overviewOnly
             ? {}
             : { agentProfileId: profileId === INHERIT ? null : profileId }),
-          ...(overviewOnly || isCategory
-            ? {}
-            : {
-                ...(edited.model ? { agentModel } : {}),
-                ...(edited.wakeMode ? { agentWakeMode: wakeMode } : {}),
-                ...(edited.brief ? { agentBrief: brief.trim() || null } : {}),
-              }),
-          // The channel's creator may name its agent too.
-          ...(channel.type === "text" && edited.agentName
-            ? { agentName: agentName.trim() || null }
-            : {}),
-          ...(channel.type === "text" && edited.agentCreature
-            ? { agentCreature }
+          ...(!overviewOnly &&
+          channel.type === "text" &&
+          agentId !== channel.agentId
+            ? { agentId }
             : {}),
         },
       })
@@ -256,6 +290,9 @@ export function EditChannelDialog({
       void patchChannelList(queryClient, validatedWorkspaceSlug, (list) =>
         upsertChannel(list, updated)
       )
+      void queryClient.invalidateQueries({
+        queryKey: agentsKey(validatedWorkspaceSlug),
+      })
       onOpenChange(false)
     },
     onError: (error, _vars, context) => {
@@ -278,23 +315,10 @@ export function EditChannelDialog({
     name !== (channel.name ?? "") ||
     (!isCategory && topic !== (channel.topic ?? "")) ||
     profileId !== (channel.agentProfileId ?? INHERIT) ||
-    agentModel !== (channel.agentModel ?? null) ||
-    wakeMode !== (channel.agentWakeMode ?? "mention") ||
-    brief !== (channel.agentBrief ?? "") ||
-    agentName !== (channel.agentName ?? "") ||
-    agentCreature !== (channel.agentCreature ?? null)
-  const isValid = name.trim().length > 0
-  // What the agent will be called and look like once saved: a blank name
-  // takes the creature's default (reference/always-on-agents.md, decision 32).
-  const identity = channelAgentIdentity({
-    id: channel.id,
-    agentName: agentName.trim() || null,
-    agentCreature,
-  })
-  const defaultName = channelAgentIdentity({
-    id: channel.id,
-    agentCreature,
-  }).name
+    agentId !== channel.agentId ||
+    (canEditAgent && agentEdits !== null)
+  const isValid =
+    name.trim().length > 0 && (!agentDraft || agentDraft.name.trim().length > 0)
 
   const selectedProfile =
     profileId === INHERIT
@@ -306,12 +330,13 @@ export function EditChannelDialog({
     profilesData?.profiles.filter((p) => !p.isDefault) ?? []
 
   // Webhooks post into the channel feed — text channels only.
-  // A creator without channel:update sees the Agent tab for its name and
-  // creature only.
+  // A creator without channel:update sees the Agent tab only for an agent
+  // they made, and only how it appears.
   const visibleTabs = overviewOnly
     ? TABS.filter(
         (t) =>
-          t.id === "overview" || (t.id === "profile" && channel.type === "text")
+          t.id === "overview" ||
+          (t.id === "profile" && channel.type === "text" && madeAgent)
       )
     : channel.type === "text"
       ? TABS
@@ -432,154 +457,101 @@ export function EditChannelDialog({
                   <div className="space-y-3">
                     {channel.type === "text" && workspaceSlug && (
                       <>
-                        <div className="flex gap-4">
-                          <div className="flex size-24 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-                            <AgentCreature
-                              creature={identity.creature}
-                              size={72}
-                              label={identity.name}
-                            />
-                          </div>
-                          <div className="min-w-0 flex-1 space-y-2">
-                            <Label htmlFor="channel-agent-name">Name</Label>
-                            <Input
-                              id="channel-agent-name"
-                              value={agentName}
-                              onChange={(e) => {
-                                setAgentName(e.target.value)
-                                setEdited((prev) => ({
-                                  ...prev,
-                                  agentName: true,
-                                }))
-                              }}
-                              maxLength={AGENT_NAME_MAX}
-                              placeholder={defaultName}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              What the channel calls its agent. People mention
-                              it as @{identity.name}.
-                            </p>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Creature</Label>
-                          <div className="grid grid-cols-5 gap-1.5">
-                            {CREATURES.map((creature) => (
-                              <button
-                                key={creature.id}
-                                type="button"
-                                title={creature.label}
-                                aria-label={creature.label}
-                                aria-pressed={identity.creature === creature.id}
-                                onClick={() => {
-                                  setAgentCreature(creature.id)
-                                  setEdited((prev) => ({
-                                    ...prev,
-                                    agentCreature: true,
-                                  }))
-                                }}
-                                className={cn(
-                                  "flex cursor-pointer flex-col items-center gap-0.5 rounded-md border px-1 pt-1.5 pb-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/60",
-                                  identity.creature === creature.id
-                                    ? "border-primary bg-accent text-foreground"
-                                    : "border-transparent"
-                                )}
-                              >
-                                <AgentCreature
-                                  creature={creature.id}
-                                  size={48}
-                                  still
-                                />
-                                <span className="truncate">
-                                  {creature.label}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
                         {!overviewOnly && (
-                          <>
-                            <DiscordChatSection
-                              key={channel.id}
-                              workspaceSlug={workspaceSlug}
-                              channelId={channel.id}
-                              agentName={identity.name}
-                            />
-                            <div className="space-y-2">
-                              <Label htmlFor="channel-agent-model">Model</Label>
-                              <AgentModelSelect
-                                id="channel-agent-model"
-                                workspaceSlug={workspaceSlug}
-                                value={agentModel}
-                                onChange={(model) => {
-                                  setAgentModel(model)
-                                  setEdited((e) => ({ ...e, model: true }))
-                                }}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="channel-agent-wake">
-                                Answers
-                              </Label>
+                          <div className="space-y-2">
+                            <Label htmlFor="channel-agent">
+                              Agent in this channel
+                            </Label>
+                            <div className="flex gap-2">
                               <Select
-                                items={WAKE_MODES}
-                                value={wakeMode}
-                                onValueChange={(v) => {
-                                  if (!v) return
-                                  setWakeMode(v as typeof wakeMode)
-                                  setEdited((e) => ({ ...e, wakeMode: true }))
-                                }}
+                                items={[
+                                  { value: NO_AGENT, label: "No agent" },
+                                  ...fittingAgents.map((agent) => ({
+                                    value: agent.id,
+                                    label: agent.name,
+                                  })),
+                                ]}
+                                value={agentId ?? NO_AGENT}
+                                onValueChange={(value) =>
+                                  value &&
+                                  setAgentId(value === NO_AGENT ? null : value)
+                                }
                               >
                                 <SelectTrigger
-                                  id="channel-agent-wake"
-                                  className="w-full"
+                                  id="channel-agent"
+                                  className="min-w-0 flex-1"
                                 >
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {WAKE_MODES.map((mode) => (
-                                    <SelectItem
-                                      key={mode.value}
-                                      value={mode.value}
-                                    >
-                                      {mode.label}
+                                  <SelectItem value={NO_AGENT}>
+                                    No agent
+                                  </SelectItem>
+                                  {fittingAgents.map((agent) => (
+                                    <SelectItem key={agent.id} value={agent.id}>
+                                      {agent.name}
+                                      {agent.role && (
+                                        <span className="text-muted-foreground">
+                                          {" "}
+                                          · {agent.role}
+                                        </span>
+                                      )}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
-                              <p className="text-xs text-muted-foreground">
-                                {identity.name} reads every message here either
-                                way. This sets which ones it answers right away.
-                              </p>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                disabled={newAgentMutation.isPending}
+                                onClick={() => newAgentMutation.mutate()}
+                              >
+                                New agent
+                              </Button>
                             </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="channel-agent-brief">Brief</Label>
-                              <Textarea
-                                id="channel-agent-brief"
-                                value={brief}
-                                onChange={(e) => {
-                                  setBrief(e.target.value)
-                                  setEdited((prev) => ({
-                                    ...prev,
-                                    brief: true,
-                                  }))
-                                }}
-                                maxLength={4000}
-                                rows={4}
-                                placeholder={`What ${identity.name} should know and do here, e.g. “Watch deploys and tell us in two lines when one fails. Zoe owns the pipeline.”`}
+                            <p className="text-xs text-muted-foreground">
+                              {selectedAgent
+                                ? `${selectedAgent.name} reads along here, and a mention or a reply wakes it at once.`
+                                : "People talk here and nothing answers. Add an agent to have one read along."}
+                            </p>
+                          </div>
+                        )}
+                        {selectedAgent && agentDraft && (
+                          <>
+                            {alsoIn.length > 0 && (
+                              <p className="rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                                {selectedAgent.name} is also in{" "}
+                                {alsoIn.map((name) => `#${name}`).join(", ")}.
+                                Its name, brief and facts are the same there.
+                              </p>
+                            )}
+                            {canEditAgent && (
+                              <AgentFields
+                                workspaceSlug={workspaceSlug}
+                                draft={agentDraft}
+                                onChange={setAgentDraft}
+                                appearanceOnly={overviewOnly}
+                                idPrefix="channel-agent"
                               />
-                              <p className="text-xs text-muted-foreground">
-                                Standing instructions for {identity.name} in
-                                this channel. Only people write the brief.
-                              </p>
-                            </div>
+                            )}
+                            {!overviewOnly &&
+                              selectedAgent.id === channel.agentId && (
+                                <DiscordChatSection
+                                  key={channel.id}
+                                  workspaceSlug={workspaceSlug}
+                                  channelId={channel.id}
+                                  agentName={selectedAgent.name}
+                                />
+                              )}
+                            {/* Any member may edit facts, as the API allows. */}
+                            <AgentFactsList
+                              key={selectedAgent.id}
+                              workspaceSlug={workspaceSlug}
+                              agentId={selectedAgent.id}
+                              agentName={selectedAgent.name}
+                            />
                           </>
                         )}
-                        {/* Any member may edit facts, as the API allows. */}
-                        <AgentFactsList
-                          workspaceSlug={workspaceSlug}
-                          channelId={channel.id}
-                        />
                       </>
                     )}
                     {!overviewOnly && customProfiles.length > 0 && (

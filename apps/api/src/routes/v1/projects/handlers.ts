@@ -1,5 +1,6 @@
 import type { WorkspaceAuthority } from "@repo/auth/permissions"
 import { and, asc, db, eq, inArray, isNull, max, or, schema } from "@repo/db"
+import { defaultAgentFor } from "@repo/db/queries/agents"
 import {
   listChannelAudienceUserIds,
   resolveChannelAccess,
@@ -271,11 +272,19 @@ export const createProject: AppRouteHandler<CreateProjectRoute> = async (c) => {
       .then((rows) => rows[0])
     if (!category) throw new Error("Category insert returned no row")
 
+    // A project open to the workspace gets the workspace's first agent in
+    // its text channels. A private project is its own audience, so no agent
+    // fits it until one is made for it (reference/agents-and-chats.md).
+    const agent =
+      body.audience === "workspace"
+        ? await defaultAgentFor(workspace.id, null, tx)
+        : null
     await tx.insert(schema.channel).values(
       body.channels.map((ch, index) => ({
         workspaceId: workspace.id,
         parentId: category.id,
         type: ch.type,
+        agentId: ch.type === "text" ? (agent?.id ?? null) : null,
         name: ch.name,
         // Mirrors the container's audience for consistency in raw queries;
         // resolution inherits from the container regardless.

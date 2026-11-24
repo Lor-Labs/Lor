@@ -11,7 +11,6 @@ import Notification03Icon from "@hugeicons/core-free-icons/Notification03Icon"
 import NotificationOff03Icon from "@hugeicons/core-free-icons/NotificationOff03Icon"
 import Pin02Icon from "@hugeicons/core-free-icons/Pin02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
-import { channelAgentIdentity } from "@repo/utils/bestiary"
 import * as Clipboard from "expo-clipboard"
 import { SymbolView } from "expo-symbols"
 import { BottomSheet } from "heroui-native/bottom-sheet"
@@ -24,6 +23,7 @@ import { AgentCreature } from "@/components/agent-creature"
 import { Button } from "@/components/ui/button"
 import { SectionLabel } from "@/components/ui/section-label"
 import { LorMark } from "@/components/voice/lor-window"
+import type { ChannelAgent } from "@/hooks/use-channel-agent"
 import {
   mutedUntilLabel,
   promptChannelMute,
@@ -35,6 +35,7 @@ import type { ChannelDetail } from "@/lib/api-types"
 type SheetView = "options" | "edit"
 
 export function ChannelOptionsSheet({
+  agent,
   canDeleteChannel,
   canUpdateChannel,
   channel,
@@ -49,6 +50,8 @@ export function ChannelOptionsSheet({
   workspaceName,
   workspaceSlug,
 }: {
+  // The agent in the channel, when it has one.
+  agent?: ChannelAgent | null
   canDeleteChannel: boolean
   canUpdateChannel: boolean
   channel: ChannelDetail
@@ -58,7 +61,7 @@ export function ChannelOptionsSheet({
   onOpenPinnedMessages: () => void
   onOpenSessions: () => void
   onOpenLoops: () => void
-  // Set for a text channel: opens its agent's settings.
+  // Opens the agent's settings.
   onOpenAgent?: () => void
   onOpenChange: (isOpen: boolean) => void
   workspaceName: string
@@ -250,10 +253,10 @@ export function ChannelOptionsSheet({
                   ) : null}
                 </View>
 
-                {onOpenAgent ? (
+                {agent && onOpenAgent ? (
                   <View className="gap-three px-one">
                     <SectionLabel>Agent</SectionLabel>
-                    <AgentRow channel={channel} onPress={onOpenAgent} />
+                    <AgentRow agent={agent} onPress={onOpenAgent} />
                   </View>
                 ) : null}
 
@@ -542,14 +545,13 @@ function EditChannelView({
 }
 
 function AgentRow({
-  channel,
+  agent,
   onPress,
 }: {
-  channel: ChannelDetail
+  agent: ChannelAgent
   onPress: () => void
 }) {
   const foreground = useThemeColor("foreground")
-  const agent = channelAgentIdentity(channel)
   return (
     <Pressable
       accessibilityHint="Opens its settings"

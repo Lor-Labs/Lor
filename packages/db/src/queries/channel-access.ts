@@ -198,7 +198,7 @@ export async function listChannelAudienceUserIds(
 // Container inheritance: a channel inside a category takes the category's
 // audience and member list. Per-channel overrides inside a container are
 // deliberately unsupported in v1 — one member list per project.
-async function resolveAccessContainer(
+export async function resolveAccessContainer(
   row: {
     id: string
     audience: "workspace" | "members"
@@ -276,7 +276,7 @@ function toChannelShape(row: {
   }
 }
 
-async function hasChannelMemberRow(
+export async function hasChannelMemberRow(
   containerChannelId: string,
   userId: string
 ): Promise<boolean> {

@@ -12,7 +12,8 @@ import {
   schema,
   sql,
 } from "@repo/db"
-import { channelAgentIdentity, creatureById } from "@repo/utils/bestiary"
+import { loadChannelAgent } from "@repo/db/queries/agents"
+import { creatureById, isCreatureId } from "@repo/utils/bestiary"
 import { z } from "zod"
 import {
   BRAIN_PAGE_FORMAT,
@@ -21,11 +22,13 @@ import {
 } from "./brain-rules"
 import { sanitizeInlineLabel } from "./transcript"
 
-// The channel agent's memory (reference/always-on-agents.md §7): the profile
-// (a brief people write and facts the memory pass keeps), a log built from
-// records, and what is open at each wake. The profile and log are a snapshot
+// An agent's memory (reference/always-on-agents.md §7): the profile (a brief
+// people write and facts the memory pass keeps), a log built from records,
+// and what is open at each wake. The profile belongs to the agent and is the
+// same in every channel it is in (reference/agents-and-chats.md); the log
+// and the open block are the channel's. The profile and log are a snapshot
 // in the system prompt, frozen per conversation; changes reach the agent as
-// change notes at the top of its next turn.
+// change notes at the top of its next turn, in each of its channels.
 
 export const FACTS_MAX = 100
 export const FACTS_CHARS = 4_000
@@ -50,39 +53,32 @@ export type ChannelProfile = {
   facts: ProfileFact[]
 }
 
+const EMPTY_PROFILE: ChannelProfile = { brief: null, facts: [] }
+
+// The profile of the agent in this channel.
 export async function loadChannelProfile(
   channelId: string
 ): Promise<ChannelProfile> {
-  const [[channel], facts] = await Promise.all([
-    db
-      .select({ brief: schema.channel.agentBrief })
-      .from(schema.channel)
-      .where(eq(schema.channel.id, channelId)),
-    db
-      .select({
-        id: schema.channelAgentFact.id,
-        text: schema.channelAgentFact.text,
-        source: schema.channelAgentFact.source,
-        updatedAt: schema.channelAgentFact.updatedAt,
-        editedBy: schema.user.name,
-      })
-      .from(schema.channelAgentFact)
-      .leftJoin(
-        schema.user,
-        eq(schema.user.id, schema.channelAgentFact.editedById)
+  const agent = await loadChannelAgent(channelId)
+  if (!agent) return EMPTY_PROFILE
+  const facts = await db
+    .select({
+      id: schema.agentFact.id,
+      text: schema.agentFact.text,
+      source: schema.agentFact.source,
+      updatedAt: schema.agentFact.updatedAt,
+      editedBy: schema.user.name,
+    })
+    .from(schema.agentFact)
+    .leftJoin(schema.user, eq(schema.user.id, schema.agentFact.editedById))
+    .where(
+      and(
+        eq(schema.agentFact.agentId, agent.id),
+        isNull(schema.agentFact.deletedAt)
       )
-      .where(
-        and(
-          eq(schema.channelAgentFact.channelId, channelId),
-          isNull(schema.channelAgentFact.deletedAt)
-        )
-      )
-      .orderBy(
-        asc(schema.channelAgentFact.createdAt),
-        asc(schema.channelAgentFact.id)
-      ),
-  ])
-  return { brief: channel?.brief?.trim() || null, facts }
+    )
+    .orderBy(asc(schema.agentFact.createdAt), asc(schema.agentFact.id))
+  return { brief: agent.brief?.trim() || null, facts }
 }
 
 function day(date: Date): string {
@@ -123,7 +119,7 @@ type ShownFact = { id: string; updatedAt: Date }
 
 // Postgres keeps microseconds and a JS Date milliseconds.
 const sameRevision = (at: Date) =>
-  sql`date_trunc('milliseconds', ${schema.channelAgentFact.updatedAt}) = ${at}`
+  sql`date_trunc('milliseconds', ${schema.agentFact.updatedAt}) = ${at}`
 
 export function factsForMemoryPass(facts: ProfileFact[]): {
   text: string
@@ -150,50 +146,38 @@ export async function profileChangeNotes(
   channelId: string,
   since: Date
 ): Promise<string | null> {
-  const [[channel], facts] = await Promise.all([
-    db
-      .select({
-        id: schema.channel.id,
-        brief: schema.channel.agentBrief,
-        briefUpdatedAt: schema.channel.agentBriefUpdatedAt,
-        agentName: schema.channel.agentName,
-        agentCreature: schema.channel.agentCreature,
-        identityUpdatedAt: schema.channel.agentIdentityUpdatedAt,
-      })
-      .from(schema.channel)
-      .where(eq(schema.channel.id, channelId)),
-    db
-      .select({
-        text: schema.channelAgentFact.text,
-        source: schema.channelAgentFact.source,
-        createdAt: schema.channelAgentFact.createdAt,
-        deletedAt: schema.channelAgentFact.deletedAt,
-        editorName: schema.user.name,
-      })
-      .from(schema.channelAgentFact)
-      .leftJoin(
-        schema.user,
-        eq(schema.user.id, schema.channelAgentFact.editedById)
+  const agent = await loadChannelAgent(channelId)
+  if (!agent) return null
+  const facts = await db
+    .select({
+      text: schema.agentFact.text,
+      source: schema.agentFact.source,
+      createdAt: schema.agentFact.createdAt,
+      deletedAt: schema.agentFact.deletedAt,
+      editorName: schema.user.name,
+    })
+    .from(schema.agentFact)
+    .leftJoin(schema.user, eq(schema.user.id, schema.agentFact.editedById))
+    .where(
+      and(
+        eq(schema.agentFact.agentId, agent.id),
+        gt(schema.agentFact.updatedAt, since)
       )
-      .where(
-        and(
-          eq(schema.channelAgentFact.channelId, channelId),
-          gt(schema.channelAgentFact.updatedAt, since)
-        )
-      )
-      .orderBy(asc(schema.channelAgentFact.updatedAt)),
-  ])
+    )
+    .orderBy(asc(schema.agentFact.updatedAt))
   const lines: string[] = []
-  if (channel?.identityUpdatedAt && channel.identityUpdatedAt > since) {
-    const identity = channelAgentIdentity(channel)
+  if (agent.identityUpdatedAt && agent.identityUpdatedAt > since) {
+    const face = isCreatureId(agent.creature)
+      ? `, shown as a little ${creatureById(agent.creature).label.toLowerCase()}`
+      : ""
     lines.push(
-      `- The team changed how you appear: your name is now ${sanitizeInlineLabel(identity.name)}, shown as a little ${creatureById(identity.creature).label.toLowerCase()}. Go by that name from now on.`
+      `- The team changed how you appear: your name is now ${sanitizeInlineLabel(agent.name)}${face}. Go by that name from now on.`
     )
   }
-  if (channel?.briefUpdatedAt && channel.briefUpdatedAt > since) {
+  if (agent.briefUpdatedAt && agent.briefUpdatedAt > since) {
     lines.push(
-      channel.brief?.trim()
-        ? `- The team changed the brief. It now reads:\n${channel.brief.trim()}`
+      agent.brief?.trim()
+        ? `- The team changed the brief. It now reads:\n${agent.brief.trim()}`
         : "- The team removed the brief."
     )
   }
@@ -270,10 +254,11 @@ export const factChangesSchema = z.object({
 
 export type FactChanges = z.infer<typeof factChangesSchema>
 
-// Serializes a channel's profile fact writes (memory pass and settings), so
-// the pass's total-size cap reads a count no other write can change.
-export function channelProfileLock(channelId: string) {
-  return sql`select pg_advisory_xact_lock(hashtextextended(${`channel-profile:${channelId}`}, 0))`
+// Serializes an agent's fact writes (the memory pass in any of its channels,
+// and settings), so the pass's total-size cap reads a count no other write
+// can change.
+export function agentProfileLock(agentId: string) {
+  return sql`select pg_advisory_xact_lock(hashtextextended(${`agent-profile:${agentId}`}, 0))`
 }
 
 // The memory pass's changes, applied within the caps. It may rewrite or
@@ -288,20 +273,24 @@ export async function applyFactChanges(input: {
   const clip = (text: string, max: number) =>
     text.trim().replace(/\s+/g, " ").slice(0, max)
   const now = new Date()
+  // The facts are the agent's; the channel is only where this pass ran.
+  const agent = await loadChannelAgent(input.channelId)
+  if (!agent) return { added: 0, edited: 0, removed: 0 }
+  const agentId = agent.id
   return db.transaction(async (tx) => {
-    await tx.execute(channelProfileLock(input.channelId))
+    await tx.execute(agentProfileLock(agentId))
     const live = new Map(
       (
         await tx
           .select({
-            id: schema.channelAgentFact.id,
-            text: schema.channelAgentFact.text,
+            id: schema.agentFact.id,
+            text: schema.agentFact.text,
           })
-          .from(schema.channelAgentFact)
+          .from(schema.agentFact)
           .where(
             and(
-              eq(schema.channelAgentFact.channelId, input.channelId),
-              isNull(schema.channelAgentFact.deletedAt)
+              eq(schema.agentFact.agentId, agentId),
+              isNull(schema.agentFact.deletedAt)
             )
           )
       ).map((row) => [row.id, row.text.length])
@@ -316,17 +305,17 @@ export async function applyFactChanges(input: {
     let removed = 0
     for (const fact of toRemove) {
       const rows = await tx
-        .update(schema.channelAgentFact)
+        .update(schema.agentFact)
         .set({ deletedAt: now, updatedAt: now, editedById: null })
         .where(
           and(
-            eq(schema.channelAgentFact.channelId, input.channelId),
-            eq(schema.channelAgentFact.id, fact.id),
+            eq(schema.agentFact.agentId, agentId),
+            eq(schema.agentFact.id, fact.id),
             sameRevision(fact.updatedAt),
-            isNull(schema.channelAgentFact.deletedAt)
+            isNull(schema.agentFact.deletedAt)
           )
         )
-        .returning({ id: schema.channelAgentFact.id })
+        .returning({ id: schema.agentFact.id })
       removed += rows.length
       if (rows.length > 0) {
         chars -= live.get(fact.id) ?? 0
@@ -342,7 +331,7 @@ export async function applyFactChanges(input: {
       const growth = text.length - (live.get(shown.id) ?? 0)
       if (growth > 0 && chars + growth > FACTS_CHARS) continue
       const rows = await tx
-        .update(schema.channelAgentFact)
+        .update(schema.agentFact)
         .set({
           text,
           updatedAt: now,
@@ -350,13 +339,13 @@ export async function applyFactChanges(input: {
         })
         .where(
           and(
-            eq(schema.channelAgentFact.id, shown.id),
-            eq(schema.channelAgentFact.channelId, input.channelId),
+            eq(schema.agentFact.id, shown.id),
+            eq(schema.agentFact.agentId, agentId),
             sameRevision(shown.updatedAt),
-            isNull(schema.channelAgentFact.deletedAt)
+            isNull(schema.agentFact.deletedAt)
           )
         )
-        .returning({ id: schema.channelAgentFact.id })
+        .returning({ id: schema.agentFact.id })
       edited += rows.length
       if (rows.length > 0) {
         chars += growth
@@ -373,9 +362,10 @@ export async function applyFactChanges(input: {
       chars += text.length
     }
     if (additions.length > 0) {
-      await tx.insert(schema.channelAgentFact).values(
+      await tx.insert(schema.agentFact).values(
         additions.map((addition) => ({
           workspaceId: input.workspaceId,
+          agentId,
           channelId: input.channelId,
           text: addition.text,
           source: addition.source,

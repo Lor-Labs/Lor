@@ -8,6 +8,7 @@
     "./constants": "./src/constants.ts",
     "./schema": "./src/schemas/index.ts",
     "./queries/agent-sessions": "./src/queries/agent-sessions.ts",
+    "./queries/agents": "./src/queries/agents.ts",
     "./queries/channel-access": "./src/queries/channel-access.ts",
     "./queries/channel-agent": "./src/queries/channel-agent.ts",
     "./queries/personal-accounts": "./src/queries/personal-accounts.ts",

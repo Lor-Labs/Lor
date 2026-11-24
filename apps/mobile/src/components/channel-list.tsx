@@ -15,7 +15,7 @@ import {
   type OwnVoicePresence,
   withOwnVoicePresence,
 } from "@repo/realtime-types/voice-presence"
-import { type CreatureId, channelAgentIdentity } from "@repo/utils/bestiary"
+import type { CreatureId } from "@repo/utils/bestiary"
 import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react"
@@ -45,6 +45,12 @@ import { useUnread } from "@/context/unread-context"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useWorkspaceSessionUpdates } from "@/hooks/use-agent-session"
+import {
+  agentCreature,
+  channelAgentOf,
+  useAgentsById,
+  type WorkspaceAgent,
+} from "@/hooks/use-agents"
 import { useHint } from "@/hooks/use-hints"
 import { useOpenedRow } from "@/hooks/use-opened-row"
 import { useVoicePresence } from "@/hooks/use-voice-presence"
@@ -94,7 +100,6 @@ export type ChannelRowAgent = {
   name: string
   creature: CreatureId
   state: "asleep" | "working" | "needs_you"
-  running: number
 }
 
 const AGENT_STATE_LABELS = {
@@ -112,6 +117,7 @@ export function ChannelRow({
   sessionToggle,
   unread,
   agent,
+  running = 0,
 }: {
   channel: Channel
   mentionCount: number
@@ -127,9 +133,11 @@ export function ChannelRow({
     rollup: SidebarSessionState | undefined
   }
   unread: boolean
-  // A text channel's agent, on its row: its face with what it is doing now,
-  // and how many sessions are running in the channel. As on web's sidebar.
+  // The agent in the channel, when it has one, on its row: its face with
+  // what it is doing now. As on web's sidebar.
   agent?: ChannelRowAgent
+  // Sessions running in the channel, the person's own or not.
+  running?: number
 }) {
   const [foreground, muted, accent] = useThemeColor([
     "foreground",
@@ -156,8 +164,8 @@ export function ChannelRow({
               ? ", unread messages"
               : ""
         }${agent ? `, ${agent.name} ${AGENT_STATE_LABELS[agent.state]}` : ""}${
-          agent && agent.running > 0
-            ? `, ${agent.running} ${agent.running === 1 ? "session" : "sessions"} running`
+          running > 0
+            ? `, ${running} ${running === 1 ? "session" : "sessions"} running`
             : ""
         }`}
         accessibilityActions={
@@ -238,14 +246,14 @@ export function ChannelRow({
             <MentionBadge count={mentionCount} />
           </Animated.View>
         ) : null}
-        {agent && agent.running > 0 ? (
+        {running > 0 ? (
           <View className="flex-row items-center">
             <SessionStateIndicator state="running" />
             <Text
               className="text-xs text-accent"
               style={{ color: accent, fontVariant: ["tabular-nums"] }}
             >
-              {agent.running}
+              {running}
             </Text>
           </View>
         ) : null}
@@ -545,6 +553,7 @@ export function ChannelList({
     workspace?.id
   )
   useWorkspaceSessionUpdates(workspace?.id)
+  const agentsById = useAgentsById(workspace?.slug)
   const sessionCollapse = useSessionCollapse(activity)
   const sessionsHint = useHint("sessions_intro")
   const [openedId, setOpenedId] = useOpenedRow()
@@ -669,18 +678,18 @@ export function ChannelList({
     const sessions = sessionsByChannel.get(channel.id) ?? []
     const collapsed = sessionCollapse.collapsed.has(channel.id)
     const channelActivity = activityByChannel.get(channel.id)
-    const agent: ChannelRowAgent | undefined =
-      channel.type === "text"
-        ? {
-            ...channelAgentIdentity(channel),
-            state: channelActivity?.agentNeeds.length
-              ? "needs_you"
-              : channelActivity?.agentWorking
-                ? "working"
-                : "asleep",
-            running: channelActivity?.runningSessions ?? 0,
-          }
-        : undefined
+    const placed = channelAgentOf(channel, agentsById)
+    const agent: ChannelRowAgent | undefined = placed
+      ? {
+          name: placed.name,
+          creature: agentCreature(placed),
+          state: channelActivity?.agentNeeds.length
+            ? "needs_you"
+            : channelActivity?.agentWorking
+              ? "working"
+              : "asleep",
+        }
+      : undefined
     return (
       <Fragment key={channel.id}>
         <Animated.View
@@ -697,6 +706,7 @@ export function ChannelList({
               setOpenedId(opened.id)
               onPress(opened)
             }}
+            running={channelActivity?.runningSessions ?? 0}
             selected={openedId === channel.id}
             sessionToggle={
               sessions.length > 0
@@ -766,7 +776,11 @@ export function ChannelList({
         <View className="pb-seven">
           {/* Failed activity isn't zero sessions: the entry stays, and the
               Sessions screen offers a retry. */}
-          <NeedsYouGroup activity={activity} channels={allChannels} />
+          <NeedsYouGroup
+            activity={activity}
+            agentsById={agentsById}
+            channels={allChannels}
+          />
           {onOpenSessions && (allSessions.length > 0 || activityFailed) ? (
             <SessionsSummaryRow
               onPress={() => {
@@ -826,9 +840,11 @@ function useSessionsSettled(loaded: boolean, waiting: boolean) {
 // that need you are counted on the Sessions row under it.
 function NeedsYouGroup({
   activity,
+  agentsById,
   channels,
 }: {
   activity: ChannelActivity[] | undefined
+  agentsById: Map<string, WorkspaceAgent>
   channels: Channel[]
 }) {
   const needs = (activity ?? [])
@@ -854,7 +870,9 @@ function NeedsYouGroup({
       </View>
       {needs.map((need) => {
         const channel = byId.get(need.channelId)
-        const agent = channelAgentIdentity(channel ?? { id: need.channelId })
+        // A need whose channel has since lost its agent still shows, as Lor's.
+        const agent = channelAgentOf(channel, agentsById)
+        const agentName = agent?.name ?? "Lor"
         const where = `#${channel?.name ?? "channel"}`
         return (
           <PressableRow
@@ -863,7 +881,7 @@ function NeedsYouGroup({
                 ? "Opens the approval in its channel"
                 : "Opens the question in its channel"
             }
-            accessibilityLabel={`${agent.name} in ${where}: ${need.text}`}
+            accessibilityLabel={`${agentName} in ${where}: ${need.text}`}
             accessibilityRole="button"
             className="min-h-11 flex-row items-start gap-two px-two py-two"
             key={`${need.kind}-${need.messageId}`}
@@ -889,12 +907,18 @@ function NeedsYouGroup({
             }
           >
             <View className="size-7 items-center justify-center">
-              <AgentCreature creature={agent.creature} size={24} still />
+              {agent ? (
+                <AgentCreature
+                  creature={agentCreature(agent)}
+                  size={24}
+                  still
+                />
+              ) : null}
             </View>
             <View className="min-w-0 flex-1">
               <Text className="text-[15px] leading-[20px]" numberOfLines={1}>
                 <Text className="font-semibold text-foreground">
-                  {agent.name}
+                  {agentName}
                 </Text>
                 <Text className="text-muted"> in {where}</Text>
               </Text>

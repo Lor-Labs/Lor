@@ -447,14 +447,17 @@ export const MessageInput = memo(function MessageInput({
   const lorHint = useHint("lor_intro", lorIntro && !disabled)
   const dismissLorHint = lorHint.dismiss
 
-  // The channel agent's name, when the candidates carry it (decision 32).
-  const lorLabel =
-    mentionCandidates.find((candidate) => candidate.id === LOR_USER_ID)
-      ?.label ?? "Lor"
+  // The name of the agent in the channel, when the candidates carry it
+  // (decision 32). A channel with no agent has no such candidate, and
+  // nothing to ask.
+  const lorCandidate = mentionCandidates.find(
+    (candidate) => candidate.id === LOR_USER_ID
+  )
+  const lorLabel = lorCandidate?.label ?? "Lor"
   const placeholder =
     placeholderOverride ??
     (context.type === "channel"
-      ? lorIntro && !lorHint.dismissed
+      ? lorIntro && !lorHint.dismissed && lorCandidate
         ? `Message #${context.name}, or ask @${lorLabel}`
         : `Message #${context.name}`
       : `Message ${context.name}`)
@@ -1056,7 +1059,7 @@ export const MessageInput = memo(function MessageInput({
         )}
       </ComposerCollapse>
       <HintPopover
-        open={lorHint.show}
+        open={lorHint.show && Boolean(lorCandidate)}
         anchor={composerRef}
         align="start"
         onDismiss={dismissLorHint}
