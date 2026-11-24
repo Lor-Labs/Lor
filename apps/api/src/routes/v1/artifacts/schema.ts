@@ -56,6 +56,16 @@ export const getArtifactResponseSchema = z.object({
     .nullable(),
   // Newest first.
   versions: z.array(artifactVersionSchema),
+  // Images shared together in the most recent message containing this file.
+  images: z.array(
+    z.object({
+      artifactId: z.string(),
+      path: z.string(),
+      contentType: z.string(),
+      size: z.number(),
+      url: z.string(),
+    })
+  ),
 })
 
 export const listPlanArtifactsResponseSchema = z.object({

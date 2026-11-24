@@ -4,7 +4,11 @@ import {
   MAX_PREVIEW_BYTES,
   previewMarkdown,
 } from "@repo/utils/file-preview"
-import { ImagePreview } from "@/components/artifacts/image-preview"
+import {
+  type ImageGallery,
+  ImagePreview,
+} from "@/components/artifacts/image-preview"
+import { VideoPreview } from "@/components/artifacts/video-preview"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { useArtifactContent } from "@/hooks/use-artifact"
 
@@ -16,11 +20,13 @@ export function ArtifactBody({
   mime,
   url,
   size,
+  gallery,
 }: {
   path: string
   mime: string
   url: string | null
   size: number | null
+  gallery?: ImageGallery
 }) {
   const previewMime = filePreviewMime(path, mime)
   if (previewMime.startsWith("image/") && url) {
@@ -28,6 +34,7 @@ export function ArtifactBody({
       <ImagePreview
         path={path}
         url={url}
+        gallery={gallery}
         source={
           previewMime === "image/svg+xml" ? (
             <ArtifactText
@@ -40,6 +47,9 @@ export function ArtifactBody({
         }
       />
     )
+  }
+  if (previewMime.startsWith("video/") && url) {
+    return <VideoPreview key={url} path={path} url={url} />
   }
   return <ArtifactText path={path} mime={previewMime} url={url} size={size} />
 }
