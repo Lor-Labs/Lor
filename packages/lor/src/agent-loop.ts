@@ -6,6 +6,7 @@ import {
   db,
   desc,
   eq,
+  gte,
   ilike,
   isNotNull,
   lt,
@@ -13,6 +14,7 @@ import {
   sql,
 } from "@repo/db"
 import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
+import { channelAgentId } from "@repo/db/queries/agents"
 import type { AgentStepKind, AgentStepMessage } from "@repo/db/schema"
 import {
   generateText,
@@ -26,6 +28,7 @@ import {
   tool,
 } from "ai"
 import { z } from "zod"
+import { addJournalEntry } from "./agent-memory"
 import { aiRuntimeContext, aiTelemetry } from "./ai-observability"
 import type { RunAgentContext } from "./channel-agent"
 import {
@@ -1225,6 +1228,9 @@ export type MemoryPassResult = {
   added: number
   edited: number
   removed: number
+  archived: number
+  // Whether the pass wrote a journal entry for the turn.
+  journaled: boolean
   calls: number
 }
 
@@ -1238,6 +1244,8 @@ export async function agentMemoryPass(args: {
   channelId: string
   // The turn it follows: the pass reads the history up to that turn's end.
   turnRunId: string
+  // The person the turn was for, on its journal entry.
+  askedById?: string | null
   model: string
   languageModel?: LanguageModel
   assertCanInfer?: () => Promise<void>
@@ -1316,7 +1324,14 @@ export async function agentMemoryPass(args: {
       { channelId: args.channelId, runId: args.turnRunId, calls },
       "Agent memory pass left no facts block"
     )
-    return { added: 0, edited: 0, removed: 0, calls }
+    return {
+      added: 0,
+      edited: 0,
+      removed: 0,
+      archived: 0,
+      journaled: false,
+      calls,
+    }
   }
   const applied = await applyFactChanges({
     workspaceId: args.workspaceId,
@@ -1324,19 +1339,39 @@ export async function agentMemoryPass(args: {
     shown: shown.ids,
     changes,
   })
+  const agentId = await channelAgentId(args.channelId)
+  const journaled =
+    agentId && changes.journal?.trim()
+      ? await addJournalEntry({
+          workspaceId: args.workspaceId,
+          agentId,
+          channelId: args.channelId,
+          runId: args.turnRunId,
+          userId: args.askedById ?? null,
+          text: changes.journal,
+        })
+      : false
   logger.info(
-    { channelId: args.channelId, runId: args.turnRunId, calls, ...applied },
+    {
+      channelId: args.channelId,
+      runId: args.turnRunId,
+      calls,
+      ...applied,
+      journaled,
+    },
     "Agent memory pass ended"
   )
-  return { ...applied, calls }
+  return { ...applied, journaled, calls }
 }
 
 // The agent's own history, including what compaction left out of its
-// context. A turn is one run.
+// context, in every channel it is in (reference/agents-and-chats.md,
+// decision 25). A turn is one run. A channel's steps from before the agent
+// joined it were another agent's and are not read.
 export const readAgentHistoryTool = {
   read_agent_history: tool({
     description:
-      "Read your own earlier work in this channel word for word, including everything from before your conversation was summarized: what woke you, what you sent, the tools you called and what they returned. With `turn` (a turn id from an earlier result), reads that turn in full, a page at a time (`page`, from 0, when the result says there is more). With `query`, finds earlier turns whose text contains it. With neither, lists your recent turns. `before` (a date like 2026-11-01) limits results to earlier turns.",
+      "Read your own earlier work word for word, in this channel and every other channel you are in, including everything from before a conversation was summarized: what woke you, what you sent, the tools you called and what they returned. With `turn` (a turn id from an earlier result), reads that turn in full, a page at a time (`page`, from 0, when the result says there is more). With `query`, finds earlier turns whose text contains it. With neither, lists your recent turns. Each result names its channel. `before` (a date like 2026-11-01) limits results to earlier turns.",
     inputSchema: z.object({
       turn: z.string().uuid().optional().describe("a turn id to read in full"),
       page: z.number().optional().describe("a page of a long turn, from 0"),
@@ -1345,7 +1380,19 @@ export const readAgentHistoryTool = {
     }),
     contextSchema: z.object({ channelId: z.string() }),
     execute: async ({ turn, page, query, before }, { context }) => {
-      const channelId = context.channelId
+      const agentId = await channelAgentId(context.channelId)
+      // The agent's steps: those of a channel it is in, since it joined.
+      const mine = agentId
+        ? and(
+            eq(schema.channelAgent.agentId, agentId),
+            gte(schema.agentStep.createdAt, schema.channelAgent.createdAt)
+          )
+        : eq(schema.agentStep.channelId, context.channelId)
+      const inPlace = eq(
+        schema.channelAgent.channelId,
+        schema.agentStep.channelId
+      )
+      const named = eq(schema.channel.id, schema.agentStep.channelId)
       if (turn) {
         // From the stored messages, not the search text, which clips each
         // tool input and result.
@@ -1354,16 +1401,14 @@ export const readAgentHistoryTool = {
             kind: schema.agentStep.kind,
             message: schema.agentStep.message,
             createdAt: schema.agentStep.createdAt,
+            channelName: schema.channel.name,
           })
           .from(schema.agentStep)
-          .where(
-            and(
-              eq(schema.agentStep.channelId, channelId),
-              eq(schema.agentStep.runId, turn)
-            )
-          )
+          .innerJoin(schema.channelAgent, inPlace)
+          .innerJoin(schema.channel, named)
+          .where(and(mine, eq(schema.agentStep.runId, turn)))
           .orderBy(asc(schema.agentStep.seq))
-        if (rows.length === 0) return { error: "No turn with that id here." }
+        if (rows.length === 0) return { error: "No turn of yours has that id." }
         const body = rows
           .map(
             (row) =>
@@ -1374,6 +1419,7 @@ export const readAgentHistoryTool = {
         const at = Math.min(Math.max(0, Math.floor(page ?? 0)), pages - 1)
         return {
           turn,
+          channel: rows[0]?.channelName ? `#${rows[0].channelName}` : null,
           startedAt: rows[0]?.createdAt.toISOString(),
           page: at,
           pages,
@@ -1390,11 +1436,14 @@ export const readAgentHistoryTool = {
           kind: schema.agentStep.kind,
           text: schema.agentStep.text,
           createdAt: schema.agentStep.createdAt,
+          channelName: schema.channel.name,
         })
         .from(schema.agentStep)
+        .innerJoin(schema.channelAgent, inPlace)
+        .innerJoin(schema.channel, named)
         .where(
           and(
-            eq(schema.agentStep.channelId, channelId),
+            mine,
             isNotNull(schema.agentStep.runId),
             query
               ? ilike(
@@ -1407,11 +1456,12 @@ export const readAgentHistoryTool = {
               : undefined
           )
         )
-        .orderBy(desc(schema.agentStep.seq))
+        .orderBy(desc(schema.agentStep.createdAt), desc(schema.agentStep.seq))
         .limit(20)
       return {
         turns: rows.map((row) => ({
           turn: row.runId,
+          channel: row.channelName ? `#${row.channelName}` : null,
           at: row.createdAt.toISOString(),
           kind: row.kind,
           text: clip(row.text, 600),

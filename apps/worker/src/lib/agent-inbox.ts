@@ -18,7 +18,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
-import { agentScopeFor, loadChannelAgent } from "@repo/db/queries/agents"
+import { channelAgentId, loadChannelAgent } from "@repo/db/queries/agents"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import {
@@ -39,6 +39,7 @@ import {
   pausedAgentRun,
   turnHeader,
 } from "@repo/lor/agent-loop"
+import { journalNotes } from "@repo/lor/agent-memory"
 import {
   hasPendingWake,
   type InboxBatch,
@@ -224,6 +225,31 @@ async function pendingApproval(runId: string): Promise<boolean> {
   return Boolean(row)
 }
 
+// The agent's journal entries from elsewhere since `since`, those about the
+// person who woke this turn first.
+async function journalSince(
+  args: { channelId: string; triggerMessageId: string | null },
+  since: Date
+): Promise<string | null> {
+  const [agentId, author] = await Promise.all([
+    channelAgentId(args.channelId),
+    args.triggerMessageId
+      ? db
+          .select({ id: schema.message.authorId })
+          .from(schema.message)
+          .where(eq(schema.message.id, args.triggerMessageId))
+          .then((rows) => rows[0]?.id ?? null)
+      : null,
+  ])
+  if (!agentId) return null
+  return journalNotes({
+    agentId,
+    here: { channelId: args.channelId },
+    since,
+    people: author ? [author] : [],
+  })
+}
+
 // notesThrough: the profile-notes cursor before this run's opening advanced
 // it, restored if the run is unwound.
 type TurnRun = { runId: string; notesThrough?: Date | null }
@@ -254,16 +280,15 @@ async function createTurnRun(args: {
   if (args.batch) {
     const context = await loadAgentContext(args.workspaceId, args.channelId)
     notesThrough = context.notesThrough
-    const [notes, open] = await Promise.all([
-      context.system
-        ? profileChangeNotes(
-            args.channelId,
-            context.notesThrough ?? context.compactedAt ?? new Date(0)
-          )
-        : null,
+    const since = context.notesThrough ?? context.compactedAt ?? new Date(0)
+    const [notes, journal, open] = await Promise.all([
+      context.system ? profileChangeNotes(args.channelId, since) : null,
+      // What the agent noted in its other channels and sessions meanwhile:
+      // one journal under every conversation (agents-and-chats.md, d. 25).
+      context.system ? journalSince(args, since) : null,
       openBlock(args.channelId),
     ])
-    opening = [turnHeader(notedAt), notes, open, args.batch.text]
+    opening = [turnHeader(notedAt), notes, journal, open, args.batch.text]
       .filter((part): part is string => Boolean(part))
       .join("\n\n")
   }
@@ -759,7 +784,7 @@ function agentProposeChange(
 // name, face and model, and the other channels it is in. Null when the
 // channel has no agent (it was removed since the turn was queued).
 async function loadAgentChannel(channelId: string) {
-  const [[row], agent, scope] = await Promise.all([
+  const [[row], agent] = await Promise.all([
     db
       .select({
         id: schema.channel.id,
@@ -770,22 +795,12 @@ async function loadAgentChannel(channelId: string) {
       .from(schema.channel)
       .where(eq(schema.channel.id, channelId)),
     loadChannelAgent(channelId),
-    agentScopeFor(channelId),
   ])
   if (!row?.workspaceId || !agent) return null
-  // Only channels this one's people could also see: the whole workspace's,
-  // and those in the same private container. A private channel's name never
-  // reaches a turn outside it.
+  // Every other channel it is in, private ones too: what an agent knows is
+  // shared (reference/agents-and-chats.md, decision 22).
   const others = await db
-    .select({
-      id: schema.channel.id,
-      name: schema.channel.name,
-      audience: schema.channel.audience,
-      parentId: schema.channel.parentId,
-      parentAudience: sql<
-        "workspace" | "members" | null
-      >`(select p.audience from channel p where p.id = ${schema.channel.parentId})`,
-    })
+    .select({ name: schema.channel.name })
     .from(schema.channelAgent)
     .innerJoin(
       schema.channel,
@@ -799,13 +814,6 @@ async function loadAgentChannel(channelId: string) {
       )
     )
     .orderBy(asc(schema.channel.createdAt))
-  const visible = others.filter((other) => {
-    const container =
-      other.parentId && other.parentAudience
-        ? { id: other.parentId, audience: other.parentAudience }
-        : { id: other.id, audience: other.audience }
-    return container.audience === "workspace" || container.id === scope
-  })
   return {
     ...row,
     workspaceId: row.workspaceId,
@@ -813,7 +821,7 @@ async function loadAgentChannel(channelId: string) {
     agentModel: agent.model,
     agentName: agent.name,
     agentCreature: agent.creature,
-    otherChannels: visible.flatMap((other) => other.name ?? []),
+    otherChannels: others.flatMap((other) => other.name ?? []),
   }
 }
 

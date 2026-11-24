@@ -1,4 +1,4 @@
-import { and, db, eq, inArray, schema } from "@repo/db"
+import { and, db, eq, inArray, schema, sql } from "@repo/db"
 import { defaultAgentFor, MAX_CHANNEL_AGENTS } from "@repo/db/queries/agents"
 import { resetAgentConversation } from "@repo/lor/channel-agent"
 import { ensureCheckInLoop } from "@repo/lor/check-in"
@@ -24,16 +24,37 @@ export function emitAgentsUpdated(workspaceId: string) {
 }
 
 // Puts the workspace's first agent in new text channels nobody picked one
-// for. A workspace with no agent leaves them as plain human chat.
+// for. A workspace with no agent leaves them as plain human chat. So does a
+// private channel (its own, or its category's): what an agent knows is
+// shared with the whole workspace, so one goes into a private channel only
+// when someone puts it there (reference/agents-and-chats.md, decision 22).
 export async function placeDefaultAgent(
   tx: Tx,
   input: { workspaceId: string; channelIds: string[]; addedById: string | null }
 ): Promise<string | null> {
   if (input.channelIds.length === 0) return null
+  const rows = await tx
+    .select({
+      id: schema.channel.id,
+      audience: schema.channel.audience,
+      parentId: schema.channel.parentId,
+      parentAudience: sql<
+        "workspace" | "members" | null
+      >`(select p.audience from channel p where p.id = ${schema.channel.parentId})`,
+    })
+    .from(schema.channel)
+    .where(inArray(schema.channel.id, input.channelIds))
+  const open = rows
+    .filter(
+      (row) =>
+        (row.parentId ? row.parentAudience : row.audience) === "workspace"
+    )
+    .map((row) => row.id)
+  if (open.length === 0) return null
   const agent = await defaultAgentFor(input.workspaceId, tx)
   if (!agent) return null
   await tx.insert(schema.channelAgent).values(
-    input.channelIds.map((channelId) => ({
+    open.map((channelId) => ({
       channelId,
       agentId: agent.id,
       addedById: input.addedById,
@@ -47,8 +68,7 @@ export type SetChannelAgentsResult =
   | { ok: false; reason: "not_found" | "too_many" }
 
 // Sets which agents are in a text channel: any of the workspace's, in any
-// channel. What one learns in a private channel stays there by scope, so
-// nothing has to keep it out. An empty list leaves plain human chat.
+// channel, private ones too. An empty list leaves plain human chat.
 export async function setChannelAgents(input: {
   workspaceId: string
   channelId: string

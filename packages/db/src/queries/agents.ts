@@ -1,16 +1,12 @@
 import { agentIdentityFor } from "@repo/utils/bestiary"
-import { and, asc, eq, inArray, isNull, or } from "drizzle-orm"
+import { asc, eq, inArray } from "drizzle-orm"
 import { MAX_CHANNEL_AGENTS } from "../constants"
 import { db } from "../index"
-import { agentFact } from "../schemas/agent-facts"
 import { type Agent, agent, channelAgent } from "../schemas/agents"
-import { channel, channelMember } from "../schemas/channels"
-import { resolveAccessContainer } from "./channel-access"
 
 // Agents apart from channels (reference/agents-and-chats.md): the agents a
-// channel holds, and where what an agent learns may be seen. Every workspace
-// member sees every agent. What it learns in a private channel stays there
-// by scope, like brain pages, so any agent can be added to any channel.
+// channel holds. Every workspace member sees every agent, and what an agent
+// knows is shared with the whole workspace (decision 22).
 
 export { MAX_CHANNEL_AGENTS }
 
@@ -92,27 +88,6 @@ export async function agentChannelIds(agentId: string): Promise<string[]> {
   return rows.map((row) => row.id)
 }
 
-// Where something an agent learns in this channel may be seen: null for a
-// channel the whole workspace sees, else its members-only container (a
-// private channel, or the private category it is in). The scope of an agent
-// fact (`agent_fact.scope_channel_id`), by the same rule as brain pages.
-export async function agentScopeFor(
-  channelId: string,
-  executor: ReadExecutor = db
-): Promise<string | null> {
-  const [row] = await executor
-    .select({
-      id: channel.id,
-      audience: channel.audience,
-      parentId: channel.parentId,
-    })
-    .from(channel)
-    .where(eq(channel.id, channelId))
-  if (!row) return null
-  const container = await resolveAccessContainer(row, executor)
-  return container.audience === "members" ? container.id : null
-}
-
 // The agent a new channel gets when nobody picked: the workspace's first.
 // Null when it has none, and the channel starts with no agent.
 export async function defaultAgentFor(
@@ -156,37 +131,4 @@ export async function createAgent(
     .returning()
   if (!made) throw new Error("Agent insert returned no row")
   return made
-}
-
-// The facts visible from these scopes: what the whole workspace can see,
-// plus what was learned in each private container given. One scope for an
-// agent's turn in a channel; a person's member scopes for the settings list.
-export function factsVisibleIn(scopes: (string | null)[]) {
-  const containers = scopes.filter((scope): scope is string => scope !== null)
-  return containers.length > 0
-    ? or(
-        isNull(agentFact.scopeChannelId),
-        inArray(agentFact.scopeChannelId, containers)
-      )
-    : isNull(agentFact.scopeChannelId)
-}
-
-// The members-only containers of this workspace a person is in: the scopes
-// whose facts they may list.
-export async function memberScopes(
-  userId: string,
-  workspaceId: string
-): Promise<string[]> {
-  const rows = await db
-    .select({ id: channel.id })
-    .from(channelMember)
-    .innerJoin(channel, eq(channel.id, channelMember.channelId))
-    .where(
-      and(
-        eq(channelMember.userId, userId),
-        eq(channel.workspaceId, workspaceId),
-        eq(channel.audience, "members")
-      )
-    )
-  return rows.map((row) => row.id)
 }

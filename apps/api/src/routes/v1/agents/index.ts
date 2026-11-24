@@ -8,6 +8,7 @@ const agentsRouter = createRouter()
   .openapi(routes.updateAgent, handlers.updateAgent)
   .openapi(routes.deleteAgent, handlers.deleteAgent)
   .openapi(routes.listAgentFacts, handlers.listAgentFacts)
+  .openapi(routes.listAgentJournal, handlers.listAgentJournal)
   .openapi(routes.updateAgentFact, handlers.updateAgentFact)
   .openapi(routes.deleteAgentFact, handlers.deleteAgentFact)
 

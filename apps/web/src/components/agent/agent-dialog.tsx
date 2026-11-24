@@ -27,6 +27,7 @@ import {
   agentChanges,
   agentDraftOf,
 } from "@/components/agent/agent-fields"
+import { AgentJournal } from "@/components/agent/agent-journal"
 import { AgentLoops } from "@/components/agent/agent-loops"
 import { AgentRuns } from "@/components/agent/agent-runs"
 import { AgentFactsList } from "@/components/sidebar/channel-panel/agent-facts-list"
@@ -263,9 +264,14 @@ function AgentDialog({
         ) : shownTab === "memory" ? (
           <PaneBody
             title="Memory"
-            description={`What ${agent.name} keeps after its turns and has in front of it on every one. Anyone can correct or delete a fact.`}
+            description={`What ${agent.name} knows, the same wherever it works: a channel, a code session, Slack or Discord. The whole team can read it.`}
           >
             <AgentFactsList
+              workspaceSlug={workspaceSlug}
+              agentId={agent.id}
+              agentName={agent.name}
+            />
+            <AgentJournal
               workspaceSlug={workspaceSlug}
               agentId={agent.id}
               agentName={agent.name}

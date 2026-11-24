@@ -8,6 +8,7 @@
     "./act-runs": "./src/act-runs.ts",
     "./agent-sessions": "./src/agent-sessions.ts",
     "./agent-loop": "./src/agent-loop.ts",
+    "./agent-memory": "./src/agent-memory.ts",
     "./channel-agent": "./src/channel-agent.ts",
     "./channel-profile": "./src/channel-profile.ts",
     "./check-in": "./src/check-in.ts",

@@ -1,6 +1,7 @@
 export * from "./accounts"
 export * from "./agent-facts"
 export * from "./agent-inbox"
+export * from "./agent-journal"
 export * from "./agent-profiles"
 export * from "./agent-runs"
 export * from "./agent-sessions"

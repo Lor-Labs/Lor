@@ -18,6 +18,7 @@ import {
   deleteAgentFactResponseSchema,
   deleteAgentResponseSchema,
   listAgentFactsResponseSchema,
+  listAgentJournalResponseSchema,
   listAgentsResponseSchema,
   updateAgentFactRequestSchema,
   updateAgentRequestSchema,
@@ -140,6 +141,26 @@ export const listAgentFacts = createRoute({
   },
 })
 
+export const listAgentJournal = createRoute({
+  path: "/workspaces/{workspaceSlug}/agents/{agentId}/journal",
+  method: "get",
+  summary: "List an agent's journal",
+  description:
+    "What the agent noted after its turns, newest first (reference/agents-and-chats.md, decision 25).",
+  tags: ["Agents"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: agentParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listAgentJournalResponseSchema,
+      description: "The agent's latest journal entries",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
 export const updateAgentFact = createRoute({
   path: "/workspaces/{workspaceSlug}/agents/{agentId}/facts/{factId}",
   method: "patch",
@@ -151,7 +172,7 @@ export const updateAgentFact = createRoute({
     params: agentFactParamsSchema,
     body: jsonContent({
       schema: updateAgentFactRequestSchema,
-      description: "The fact's new text",
+      description: "The fact's new text, or whether it is archived",
     }),
   },
   hide: true,
@@ -190,5 +211,6 @@ export type CreateAgentRoute = typeof createAgent
 export type UpdateAgentRoute = typeof updateAgent
 export type DeleteAgentRoute = typeof deleteAgent
 export type ListAgentFactsRoute = typeof listAgentFacts
+export type ListAgentJournalRoute = typeof listAgentJournal
 export type UpdateAgentFactRoute = typeof updateAgentFact
 export type DeleteAgentFactRoute = typeof deleteAgentFact

@@ -288,9 +288,9 @@ export const createProject: AppRouteHandler<CreateProjectRoute> = async (c) => {
         }))
       )
       .returning({ id: schema.channel.id, type: schema.channel.type })
-    // The workspace's first agent is in a new project's text channels, a
-    // private project's too: what it learns there stays there by scope
-    // (reference/agents-and-chats.md).
+    // The workspace's first agent is in a new project's text channels. A
+    // private project starts with none (reference/agents-and-chats.md,
+    // decision 22).
     await placeDefaultAgent(tx, {
       workspaceId: workspace.id,
       channelIds: channels.flatMap((ch) => (ch.type === "text" ? ch.id : [])),

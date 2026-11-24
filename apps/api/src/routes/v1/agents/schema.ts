@@ -85,11 +85,9 @@ export const agentFactSchema = z.object({
   updatedAt: z.string(),
   // The person who last edited it in settings; null when the agent did.
   editedBy: z.object({ id: z.string(), name: z.string() }).nullable(),
-  // The private channel or project it was learned in. Only its members get
-  // the fact at all, and only turns there see it. Null: everyone's.
-  privateTo: z
-    .object({ id: z.string().uuid(), name: z.string().nullable() })
-    .nullable(),
+  // Set once the agent dropped it to make room: out of its prompt, still
+  // found when it searches its memory.
+  archivedAt: z.string().nullable(),
 })
 
 export const listAgentFactsResponseSchema = z.object({
@@ -97,8 +95,34 @@ export const listAgentFactsResponseSchema = z.object({
 })
 
 export const updateAgentFactRequestSchema = z
-  .object({ text: z.string().trim().min(1).max(300) })
+  .object({
+    text: z.string().trim().min(1).max(300).optional(),
+    // false puts an archived fact back in front of the agent.
+    archived: z.boolean().optional(),
+  })
   .strict()
+  .refine((value) => value.text !== undefined || value.archived !== undefined, {
+    message: "Nothing to change",
+  })
+
+export const agentJournalEntrySchema = z.object({
+  id: z.string().uuid(),
+  createdAt: z.string(),
+  text: z.string(),
+  // Where it happened, as far as this person can see that place.
+  channel: z
+    .object({ id: z.string().uuid(), name: z.string().nullable() })
+    .nullable(),
+  session: z
+    .object({ id: z.string().uuid(), title: z.string().nullable() })
+    .nullable(),
+  // The person the turn was for; null for work nobody asked for.
+  user: z.object({ id: z.string(), name: z.string() }).nullable(),
+})
+
+export const listAgentJournalResponseSchema = z.object({
+  entries: z.array(agentJournalEntrySchema),
+})
 
 export const deleteAgentFactResponseSchema = z.object({
   success: z.literal(true),

@@ -20,8 +20,8 @@ type AgentFact = {
   source: string
   updatedAt: string
   editedBy: { id: string; name: string } | null
-  // The private channel or project it was learned in and stays in.
-  privateTo: { id: string; name: string | null } | null
+  // Set once the agent dropped it to make room; such a fact is not listed.
+  archivedAt: string | null
 }
 
 const agentFactsKey = (agentId: string) => ["agent-facts", agentId] as const
@@ -60,7 +60,8 @@ export function AgentFacts({
         ":agentId"
       ].facts.$get({ param: { workspaceSlug, agentId } })
       if (!res.ok) throw new Error("Couldn't load the facts")
-      return (await res.json()).facts
+      // Archived facts are managed on web.
+      return (await res.json()).facts.filter((fact) => !fact.archivedAt)
     },
   })
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(
@@ -233,9 +234,6 @@ export function AgentFacts({
                         ? `Edited by ${fact.editedBy.name}`
                         : fact.source}{" "}
                       · {formatDate(fact.updatedAt)}
-                      {fact.privateTo
-                        ? ` · Only in ${fact.privateTo.name ?? "a private channel"}`
-                        : ""}
                     </Text>
                   </View>
                   <IconButton

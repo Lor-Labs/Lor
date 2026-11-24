@@ -1,9 +1,7 @@
 import { db, schema } from "@repo/db"
 import {
   agentChannelIds,
-  factsVisibleIn,
   createAgent as insertAgent,
-  memberScopes,
 } from "@repo/db/queries/agents"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import type { Agent } from "@repo/db/schema"
@@ -13,7 +11,7 @@ import { agentProfileLock } from "@repo/lor/channel-profile"
 import { syncAgentRole } from "@repo/lor/discord"
 import { isLorCreditModel } from "@repo/lor/model-catalog"
 import { normalizeAgentName } from "@repo/utils/bestiary"
-import { and, asc, eq, inArray, isNull } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm"
 import { emitAgentsUpdated } from "@/lib/agents"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -27,6 +25,7 @@ import type {
   DeleteAgentFactRoute,
   DeleteAgentRoute,
   ListAgentFactsRoute,
+  ListAgentJournalRoute,
   ListAgentsRoute,
   UpdateAgentFactRoute,
   UpdateAgentRoute,
@@ -35,8 +34,8 @@ import type {
 // Agents apart from channels (reference/agents-and-chats.md). Every member
 // sees every agent. Managing one (its brief, model, existence) takes
 // channel:update, as the channel's agent settings did; the person who made
-// an agent may still name it. What it learned in a private channel is shown
-// only to that channel's people.
+// an agent may still name it. Its memory is read by anyone who can see a
+// channel it is in.
 
 function serializeAgent(agent: Agent, channelIds: string[]) {
   return {
@@ -275,10 +274,30 @@ export const deleteAgent: AppRouteHandler<DeleteAgentRoute> = async (c) => {
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
-// An agent's facts (reference/always-on-agents.md §7). A fact learned where
-// the whole workspace can see is anyone's to read, edit and delete. One
-// learned in a private channel is only its members': to everyone else it
-// does not exist (reference/agents-and-chats.md).
+// An agent's memory: its facts (reference/always-on-agents.md §7) and its
+// journal. What an agent knows is shared with the workspace
+// (reference/agents-and-chats.md, decision 22), so anyone who can see one of
+// its channels reads, edits and deletes all of it. An agent kept to private
+// channels is read only by their people: to everyone else its memory does
+// not exist.
+
+async function memoryAgent(
+  workspaceId: string,
+  agentId: string,
+  userId: string
+): Promise<{ agent: Agent; accessible: Set<string> } | null> {
+  const agent = await workspaceAgent(workspaceId, agentId)
+  if (!agent) return null
+  const [channelIds, accessible] = await Promise.all([
+    agentChannelIds(agent.id),
+    listAccessibleChannelIds(userId, workspaceId),
+  ])
+  // An agent in no channel has learned nothing anywhere private.
+  if (channelIds.length > 0 && !channelIds.some((id) => accessible.has(id))) {
+    return null
+  }
+  return { agent, accessible }
+}
 
 const factSelect = {
   id: schema.agentFact.id,
@@ -286,18 +305,16 @@ const factSelect = {
   source: schema.agentFact.source,
   createdAt: schema.agentFact.createdAt,
   updatedAt: schema.agentFact.updatedAt,
+  archivedAt: schema.agentFact.archivedAt,
   editorId: schema.user.id,
   editorName: schema.user.name,
-  scopeId: schema.agentFact.scopeChannelId,
-  scopeName: schema.channel.name,
 }
 
-// This agent's live facts that this person may see.
-function visibleFacts(agentId: string, scopes: string[]) {
+// This agent's facts, archived ones included.
+function keptFacts(agentId: string) {
   return and(
     eq(schema.agentFact.agentId, agentId),
-    isNull(schema.agentFact.deletedAt),
-    factsVisibleIn(scopes)
+    isNull(schema.agentFact.deletedAt)
   )
 }
 
@@ -306,10 +323,6 @@ function factsQuery() {
     .select(factSelect)
     .from(schema.agentFact)
     .leftJoin(schema.user, eq(schema.user.id, schema.agentFact.editedById))
-    .leftJoin(
-      schema.channel,
-      eq(schema.channel.id, schema.agentFact.scopeChannelId)
-    )
 }
 
 type FactRow = Awaited<ReturnType<typeof factsQuery>>[number]
@@ -325,8 +338,7 @@ function serializeAgentFact(row: FactRow) {
       row.editorId && row.editorName
         ? { id: row.editorId, name: row.editorName }
         : null,
-    // The private channel or project it was learned in and stays in.
-    privateTo: row.scopeId ? { id: row.scopeId, name: row.scopeName } : null,
+    archivedAt: row.archivedAt?.toISOString() ?? null,
   }
 }
 
@@ -334,32 +346,98 @@ export const listAgentFacts: AppRouteHandler<ListAgentFactsRoute> = async (
   c
 ) => {
   const { agentId } = c.req.valid("param")
-  const agent = await workspaceAgent(c.var.workspace.id, agentId)
-  if (!agent) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
-  const scopes = await memberScopes(c.var.user.id, c.var.workspace.id)
+  const found = await memoryAgent(c.var.workspace.id, agentId, c.var.user.id)
+  if (!found) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
   const rows = await factsQuery()
-    .where(visibleFacts(agent.id, scopes))
+    .where(keptFacts(found.agent.id))
     .orderBy(asc(schema.agentFact.createdAt), asc(schema.agentFact.id))
   return c.json({ facts: rows.map(serializeAgentFact) }, HttpStatusCodes.OK)
+}
+
+const JOURNAL_PAGE = 60
+
+export const listAgentJournal: AppRouteHandler<ListAgentJournalRoute> = async (
+  c
+) => {
+  const { agentId } = c.req.valid("param")
+  const found = await memoryAgent(c.var.workspace.id, agentId, c.var.user.id)
+  if (!found) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
+  const rows = await db
+    .select({
+      id: schema.agentJournal.id,
+      createdAt: schema.agentJournal.createdAt,
+      text: schema.agentJournal.text,
+      channelId: schema.agentJournal.channelId,
+      channelName: schema.channel.name,
+      sessionId: schema.agentJournal.sessionId,
+      sessionTitle: schema.agentSession.title,
+      userId: schema.user.id,
+      userName: schema.user.name,
+    })
+    .from(schema.agentJournal)
+    .leftJoin(
+      schema.channel,
+      eq(schema.channel.id, schema.agentJournal.channelId)
+    )
+    .leftJoin(
+      schema.agentSession,
+      eq(schema.agentSession.id, schema.agentJournal.sessionId)
+    )
+    .leftJoin(schema.user, eq(schema.user.id, schema.agentJournal.userId))
+    .where(eq(schema.agentJournal.agentId, found.agent.id))
+    .orderBy(desc(schema.agentJournal.createdAt))
+    .limit(JOURNAL_PAGE)
+  return c.json(
+    {
+      entries: rows.map((row) => {
+        // The entry's text is shared; the link to a place this person can't
+        // open is not.
+        const open = row.channelId && found.accessible.has(row.channelId)
+        return {
+          id: row.id,
+          createdAt: row.createdAt.toISOString(),
+          text: row.text,
+          channel:
+            open && row.channelId
+              ? { id: row.channelId, name: row.channelName }
+              : null,
+          session:
+            open && row.sessionId
+              ? { id: row.sessionId, title: row.sessionTitle }
+              : null,
+          user:
+            row.userId && row.userName
+              ? { id: row.userId, name: row.userName }
+              : null,
+        }
+      }),
+    },
+    HttpStatusCodes.OK
+  )
 }
 
 export const updateAgentFact: AppRouteHandler<UpdateAgentFactRoute> = async (
   c
 ) => {
   const { agentId, factId } = c.req.valid("param")
-  const { text } = c.req.valid("json")
-  const agent = await workspaceAgent(c.var.workspace.id, agentId)
-  if (!agent) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
-  const scopes = await memberScopes(c.var.user.id, c.var.workspace.id)
-  const mine = and(
-    visibleFacts(agent.id, scopes),
-    eq(schema.agentFact.id, factId)
-  )
+  const { text, archived } = c.req.valid("json")
+  const found = await memoryAgent(c.var.workspace.id, agentId, c.var.user.id)
+  if (!found) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
+  const agent = found.agent
+  const mine = and(keptFacts(agent.id), eq(schema.agentFact.id, factId))
+  const now = new Date()
   const updated = await db.transaction(async (tx) => {
     await tx.execute(agentProfileLock(agent.id))
     return tx
       .update(schema.agentFact)
-      .set({ text, updatedAt: new Date(), editedById: c.var.user.id })
+      .set({
+        ...(text !== undefined ? { text } : {}),
+        ...(archived !== undefined
+          ? { archivedAt: archived ? now : null }
+          : {}),
+        updatedAt: now,
+        editedById: c.var.user.id,
+      })
       .where(mine)
       .returning({ id: schema.agentFact.id })
   })
@@ -377,18 +455,16 @@ export const deleteAgentFact: AppRouteHandler<DeleteAgentFactRoute> = async (
   c
 ) => {
   const { agentId, factId } = c.req.valid("param")
-  const agent = await workspaceAgent(c.var.workspace.id, agentId)
-  if (!agent) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
-  const scopes = await memberScopes(c.var.user.id, c.var.workspace.id)
+  const found = await memoryAgent(c.var.workspace.id, agentId, c.var.user.id)
+  if (!found) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
+  const agent = found.agent
   const now = new Date()
   const deleted = await db.transaction(async (tx) => {
     await tx.execute(agentProfileLock(agent.id))
     return tx
       .update(schema.agentFact)
       .set({ deletedAt: now, updatedAt: now, editedById: c.var.user.id })
-      .where(
-        and(visibleFacts(agent.id, scopes), eq(schema.agentFact.id, factId))
-      )
+      .where(and(keptFacts(agent.id), eq(schema.agentFact.id, factId)))
       .returning({ id: schema.agentFact.id })
   })
   if (deleted.length === 0) {

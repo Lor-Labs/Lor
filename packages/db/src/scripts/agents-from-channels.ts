@@ -3,8 +3,10 @@
 //
 // - every text channel's agent settings become an `agent` row, and the
 //   channel holds it through `channel_agent` (the shape allows several);
-// - facts move to the agent, scoped to the private container they were
-//   learned in, so nothing private follows an agent out of a channel;
+// - facts move to the agent. They carry no scope: what an agent knows is
+//   shared with the workspace (decision 22), and each channel's agent starts
+//   as its own agent, so a private channel's facts stay with the agent that
+//   only its people can read until someone adds it elsewhere;
 // - a brief written for an agent that only lives in private channels becomes
 //   those channels' own instructions, since an agent's brief is public;
 // - the workspace's autonomous-run settings are copied onto each of its
@@ -54,7 +56,7 @@ type ChannelRow = Record<string, unknown> & {
 }
 
 // The members-only container of a channel (itself or its category), else
-// null: the scope of what an agent learns there.
+// null.
 const privateContainerOf = (channelAlias: string) =>
   sql.raw(`(
     select case
@@ -205,30 +207,6 @@ async function run() {
       where a.id in (select agent_id from private_agents)
       returning a.id`)
 
-    let scoped = 0
-    if (await tableExists(tx, "agent_fact")) {
-      if (!(await columnExists(tx, "agent_fact", "scope_channel_id"))) {
-        await tx.execute(
-          sql`alter table agent_fact add column scope_channel_id uuid references channel(id) on delete cascade`
-        )
-      }
-      const rows = await tx.execute(sql`
-        update agent_fact f
-        set scope_channel_id = ${privateContainerOf("f.channel_id")}
-        where f.channel_id is not null
-          and ${privateContainerOf("f.channel_id")} is not null
-        returning f.id`)
-      scoped = rows.length
-      // A fact whose channel is gone keeps the scope its agent had.
-      if (await columnExists(tx, "agent", "access_container_id")) {
-        await tx.execute(sql`
-          update agent_fact f set scope_channel_id = a.access_container_id
-          from agent a
-          where a.id = f.agent_id and f.channel_id is null
-            and a.access_container_id is not null`)
-      }
-    }
-
     // Each agent takes its workspace's autonomous-run settings as its own.
     let copied = 0
     if (await tableExists(tx, "workspace_harness_settings")) {
@@ -272,7 +250,6 @@ async function run() {
         firstCut
           ? `${placed.length} channel(s) keep their agent`
           : `${made} channel(s) got their own agent`,
-        `${scoped} fact(s) kept private to where they were learned`,
         `${moved.length} private agent(s) had their brief moved to their channels`,
         `${copied} agent(s) took their workspace's run settings.`,
       ].join(" · ")

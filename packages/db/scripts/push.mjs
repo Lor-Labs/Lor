@@ -46,10 +46,12 @@ function run(command, args) {
 
 // Before the push, in order: extensions, then data moves the push would
 // otherwise destroy (agents-from-channels.ts copies each channel's agent
-// settings onto `agent` rows before their columns are dropped).
+// settings onto `agent` rows before their columns are dropped), then a
+// column drop the push would otherwise ask a question about.
 const BEFORE_PUSH = [
   "src/scripts/ensure-extensions.ts",
   "src/scripts/agents-from-channels.ts",
+  "src/scripts/agent-facts-unscoped.ts",
 ]
 
 let code = 0

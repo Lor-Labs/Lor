@@ -1,15 +1,15 @@
 # Agents and chats: agents apart from channels
 
 **Status:** Decided with Jacob on 2026-11-23 and 11-24, and built step by
-step from §9. Step 1 (agents apart from channels) is built, all on 11-24: its
-first cut, then Jacob's fixes to it (several agents per channel in the data,
-no private agents, run settings per agent, the two dialogs, a channel's
-agents in its right panel, and its loops in its agent's dialog). Lint and type checks pass, the data move and the app were
-run on throwaway databases, and `db:push` on the shared databases is owed
-(§9, rollout). Steps 2 to 5 are not started, so every chat with an agent in a
-channel still shares that channel's one queue. It changes the shape built
-under `always-on-agents.md` (LOR-169): where a step here has landed, this doc
-says what the code does.
+step from §9. Step 1 (agents apart from channels) is built, all on 11-24.
+Later that day Jacob set the end goal this doc now follows (decisions 22 to
+30): an agent owns everything it has, its knowledge is shared with the whole
+workspace, it has one memory across every place it works, and people's
+requests run side by side. Step 2 (memory) is built, also on 11-24: lint and
+type checks pass and it was run live on a throwaway database, except the
+code-session part, which is type-checked only. Steps 3 to 5 are design only. `db:push` on the shared databases is owed (§9, rollout). It
+changes the shape built under `always-on-agents.md` (LOR-169): where a step
+here has landed, this doc says what the code does.
 
 ## 1. Why
 
@@ -33,15 +33,19 @@ chat.
 | Term | What it is | Where you find it |
 |---|---|---|
 | **Channel** | A long-lasting place where people talk, like `#eng`. In Lor, Slack or Discord. It has one agent or none | The sidebar, or the chat app |
-| **Agent** | A teammate for a role, like eng or gtm. A team has a few. It carries its brief, tools, memory, accounts and events to every channel and chat | The right panel of a channel it is in |
-| **Chat** | One piece of work between some people and one agent | The sidebar |
+| **Agent** | A teammate for a role, like eng or gtm. A team has a few. It owns its brief, tools, memory, accounts, loops and places, and is the same in all of them | The right panel of a channel it is in |
+| **Place** | A channel an agent is in: in Lor, Slack or Discord. One in Slack or Discord is stored for the agent and is not a Lor channel | The agent's dialog |
+| **The agent's own conversation** | The one conversation an agent has with itself, for what nobody asked for: the check-in, loops, events and its own wake-ups. Nobody talks to it there | Nowhere; what it posts lands in a channel |
+| **Chat** | One piece of work between some people and one agent, with its own conversation | The sidebar |
 | **Session** | One coding agent on one branch, with a computer. Unchanged | Under its chat, or on its own when a person started it |
 | **Thread** | Replies under a message in a channel. Unchanged | In the channel |
 
 ```
-Agent ── added to ──> channels (in Lor, Slack or Discord)
-  └── chats (one per piece of work)
+Agent ── added to ──> places (channels in Lor, Slack or Discord)
+  ├── its own conversation (check-in, loops, events)
+  └── chats (one per request)
         └── code sessions
+  one memory under all of them: facts, a journal, its history
 ```
 
 "Chat" means only this. A channel's messages are the channel's messages.
@@ -66,14 +70,23 @@ objected to and should confirm.
 | 11 | A quick question in a channel gets a plain reply there. A mention that is work becomes a chat | Default |
 | 12 | Nothing to do when a chat is done. It sinks down the list and a new message brings it back | Default |
 | 13 | A chat lives where it was started: in Lor, or in a Slack or Discord thread. No two-way sync | Default |
-| 14 | No private agents. Every member sees every agent, and any agent can be in any channel. What it learns in a private channel stays there by scope, like brain pages, and a private channel's instructions for it live on that channel. It replaced "an agent has one audience", built in the first cut | Jacob, 11-24 |
-| 15 | An event or Loop belongs to an agent and names the channel it reports in | Default |
+| 14 | No private agents. Every member sees every agent, and any agent can be in any channel. A channel's instructions for it live on that channel. The first form of this decision also kept what it learns in a private channel there by scope; decision 22 replaced that | Jacob, 11-24 |
+| 15 | An event or Loop belongs to an agent. Where it posts is optional (decision 27) | Jacob, 11-24 |
 | 16 | Accounts are owned by the workspace and each agent picks its own, so two agents can share one and deleting an agent deletes none. The workspace's "Autonomous runs" section is gone: the settings are each agent's | Jacob, 11-24 |
 | 17 | An agent runs as Lor on a model, or on Claude Code or Codex, for its own turns and the sessions it starts. A plan can pay for either (the first cut of this doc said only for sessions, which was wrong) | As built 11-22 |
 | 18 | No signup question about where the team chats. Linking a channel to a chat app already decides it, per channel | Default |
 | 19 | A channel's agents are at the top of its right panel, and nowhere else on the channel: no agent in its header, and no face on its row in the sidebar, since a channel can hold several. A row opens that agent's dialog. A channel with room shows an Add agent row; a full one shows a button on the agent's row that swaps it, so nothing offers to add where the app would replace. The left sidebar is for chats and channels only. It replaced an Agents group in the left sidebar, built earlier the same day | Jacob, 11-24 |
 | 20 | An agent's settings are in its own dialog. A channel's dialog says which agent is in it and what the team wants from it there | Jacob, 11-24 |
 | 21 | A channel's loops are listed in its agent's dialog, under Loops, and not in the channel's right panel: each fire wakes that channel's agent, so they are that agent's. A loop is still stored on its channel (`loop.channel_id`) until step 3 moves it to the agent (decision 15), so a channel that swaps its agent hands its loops to the new one. A channel with no agent still lists its own loops in its right panel, where nothing runs them | Jacob, 11-24 |
+| 22 | No privacy promise inside an agent. Everything an agent knows is shared with the whole workspace and used wherever it works. A private channel that must stay private gets its own agent; the app does not say so. A new private channel starts with no agent, so putting one in is a choice | Jacob, 11-24 |
+| 23 | An agent owns everything it has: brief, tools, memory, loops and places. Nothing is stored on a channel except the team's instructions for the agent there | Jacob, 11-24 |
+| 24 | A Slack or Discord channel an agent is in is a place on the agent. Its messages are stored, since the agent's inbox and history need them, and it is not shown as a Lor channel. It is managed from the agent's dialog | Jacob, 11-24 |
+| 25 | One memory under every conversation, so it is the same agent in a channel, a chat, a code session, Slack and Discord: facts in every prompt, a dated journal of what it did and heard, and the ability to read any of its conversations word for word. No shared transcript | Jacob, 11-24 |
+| 26 | The check-in is automatic and hidden: about every 15 minutes, skipped when nothing is unread, reading every place the agent is in. It is not a Loop and has no setting | Jacob, 11-24 |
+| 27 | A Loop is work the agent was told to do on a schedule: when, what, some context, and optionally where to post. It runs in the agent's own conversation, and the agent starts a chat or a session itself when the work is heavy | Jacob, 11-24 |
+| 28 | The agent has one conversation of its own, for what nobody asked for (decisions 26 and 27, events, its wake-ups). Anything a person addresses to it runs in its own conversation, side by side with the others, so nobody waits behind background work or another person. A quick reply stays a thread; one that turns into work is listed as a chat | Jacob, 11-24 |
+| 29 | Tools belong to the agent, not to the channel it is working in | Jacob, 11-24 |
+| 30 | A fact the agent drops to make room is archived and stays searchable. It can save a fact during a turn, not only after one | Jacob, 11-24 |
 
 Considered and dropped:
 
@@ -83,6 +96,13 @@ Considered and dropped:
   list, so it is hidden, not quiet.
 - **A private chat per person.** It solves the queue and loses the shared
   record, which is the reason to use Lor over a personal agent.
+- **One conversation for everything, with helpers for heavy work** (how a
+  personal bot does it). One queue is right for one owner. With ten people
+  it is the wait this doc started from.
+- **Keeping what an agent learns in a private channel there** (built in
+  step 1, decision 14's first form). It can't hold once the agent has one
+  memory and one conversation of its own, and a promise that mostly holds is
+  worse than none.
 - **Numbered copies of an agent (eng2, eng3).** They split memory arbitrarily.
 
 ## 4. How it works
@@ -110,9 +130,10 @@ Considered and dropped:
 
 **In Slack or Discord**
 
-- Adding the agent to a channel there makes a read-only copy in Lor, so the
-  record and search work. Nobody creates channels in Lor.
-- A thread with the agent there is a chat in Lor, listed under the agent.
+- Adding the agent to a channel there makes it one of the agent's places
+  (decision 24). Its messages are stored so the agent can read and search
+  them. It is not a channel in Lor's sidebar.
+- A thread with the agent there is a chat in Lor.
 - The agent links to Lor only for what a chat app cannot hold: a session's
   browser, diff and terminal.
 
@@ -123,8 +144,9 @@ Considered and dropped:
 
 **Work nobody asked for**
 
-- An event or a Loop wakes the agent. What it posts goes to the channel that
-  event names, and a reply to it becomes a chat.
+- The check-in, a Loop or an event wakes the agent in its own conversation
+  (decision 28). What it posts goes to the place the work names or the one
+  it concerns, and a reply to it becomes a chat.
 - The chat never says what woke the agent (`always-on-agents.md`, decision 30).
 
 ## 5. The agent's settings
@@ -136,8 +158,8 @@ Considered and dropped:
 | Runs | Its model, what it runs on (Lor, Claude Code or Codex), and which of the workspace's accounts pay when no person's plan does | The channel (model), workspace settings (the rest) |
 | Tools | Connectors, read and write access. Writes follow the approval rules | A tool profile on the channel or its category |
 | Channels | The channels it is in, in Lor, Slack and Discord | The channel |
-| Events and Loops | Each with the channel it reports in. Also the check-in | The channel |
-| Who can see it | Everyone in the workspace (decision 14). What it learned in a private channel shows only to that channel's people | New |
+| Loops and events | What it was told to do on a schedule or on an event, each with an optional place to post. The check-in is not here (decision 26) | The channel |
+| Who can see it | Everyone in the workspace, and everything it knows (decision 22) | New |
 
 **Who pays** (decision 7), for an agent's own turn and for a session it
 starts:
@@ -176,13 +198,14 @@ agent's page lists everyone's chats with it. Yours are also in the sidebar.
 | Piece | Today | Becomes |
 |---|---|---|
 | Agent record | Columns on the channel: name, face, brief, model, wake mode | Its own record. A channel records which agent is in it, or none |
-| Facts, the log, the open block | Per channel | Per agent |
-| Events, webhooks, Loops, wake-ups, the check-in | Per channel | Per agent, each with a channel to report in |
-| The agent's history and queue | One per channel (`agent_step`, `agent_context`, one active run per channel) | One per chat, and one per channel the agent is in for reading along |
+| Facts, the log, the open block | Per channel | Per agent, with a journal and an archive under the facts (decisions 25 and 30) |
+| Events, webhooks, Loops, wake-ups | Per channel | Per agent, each with an optional place to post |
+| The check-in | A Loop on each channel | Automatic and hidden, one per agent (decision 26) |
+| The agent's history and queue | One per channel (`agent_step`, `agent_context`, one active run per channel) | One of its own per agent, and one per chat (decision 28) |
 | A session's report | Wakes the channel's one conversation | Wakes the chat that started it |
 | Chat | None. Threads the agent answers in share the channel's queue | A record like a session's (a hidden anchor message, a title, its people, an archive date) with no repo or coding agent |
 | Wake mode | Per channel: mentions, or every message | Mentions only. The setting goes |
-| Discord link | One Lor channel to one Discord channel | One agent in many Discord channels, each copied to a Lor channel |
+| Discord link | One Lor channel to one Discord channel | One agent in many Discord channels, each a place on the agent (decision 24) |
 | Accounts for work nobody asked for | Workspace settings | Picked per agent |
 | Session ceiling | 15 at once per channel | Per agent, and higher: 15 is too low for ten people |
 | Sidebar | Channels, each with its agent's face and your sessions | Your chats, then channels. No agent faces: a channel's agents are in its right panel |
@@ -228,18 +251,13 @@ Each step ends in something the team uses. Steps 2 to 5 are not sized.
   `agent_identity_updated_at`, `agent_brief`, `agent_brief_updated_at`,
   `agent_model`, and `agent_wake_mode` with its enum (decision 8).
   `agent_check_in_at` and `agent_profile_id` stay.
-- [x] **Facts per agent, scoped:** `channel_agent_fact` is `agent_fact`, keyed
-  by `agent_id`, with `scope_channel_id`: null for the workspace, else the
-  private channel or category it was learned in. The cap (100 facts, 4,000
-  characters) is per agent and scope.
-- [x] **Nothing private leaves a private channel** (decision 14):
-  - a turn sees the workspace's facts plus its own channel's scope;
-  - a private channel's memory pass adds and changes only that scope's facts,
-    so it can't write something private into a fact everyone sees;
-  - people get a private fact from the API only as members of its scope;
-  - a private channel is never named in another channel's prompt;
-  - the agent's brief is public, so a private channel's instructions go on
-    its `channel_agent` row, read only by its people.
+- [x] **Facts per agent:** `channel_agent_fact` is `agent_fact`, keyed by
+  `agent_id`. The cap (100 facts, 4,000 characters) is per agent. Step 1
+  also scoped a fact to the private channel it was learned in
+  (`scope_channel_id`) and kept private channels out of other channels'
+  prompts; step 2 took both out (decision 22).
+- [x] **Instructions per channel:** the agent's brief is public, so what a
+  team wants from it in one channel goes on its `channel_agent` row.
 - [x] **Run settings per agent** (`agent_harness_settings`, decision 16):
   what it runs on and which accounts pay. `workspace_harness_settings` and
   its settings section are gone. The agent's `model` is the one model
@@ -252,7 +270,7 @@ Each step ends in something the team uses. Steps 2 to 5 are not sized.
   what it copies. It works from the original per-channel columns or from the
   first cut (`channel.agent_id`), once per database, in one transaction:
   - each text channel's agent keeps the name and face people see;
-  - facts follow their agent and take their channel's scope;
+  - facts follow their agent;
   - a brief written for an agent that only lives in private channels moves to
     those channels' instructions;
   - each agent takes its workspace's run settings, and the workspace's API
@@ -273,8 +291,8 @@ Each step ends in something the team uses. Steps 2 to 5 are not sized.
   `/agents/:id/facts`, `/channels/:id/agents` (instructions per channel), and
   `agentId` on the `ai-accounts` routes. Event `agents:updated`.
 - [x] **New channels:** left unpicked, a text channel gets the workspace's
-  first agent, private ones too. A new workspace starts with one agent in
-  every text channel.
+  first agent. A new workspace starts with one agent in every text channel.
+  Since step 2 a private channel starts with none (decision 22).
 - [x] **Web:**
   - a channel's right panel starts with its agents
     (`right-panel/channel-agents-section.tsx`, decision 19): a row per
@@ -295,14 +313,11 @@ Each step ends in something the team uses. Steps 2 to 5 are not sized.
   an agent runs, are set on web.
 - [x] **Checked** on throwaway Postgres databases:
   - the move from the original shape and from the first cut: names, faces,
-    private briefs, fact scopes and run settings, with a second push finding
+    private briefs and run settings, with a second push finding
     nothing of this step to change;
-  - live: an agent in a private and a public channel was told something in
-    the private one. Its memory pass saved it in that scope. Asked in the
-    public channel, it knew nothing of it and did not name the private
-    channel;
-  - as a second person outside the private channel: the fact is not listed
-    and can't be edited, and the channel's instructions answer 404.
+  - as a second person outside a private channel: that channel's
+    instructions answer 404. (The scoped-fact checks made here no longer
+    apply: step 2 removed the scope.)
 
 Deviations and gaps:
 
@@ -339,21 +354,122 @@ Rollout, per environment, with API, realtime, worker, web and mobile together:
 4. Once every environment has pushed, take `agents-from-channels.ts` out of
    `BEFORE_PUSH` in `packages/db/scripts/push.mjs`.
 
-### Step 2: chats
+### Step 2: memory (built 2026-11-24)
 
-The chat record, a queue and context per chat, a mention that is work
-starting one, New chat, session reports going back to their chat, and chats
-in the sidebar. The log and the open block become the agent's.
+One memory under every conversation (decisions 22, 25 and 30). It needs no
+change to how conversations are keyed, so it landed first.
 
-### Step 3: tools and events per agent
+- [x] **Facts are the agent's, with no scope.** `agent_fact.scope_channel_id`
+  and everything that read it are gone: the per-scope prompt and cap, the
+  member filter on the API, the "Only in" badge. A turn in any channel has
+  all of its agent's facts, and its prompt names every channel the agent is
+  in, private ones too.
+- [x] **Who reads an agent's memory** (`memoryAgent` in the agents API):
+  anyone who can see a channel the agent is in, or anyone when it is in
+  none. So an agent kept to a private channel is read only by that
+  channel's people, which is what makes "give it its own agent" work
+  (decision 22). Not a promise: whoever manages channels can still add that
+  agent somewhere else.
+- [x] **A new private channel starts with no agent** (`placeDefaultAgent`):
+  its own audience or its category's. A private project too.
+- [x] **Archive** (`agent_fact.archived_at`, decision 30): the memory pass
+  archives a fact to make room, where it used to drop it. An archived fact
+  leaves the prompt, arrives in the agent's other channels as a change note,
+  and is found by `recall`. A wrong fact is still deleted. People restore or
+  delete archived facts in the Memory section.
+- [x] **The journal** (`agent_journal`, `packages/lor/src/agent-memory.ts`):
+  the memory pass writes one entry for a turn worth one, in the same reply
+  as its fact changes, so it costs no extra call. An entry records the
+  agent, the channel, the session, the run and the person the turn was for.
+  - A conversation's frozen prompt has the last 7 days, up to 30 entries.
+  - The top of each turn has the entries written in the agent's other
+    conversations since its last turn there, up to 12, the ones about the
+    person who woke the turn first (`journalNotes`). It rides the same
+    cursor as the profile change notes, so the prompt cache holds.
+- [x] **During a turn:** `remember` saves a fact at once (refused when the
+  facts are full: making room is the memory pass's call), and `recall`
+  searches the whole journal and the archived facts.
+- [x] **Look back across places:** `read_agent_history` lists, searches and
+  reads the agent's turns in every channel it is in, each result naming its
+  channel. Steps from before the agent joined a channel were another
+  agent's and are left out.
+- [x] **Code sessions** in a channel with an agent
+  (`apps/worker/src/lib/session-memory.ts`): the first turn's message
+  carries the agent's facts and recent journal, and later turns carry what
+  the agent noted elsewhere since. The session's own prompt does not change,
+  so its cache holds. They get `remember` and `recall`. A turn of a session
+  a person started adds a journal entry made from the request and the
+  answer, with no model call; the agent's own sessions report to it, and its
+  turn notes that.
+- [x] **API:** facts carry `archivedAt` in place of `privateTo`; `PATCH` on
+  a fact takes `archived`; `GET /agents/:id/journal` lists the latest 60
+  entries. An entry's link to a channel or session is left out for a person
+  who can't open it; its text is not.
+- [x] **Web:** the agent dialog's Memory section lists the facts, the
+  archived ones under a disclosure with restore and delete, and the journal.
+  Mobile lists live facts only.
+- [x] **Checked** live on a throwaway database, with the worker running:
+  - asked in `#general` to remember something, the agent called `remember`
+    during the turn and its memory pass wrote a journal entry;
+  - told something there that is not a fact, then asked in `#eng` what was
+    just said, it answered from the journal entry at the top of that turn;
+  - `read_agent_history` in `#eng` quoted what it had sent in `#general`;
+  - an archived fact arrived as a change note and `recall` found it;
+  - a member outside a private channel gets 404 for the memory of an agent
+    that is only in that channel, and 200 once it is also in a channel they
+    can see;
+  - a new private channel, and one in a private category, got no agent; a
+    public one got the workspace's first.
 
-Run settings and the payer order landed with step 1. Left: tools on the
-agent, and events and Loops that follow it.
+Deviations and gaps:
 
-### Step 4: Discord in this shape
+- **Code sessions were not run.** The sandbox has no session computer, so
+  the session note, the session's tools and its journal entry are
+  type-checked only.
+- **A session's journal entry is clipped text**, not a summary: a session
+  has no memory pass.
+- **The agent keeps its own counsel.** With a fact that says it is
+  confidential, the agent declined to repeat it in a public channel. Nothing
+  enforces that.
+- **Brain pages keep their own scope** (`brain_node.scope_channel_id`). They
+  are the workspace's knowledge, not an agent's memory, and were not touched.
+- **People can't add a fact** in settings, only edit, restore and delete.
+- **Search is a text match** (`ilike`) over the journal and archived facts.
+  No ranking, no embeddings.
+- **The log and the open block are still per channel**, as are the
+  conversation and the inbox. Step 3.
 
-One agent in many channels works after step 1 through several Lor channels.
-Still to do: a thread as a chat, and DMs to the agent.
+Rollout, with the worker, API, web and mobile together:
+
+1. `pnpm db:push`. It first runs `agent-facts-unscoped.ts`, which drops
+   `agent_fact.scope_channel_id`. Without it the push adds `archived_at` and
+   drops the scope column together, asks whether one was renamed into the
+   other, and a yes would turn scopes into archive dates. Every fact that
+   was kept to a private channel becomes its agent's like the rest.
+2. Restart the workers: the agent's tools and prompt changed.
+3. Once every environment has pushed, take the script out of `BEFORE_PUSH`.
+
+### Step 3: conversations
+
+The agent's own conversation and a conversation per request land together
+(decision 28): moving everything to one conversation first would make ten
+people wait on one queue.
+
+- The inbox, the stored steps, the context and the run scope move from the
+  channel to the agent for work nobody asked for, and to the chat for what a
+  person asks.
+- The hidden check-in replaces every check-in Loop (decision 26).
+- A Loop moves to the agent, with an optional place to post (decision 27).
+  Events follow.
+- The chat record, the chat list in the sidebar, New chat, and a session's
+  report going back to the chat that started it.
+- The log and the open block become the agent's.
+
+### Step 4: places and tools
+
+- A Slack or Discord channel as a place on the agent, not a Lor channel
+  (decision 24). Discord first: a thread as a chat, and DMs to the agent.
+- Tools on the agent (decision 29).
 
 ### Step 5: Slack
 

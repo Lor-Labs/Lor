@@ -73,6 +73,7 @@ import {
   runAgentTurn,
   usageLedger,
 } from "./agent-loop"
+import { agentMemoryTools, journalSection } from "./agent-memory"
 import {
   aiRuntimeContext,
   aiTelemetry,
@@ -735,6 +736,9 @@ export type RespondContext = {
   threadRootId?: string
   triggerMessageId?: string
   runId?: string
+  // What the channel agent knows, for a code session in its channel
+  // (sessionMemoryNote): rides the turn's message.
+  memoryNote?: string
   // Stable person attribution and session grouping for AI observability.
   userId?: string
   aiSessionId?: string
@@ -1938,6 +1942,10 @@ export function toolLabel(toolName: string, input: unknown): string {
       return path ? `Updating ${path}` : "Updating memory"
     case "memory_link":
       return "Linking pages"
+    case "remember":
+      return "Saving a fact"
+    case "recall":
+      return "Searching its memory"
     case "propose_instructions":
       return "Proposing workspace instructions"
     // Pi's sandbox tools; the adapter exposes find as glob.
@@ -2757,6 +2765,12 @@ async function respondImpl(
   // The agent in the channel: its own settings pay when no person's plan
   // does (reference/agents-and-chats.md).
   const policyAgentId = await channelAgentId(ctx.channelId)
+  // Whose memory this run reads and adds to: the channel agent's, on its own
+  // turns and in a session in its channel.
+  const memoryAgentId =
+    policyAgentId && !ctx.voice && (ctx.agent || ctx.threadRootId)
+      ? policyAgentId
+      : null
   const memoryInference =
     ctx.agent?.mode === "memory"
       ? await autonomousInference(ctx.workspaceId, policyAgentId, run?.runId)
@@ -3034,6 +3048,9 @@ async function respondImpl(
       !ctx.agent
         ? planTools
         : {}),
+      // The channel agent's memory, for its own turns and for a code session
+      // in its channel (reference/agents-and-chats.md, decision 25).
+      ...(memoryAgentId ? agentMemoryTools : {}),
       ...(ctx.agent
         ? {
             ...sendMessageTool,
@@ -3243,6 +3260,16 @@ async function respondImpl(
         : {}),
       ...(ctx.loop?.completeLoop
         ? { complete_loop: { completeLoop: ctx.loop.completeLoop } }
+        : {}),
+      ...(memoryAgentId
+        ? (() => {
+            const memory = {
+              workspaceId: ctx.workspaceId,
+              agentId: memoryAgentId,
+              channelId: ctx.channelId ?? null,
+            }
+            return { remember: memory, recall: memory }
+          })()
         : {}),
       ...(ctx.agent
         ? {
@@ -3469,6 +3496,7 @@ async function respondImpl(
             workspaceId: ctx.workspaceId,
             channelId: ctx.channelId,
             turnRunId: run.runId,
+            askedById: ctx.userId ?? null,
             model: agentModel,
             languageModel,
             assertCanInfer: run.assertCanInfer,
@@ -3526,12 +3554,13 @@ async function respondImpl(
         }
         // The profile and log are read here but only used when the epoch's
         // prompt is frozen: later changes arrive as change notes.
-        const [workspaceInstructions, rosterText, profile, agentLog] =
+        const [workspaceInstructions, rosterText, profile, agentLog, journal] =
           await Promise.all([
             loadWorkspaceInstructions(ctx.workspaceId),
             loadMentionRoster(ctx.workspaceId),
             loadChannelProfile(ctx.channelId),
             channelAgentLog(ctx.channelId),
+            policyAgentId ? journalSection(policyAgentId) : null,
           ])
         const turn = await runAgentTurn({
           workspaceId: ctx.workspaceId,
@@ -3541,7 +3570,7 @@ async function respondImpl(
           model: agentModel,
           languageModel,
           byok: funding?.source === "byok",
-          instructions: `${buildSystemPrompt(connectorPromptLines, ANSWERING)}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}\n\n${channelAgentPromptSection(ctx.agent)}\n\n${channelProfileSection(profile)}${agentLog ? `\n\n${agentLog}` : ""}${rosterText}`,
+          instructions: `${buildSystemPrompt(connectorPromptLines, ANSWERING)}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}\n\n${channelAgentPromptSection(ctx.agent)}\n\n${channelProfileSection(profile)}${journal ? `\n\n${journal}` : ""}${agentLog ? `\n\n${agentLog}` : ""}${rosterText}`,
           tools: agentTools,
           toolsContext,
           approval: agentApproval,
@@ -3904,6 +3933,7 @@ async function respondImpl(
       }
 
       const notes = run.resume ? [RETRY_NOTE] : []
+      if (ctx.memoryNote) notes.push(ctx.memoryNote)
       if (ctx.forkedFrom) {
         notes.push(
           forkNote(

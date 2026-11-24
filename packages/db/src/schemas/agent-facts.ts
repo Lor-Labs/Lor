@@ -6,11 +6,12 @@ import { user } from "./users"
 import { workspace } from "./workspaces"
 
 // The facts an agent keeps (reference/always-on-agents.md §7): short,
-// durable information the memory pass saves after each turn, each with where
-// it came from. They belong to the agent and follow it to every channel
-// (reference/agents-and-chats.md). People edit or delete them in the agent's
-// settings. A deleted fact keeps its row so the next turn's change note can
-// say it is gone.
+// durable information it saves during or after a turn, each with where it
+// came from. They belong to the agent, are in front of it wherever it works
+// and are shared with the whole workspace (reference/agents-and-chats.md,
+// decision 22). People edit or delete them in the agent's settings. A
+// deleted fact keeps its row so the next turn's change note can say it is
+// gone.
 export const agentFact = pgTable(
   "agent_fact",
   {
@@ -27,15 +28,6 @@ export const agentFact = pgTable(
     channelId: uuid("channel_id").references(() => channel.id, {
       onDelete: "set null",
     }),
-    // Null: learned where the whole workspace can see, so it is in front of
-    // the agent everywhere. Else the members-only container (a private
-    // channel or category) it was learned in: only turns there see it, and
-    // only its members can list or edit it. The same rule as brain pages
-    // (`brain_node.scope_channel_id`), so an agent in a private channel
-    // carries nothing out of it.
-    scopeChannelId: uuid("scope_channel_id").references(() => channel.id, {
-      onDelete: "cascade",
-    }),
     text: text("text").notNull(),
     // Who said it, or which webhook, issue or session it came from.
     source: text("source").notNull(),
@@ -44,6 +36,9 @@ export const agentFact = pgTable(
       onDelete: "set null",
     }),
     deletedAt: timestamp("deleted_at"),
+    // Dropped to make room (decision 30): out of the prompt, still found by
+    // `recall`. A wrong fact is deleted instead.
+    archivedAt: timestamp("archived_at"),
   },
   (table) => [
     index("agent_fact_live_idx")

@@ -251,12 +251,18 @@ Agents are coming off channels, step by step, under
 wins. Step 1 is built: an agent is its own row (`agent`) with its name, face,
 brief, model, facts and run settings (`agent_harness_settings`); which agents
 are in a channel is `channel_agent` (the data allows several, the app holds
-one, and a channel can have none); only a mention or a reply wakes it. Every
-member sees every agent, and what one learns in a private channel stays there
-by scope (`agent_fact.scope_channel_id`). It needs `db:push`, which first runs
-`packages/db/src/scripts/agents-from-channels.ts`. Not built yet: chats with
-their own queue, so an agent's work in a channel still shares that channel's
-one conversation. The mock of the whole design is `/prototype/agents`.
+one, and a channel can have none); only a mention or a reply wakes it. Step 2
+is built: one memory per agent under every conversation
+(`packages/lor/src/agent-memory.ts`): facts with no private scope, an archive
+(`agent_fact.archived_at`), a journal (`agent_journal`) the memory pass writes
+and every turn reads, `remember` and `recall`, and code sessions in the
+agent's channel reading it. What an agent knows is shared with the whole
+workspace, and a new private channel starts with no agent. It needs `db:push`,
+which first runs `agents-from-channels.ts` and `agent-facts-unscoped.ts` in
+`packages/db/src/scripts/`. Not built yet: the agent's own conversation and a
+conversation per request (step 3), so an agent's work in a channel still
+shares that channel's one conversation. The mock of the earlier design is
+`/prototype/agents`.
 
 ### Conventions
 

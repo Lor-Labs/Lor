@@ -1,7 +1,7 @@
 import {
+  ArrowUp01Icon,
   Cancel01Icon,
   Delete02Icon,
-  LockIcon,
   PencilEdit02Icon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
@@ -11,6 +11,7 @@ import { Input } from "@repo/ui/components/input"
 import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
+import { SettingsSection } from "@/components/workspace/settings-group"
 import { apiClient } from "@/lib/api-client"
 
 const agentFactsKey = (agentId: string) => ["agent-facts", agentId] as const
@@ -21,8 +22,9 @@ type AgentFact = {
   source: string
   updatedAt: string
   editedBy: { id: string; name: string } | null
-  // The private channel or project it was learned in and stays in.
-  privateTo: { id: string; name: string | null } | null
+  // Set once the agent dropped it to make room: out of its prompt, still
+  // found when it searches its memory.
+  archivedAt: string | null
 }
 
 function formatDate(iso: string) {
@@ -32,11 +34,11 @@ function formatDate(iso: string) {
   })
 }
 
-// An agent's facts (reference/always-on-agents.md §7): what it keeps after
-// its turns, each with its source and date. One learned in a private channel
-// is listed only for that channel's people, marked with where it stays.
-// Edits and deletes save at once and reach the agent as a change note on
-// its next turn.
+// An agent's facts (reference/always-on-agents.md §7): what it keeps in
+// front of it wherever it works, each with its source and date, and the ones
+// it archived to make room. Shared with the whole team. Edits, deletes and
+// restores save at once and reach the agent as a change note on its next
+// turn.
 export function AgentFactsList({
   workspaceSlug,
   agentId,
@@ -62,12 +64,15 @@ export function AgentFactsList({
   )
 
   const save = useMutation({
-    mutationFn: async (input: { id: string; text: string }) => {
+    mutationFn: async (
+      input: { id: string } & ({ text: string } | { archived: false })
+    ) => {
+      const { id, ...json } = input
       const res = await apiClient.v1.workspaces[":workspaceSlug"].agents[
         ":agentId"
       ].facts[":factId"].$patch({
-        param: { workspaceSlug, agentId, factId: input.id },
-        json: { text: input.text },
+        param: { workspaceSlug, agentId, factId: id },
+        json,
       })
       if (!res.ok) throw new Error("Failed to save the fact")
       return (await res.json()) as AgentFact
@@ -75,7 +80,9 @@ export function AgentFactsList({
     onSuccess: (saved, submitted) => {
       // A draft started or changed while this saved stays open.
       setEditing((current) =>
-        current?.id === submitted.id && current.text.trim() === submitted.text
+        "text" in submitted &&
+        current?.id === submitted.id &&
+        current.text.trim() === submitted.text
           ? null
           : current
       )
@@ -102,12 +109,18 @@ export function AgentFactsList({
     onError: (error) => toast.error(error.message),
   })
 
-  const list = facts.data ?? []
+  const all = facts.data ?? []
+  const list = all.filter((fact) => !fact.archivedAt)
+  const archived = all.filter((fact) => fact.archivedAt)
   return (
-    <div>
+    <SettingsSection
+      title="Facts"
+      count={list.length || undefined}
+      caption={`In front of ${agentName} on every turn, wherever it works. Anyone on the team can read, correct or delete them.`}
+    >
       {facts.isPending ? (
         <p className="px-4 text-muted-foreground text-sm">Loading…</p>
-      ) : facts.isError && list.length === 0 ? (
+      ) : facts.isError && all.length === 0 ? (
         <p className="px-4 text-muted-foreground text-sm">
           Couldn't load the facts.{" "}
           <button
@@ -186,19 +199,6 @@ export function AgentFactsList({
                         ? `Edited by ${fact.editedBy.name}`
                         : fact.source}{" "}
                       · {formatDate(fact.updatedAt)}
-                      {fact.privateTo && (
-                        <span
-                          className="ml-1.5 inline-flex items-center gap-0.5"
-                          title={`${agentName} learned this in a private place. It is shown only there, and only its members see it here.`}
-                        >
-                          <HugeiconsIcon
-                            icon={LockIcon}
-                            className="size-3"
-                            strokeWidth={2}
-                          />
-                          Only in {fact.privateTo.name ?? "a private channel"}
-                        </span>
-                      )}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-start gap-0.5 opacity-0 transition-opacity duration-150 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
@@ -230,6 +230,59 @@ export function AgentFactsList({
           ))}
         </ul>
       )}
-    </div>
+      {archived.length > 0 && (
+        <details className="group/archived px-4 pt-1">
+          <summary className="cursor-pointer list-none text-muted-foreground text-xs outline-none transition-colors duration-150 hover:text-foreground focus-visible:text-foreground">
+            <span className="group-open/archived:hidden">
+              Show {archived.length} archived
+            </span>
+            <span className="hidden group-open/archived:inline">
+              Archived: {agentName} dropped these to make room and can still
+              look them up
+            </span>
+          </summary>
+          <ul className="mt-2 divide-y divide-border">
+            {archived.map((fact) => (
+              <li key={fact.id} className="group flex gap-2 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] text-muted-foreground leading-5">
+                    {fact.text}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground/80">
+                    {fact.source} · archived{" "}
+                    {formatDate(fact.archivedAt ?? fact.updatedAt)}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-start gap-0.5 opacity-0 transition-opacity duration-150 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label="Put back in front of the agent"
+                    title="Restore"
+                    disabled={save.isPending}
+                    onClick={() =>
+                      save.mutate({ id: fact.id, archived: false })
+                    }
+                  >
+                    <HugeiconsIcon icon={ArrowUp01Icon} strokeWidth={2} />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label="Delete fact"
+                    disabled={remove.isPending}
+                    onClick={() => remove.mutate(fact.id)}
+                  >
+                    <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </SettingsSection>
   )
 }
