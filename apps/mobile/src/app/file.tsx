@@ -220,12 +220,14 @@ function FileView({
       image.mime.startsWith("image/") &&
       image.mime !== "image/svg+xml"
   )
-  const imageIndex =
-    selectedIndex ??
-    Math.max(
-      0,
-      images.findIndex((image) => image.url === initialFile?.url)
+  const imageIndex = Math.max(
+    0,
+    Math.min(
+      images.length - 1,
+      selectedIndex ??
+        images.findIndex((image) => image.url === initialFile?.url)
     )
+  )
   const file =
     selectedIndex === null ? initialFile : (images[imageIndex] ?? initialFile)
   const { toast } = useToast()

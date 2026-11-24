@@ -104,8 +104,9 @@ function ImageCanvas({
                   )
                 )
               }}
-              onClick={() => {
-                if (!swiped.current) setExpanded(true)
+              onClick={(event) => {
+                if (event.detail > 0 && swiped.current) return
+                setExpanded(true)
               }}
             >
               <img

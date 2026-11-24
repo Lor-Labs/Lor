@@ -265,10 +265,14 @@ export function ImageLightbox({
     0,
     gallery.findIndex((image) => image.src === src)
   )
-  const [index, setIndex] = useState(initialIndex)
+  const [selectedIndex, setIndex] = useState(initialIndex)
+  const index = Math.max(0, Math.min(gallery.length - 1, selectedIndex))
   useEffect(() => {
     if (open) setIndex(initialIndex)
   }, [open, initialIndex])
+  useEffect(() => {
+    setIndex((index) => Math.max(0, Math.min(gallery.length - 1, index)))
+  }, [gallery.length])
   useEffect(() => {
     if (!open || gallery.length < 2) return
     const handleKey = (event: KeyboardEvent) => {
