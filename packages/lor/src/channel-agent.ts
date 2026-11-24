@@ -293,10 +293,11 @@ You are ${name}, an always-on agent for this team: one teammate the team shares,
 // (reference/agents-and-chats.md). Callers read "not added" as nothing to do.
 async function channelHasAgent(channelId: string): Promise<boolean> {
   const [row] = await db
-    .select({ agentId: schema.channel.agentId })
-    .from(schema.channel)
-    .where(eq(schema.channel.id, channelId))
-  return Boolean(row?.agentId)
+    .select({ agentId: schema.channelAgent.agentId })
+    .from(schema.channelAgent)
+    .where(eq(schema.channelAgent.channelId, channelId))
+    .limit(1)
+  return Boolean(row)
 }
 
 // An item that is not a chat message: a session's report, an event a trigger

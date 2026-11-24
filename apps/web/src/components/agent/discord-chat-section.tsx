@@ -1,10 +1,14 @@
 import { Copy01Icon, DiscordIcon, Tick02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
-import { Label } from "@repo/ui/components/label"
 import { toast } from "@repo/ui/components/toast"
+import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
+import {
+  SETTINGS_SURFACE,
+  SettingsSection,
+} from "@/components/workspace/settings-group"
 import {
   channelDiscordKey,
   useChannelDiscord,
@@ -65,10 +69,9 @@ export function DiscordChatSection({
   const command = code ? `/lor link code:${code}` : ""
 
   return (
-    <div className="space-y-2">
-      <Label>Chat</Label>
+    <SettingsSection title="Where the chat lives">
       {data.link ? (
-        <div className="flex items-center gap-3 rounded-md border px-3 py-2.5">
+        <div className={cn(SETTINGS_SURFACE, "flex items-center gap-3 p-4")}>
           <HugeiconsIcon
             icon={DiscordIcon}
             className="size-5 shrink-0 text-[#5865F2]"
@@ -105,11 +108,16 @@ export function DiscordChatSection({
           </Button>
         </div>
       ) : !data.available ? (
-        <p className="text-muted-foreground text-xs">
-          The chat lives in Lor. Discord isn't set up on this Lor server.
+        <p
+          className={cn(
+            SETTINGS_SURFACE,
+            "px-4 py-3 text-muted-foreground text-sm"
+          )}
+        >
+          In Lor. Discord isn't set up on this Lor server.
         </p>
       ) : code ? (
-        <div className="space-y-2 rounded-md border px-3 py-2.5 text-sm">
+        <div className={cn(SETTINGS_SURFACE, "space-y-2 p-4 text-sm")}>
           <p>
             1. Add Lor to your Discord server, if it isn't there yet.{" "}
             {data.inviteUrl && (
@@ -125,7 +133,7 @@ export function DiscordChatSection({
           </p>
           <p>2. In the Discord channel, run:</p>
           <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 font-mono text-xs">
+            <code className="min-w-0 flex-1 truncate rounded bg-background px-2 py-1 font-mono text-xs">
               {command}
             </code>
             <Button
@@ -164,10 +172,10 @@ export function DiscordChatSection({
           </Button>
         </div>
       ) : (
-        <div className="flex items-center gap-3">
-          <p className="min-w-0 flex-1 text-muted-foreground text-xs">
-            The chat lives in Lor. Move it to a Discord channel and the team
-            talks to {agentName} there.
+        <div className={cn(SETTINGS_SURFACE, "flex items-center gap-3 p-4")}>
+          <p className="min-w-0 flex-1 text-muted-foreground text-sm">
+            In Lor. Move it to a Discord channel and the team talks to{" "}
+            {agentName} there.
           </p>
           <Button
             type="button"
@@ -185,6 +193,6 @@ export function DiscordChatSection({
           </Button>
         </div>
       )}
-    </div>
+    </SettingsSection>
   )
 }

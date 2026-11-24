@@ -2,7 +2,6 @@ import { relations, sql } from "drizzle-orm"
 import {
   boolean,
   check,
-  foreignKey,
   jsonb,
   pgEnum,
   pgTable,
@@ -53,7 +52,8 @@ export const personalAccount = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
     userId: uuid("user_id").references(() => user.id, { onDelete: "cascade" }),
-    // Workspace-owned accounts are exclusively for Lor's autonomous runs.
+    // Workspace-owned accounts are the agents' own: each agent picks which
+    // it uses (`agent_harness_settings`). Never a person's.
     workspaceId: uuid("workspace_id").references(() => workspace.id, {
       onDelete: "cascade",
     }),
@@ -132,51 +132,6 @@ export const harnessAccountPreference = pgTable(
   ]
 )
 
-export const workspaceHarnessSettings = pgTable(
-  "workspace_harness_settings",
-  {
-    workspaceId: uuid("workspace_id")
-      .primaryKey()
-      .references(() => workspace.id, { onDelete: "cascade" }),
-    defaultHarness: text("default_harness", {
-      enum: ["pi", "claude_code", "codex"],
-    })
-      .notNull()
-      .default("pi"),
-    // API model picks use the same key:provider/model syntax as the composer.
-    apiModel: text("api_model"),
-    claudeApiBilling: text("claude_api_billing", { enum: ["lor", "byok"] })
-      .notNull()
-      .default("lor"),
-    codexApiBilling: text("codex_api_billing", { enum: ["lor", "byok"] })
-      .notNull()
-      .default("lor"),
-    claudeAccountId: uuid("claude_account_id"),
-    codexAccountId: uuid("codex_account_id"),
-    claudeUseSubscriptions: boolean("claude_use_subscriptions")
-      .notNull()
-      .default(false),
-    codexUseSubscriptions: boolean("codex_use_subscriptions")
-      .notNull()
-      .default(false),
-    claudeAutoFallback: boolean("claude_auto_fallback").notNull().default(true),
-    codexAutoFallback: boolean("codex_auto_fallback").notNull().default(true),
-  },
-  (table) => [
-    // Explicit names: the auto-generated ones exceed Postgres's 63-byte limit.
-    foreignKey({
-      columns: [table.claudeAccountId],
-      foreignColumns: [personalAccount.id],
-      name: "workspace_harness_settings_claude_account_fk",
-    }).onDelete("set null"),
-    foreignKey({
-      columns: [table.codexAccountId],
-      foreignColumns: [personalAccount.id],
-      name: "workspace_harness_settings_codex_account_fk",
-    }).onDelete("set null"),
-  ]
-)
-
 export const personalHarnessSettings = pgTable(
   "personal_harness_settings",
   {
@@ -199,6 +154,9 @@ export type HarnessAccountScope = {
   workspaceId: string
   // Null for autonomous work. Never borrow an automation creator's account.
   userId: string | null
+  // The agent whose own settings pay when no person's plan does
+  // (`agent_harness_settings`). Absent for work with no agent.
+  agentId?: string | null
 }
 
 export type HarnessAccountRoute = HarnessAccountScope & {
@@ -208,8 +166,20 @@ export type HarnessAccountRoute = HarnessAccountScope & {
   accountId: string | null
 }
 
-export type WorkspaceHarnessSettings =
-  typeof workspaceHarnessSettings.$inferSelect
+// An agent's run settings as the resolvers read them. `apiModel` is the
+// agent's own model (`agent.model`).
+export type HarnessSettings = {
+  defaultHarness: "pi" | "claude_code" | "codex"
+  apiModel: string | null
+  claudeApiBilling: "lor" | "byok"
+  codexApiBilling: "lor" | "byok"
+  claudeAccountId: string | null
+  codexAccountId: string | null
+  claudeUseSubscriptions: boolean
+  codexUseSubscriptions: boolean
+  claudeAutoFallback: boolean
+  codexAutoFallback: boolean
+}
 
 export const personalAccountRelations = relations(
   personalAccount,

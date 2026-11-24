@@ -13,9 +13,10 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { channelAgentId } from "@repo/db/queries/agents"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import {
-  getWorkspaceHarnessSettings,
+  getHarnessSettings,
   personalRequestHarness,
   resolveHarnessAccount,
 } from "@repo/db/queries/personal-accounts"
@@ -132,16 +133,22 @@ async function activeRun(threadRootId: string) {
 
 type TaskRoute = Awaited<ReturnType<typeof resolveHarnessAccount>> | undefined
 
-// Throws when the requester (or the workspace) has no usable account.
+// The requester's own account, else the accounts of the agent in the
+// channel. Throws when neither has one that can be used.
 async function taskRoute(
   workspaceId: string,
+  channelId: string,
   harness: "pi" | "claude_code" | "codex",
   requestUserId: string | null
 ): Promise<TaskRoute> {
   return harness === "pi"
     ? undefined
     : await resolveHarnessAccount(
-        { workspaceId, userId: requestUserId },
+        {
+          workspaceId,
+          userId: requestUserId,
+          agentId: requestUserId ? null : await channelAgentId(channelId),
+        },
         harness === "claude_code" ? "claude" : "chatgpt"
       )
 }
@@ -268,7 +275,9 @@ export function agentSessionExecutors(
         }
       }
 
-      const settings = await getWorkspaceHarnessSettings(workspaceId)
+      const settings = await getHarnessSettings({
+        agentId: await channelAgentId(channelId),
+      })
       const harness =
         wanted ??
         (args.requestUserId
@@ -277,11 +286,16 @@ export function agentSessionExecutors(
       if (!isHarnessEnabled(harness))
         return {
           error:
-            "The selected coding agent is unavailable. Update your linked accounts or the workspace's autonomous settings.",
+            "The selected coding agent is unavailable. Update your linked accounts or this agent's settings.",
         }
       let route: TaskRoute
       try {
-        route = await taskRoute(workspaceId, harness, args.requestUserId)
+        route = await taskRoute(
+          workspaceId,
+          channelId,
+          harness,
+          args.requestUserId
+        )
       } catch (err) {
         return {
           error:
@@ -446,7 +460,12 @@ export function agentSessionExecutors(
         session,
         channelName,
         message,
-        await taskRoute(workspaceId, session.harness, args.requestUserId)
+        await taskRoute(
+          workspaceId,
+          channelId,
+          session.harness,
+          args.requestUserId
+        )
       )
       if (started === "failed") {
         return {

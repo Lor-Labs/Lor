@@ -19,6 +19,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { channelAgentId } from "@repo/db/queries/agents"
 import {
   assertHostedHarness,
   assertWorkspaceActive,
@@ -29,7 +30,7 @@ import {
   resolveLorRunScope,
 } from "@repo/db/queries/channel-access"
 import {
-  getWorkspaceHarnessSettings,
+  getHarnessSettings,
   personalRequestHarness,
   resolveHarnessAccount,
 } from "@repo/db/queries/personal-accounts"
@@ -2753,9 +2754,12 @@ async function respondImpl(
     }
   }
   await assertWorkspaceActive(ctx.workspaceId)
+  // The agent in the channel: its own settings pay when no person's plan
+  // does (reference/agents-and-chats.md).
+  const policyAgentId = await channelAgentId(ctx.channelId)
   const memoryInference =
     ctx.agent?.mode === "memory"
-      ? await autonomousInference(ctx.workspaceId, run?.runId)
+      ? await autonomousInference(ctx.workspaceId, policyAgentId, run?.runId)
       : null
   if (memoryInference && run) {
     ctx = {
@@ -2763,7 +2767,7 @@ async function respondImpl(
       autonomous: true,
       harnessAccount: memoryInference.route ?? undefined,
     }
-    // Memory has a separate workspace payer; never alter the answer's pinned route.
+    // Memory is paid by the agent's own settings; never alter the answer's pinned route.
     run = {
       ...run,
       harnessAccount: memoryInference.route ?? undefined,
@@ -2776,7 +2780,7 @@ async function respondImpl(
   }
   const policy =
     ctx.autonomous || (ctx.agent && ctx.autonomous !== false)
-      ? await getWorkspaceHarnessSettings(ctx.workspaceId)
+      ? await getHarnessSettings({ agentId: policyAgentId })
       : null
   if (ctx.agent) {
     const pinned = run?.harnessAccount ?? run?.resume?.context.harnessAccount
@@ -2799,6 +2803,7 @@ async function respondImpl(
             : !ctx.autonomous
               ? (ctx.userId ?? null)
               : null,
+          agentId: pinned ? pinned.agentId : policyAgentId,
         },
         selected === "claude_code" ? "claude" : "chatgpt",
         { pinned }
@@ -2846,7 +2851,7 @@ async function respondImpl(
         }
         if (pick?.startsWith("key:") && funding.source !== "byok")
           throw new InferenceConfigError(
-            "The configured API key or model is unavailable. Update Workspace settings → AI accounts."
+            "The configured API key or model is unavailable. Change the model in the agent's settings."
           )
       }
       funding = (await run?.pinInferenceFunding?.(funding)) ?? funding
@@ -5087,7 +5092,11 @@ export async function writeBack(
   ctx: WriteBackContext,
   callbacks: WriteBackCallbacks
 ): Promise<void> {
-  const inference = await autonomousInference(ctx.workspaceId, ctx.runId)
+  const inference = await autonomousInference(
+    ctx.workspaceId,
+    await channelAgentId(ctx.channelId),
+    ctx.runId
+  )
   try {
     // The payer is resolved again here: billing may have left the
     // subscription after the worker's credit gate skipped the check.

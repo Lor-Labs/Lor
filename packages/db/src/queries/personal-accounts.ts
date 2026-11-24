@@ -2,16 +2,17 @@ import { isHarnessEnabled } from "@repo/utils/features"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { LOR_USER_ID } from "../constants"
 import { db } from "../index"
+import { agent, agentHarnessSettings } from "../schemas/agents"
+import { channel } from "../schemas/channels"
 import { message } from "../schemas/messages"
 import {
   type HarnessAccountRoute,
   type HarnessAccountScope,
+  type HarnessSettings,
   harnessAccountPreference,
   type PersonalAccountProvider,
   personalAccount,
   personalHarnessSettings,
-  type WorkspaceHarnessSettings,
-  workspaceHarnessSettings,
 } from "../schemas/personal-accounts"
 import { user } from "../schemas/users"
 
@@ -50,7 +51,20 @@ export async function personalRequestHarness(
   return "pi" as const
 }
 
-// Background observation of human chat does not authorize using its author's plan.
+// Whether a person's own plan pays for what they ask: they linked an account
+// that is in use, or picked how their requests run (Lor's API included).
+// With neither, the agent's own accounts are the backup
+// (reference/agents-and-chats.md, decision 7).
+export async function hasOwnRequestRoute(workspaceId: string, userId: string) {
+  const settings = await getPersonalHarnessSettings(workspaceId, userId)
+  if (settings.defaultHarness !== "auto") return true
+  return (await personalRequestHarness(workspaceId, userId)) !== "pi"
+}
+
+// Whose plan pays for a turn woken by this message: the person who addressed
+// the agent, when they have a route of their own. Null: the agent's settings
+// decide. Background observation of human chat does not authorize using its
+// author's plan.
 export async function channelRequestUserId(
   channelId: string,
   triggerMessageId: string | null
@@ -60,19 +74,24 @@ export async function channelRequestUserId(
     .select({
       userId: message.authorId,
       isBot: user.isBot,
+      workspaceId: channel.workspaceId,
       explicit: sql<boolean>`${message.content} like ${`%<@${LOR_USER_ID}>%`}`,
       threadRootId: message.threadRootId,
       repliedToLor: sql<boolean>`exists (select 1 from message r where r.id = ${message.referencedMessageId} and r.author_id = ${LOR_USER_ID}::uuid)`,
     })
     .from(message)
     .innerJoin(user, eq(user.id, message.authorId))
+    .innerJoin(channel, eq(channel.id, message.channelId))
     .where(
       and(eq(message.id, triggerMessageId), eq(message.channelId, channelId))
     )
-  if (!trigger || trigger.isBot) return null
+  if (!trigger || trigger.isBot || !trigger.workspaceId) return null
   // In the chat only a mention or a reply wakes the agent, so a top-level
   // trigger was addressed to it. In a thread it also hears the rest.
-  return trigger.explicit || trigger.repliedToLor || !trigger.threadRootId
+  const addressed =
+    trigger.explicit || trigger.repliedToLor || !trigger.threadRootId
+  if (!addressed) return null
+  return (await hasOwnRequestRoute(trigger.workspaceId, trigger.userId))
     ? trigger.userId
     : null
 }
@@ -96,28 +115,37 @@ export async function hasPersonalAccount(
   return Boolean(row)
 }
 
-export async function getWorkspaceHarnessSettings(
-  workspaceId: string
-): Promise<WorkspaceHarnessSettings> {
-  const [saved] = await db
-    .select()
-    .from(workspaceHarnessSettings)
-    .where(eq(workspaceHarnessSettings.workspaceId, workspaceId))
-  return (
-    saved ?? {
-      workspaceId,
-      defaultHarness: "pi",
-      apiModel: null,
-      claudeApiBilling: "lor",
-      codexApiBilling: "lor",
-      claudeAccountId: null,
-      codexAccountId: null,
-      claudeUseSubscriptions: false,
-      codexUseSubscriptions: false,
-      claudeAutoFallback: true,
-      codexAutoFallback: true,
-    }
-  )
+const DEFAULT_HARNESS_SETTINGS: HarnessSettings = {
+  defaultHarness: "pi",
+  apiModel: null,
+  claudeApiBilling: "lor",
+  codexApiBilling: "lor",
+  claudeAccountId: null,
+  codexAccountId: null,
+  claudeUseSubscriptions: false,
+  codexUseSubscriptions: false,
+  claudeAutoFallback: true,
+  codexAutoFallback: true,
+}
+
+// The run settings that apply when no person's plan pays: the agent's own
+// (reference/agents-and-chats.md). Work with no agent (a voice channel's
+// Loop) runs on the defaults: Lor's own agent on Lor credits.
+export async function getHarnessSettings(scope: {
+  agentId?: string | null
+}): Promise<HarnessSettings> {
+  if (!scope.agentId) return DEFAULT_HARNESS_SETTINGS
+  const [row] = await db
+    .select({ model: agent.model, settings: agentHarnessSettings })
+    .from(agent)
+    .leftJoin(agentHarnessSettings, eq(agentHarnessSettings.agentId, agent.id))
+    .where(eq(agent.id, scope.agentId))
+  if (!row) return DEFAULT_HARNESS_SETTINGS
+  const { agentId: _agentId, ...saved } = row.settings ?? {
+    agentId: scope.agentId,
+    ...DEFAULT_HARNESS_SETTINGS,
+  }
+  return { ...DEFAULT_HARNESS_SETTINGS, ...saved, apiModel: row.model }
 }
 
 export function harnessAccountOwner(scope: HarnessAccountScope) {
@@ -169,7 +197,7 @@ export async function harnessAccountPool(
           )
           .then((rows) => rows[0])
       : null,
-    scope.userId ? null : getWorkspaceHarnessSettings(scope.workspaceId),
+    scope.userId ? null : getHarnessSettings(scope),
   ])
   const useSubscriptions = scope.userId
     ? true
@@ -212,7 +240,7 @@ export async function resolveHarnessAccount(
     options.pinned?.source === "api" ||
     (!options.pinned && !useSubscriptions)
   ) {
-    const settings = await getWorkspaceHarnessSettings(scope.workspaceId)
+    const settings = await getHarnessSettings(scope)
     return {
       ...base,
       source: "api",
@@ -245,14 +273,14 @@ export async function resolveHarnessAccount(
     throw new Error(
       scope.userId
         ? "No available linked account for this provider. Connect an account in Settings → Linked accounts, or wait for its usage limit to reset."
-        : "No available Lor account for this provider. An admin can update Workspace settings → Autonomous runs, or switch autonomous runs to API billing."
+        : "None of this agent's accounts for this provider is available. An admin can change them in the agent's settings, or switch it to API billing."
     )
   return { ...base, source: "subscription", accountId: account.id }
 }
 
 // Used by queue admission before a run has pinned its own payer.
-export async function autonomousUsesSubscription(workspaceId: string) {
-  const settings = await getWorkspaceHarnessSettings(workspaceId)
+export async function autonomousUsesSubscription(agentId: string | null) {
+  const settings = await getHarnessSettings({ agentId })
   return settings.defaultHarness === "claude_code"
     ? settings.claudeUseSubscriptions
     : settings.defaultHarness === "codex" && settings.codexUseSubscriptions

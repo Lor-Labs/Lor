@@ -1,12 +1,12 @@
 import type { WorkspaceAuthority } from "@repo/auth/permissions"
 import { and, asc, db, eq, inArray, isNull, max, or, schema } from "@repo/db"
-import { defaultAgentFor } from "@repo/db/queries/agents"
 import {
   listChannelAudienceUserIds,
   resolveChannelAccess,
 } from "@repo/db/queries/channel-access"
 import type { ProjectUpdatedEvent } from "@repo/realtime-types/events"
 import { userRoom } from "@repo/realtime-types/rooms"
+import { placeDefaultAgent } from "@/lib/agents"
 import { getEmitter } from "@/lib/bot-messages"
 import { postChannelEvent } from "@/lib/channel-events"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
@@ -272,27 +272,30 @@ export const createProject: AppRouteHandler<CreateProjectRoute> = async (c) => {
       .then((rows) => rows[0])
     if (!category) throw new Error("Category insert returned no row")
 
-    // A project open to the workspace gets the workspace's first agent in
-    // its text channels. A private project is its own audience, so no agent
-    // fits it until one is made for it (reference/agents-and-chats.md).
-    const agent =
-      body.audience === "workspace"
-        ? await defaultAgentFor(workspace.id, null, tx)
-        : null
-    await tx.insert(schema.channel).values(
-      body.channels.map((ch, index) => ({
-        workspaceId: workspace.id,
-        parentId: category.id,
-        type: ch.type,
-        agentId: ch.type === "text" ? (agent?.id ?? null) : null,
-        name: ch.name,
-        // Mirrors the container's audience for consistency in raw queries;
-        // resolution inherits from the container regardless.
-        audience: body.audience,
-        position: index,
-        creatorId: currentUser.id,
-      }))
-    )
+    const channels = await tx
+      .insert(schema.channel)
+      .values(
+        body.channels.map((ch, index) => ({
+          workspaceId: workspace.id,
+          parentId: category.id,
+          type: ch.type,
+          name: ch.name,
+          // Mirrors the container's audience for consistency in raw queries;
+          // resolution inherits from the container regardless.
+          audience: body.audience,
+          position: index,
+          creatorId: currentUser.id,
+        }))
+      )
+      .returning({ id: schema.channel.id, type: schema.channel.type })
+    // The workspace's first agent is in a new project's text channels, a
+    // private project's too: what it learns there stays there by scope
+    // (reference/agents-and-chats.md).
+    await placeDefaultAgent(tx, {
+      workspaceId: workspace.id,
+      channelIds: channels.flatMap((ch) => (ch.type === "text" ? ch.id : [])),
+      addedById: currentUser.id,
+    })
 
     // Membership rows live on the category for both audiences — the roster
     // for public projects, also the access list for private ones.

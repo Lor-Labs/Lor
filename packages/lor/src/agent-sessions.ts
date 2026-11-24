@@ -7,12 +7,13 @@ import {
   LOR_USER_ID,
   schema,
 } from "@repo/db"
+import { channelAgentId } from "@repo/db/queries/agents"
 import {
   assertHostedHarness,
   assertWorkspaceActive,
 } from "@repo/db/queries/beta-access"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
-import { getWorkspaceHarnessSettings } from "@repo/db/queries/personal-accounts"
+import { getHarnessSettings } from "@repo/db/queries/personal-accounts"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { AgentSession, Loop } from "@repo/db/schema"
 import type { RealtimeAgentSession } from "@repo/realtime-types/events"
@@ -206,7 +207,9 @@ export async function ensureLoopSession(
     return unarchived ?? existing
   }
 
-  const settings = await getWorkspaceHarnessSettings(loop.workspaceId)
+  const settings = await getHarnessSettings({
+    agentId: await channelAgentId(loop.channelId),
+  })
   try {
     return await db.transaction((tx) =>
       createSession(tx, {

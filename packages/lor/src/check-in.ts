@@ -1,4 +1,14 @@
-import { and, db, desc, eq, inArray, isNotNull, isNull, schema } from "@repo/db"
+import {
+  and,
+  db,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  schema,
+  sql,
+} from "@repo/db"
 import type { Loop } from "@repo/db/schema"
 import { logger } from "./logger"
 import { nextLoopRunAt } from "./loop-schedule"
@@ -48,7 +58,7 @@ export async function ensureCheckInLoop(
       type: schema.channel.type,
       archivedAt: schema.channel.archivedAt,
       checkInAt: schema.channel.agentCheckInAt,
-      agentId: schema.channel.agentId,
+      hasAgent: sql<boolean>`exists (select 1 from channel_agent a where a.channel_id = ${schema.channel.id})`,
     })
     .from(schema.channel)
     .where(eq(schema.channel.id, channelId))
@@ -59,7 +69,7 @@ export async function ensureCheckInLoop(
     channel.type !== "text" ||
     channel.archivedAt ||
     channel.checkInAt ||
-    !channel.agentId
+    !channel.hasAgent
   ) {
     return null
   }

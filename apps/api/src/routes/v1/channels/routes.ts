@@ -15,6 +15,8 @@ import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
   agentWakeUpParamsSchema,
   cancelAgentWakeUpResponseSchema,
+  channelAgentParamsSchema,
+  channelAgentSchema,
   channelAudienceResponseSchema,
   channelConnectorParamsSchema,
   channelParamsSchema,
@@ -33,6 +35,7 @@ import {
   linearIssuesQuerySchema,
   linearIssuesResponseSchema,
   listAgentWakeUpsResponseSchema,
+  listChannelAgentsResponseSchema,
   listChannelConnectorsResponseSchema,
   listChannelsResponseSchema,
   listConnectorScopesResponseSchema,
@@ -51,6 +54,7 @@ import {
   reorderChannelsResponseSchema,
   threadReadParamsSchema,
   togglePinResponseSchema,
+  updateChannelAgentRequestSchema,
   updateChannelRequestSchema,
   updateChannelResponseSchema,
   workspaceSlugParamsSchema,
@@ -198,6 +202,54 @@ export const updateChannel = createRoute({
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const listChannelAgents = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/agents",
+  method: "get",
+  summary: "List the agents in a channel",
+  description:
+    "The agents in the channel, each with the team's instructions for it in this channel only (reference/agents-and-chats.md).",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: channelParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listChannelAgentsResponseSchema,
+      description: "The channel's agents",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export const updateChannelAgent = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/agents/{agentId}",
+  method: "patch",
+  summary: "Change an agent's instructions for a channel",
+  description:
+    "Instructions for the agent in this channel only. Only the people who can see the channel can read them.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: channelAgentParamsSchema,
+    body: jsonContent({
+      schema: updateChannelAgentRequestSchema,
+      description: "The instructions; empty or null removes them",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: channelAgentSchema,
+      description: "The agent's instructions here",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
   },
 })
 
@@ -646,6 +698,8 @@ export type ListChannelConnectorsRoute = typeof listChannelConnectors
 export type SearchChannelConnectorRoute = typeof searchChannelConnector
 export type ListConnectorScopesRoute = typeof listConnectorScopes
 export type ListAgentWakeUpsRoute = typeof listAgentWakeUps
+export type ListChannelAgentsRoute = typeof listChannelAgents
+export type UpdateChannelAgentRoute = typeof updateChannelAgent
 export type CancelAgentWakeUpRoute = typeof cancelAgentWakeUp
 export type SearchConnectorFilesRoute = typeof searchConnectorFiles
 export type ListLinearIssuesRoute = typeof listLinearIssues

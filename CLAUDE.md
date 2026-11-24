@@ -249,12 +249,14 @@ open no sandbox: the session rules below do not apply to them.
 Agents are coming off channels, step by step, under
 `reference/agents-and-chats.md` (2026-11-24); where a step has landed that doc
 wins. Step 1 is built: an agent is its own row (`agent`) with its name, face,
-brief, model and facts, a channel points at one (`channel.agent_id`) or has
-none, and only a mention or a reply wakes it. It needs `db:push`, which first
-runs `packages/db/src/scripts/agents-from-channels.ts`. Not built yet: chats
-with their own queue, so an agent's work in a channel still shares that
-channel's one conversation. The mock of the whole design is
-`/prototype/agents`.
+brief, model, facts and run settings (`agent_harness_settings`); which agents
+are in a channel is `channel_agent` (the data allows several, the app holds
+one, and a channel can have none); only a mention or a reply wakes it. Every
+member sees every agent, and what one learns in a private channel stays there
+by scope (`agent_fact.scope_channel_id`). It needs `db:push`, which first runs
+`packages/db/src/scripts/agents-from-channels.ts`. Not built yet: chats with
+their own queue, so an agent's work in a channel still shares that channel's
+one conversation. The mock of the whole design is `/prototype/agents`.
 
 ### Conventions
 

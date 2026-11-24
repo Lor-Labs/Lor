@@ -556,7 +556,8 @@ export function WorkspaceMembersPanel({
     ...channelQueryOptions(view.workspaceSlug, view.channelId),
     enabled: Boolean(view.workspaceSlug && view.channelId),
   })
-  const noAgent = channelDetail?.type === "text" && !channelDetail.agentId
+  const noAgent =
+    channelDetail?.type === "text" && channelDetail.agentIds.length === 0
   const members = (data?.members ?? []).filter(
     (member) => !(noAgent && member.userId === LOR_USER_ID)
   )

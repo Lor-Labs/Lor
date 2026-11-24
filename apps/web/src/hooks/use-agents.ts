@@ -6,8 +6,8 @@ import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 
 // Agents apart from channels (reference/agents-and-chats.md): a workspace's
-// agents, and the one a channel holds. A channel carries only `agentId`; its
-// agent's name, face, brief and model come from this list.
+// agents, and the ones a channel holds. A channel carries only `agentIds`;
+// an agent's name, face, brief and model come from this list.
 
 const agentsRoute = apiClient.v1.workspaces[":workspaceSlug"].agents
 
@@ -75,13 +75,15 @@ export function useAgentsById(workspaceSlug: string | undefined) {
   )
 }
 
-// The agent in a channel, or null: a channel with no agent is plain human
-// chat. Null too while the agents are still loading.
+// The agent that answers in a channel, or null: a channel with no agent is
+// plain human chat. The data allows several; the first one added answers.
+// Null too while the agents are still loading.
 export function channelAgentOf(
-  channel: { agentId?: string | null } | null | undefined,
+  channel: { agentIds?: string[] } | null | undefined,
   agents: Map<string, WorkspaceAgent>
 ): WorkspaceAgent | null {
-  return (channel?.agentId && agents.get(channel.agentId)) || null
+  const first = channel?.agentIds?.[0]
+  return (first && agents.get(first)) || null
 }
 
 // An agent's face. A stored creature is always one of the bestiary's; the

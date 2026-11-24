@@ -1,13 +1,15 @@
 # Agents and chats: agents apart from channels
 
-**Status:** Decided with Jacob on 2026-11-23 and 2026-11-24, and built step
-by step from §9. Step 1 (agents apart from channels) is built, 2026-11-24:
-lint and type checks pass, the data move and the app were run on a throwaway
-database, and `db:push` on the shared databases is owed (§9, rollout). Steps
-2 to 5 are not started, so every chat with an agent in a channel still shares
-that channel's one queue. It changes the shape built under
-`always-on-agents.md` (LOR-169): where a step here has landed, this doc says
-what the code does.
+**Status:** Decided with Jacob between 2026-11-23 and 2026-11-25, and built
+step by step from §9. Step 1 (agents apart from channels) is built: its first
+cut on 11-24, and Jacob's fixes to it on 11-25 (several agents per channel in
+the data, no private agents, run settings per agent, agents in the sidebar,
+the two dialogs). Lint and type checks pass, the data move and the app were
+run on throwaway databases, and `db:push` on the shared databases is owed
+(§9, rollout). Steps 2 to 5 are not started, so every chat with an agent in a
+channel still shares that channel's one queue. It changes the shape built
+under `always-on-agents.md` (LOR-169): where a step here has landed, this doc
+says what the code does.
 
 ## 1. Why
 
@@ -57,18 +59,20 @@ objected to and should confirm.
 | 4 | The word is "chat" | Jacob, 11-24 |
 | 5 | A chat is quiet, not hidden: it lists and notifies only for the people in it, and anyone who can see the agent can open it | Jacob, 11-24 |
 | 6 | Each agent has its own settings, including its own Claude Code and ChatGPT accounts | Jacob, 11-24 |
-| 7 | A code session a person asked for is paid by that person's own plan first. The agent's own accounts are the backup | Jacob, 11-24 |
+| 7 | What a person asks for is paid by that person's own plan first. The agent's own accounts are the backup, and pay for work nobody asked for | Jacob, 11-24 |
 | 8 | No "wake on every message" setting. A mention or a reply wakes the agent, and its check-in reads the rest | Jacob, 11-24 |
-| 9 | One agent per channel and per chat to start | Default |
+| 9 | The data allows several agents in a channel. The app holds a channel to one until each has its own conversation there (step 2). One agent per chat | Jacob, 11-25 |
 | 10 | Each chat has its own queue and its own context. Chats run side by side, one turn at a time inside each | Default |
 | 11 | A quick question in a channel gets a plain reply there. A mention that is work becomes a chat | Default |
 | 12 | Nothing to do when a chat is done. It sinks down the list and a new message brings it back | Default |
 | 13 | A chat lives where it was started: in Lor, or in a Slack or Discord thread. No two-way sync | Default |
-| 14 | An agent has one audience, the whole workspace or named members. Everything it hears is open to that audience, so a private channel needs an agent only its members can see | Default |
+| 14 | No private agents. Every member sees every agent, and any agent can be in any channel. What it learns in a private channel stays there by scope, like brain pages, and a private channel's instructions for it live on that channel. It replaced "an agent has one audience", built in the first cut | Jacob, 11-25 |
 | 15 | An event or Loop belongs to an agent and names the channel it reports in | Default |
-| 16 | Accounts are owned by the workspace and each agent picks its own, so two agents can share one and deleting an agent deletes none | Default |
-| 17 | The agent's own turns run on the API. A plan pays only for code sessions | Default |
+| 16 | Accounts are owned by the workspace and each agent picks its own, so two agents can share one and deleting an agent deletes none. The workspace's "Autonomous runs" section is gone: the settings are each agent's | Jacob, 11-25 |
+| 17 | An agent runs as Lor on a model, or on Claude Code or Codex, for its own turns and the sessions it starts. A plan can pay for either (the first cut of this doc said only for sessions, which was wrong) | As built 11-22 |
 | 18 | No signup question about where the team chats. Linking a channel to a chat app already decides it, per channel | Default |
+| 19 | Agents are in the sidebar: a row opens that agent's dialog, and a New agent row shows one can be added. A channel with no agent shows where to add one | Jacob, 11-25 |
+| 20 | An agent's settings are in its own dialog. A channel's dialog says which agent is in it and what the team wants from it there | Jacob, 11-25 |
 
 Considered and dropped:
 
@@ -128,24 +132,26 @@ Considered and dropped:
 |---|---|---|
 | Identity | Name, face | The channel |
 | Brief and memory | The brief (only people edit it), facts | The channel |
-| Its own turns | Model. Who pays: Lor credits or the workspace's API key | The channel (model), workspace settings (payer) |
-| Code sessions | Its Claude Code and Codex accounts with their order, and the repos it may use | Workspace settings, "Lor's autonomous runs" |
+| Runs | Its model, what it runs on (Lor, Claude Code or Codex), and which of the workspace's accounts pay when no person's plan does | The channel (model), workspace settings (the rest) |
 | Tools | Connectors, read and write access. Writes follow the approval rules | A tool profile on the channel or its category |
 | Channels | The channels it is in, in Lor, Slack and Discord | The channel |
 | Events and Loops | Each with the channel it reports in. Also the check-in | The channel |
-| Who can see it | The whole workspace, or named members | New |
+| Who can see it | Everyone in the workspace (decision 14). What it learned in a private channel shows only to that channel's people | New |
 
-**Who pays for a code session** (decision 7), tried in order:
+**Who pays** (decision 7), for an agent's own turn and for a session it
+starts:
 
-1. The plan of whoever asked, when they have one connected.
-2. The agent's own accounts. They also pay for work nobody asked for, when an
-   admin has turned that on.
-3. The API, paid the same way as the agent's own turns.
+1. The plan of whoever asked, when they linked one or picked how their
+   requests run.
+2. Else the agent's own settings (`agent_harness_settings`): what it runs on,
+   and for Claude Code and Codex either the API or one of the workspace's
+   accounts. They also pay for work nobody asked for.
+3. With nothing set, Lor's own agent on Lor credits, on the agent's model.
 
-Most of this is `reference/harness-accounts.md` (built 2026-11-22) with the
-workspace's "Lor's autonomous runs" page moved onto each agent. Its caveat
-stands: a dedicated subscription does not by itself give permission to
-automate it, so the API stays the default and a plan is an explicit choice.
+The resolvers are `reference/harness-accounts.md`'s, read per agent. Its
+caveat stands: a subscription connected for agents does not by itself give
+permission to automate it, so the API stays the default and a plan is an
+explicit choice.
 
 ## 6. The sidebar
 
@@ -210,86 +216,117 @@ tools all stay.
 
 Each step ends in something the team uses. Steps 2 to 5 are not sized.
 
-### Step 1: agents apart from channels (built 2026-11-24)
+### Step 1: agents apart from channels (built 2026-11-24 and 11-25)
 
 - [x] **`agent` table** (`packages/db/src/schemas/agents.ts`): name, creature,
-  role, brief, model, `access_container_id` (who can see it), creator.
-  `channel.agent_id` points at it, or is null.
+  role, brief, model, creator.
+- [x] **`channel_agent`**: which agents are in which channel, with the team's
+  instructions for that agent in that channel (`brief`). The shape allows
+  several; `MAX_CHANNEL_AGENTS` (`packages/db/src/queries/agents.ts`) holds a
+  channel to one. A channel payload carries `agentIds`.
 - [x] **Off the channel:** `agent_name`, `agent_creature`,
   `agent_identity_updated_at`, `agent_brief`, `agent_brief_updated_at`,
   `agent_model`, and `agent_wake_mode` with its enum (decision 8).
   `agent_check_in_at` and `agent_profile_id` stay.
-- [x] **Facts per agent:** `channel_agent_fact` is `agent_fact`, keyed by
-  `agent_id`. `channel_id` stays as where a fact was learned. The cap (100
-  facts, 4,000 characters) and the write lock are per agent.
+- [x] **Facts per agent, scoped:** `channel_agent_fact` is `agent_fact`, keyed
+  by `agent_id`, with `scope_channel_id`: null for the workspace, else the
+  private channel or category it was learned in. The cap (100 facts, 4,000
+  characters) is per agent and scope.
+- [x] **Nothing private leaves a private channel** (decision 14):
+  - a turn sees the workspace's facts plus its own channel's scope;
+  - a private channel's memory pass adds and changes only that scope's facts,
+    so it can't write something private into a fact everyone sees;
+  - people get a private fact from the API only as members of its scope;
+  - a private channel is never named in another channel's prompt;
+  - the agent's brief is public, so a private channel's instructions go on
+    its `channel_agent` row, read only by its people.
+- [x] **Run settings per agent** (`agent_harness_settings`, decision 16):
+  what it runs on and which accounts pay. `workspace_harness_settings` and
+  its settings section are gone. The agent's `model` is the one model
+  setting, and can be one the workspace's own API key pays for.
+- [x] **Payer order** (decision 7): a person with no plan of their own falls
+  to the agent's settings (`hasOwnRequestRoute` in
+  `packages/db/src/queries/personal-accounts.ts`).
 - [x] **The data move** (`packages/db/src/scripts/agents-from-channels.ts`):
-  every text channel's agent settings become an `agent` row with the name and
-  face people already see, and its facts follow. `scripts/push.mjs` runs it
-  before every `db:push`, because that push drops the old columns. It runs
-  once per database, in one transaction, and is a no-op after.
-- [x] **Turns:** the worker loads the agent through `channel.agent_id`
+  `scripts/push.mjs` runs it before every `db:push`, because that push drops
+  what it copies. It works from the original per-channel columns or from the
+  first cut (`channel.agent_id`), once per database, in one transaction:
+  - each text channel's agent keeps the name and face people see;
+  - facts follow their agent and take their channel's scope;
+  - a brief written for an agent that only lives in private channels moves to
+    those channels' instructions;
+  - each agent takes its workspace's run settings, and the workspace's API
+    model where it had none of its own.
+- [x] **Turns:** the worker loads the agent through `channel_agent`
   (`loadAgentChannel` in `apps/worker/src/lib/agent-inbox.ts`). The prompt
-  header names the other channels the agent is in and says each channel is
-  its own conversation. Profile change notes reach every channel of an agent.
+  names the agent's other channels and says each is its own conversation.
+  Profile change notes reach every channel of an agent.
 - [x] **No agent in a channel:** nothing is queued (`addInboxMessage` and
   `addInboxNote` refuse), no check-in Loop is made, a Loop fire or an event
   there is skipped, and nothing answers a mention.
 - [x] **Mentions only:** the "every message" wake mode is gone from realtime,
   Discord inbound, the worker and the payer rule.
 - [x] **A different agent in a channel** starts a fresh conversation there
-  (`resetAgentConversation`), and the channel gets its check-in when its
-  first agent is added.
-- [x] **API:** `/v1/workspaces/:slug/agents` (list, create, change, delete)
-  and `/agents/:id/facts`. The channel routes take `agentId` and lose the
-  agent fields and the fact routes. New event `agents:updated`.
+  (`resetAgentConversation`) and inherits the channel's instructions. The
+  channel gets its check-in when its first agent is added.
+- [x] **API:** `/v1/workspaces/:slug/agents` (list, create, change, delete),
+  `/agents/:id/facts`, `/channels/:id/agents` (instructions per channel), and
+  `agentId` on the `ai-accounts` routes. Event `agents:updated`.
 - [x] **New channels:** left unpicked, a text channel gets the workspace's
-  first agent with its audience. A new workspace starts with one agent in
-  every text channel. A new private channel or project starts with none.
-- [x] **Audience rule** (decision 14): an agent is the whole workspace's or
-  one members-only container's, and can be added only to channels with that
-  audience. Checked on the server.
-- [x] **Web:** a channel's Agent tab picks the agent, or none, and edits that
-  agent's own settings; workspace settings has an Agents section (make, edit,
-  delete, see where each is). The sidebar, mentions, hints and empty states
-  follow a channel with no agent.
-- [x] **Mobile:** follows the same data. No agent picker there: a channel's
-  agent is picked on web.
-- [x] **Checked 2026-11-24** on a throwaway Postgres: the old schema pushed
-  and seeded (a picked name, derived names, a replaced creature, a private
-  category, facts), then `pnpm db:push`. Every agent kept the name and face
-  the old code showed, the private channel's agent became private to its
-  category, facts followed their agent, and a second push found nothing of
-  this step to change. In the app: one agent in two channels, a channel with
-  no agent (nothing queued, no agent offered as a mention), the Agents
-  section (make, rename, delete), and a live turn in a second channel that
-  answered from a fact learned in the first.
+  first agent, private ones too. A new workspace starts with one agent in
+  every text channel.
+- [x] **Web:**
+  - the sidebar has an Agents group above Channels: a row per agent, and a
+    New agent row for people who manage channels (decision 19);
+  - the agent dialog (`components/agent/agent-dialog.tsx`, opened by
+    `?agent=<id>`): Profile, Memory, Channels and Runs;
+  - the channel dialog, redesigned on the same shell
+    (`components/ui/pane-dialog.tsx`): Overview, Agent (who is here, and
+    instructions for this channel), Tools and Webhooks;
+  - a channel with no agent shows "Add agent" in its header.
+- [x] **Mobile:** follows the same data. Which agent a channel has, and how
+  an agent runs, are set on web.
+- [x] **Checked** on throwaway Postgres databases:
+  - the move from the original shape and from the first cut: names, faces,
+    private briefs, fact scopes and run settings, with a second push finding
+    nothing of this step to change;
+  - live: an agent in a private and a public channel was told something in
+    the private one. Its memory pass saved it in that scope. Asked in the
+    public channel, it knew nothing of it and did not name the private
+    channel;
+  - as a second person outside the private channel: the fact is not listed
+    and can't be edited, and the channel's instructions answer 404.
 
 Deviations and gaps:
 
+- **One model after the move.** A workspace's API model used to apply only
+  to work nobody asked for. An agent with no model of its own now takes it
+  for everything.
+- **No subscription run was made live.** No account is linked in the test
+  databases, so the plan routes are type-checked only.
 - **Tools stay on the channel.** A turn uses the tool profile of the channel
-  it runs in, as before, so one agent can have different tools in two
-  channels. §5 moves them to the agent; not done.
+  it runs in, so one agent can have different tools in two channels. §5
+  moves them to the agent; not done.
 - **Events and Loops stay on the channel** they report in, and the channel's
   agent handles them. They do not move with an agent that leaves.
 - **The log and the open block are per channel.** An agent in three channels
   does not see, in one, what is running in the others. Its facts are how
   anything crosses.
+- **The conversation is still keyed by the channel** (`agent_step`,
+  `agent_context`, `agent_inbox`, the run scope). A second agent in a channel
+  needs its own, which is step 2's key change.
 - **The session ceiling** is still 15 per channel.
-- **Permissions:** managing agents takes `channel:update`, the permission the
-  channel's agent settings took. The person who made an agent can still
-  rename it and change its face and role.
-- **The sidebar still lists channels only.** Agents get their own group with
-  chats under them in step 2.
-- **The mock's settings page** shows accounts, audience and events on the
-  agent. None of those are built.
-- **No audience picker yet.** A new agent made from a private channel's
-  settings is private to it; one made in workspace settings is the whole
-  workspace's. Changing an agent's audience is not built.
+- **Permissions:** managing agents takes `channel:update`; run settings take
+  `billing:manage`. The person who made an agent can still rename it and
+  change its face and role.
+- **Voice channels** have no agent, so a Loop or event there runs on the
+  defaults (Lor's own agent on Lor credits).
 
 Rollout, per environment, with API, realtime, worker, web and mobile together:
 
 1. `pnpm db:push`. It runs the data move first, then drops the old columns
-   (drizzle-kit asks before dropping; `--force` skips the question).
+   and `workspace_harness_settings` (drizzle-kit asks before dropping;
+   `--force` skips the question).
 2. Restart the workers, so no turn runs on old code.
 3. Rebuild web, desktop and mobile: the channel payload changed shape.
 4. Once every environment has pushed, take `agents-from-channels.ts` out of
@@ -301,9 +338,10 @@ The chat record, a queue and context per chat, a mention that is work
 starting one, New chat, session reports going back to their chat, and the
 sidebar's Agents group. The log and the open block become the agent's.
 
-### Step 3: accounts per agent
+### Step 3: tools and events per agent
 
-The payer order of §5, and tools on the agent.
+Run settings and the payer order landed with step 1. Left: tools on the
+agent, and events and Loops that follow it.
 
 ### Step 4: Discord in this shape
 

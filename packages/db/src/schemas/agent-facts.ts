@@ -27,6 +27,15 @@ export const agentFact = pgTable(
     channelId: uuid("channel_id").references(() => channel.id, {
       onDelete: "set null",
     }),
+    // Null: learned where the whole workspace can see, so it is in front of
+    // the agent everywhere. Else the members-only container (a private
+    // channel or category) it was learned in: only turns there see it, and
+    // only its members can list or edit it. The same rule as brain pages
+    // (`brain_node.scope_channel_id`), so an agent in a private channel
+    // carries nothing out of it.
+    scopeChannelId: uuid("scope_channel_id").references(() => channel.id, {
+      onDelete: "cascade",
+    }),
     text: text("text").notNull(),
     // Who said it, or which webhook, issue or session it came from.
     source: text("source").notNull(),

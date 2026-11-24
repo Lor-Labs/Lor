@@ -13,20 +13,28 @@ export function AgentModelSelect({
   value,
   onChange,
   id,
+  disabled = false,
 }: {
   workspaceSlug: string
   value: string | null
   onChange: (model: string | null) => void
   id?: string
+  disabled?: boolean
 }) {
   const [query, setQuery] = useState("")
   const { data } = useQuery(agentModelsQueryOptions("pi", workspaceSlug))
-  // Lor's own models; batch-only ones can't answer live.
+  // Lor's models, and those the workspace's own API key pays for; batch-only
+  // ones can't answer live.
   const models = (data?.models ?? []).filter(
-    (model) => model.keyProvider === null && !model.id.endsWith("-batch")
+    (model) => !model.id.endsWith("-batch")
   )
-  const nameOf = (modelId: string) =>
-    models.find((model) => model.id === modelId)?.name ?? modelId
+  const nameOf = (modelId: string) => {
+    const model = models.find((item) => item.id === modelId)
+    if (!model) return modelId
+    return model.keyProvider
+      ? `${model.name} · your ${model.keyProvider === "anthropic" ? "Anthropic" : "OpenAI"} key`
+      : model.name
+  }
   const selected = value ?? CHANNEL_AGENT_DEFAULT_MODEL
   const items = models.map((model) => model.id)
 
@@ -52,7 +60,8 @@ export function AgentModelSelect({
     >
       <ComboboxPrimitive.Trigger
         id={id}
-        className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+        disabled={disabled}
+        className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-default disabled:opacity-64 dark:bg-input/30"
       >
         <span className="min-w-0 truncate">
           {nameOf(selected)}

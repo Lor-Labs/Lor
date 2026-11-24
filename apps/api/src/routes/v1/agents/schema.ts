@@ -32,8 +32,9 @@ const creatureSchema = z.enum(
   CREATURES.map((creature) => creature.id) as [CreatureId, ...CreatureId[]]
 )
 
-// An agent as clients see it (reference/agents-and-chats.md): a teammate
-// apart from channels, with the channels it is in that the caller can see.
+// An agent as every member sees it (reference/agents-and-chats.md): a
+// teammate apart from channels, with the channels it is in that the caller
+// can see.
 export const agentSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
@@ -41,9 +42,6 @@ export const agentSchema = z.object({
   role: z.string().nullable(),
   brief: z.string().nullable(),
   model: z.string().nullable(),
-  // Null: the whole workspace sees it. Else the members-only channel or
-  // category whose members do, the only place it can be added.
-  accessContainerId: z.string().uuid().nullable(),
   createdById: z.string().uuid().nullable(),
   createdAt: z.string(),
   channelIds: z.array(z.string().uuid()),
@@ -65,13 +63,7 @@ const agentFieldsSchema = z.object({
   model: z.string().nullable(),
 })
 
-export const createAgentRequestSchema = agentFieldsSchema
-  .partial()
-  .extend({
-    // A members-only channel or category: the agent is private to it.
-    accessContainerId: z.string().uuid().nullable().optional(),
-  })
-  .strict()
+export const createAgentRequestSchema = agentFieldsSchema.partial().strict()
 
 export const updateAgentRequestSchema = agentFieldsSchema
   .partial()
@@ -93,6 +85,11 @@ export const agentFactSchema = z.object({
   updatedAt: z.string(),
   // The person who last edited it in settings; null when the agent did.
   editedBy: z.object({ id: z.string(), name: z.string() }).nullable(),
+  // The private channel or project it was learned in. Only its members get
+  // the fact at all, and only turns there see it. Null: everyone's.
+  privateTo: z
+    .object({ id: z.string().uuid(), name: z.string().nullable() })
+    .nullable(),
 })
 
 export const listAgentFactsResponseSchema = z.object({

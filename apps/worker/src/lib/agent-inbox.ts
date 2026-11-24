@@ -18,6 +18,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { agentScopeFor, loadChannelAgent } from "@repo/db/queries/agents"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import {
@@ -375,6 +376,8 @@ async function createTurnRun(args: {
 // A turn's credit gate: subscription turns run on their own plan.
 async function turnFunded(
   workspaceId: string,
+  // The agent whose own settings pay when no person's plan does.
+  agentId: string,
   run: {
     harnessAccount: { source: string } | null
     funding: unknown
@@ -387,7 +390,7 @@ async function turnFunded(
       (run.requestUserId
         ? (await personalRequestHarness(workspaceId, run.requestUserId)) !==
           "pi"
-        : await autonomousUsesSubscription(workspaceId))
+        : await autonomousUsesSubscription(agentId))
   return subscription || (await checkCredits(workspaceId)).allowed
 }
 
@@ -405,20 +408,16 @@ export async function flushAgentInbox(
       workspaceId: schema.channel.workspaceId,
       type: schema.channel.type,
       archivedAt: schema.channel.archivedAt,
-      agentId: schema.channel.agentId,
     })
     .from(schema.channel)
     .where(eq(schema.channel.id, channelId))
   // A channel with no agent wakes nothing: its items wait unread, and are
   // read if an agent is added later.
-  if (
-    !channel?.workspaceId ||
-    channel.type !== "text" ||
-    channel.archivedAt ||
-    !channel.agentId
-  ) {
-    return "skipped"
-  }
+  const agent =
+    channel?.workspaceId && channel.type === "text" && !channel.archivedAt
+      ? await loadChannelAgent(channelId)
+      : null
+  if (!channel?.workspaceId || !agent) return "skipped"
   const workspaceId = channel.workspaceId
   if ((await workspaceBetaAccess(workspaceId)).state !== "active") {
     return "skipped"
@@ -439,7 +438,7 @@ export async function flushAgentInbox(
       .where(eq(schema.agentRun.id, paused.runId))
     // The continuation copies the pause's account and funding; it would meet
     // the same gate in runAgentTurn. Unfunded: say so once and keep the pause.
-    const funded = await turnFunded(workspaceId, {
+    const funded = await turnFunded(workspaceId, agent.id, {
       harnessAccount: pausedRun?.harnessAccount ?? null,
       funding: pausedRun?.funding ?? null,
       requestUserId: pausedRun?.harnessAccount
@@ -521,7 +520,7 @@ export async function flushAgentInbox(
       : await channelRequestUserId(channelId, batch.triggerMessageId)
   const subscription = directUserId
     ? (await personalRequestHarness(workspaceId, directUserId)) !== "pi"
-    : await autonomousUsesSubscription(workspaceId)
+    : await autonomousUsesSubscription(agent.id)
   // Unfunded API work stays pending; personal subscriptions can still run.
   if (!subscription && !(await checkCredits(workspaceId)).allowed) {
     const harnessByUser = new Map<string, Promise<string>>()
@@ -760,36 +759,61 @@ function agentProposeChange(
 // name, face and model, and the other channels it is in. Null when the
 // channel has no agent (it was removed since the turn was queued).
 async function loadAgentChannel(channelId: string) {
-  const [row] = await db
+  const [[row], agent, scope] = await Promise.all([
+    db
+      .select({
+        id: schema.channel.id,
+        name: schema.channel.name,
+        workspaceId: schema.channel.workspaceId,
+        archivedAt: schema.channel.archivedAt,
+      })
+      .from(schema.channel)
+      .where(eq(schema.channel.id, channelId)),
+    loadChannelAgent(channelId),
+    agentScopeFor(channelId),
+  ])
+  if (!row?.workspaceId || !agent) return null
+  // Only channels this one's people could also see: the whole workspace's,
+  // and those in the same private container. A private channel's name never
+  // reaches a turn outside it.
+  const others = await db
     .select({
       id: schema.channel.id,
       name: schema.channel.name,
-      workspaceId: schema.channel.workspaceId,
-      archivedAt: schema.channel.archivedAt,
-      agentId: schema.agent.id,
-      agentModel: schema.agent.model,
-      agentName: schema.agent.name,
-      agentCreature: schema.agent.creature,
+      audience: schema.channel.audience,
+      parentId: schema.channel.parentId,
+      parentAudience: sql<
+        "workspace" | "members" | null
+      >`(select p.audience from channel p where p.id = ${schema.channel.parentId})`,
     })
-    .from(schema.channel)
-    .innerJoin(schema.agent, eq(schema.agent.id, schema.channel.agentId))
-    .where(eq(schema.channel.id, channelId))
-  if (!row?.workspaceId) return null
-  const others = await db
-    .select({ name: schema.channel.name })
-    .from(schema.channel)
+    .from(schema.channelAgent)
+    .innerJoin(
+      schema.channel,
+      eq(schema.channel.id, schema.channelAgent.channelId)
+    )
     .where(
       and(
-        eq(schema.channel.agentId, row.agentId),
+        eq(schema.channelAgent.agentId, agent.id),
         ne(schema.channel.id, channelId),
         isNull(schema.channel.archivedAt)
       )
     )
     .orderBy(asc(schema.channel.createdAt))
+  const visible = others.filter((other) => {
+    const container =
+      other.parentId && other.parentAudience
+        ? { id: other.parentId, audience: other.parentAudience }
+        : { id: other.id, audience: other.audience }
+    return container.audience === "workspace" || container.id === scope
+  })
   return {
     ...row,
     workspaceId: row.workspaceId,
-    otherChannels: others.flatMap((other) => other.name ?? []),
+    agentId: agent.id,
+    agentModel: agent.model,
+    agentName: agent.name,
+    agentCreature: agent.creature,
+    otherChannels: visible.flatMap((other) => other.name ?? []),
   }
 }
 
@@ -1040,7 +1064,7 @@ export async function runAgentTurnJob(
       throw new Error(
         "The person who started this turn no longer has access to the channel."
       )
-    const funded = await turnFunded(workspaceId, {
+    const funded = await turnFunded(workspaceId, channel.agentId, {
       harnessAccount: execution.handle.harnessAccount ?? null,
       funding: execution.handle.funding ?? null,
       requestUserId,
@@ -1059,8 +1083,8 @@ export async function runAgentTurnJob(
       return
     }
     // Typing only when a person addressed Lor: turns woken by an event, a
-    // session's report or a thread it's part of often end quiet. A person's id marks a person's message (the trigger of a
-    // note-only turn is null).
+    // session's report or a thread it's part of often end quiet. A person's
+    // id marks a person's message (the trigger of a note-only turn is null).
     const explicit =
       Boolean(run?.triggerContent?.includes(`<@${LOR_USER_ID}>`)) ||
       run?.triggerReplyAuthorId === LOR_USER_ID
@@ -1257,7 +1281,7 @@ export async function runAgentTurnJob(
       !stoppedByUser &&
       !parkedApprovalId &&
       (await (async () =>
-        (await autonomousUsesSubscription(workspaceId)) ||
+        (await autonomousUsesSubscription(channel.agentId)) ||
         (
           await checkCredits(workspaceId)
         ).allowed)().catch(() => false))
@@ -1443,7 +1467,7 @@ export async function sweepStrandedInboxes(
         lt(schema.agentInbox.createdAt, before),
         eq(schema.channel.type, "text"),
         isNull(schema.channel.archivedAt),
-        isNotNull(schema.channel.agentId)
+        sql`exists (select 1 from channel_agent a where a.channel_id = ${schema.channel.id})`
       )
     )
     .groupBy(schema.agentInbox.channelId)

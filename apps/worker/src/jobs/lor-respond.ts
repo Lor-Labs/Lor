@@ -11,6 +11,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { channelAgentId } from "@repo/db/queries/agents"
 import {
   assertHostedHarness,
   BetaAccessError,
@@ -1005,7 +1006,16 @@ export function createLorRespondProcessor(
               else {
                 try {
                   harnessAccount = await resolveHarnessAccount(
-                    { workspaceId, userId: accountUserId },
+                    {
+                      workspaceId,
+                      userId: accountUserId,
+                      // No person's plan: the settings of the channel's agent.
+                      agentId: pinnedAccount
+                        ? pinnedAccount.agentId
+                        : accountUserId
+                          ? null
+                          : await channelAgentId(channelId),
+                    },
                     session.harness === "claude_code" ? "claude" : "chatgpt",
                     { pinned: pinnedAccount }
                   )
@@ -1966,7 +1976,9 @@ export function createLorRespondProcessor(
           // (reference/planned/session-memory.md Step 3).
           try {
             if (
-              !(await autonomousUsesSubscription(workspaceId)) &&
+              !(await autonomousUsesSubscription(
+                await channelAgentId(channelId)
+              )) &&
               !(await checkCredits(workspaceId)).allowed
             ) {
               await runWriter.close()

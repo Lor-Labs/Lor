@@ -16,7 +16,6 @@ import {
   createUpdateSchema,
 } from "drizzle-zod"
 import { agentProfile } from "./agent-profiles"
-import { agent } from "./agents"
 import { message } from "./messages"
 import { user } from "./users"
 import { workspace } from "./workspaces"
@@ -73,14 +72,9 @@ export const channel = pgTable(
       { onDelete: "set null" }
     ),
 
-    // The agent in this channel, or none: plain human chat that wakes
-    // nothing (reference/agents-and-chats.md). The agent's name, face, brief,
-    // model and facts live on its own row and follow it to every channel.
-    agentId: uuid("agent_id").references((): AnyPgColumn => agent.id, {
-      onDelete: "set null",
-    }),
     // When the channel got its agent's check-in Loop: it is made once, so a
-    // check-in someone deleted stays deleted.
+    // check-in someone deleted stays deleted. Which agents are in a channel
+    // is `channel_agent` (schemas/agents.ts).
     agentCheckInAt: timestamp("agent_check_in_at"),
 
     // ordering within a category or workspace

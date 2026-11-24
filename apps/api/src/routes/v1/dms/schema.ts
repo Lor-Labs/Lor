@@ -54,7 +54,6 @@ export const dmChannelSchema = selectChannelSchema
   .omit({
     agentProfileId: true,
     creatorId: true,
-    agentId: true,
     agentCheckInAt: true,
   })
   .extend({

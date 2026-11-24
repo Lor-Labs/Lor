@@ -12,8 +12,9 @@ import {
   sql,
 } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
+import { channelAgentId } from "@repo/db/queries/agents"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
-import { getWorkspaceHarnessSettings } from "@repo/db/queries/personal-accounts"
+import { getHarnessSettings } from "@repo/db/queries/personal-accounts"
 import type {
   ActSessionMode,
   AgentSession,
@@ -107,7 +108,9 @@ export async function startActSession(
       : []
   const sessionId = randomUUID()
   const code = input.code ? await actCodeStart(input, sessionId) : null
-  const settings = await getWorkspaceHarnessSettings(input.workspaceId)
+  const settings = await getHarnessSettings({
+    agentId: await channelAgentId(input.channelId),
+  })
   const session = await db.transaction((tx) =>
     createSession(tx, {
       id: sessionId,

@@ -4,6 +4,7 @@ import { toast } from "@repo/ui/components/toast"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, Navigate, Outlet } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { AgentDialogHost } from "@/components/agent/agent-dialog"
 import { HowLorWorksDialog } from "@/components/onboarding/how-lor-works-dialog"
 import { BetaStatus } from "@/components/workspace/beta-status"
 
@@ -176,6 +177,11 @@ function WorkspaceLayout() {
       <BetaStatus workspaceSlug={workspaceSlug} />
       <Outlet />
       <HowLorWorksDialog workspaceName={workspace.name} />
+      {/* Here, not in the sidebar: on a phone the sidebar isn't mounted. */}
+      <AgentDialogHost
+        workspaceSlug={workspaceSlug}
+        workspaceId={workspace.id}
+      />
     </>
   )
 }

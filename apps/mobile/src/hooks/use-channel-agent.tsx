@@ -134,7 +134,7 @@ export function ChannelAgentProvider({
     <ChannelAgentContext value={agent}>
       <ChannelAgentStateContext value={state}>
         <NoChannelAgentContext
-          value={channel?.type === "text" && !channel.agentId}
+          value={channel?.type === "text" && channel.agentIds.length === 0}
         >
           {children}
         </NoChannelAgentContext>

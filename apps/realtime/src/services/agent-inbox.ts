@@ -51,11 +51,12 @@ export async function addChatMessageToAgentInbox(args: {
   // "addressed": a mention of Lor or a reply to it, which always wakes it.
   // "skipped": a thread reply not for the agent.
 }): Promise<"addressed" | "wake" | "wait" | "duplicate" | "skipped"> {
-  const [channel] = await db
-    .select({ agentId: schema.channel.agentId })
-    .from(schema.channel)
-    .where(eq(schema.channel.id, args.channelId))
-  if (!channel?.agentId) return "skipped"
+  const [placed] = await db
+    .select({ agentId: schema.channelAgent.agentId })
+    .from(schema.channelAgent)
+    .where(eq(schema.channelAgent.channelId, args.channelId))
+    .limit(1)
+  if (!placed) return "skipped"
   ensureCheckIn(args.channelId, args.onCheckInMade)
   const threadRootId = args.message.threadRootId
   const addressed =

@@ -1,4 +1,4 @@
-import { db, eq, LOR_USER_ID, schema } from "@repo/db"
+import { db, eq, LOR_USER_ID, schema, sql } from "@repo/db"
 import type { ChannelEventPayload, ChannelEventType } from "@repo/db/schema"
 import {
   buildMessageFanout,
@@ -39,7 +39,10 @@ async function loadChannel(channelId: string) {
       workspaceId: schema.channel.workspaceId,
       name: schema.channel.name,
       type: schema.channel.type,
-      agentName: schema.agent.name,
+      // The agent that answers in the channel: the first one added.
+      agentName: sql<
+        string | null
+      >`(select a.name from channel_agent ca join agent a on a.id = ca.agent_id where ca.channel_id = ${schema.channel.id} order by ca.created_at, ca.agent_id limit 1)`,
       workspaceName: schema.workspace.name,
     })
     .from(schema.channel)
@@ -47,7 +50,6 @@ async function loadChannel(channelId: string) {
       schema.workspace,
       eq(schema.workspace.id, schema.channel.workspaceId)
     )
-    .leftJoin(schema.agent, eq(schema.agent.id, schema.channel.agentId))
     .where(eq(schema.channel.id, channelId))
     .then((rows) => rows[0] ?? null)
 }

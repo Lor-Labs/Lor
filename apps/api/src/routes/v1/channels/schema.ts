@@ -35,36 +35,47 @@ export const channelParamsSchema = workspaceSlugParamsSchema.extend({
     }),
 })
 
-export const channelResponseSchema = selectChannelSchema
+// A channel as clients get it: its row and the agents in it, in the order
+// they were added. Empty: plain human chat (reference/agents-and-chats.md).
+const channelSchema = selectChannelSchema.extend({
+  agentIds: z.array(z.string().uuid()),
+})
+
+// Which agents are in a channel. The data allows several; the server holds
+// a channel to MAX_CHANNEL_AGENTS.
+const agentIdsSchema = z.array(z.string().uuid()).max(8)
+
+export const channelResponseSchema = channelSchema
 
 export const channelReadPositionResponseSchema = z.object({
   firstUnreadMessageId: z.string().uuid().nullable(),
 })
 
-export const categoryWithChannelsSchema = selectChannelSchema.extend({
-  channels: z.array(selectChannelSchema),
+export const categoryWithChannelsSchema = channelSchema.extend({
+  channels: z.array(channelSchema),
 })
 
 export const listChannelsResponseSchema = z.object({
-  uncategorized: z.array(selectChannelSchema),
+  uncategorized: z.array(channelSchema),
   categories: z.array(categoryWithChannelsSchema),
 })
 
 // Narrow the create endpoint to workspace-creatable types only.
 // DMs / group DMs are created via the /dms route, not generic create-channel.
 // `audience`/`memberIds` create a standalone private channel (same membership
-// mechanics as a project, minus the lifecycle row). `agentId` picks the
-// channel's agent: left out, the workspace's first agent with the channel's
-// audience; null, no agent (reference/agents-and-chats.md).
+// mechanics as a project, minus the lifecycle row). `agentIds` picks the
+// channel's agents: left out, the workspace's first agent; empty, none
+// (reference/agents-and-chats.md).
 export const createChannelRequestSchema = insertChannelSchema
   .omit({ agentCheckInAt: true })
   .extend({
+    agentIds: agentIdsSchema.optional(),
     type: z.enum(["text", "voice", "category"]).default("text"),
     audience: z.enum(["workspace", "members"]).default("workspace"),
     memberIds: z.array(z.string().uuid()).max(200).optional(),
   })
 
-export const createChannelResponseSchema = selectChannelSchema
+export const createChannelResponseSchema = channelSchema
 
 // ── Update / Delete ──────────────────────────────────────────
 
@@ -74,9 +85,11 @@ const updateChannelRequestBaseSchema = updateChannelSchema
     topic: true,
     rateLimitPerUser: true,
     agentProfileId: true,
-    // The agent in the channel; null removes it. Its own settings are the
-    // agent's (routes/v1/agents).
-    agentId: true,
+  })
+  .extend({
+    // The agents in the channel; empty removes them. An agent's own settings
+    // are the agent's (routes/v1/agents).
+    agentIds: agentIdsSchema.optional(),
   })
   .strict()
 
@@ -87,7 +100,35 @@ export const updateChannelRequestSchema = updateChannelRequestBaseSchema.refine(
   }
 )
 
-export const updateChannelResponseSchema = selectChannelSchema
+export const updateChannelResponseSchema = channelSchema
+
+// ── An agent's instructions for one channel ──────────────────────────
+
+export const channelAgentParamsSchema = channelParamsSchema.extend({
+  agentId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "agentId", in: "path", required: true },
+      example: "00000000-0000-0000-0000-000000000000",
+    }),
+})
+
+// The team's instructions for an agent in this channel only, readable by
+// the people who can see the channel. Where a private channel's
+// instructions go: the agent's own brief is readable by every member.
+export const channelAgentSchema = z.object({
+  agentId: z.string().uuid(),
+  brief: z.string().nullable(),
+})
+
+export const listChannelAgentsResponseSchema = z.object({
+  agents: z.array(channelAgentSchema),
+})
+
+export const updateChannelAgentRequestSchema = z
+  .object({ brief: z.string().max(4_000).nullable() })
+  .strict()
 
 export const deleteChannelResponseSchema = z.object({
   success: z.literal(true),

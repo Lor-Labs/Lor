@@ -1,12 +1,13 @@
 import { db, schema } from "@repo/db"
 import {
   agentChannelIds,
+  factsVisibleIn,
   createAgent as insertAgent,
-  listVisibleAgents,
-  userCanSeeAgent,
+  memberScopes,
 } from "@repo/db/queries/agents"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import type { Agent } from "@repo/db/schema"
+import { keyFunding } from "@repo/lor/byok"
 import { resetAgentConversation } from "@repo/lor/channel-agent"
 import { agentProfileLock } from "@repo/lor/channel-profile"
 import { syncAgentRole } from "@repo/lor/discord"
@@ -20,7 +21,6 @@ import {
   assertWorkspaceAuthority,
   hasWorkspaceAuthority,
 } from "@/lib/permissions"
-import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CreateAgentRoute,
@@ -32,9 +32,11 @@ import type {
   UpdateAgentRoute,
 } from "@/routes/v1/agents/routes"
 
-// Agents apart from channels (reference/agents-and-chats.md). Managing an
-// agent (its brief, model, existence) takes channel:update, as the channel's
-// agent settings did; the person who made an agent may still name it.
+// Agents apart from channels (reference/agents-and-chats.md). Every member
+// sees every agent. Managing one (its brief, model, existence) takes
+// channel:update, as the channel's agent settings did; the person who made
+// an agent may still name it. What it learned in a private channel is shown
+// only to that channel's people.
 
 function serializeAgent(agent: Agent, channelIds: string[]) {
   return {
@@ -44,7 +46,6 @@ function serializeAgent(agent: Agent, channelIds: string[]) {
     role: agent.role,
     brief: agent.brief,
     model: agent.model,
-    accessContainerId: agent.accessContainerId,
     createdById: agent.createdById,
     createdAt: agent.createdAt.toISOString(),
     channelIds,
@@ -53,12 +54,9 @@ function serializeAgent(agent: Agent, channelIds: string[]) {
 
 const notFound = { success: false as const, message: "Agent not found" }
 
-// An agent of this workspace the caller can see. A private agent's existence
-// never leaks: missing and hidden read the same.
-async function visibleAgent(
+async function workspaceAgent(
   workspaceId: string,
-  agentId: string,
-  userId: string
+  agentId: string
 ): Promise<Agent | null> {
   const [found] = await db
     .select()
@@ -69,8 +67,15 @@ async function visibleAgent(
         eq(schema.agent.workspaceId, workspaceId)
       )
     )
-  if (!found || !(await userCanSeeAgent(userId, found))) return null
-  return found
+  return found ?? null
+}
+
+// A model an agent may run on: one of Lor's, or one the workspace's own API
+// key pays for (`key:provider/model`, as the composer writes it).
+async function modelAvailable(workspaceId: string, model: string) {
+  return (
+    isLorCreditModel(model) || Boolean(await keyFunding(workspaceId, model))
+  )
 }
 
 // The channels an agent is in that this person can see.
@@ -90,21 +95,30 @@ export const listAgents: AppRouteHandler<ListAgentsRoute> = async (c) => {
   const workspace = c.var.workspace
   const userId = c.var.user.id
   const [agents, accessible] = await Promise.all([
-    listVisibleAgents(userId, workspace.id),
+    db
+      .select()
+      .from(schema.agent)
+      .where(eq(schema.agent.workspaceId, workspace.id))
+      .orderBy(asc(schema.agent.createdAt), asc(schema.agent.id)),
     listAccessibleChannelIds(userId, workspace.id),
   ])
+  // Only the channels this person can see: a private channel an agent is in
+  // stays unnamed to everyone else.
   const placed =
     agents.length > 0
       ? await db
-          .select({ id: schema.channel.id, agentId: schema.channel.agentId })
-          .from(schema.channel)
+          .select({
+            id: schema.channelAgent.channelId,
+            agentId: schema.channelAgent.agentId,
+          })
+          .from(schema.channelAgent)
           .where(
             inArray(
-              schema.channel.agentId,
+              schema.channelAgent.agentId,
               agents.map((agent) => agent.id)
             )
           )
-          .orderBy(asc(schema.channel.position))
+          .orderBy(asc(schema.channelAgent.createdAt))
       : []
   return c.json(
     {
@@ -127,38 +141,11 @@ export const createAgent: AppRouteHandler<CreateAgentRoute> = async (c) => {
   const body = c.req.valid("json")
   assertWorkspaceAuthority(c.var.authority, { channel: ["update"] })
 
-  if (body.model && !isLorCreditModel(body.model)) {
+  if (body.model && !(await modelAvailable(workspace.id, body.model))) {
     return c.json(
       { success: false, message: "Model not available" },
       HttpStatusCodes.BAD_REQUEST
     )
-  }
-  // A private agent belongs to one members-only container (a private channel
-  // or a private category) the caller is in.
-  if (body.accessContainerId) {
-    const [container] = await db
-      .select({
-        audience: schema.channel.audience,
-        parentId: schema.channel.parentId,
-      })
-      .from(schema.channel)
-      .where(
-        and(
-          eq(schema.channel.id, body.accessContainerId),
-          eq(schema.channel.workspaceId, workspace.id)
-        )
-      )
-    if (
-      !container ||
-      container.audience !== "members" ||
-      container.parentId ||
-      !(await userCanAccessChannel(body.accessContainerId, currentUser.id))
-    ) {
-      return c.json(
-        { success: false, message: "Channel not found" },
-        HttpStatusCodes.NOT_FOUND
-      )
-    }
   }
   const name = body.name ? normalizeAgentName(body.name) : null
   const made = await insertAgent({
@@ -167,7 +154,6 @@ export const createAgent: AppRouteHandler<CreateAgentRoute> = async (c) => {
     creature: body.creature,
     role: body.role,
     brief: body.brief,
-    accessContainerId: body.accessContainerId,
     createdById: currentUser.id,
   })
   const agent = body.model
@@ -189,7 +175,7 @@ export const updateAgent: AppRouteHandler<UpdateAgentRoute> = async (c) => {
   const { agentId } = c.req.valid("param")
   const body = c.req.valid("json")
 
-  const agent = await visibleAgent(workspace.id, agentId, currentUser.id)
+  const agent = await workspaceAgent(workspace.id, agentId)
   if (!agent) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
 
   // The brief and the model always need channel:update. Without it, the
@@ -204,7 +190,11 @@ export const updateAgent: AppRouteHandler<UpdateAgentRoute> = async (c) => {
       HttpStatusCodes.FORBIDDEN
     )
   }
-  if (body.model && !isLorCreditModel(body.model)) {
+  if (
+    body.model &&
+    body.model !== agent.model &&
+    !(await modelAvailable(workspace.id, body.model))
+  ) {
     return c.json(
       { success: false, message: "Model not available" },
       HttpStatusCodes.BAD_REQUEST
@@ -267,7 +257,7 @@ export const deleteAgent: AppRouteHandler<DeleteAgentRoute> = async (c) => {
   const workspace = c.var.workspace
   const { agentId } = c.req.valid("param")
   assertWorkspaceAuthority(c.var.authority, { channel: ["update"] })
-  const agent = await visibleAgent(workspace.id, agentId, c.var.user.id)
+  const agent = await workspaceAgent(workspace.id, agentId)
   if (!agent) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
 
   const channelIds = await agentChannelIds(agent.id)
@@ -285,35 +275,46 @@ export const deleteAgent: AppRouteHandler<DeleteAgentRoute> = async (c) => {
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
-// An agent's facts (reference/always-on-agents.md §7): anyone who can see
-// the agent can read, edit and delete them.
+// An agent's facts (reference/always-on-agents.md §7). A fact learned where
+// the whole workspace can see is anyone's to read, edit and delete. One
+// learned in a private channel is only its members': to everyone else it
+// does not exist (reference/agents-and-chats.md).
 
-async function loadAgentFact(agentId: string, factId: string) {
-  const [row] = await db
-    .select({
-      id: schema.agentFact.id,
-      text: schema.agentFact.text,
-      source: schema.agentFact.source,
-      createdAt: schema.agentFact.createdAt,
-      updatedAt: schema.agentFact.updatedAt,
-      editorId: schema.user.id,
-      editorName: schema.user.name,
-    })
-    .from(schema.agentFact)
-    .leftJoin(schema.user, eq(schema.user.id, schema.agentFact.editedById))
-    .where(
-      and(
-        eq(schema.agentFact.id, factId),
-        eq(schema.agentFact.agentId, agentId),
-        isNull(schema.agentFact.deletedAt)
-      )
-    )
-  return row ?? null
+const factSelect = {
+  id: schema.agentFact.id,
+  text: schema.agentFact.text,
+  source: schema.agentFact.source,
+  createdAt: schema.agentFact.createdAt,
+  updatedAt: schema.agentFact.updatedAt,
+  editorId: schema.user.id,
+  editorName: schema.user.name,
+  scopeId: schema.agentFact.scopeChannelId,
+  scopeName: schema.channel.name,
 }
 
-function serializeAgentFact(
-  row: NonNullable<Awaited<ReturnType<typeof loadAgentFact>>>
-) {
+// This agent's live facts that this person may see.
+function visibleFacts(agentId: string, scopes: string[]) {
+  return and(
+    eq(schema.agentFact.agentId, agentId),
+    isNull(schema.agentFact.deletedAt),
+    factsVisibleIn(scopes)
+  )
+}
+
+function factsQuery() {
+  return db
+    .select(factSelect)
+    .from(schema.agentFact)
+    .leftJoin(schema.user, eq(schema.user.id, schema.agentFact.editedById))
+    .leftJoin(
+      schema.channel,
+      eq(schema.channel.id, schema.agentFact.scopeChannelId)
+    )
+}
+
+type FactRow = Awaited<ReturnType<typeof factsQuery>>[number]
+
+function serializeAgentFact(row: FactRow) {
   return {
     id: row.id,
     text: row.text,
@@ -324,6 +325,8 @@ function serializeAgentFact(
       row.editorId && row.editorName
         ? { id: row.editorId, name: row.editorName }
         : null,
+    // The private channel or project it was learned in and stays in.
+    privateTo: row.scopeId ? { id: row.scopeId, name: row.scopeName } : null,
   }
 }
 
@@ -331,26 +334,11 @@ export const listAgentFacts: AppRouteHandler<ListAgentFactsRoute> = async (
   c
 ) => {
   const { agentId } = c.req.valid("param")
-  const agent = await visibleAgent(c.var.workspace.id, agentId, c.var.user.id)
+  const agent = await workspaceAgent(c.var.workspace.id, agentId)
   if (!agent) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
-  const rows = await db
-    .select({
-      id: schema.agentFact.id,
-      text: schema.agentFact.text,
-      source: schema.agentFact.source,
-      createdAt: schema.agentFact.createdAt,
-      updatedAt: schema.agentFact.updatedAt,
-      editorId: schema.user.id,
-      editorName: schema.user.name,
-    })
-    .from(schema.agentFact)
-    .leftJoin(schema.user, eq(schema.user.id, schema.agentFact.editedById))
-    .where(
-      and(
-        eq(schema.agentFact.agentId, agent.id),
-        isNull(schema.agentFact.deletedAt)
-      )
-    )
+  const scopes = await memberScopes(c.var.user.id, c.var.workspace.id)
+  const rows = await factsQuery()
+    .where(visibleFacts(agent.id, scopes))
     .orderBy(asc(schema.agentFact.createdAt), asc(schema.agentFact.id))
   return c.json({ facts: rows.map(serializeAgentFact) }, HttpStatusCodes.OK)
 }
@@ -360,23 +348,22 @@ export const updateAgentFact: AppRouteHandler<UpdateAgentFactRoute> = async (
 ) => {
   const { agentId, factId } = c.req.valid("param")
   const { text } = c.req.valid("json")
-  const agent = await visibleAgent(c.var.workspace.id, agentId, c.var.user.id)
+  const agent = await workspaceAgent(c.var.workspace.id, agentId)
   if (!agent) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
+  const scopes = await memberScopes(c.var.user.id, c.var.workspace.id)
+  const mine = and(
+    visibleFacts(agent.id, scopes),
+    eq(schema.agentFact.id, factId)
+  )
   const updated = await db.transaction(async (tx) => {
     await tx.execute(agentProfileLock(agent.id))
     return tx
       .update(schema.agentFact)
       .set({ text, updatedAt: new Date(), editedById: c.var.user.id })
-      .where(
-        and(
-          eq(schema.agentFact.id, factId),
-          eq(schema.agentFact.agentId, agent.id),
-          isNull(schema.agentFact.deletedAt)
-        )
-      )
+      .where(mine)
       .returning({ id: schema.agentFact.id })
   })
-  const row = updated[0] ? await loadAgentFact(agent.id, factId) : null
+  const [row] = updated[0] ? await factsQuery().where(mine) : []
   if (!row) {
     return c.json(
       { success: false, message: "Fact not found" },
@@ -390,8 +377,9 @@ export const deleteAgentFact: AppRouteHandler<DeleteAgentFactRoute> = async (
   c
 ) => {
   const { agentId, factId } = c.req.valid("param")
-  const agent = await visibleAgent(c.var.workspace.id, agentId, c.var.user.id)
+  const agent = await workspaceAgent(c.var.workspace.id, agentId)
   if (!agent) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
+  const scopes = await memberScopes(c.var.user.id, c.var.workspace.id)
   const now = new Date()
   const deleted = await db.transaction(async (tx) => {
     await tx.execute(agentProfileLock(agent.id))
@@ -399,11 +387,7 @@ export const deleteAgentFact: AppRouteHandler<DeleteAgentFactRoute> = async (
       .update(schema.agentFact)
       .set({ deletedAt: now, updatedAt: now, editedById: c.var.user.id })
       .where(
-        and(
-          eq(schema.agentFact.id, factId),
-          eq(schema.agentFact.agentId, agent.id),
-          isNull(schema.agentFact.deletedAt)
-        )
+        and(visibleFacts(agent.id, scopes), eq(schema.agentFact.id, factId))
       )
       .returning({ id: schema.agentFact.id })
   })

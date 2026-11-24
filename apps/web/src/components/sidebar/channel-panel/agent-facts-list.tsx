@@ -1,6 +1,7 @@
 import {
   Cancel01Icon,
   Delete02Icon,
+  LockIcon,
   PencilEdit02Icon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
@@ -20,6 +21,8 @@ type AgentFact = {
   source: string
   updatedAt: string
   editedBy: { id: string; name: string } | null
+  // The private channel or project it was learned in and stays in.
+  privateTo: { id: string; name: string | null } | null
 }
 
 function formatDate(iso: string) {
@@ -30,9 +33,10 @@ function formatDate(iso: string) {
 }
 
 // An agent's facts (reference/always-on-agents.md §7): what it keeps after
-// its turns, in any channel, each with its source and date. Edits and
-// deletes save at once, apart from the dialog's Save, and reach the agent as
-// a change note on its next turn.
+// its turns, each with its source and date. One learned in a private channel
+// is listed only for that channel's people, marked with where it stays.
+// Edits and deletes save at once and reach the agent as a change note on
+// its next turn.
 export function AgentFactsList({
   workspaceSlug,
   agentId,
@@ -100,24 +104,11 @@ export function AgentFactsList({
 
   const list = facts.data ?? []
   return (
-    <div className="space-y-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="font-medium text-sm">Facts</span>
-        {list.length > 0 && (
-          <span className="text-muted-foreground text-xs tabular-nums">
-            {list.length}
-          </span>
-        )}
-      </div>
-      <p className="text-xs text-muted-foreground">
-        What {agentName} keeps after its turns, in front of it on every turn in
-        every channel it is in. Anyone who sees {agentName} can edit or delete
-        one.
-      </p>
+    <div>
       {facts.isPending ? (
-        <p className="text-xs text-muted-foreground">Loading…</p>
+        <p className="px-4 text-muted-foreground text-sm">Loading…</p>
       ) : facts.isError && list.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="px-4 text-muted-foreground text-sm">
           Couldn't load the facts.{" "}
           <button
             type="button"
@@ -128,14 +119,14 @@ export function AgentFactsList({
           </button>
         </p>
       ) : list.length === 0 ? (
-        <p className="rounded-md border border-border/70 border-dashed px-3 py-2 text-xs text-muted-foreground">
-          No facts yet. {agentName} adds them as it learns how the team works,
+        <p className="rounded-xl bg-muted px-4 py-3 text-muted-foreground text-sm dark:bg-muted/60">
+          Nothing yet. {agentName} adds facts as it learns how the team works,
           and saves anything you ask it to remember.
         </p>
       ) : (
-        <ul className="divide-y divide-border/60 rounded-md border border-border/70">
+        <ul className="divide-y divide-border rounded-xl bg-muted px-4 dark:bg-muted/60">
           {list.map((fact) => (
-            <li key={fact.id} className="group flex gap-2 px-3 py-2">
+            <li key={fact.id} className="group flex gap-2 py-2.5">
               {editing?.id === fact.id ? (
                 // Not a form: the settings dialog around it is one.
                 <div className="flex min-w-0 flex-1 items-center gap-1">
@@ -162,7 +153,7 @@ export function AgentFactsList({
                         setEditing(null)
                       }
                     }}
-                    className="h-7 text-[13px]"
+                    className="h-7 bg-background text-[13px]"
                   />
                   <Button
                     type="button"
@@ -195,9 +186,22 @@ export function AgentFactsList({
                         ? `Edited by ${fact.editedBy.name}`
                         : fact.source}{" "}
                       · {formatDate(fact.updatedAt)}
+                      {fact.privateTo && (
+                        <span
+                          className="ml-1.5 inline-flex items-center gap-0.5"
+                          title={`${agentName} learned this in a private place. It is shown only there, and only its members see it here.`}
+                        >
+                          <HugeiconsIcon
+                            icon={LockIcon}
+                            className="size-3"
+                            strokeWidth={2}
+                          />
+                          Only in {fact.privateTo.name ?? "a private channel"}
+                        </span>
+                      )}
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-start gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                  <div className="flex shrink-0 items-start gap-0.5 opacity-0 transition-opacity duration-150 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
                     <Button
                       type="button"
                       size="icon-xs"

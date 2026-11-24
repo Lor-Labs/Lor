@@ -2,7 +2,6 @@ import { randomBytes, randomUUID } from "node:crypto"
 import { isWorkspaceRole } from "@repo/auth/permissions"
 import { isConnectorEvent } from "@repo/connectors"
 import { and, db, eq, isUniqueViolation, max, schema, sql } from "@repo/db"
-import { defaultAgentFor } from "@repo/db/queries/agents"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type {
   ChangeOperation,
@@ -26,6 +25,7 @@ import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
 import { endAfterToDate } from "@repo/lor/loops"
 import { initialMcpServerOAuthStatus } from "@repo/lor/mcp-server-oauth"
 import { encryptSecret } from "@repo/utils/crypto"
+import { placeDefaultAgent } from "@/lib/agents"
 import { approvalTargetIssue } from "./approval-targets"
 import { profileToolAccessIssue } from "./profile-tool-access"
 
@@ -141,8 +141,6 @@ async function applyOperation(
 ): Promise<OperationResult> {
   switch (spec.op) {
     case "create_channel": {
-      // Like a channel a person makes: the workspace's first agent is in it.
-      const agent = await defaultAgentFor(ctx.workspaceId, null, ctx.tx)
       const inserted = await ctx.tx
         .insert(schema.channel)
         .values({
@@ -151,11 +149,16 @@ async function applyOperation(
           topic: spec.topic,
           type: "text",
           audience: "workspace",
-          agentId: agent?.id ?? null,
         })
         .returning({ id: schema.channel.id })
         .then((rows) => rows[0])
       if (!inserted) fail(position, "Failed to create the channel")
+      // Like a channel a person makes: the workspace's first agent is in it.
+      await placeDefaultAgent(ctx.tx, {
+        workspaceId: ctx.workspaceId,
+        channelIds: [inserted.id],
+        addedById: null,
+      })
       ctx.createdIds.set(position, inserted.id)
       return { resourceId: inserted.id }
     }

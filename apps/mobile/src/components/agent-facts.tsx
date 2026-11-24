@@ -20,6 +20,8 @@ type AgentFact = {
   source: string
   updatedAt: string
   editedBy: { id: string; name: string } | null
+  // The private channel or project it was learned in and stays in.
+  privateTo: { id: string; name: string | null } | null
 }
 
 const agentFactsKey = (agentId: string) => ["agent-facts", agentId] as const
@@ -231,6 +233,9 @@ export function AgentFacts({
                         ? `Edited by ${fact.editedBy.name}`
                         : fact.source}{" "}
                       · {formatDate(fact.updatedAt)}
+                      {fact.privateTo
+                        ? ` · Only in ${fact.privateTo.name ?? "a private channel"}`
+                        : ""}
                     </Text>
                   </View>
                   <IconButton

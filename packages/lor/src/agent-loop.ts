@@ -1257,7 +1257,7 @@ export async function agentMemoryPass(args: {
   if (openApprovals(history).length > 0) return null
 
   const profile = await loadChannelProfile(args.channelId)
-  const shown = factsForMemoryPass(profile.facts)
+  const shown = factsForMemoryPass(profile)
   const tools = Object.fromEntries(
     Object.entries(args.tools).map(([name, t]) => [
       name,

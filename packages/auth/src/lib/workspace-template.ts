@@ -43,15 +43,21 @@ const STARTUP_CHANNELS: TemplateChannel[] = [
 export async function seedWorkspaceTemplate(workspaceId: string) {
   await db.transaction(async (tx) => {
     const agent = await createAgent({ workspaceId }, tx)
-    await tx.insert(schema.channel).values(
-      STARTUP_CHANNELS.filter(isChannelFeatureEnabled).map(
-        (channel, position) => ({
-          ...channel,
-          agentId: channel.type === "text" ? agent.id : null,
-          workspaceId,
-          position,
-        })
+    const channels = await tx
+      .insert(schema.channel)
+      .values(
+        STARTUP_CHANNELS.filter(isChannelFeatureEnabled).map(
+          (channel, position) => ({ ...channel, workspaceId, position })
+        )
       )
-    )
+      .returning({ id: schema.channel.id, type: schema.channel.type })
+    const text = channels.filter((channel) => channel.type === "text")
+    if (text.length > 0) {
+      await tx
+        .insert(schema.channelAgent)
+        .values(
+          text.map((channel) => ({ channelId: channel.id, agentId: agent.id }))
+        )
+    }
   })
 }
