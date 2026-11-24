@@ -11,3 +11,8 @@ export const APP_USER_ID = "00000000-0000-4000-8000-000000000002"
 // source of truth for pgvector columns and runtime validation. Changing it
 // requires a schema migration and a full re-embed.
 export const LOR_EMBED_DIMENSIONS = 2560 as const
+
+// How many agents the app lets a channel hold. The data (`channel_agent`)
+// allows several; it stays at one until each agent has its own conversation
+// in a channel (reference/agents-and-chats.md, step 2).
+export const MAX_CHANNEL_AGENTS = 1

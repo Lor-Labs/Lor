@@ -2,7 +2,7 @@
 
 Implemented 2026-11-22. Requires the schema update before deployment.
 
-Changed 2026-11-25 (`agents-and-chats.md`, decisions 7 and 16): the
+Changed 2026-11-24 (`agents-and-chats.md`, decisions 7 and 16): the
 autonomous settings are each agent's own (`agent_harness_settings`), edited in
 the agent's dialog under Runs. The workspace's Autonomous runs section and
 `workspace_harness_settings` are gone, and a person with no plan of their own

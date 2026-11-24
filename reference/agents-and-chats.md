@@ -1,10 +1,10 @@
 # Agents and chats: agents apart from channels
 
-**Status:** Decided with Jacob between 2026-11-23 and 2026-11-25, and built
-step by step from §9. Step 1 (agents apart from channels) is built: its first
-cut on 11-24, and Jacob's fixes to it on 11-25 (several agents per channel in
-the data, no private agents, run settings per agent, agents in the sidebar,
-the two dialogs). Lint and type checks pass, the data move and the app were
+**Status:** Decided with Jacob on 2026-11-23 and 11-24, and built step by
+step from §9. Step 1 (agents apart from channels) is built, all on 11-24: its
+first cut, then Jacob's fixes to it (several agents per channel in the data,
+no private agents, run settings per agent, the two dialogs, and a channel's
+agents in its right panel). Lint and type checks pass, the data move and the app were
 run on throwaway databases, and `db:push` on the shared databases is owed
 (§9, rollout). Steps 2 to 5 are not started, so every chat with an agent in a
 channel still shares that channel's one queue. It changes the shape built
@@ -33,8 +33,8 @@ chat.
 | Term | What it is | Where you find it |
 |---|---|---|
 | **Channel** | A long-lasting place where people talk, like `#eng`. In Lor, Slack or Discord. It has one agent or none | The sidebar, or the chat app |
-| **Agent** | A teammate for a role, like eng or gtm. A team has a few. It carries its brief, tools, memory, accounts and events to every channel and chat | The sidebar |
-| **Chat** | One piece of work between some people and one agent | Under its agent in the sidebar |
+| **Agent** | A teammate for a role, like eng or gtm. A team has a few. It carries its brief, tools, memory, accounts and events to every channel and chat | The right panel of a channel it is in |
+| **Chat** | One piece of work between some people and one agent | The sidebar |
 | **Session** | One coding agent on one branch, with a computer. Unchanged | Under its chat, or on its own when a person started it |
 | **Thread** | Replies under a message in a channel. Unchanged | In the channel |
 
@@ -61,18 +61,18 @@ objected to and should confirm.
 | 6 | Each agent has its own settings, including its own Claude Code and ChatGPT accounts | Jacob, 11-24 |
 | 7 | What a person asks for is paid by that person's own plan first. The agent's own accounts are the backup, and pay for work nobody asked for | Jacob, 11-24 |
 | 8 | No "wake on every message" setting. A mention or a reply wakes the agent, and its check-in reads the rest | Jacob, 11-24 |
-| 9 | The data allows several agents in a channel. The app holds a channel to one until each has its own conversation there (step 2). One agent per chat | Jacob, 11-25 |
+| 9 | The data allows several agents in a channel. The app holds a channel to one until each has its own conversation there (step 2). One agent per chat | Jacob, 11-24 |
 | 10 | Each chat has its own queue and its own context. Chats run side by side, one turn at a time inside each | Default |
 | 11 | A quick question in a channel gets a plain reply there. A mention that is work becomes a chat | Default |
 | 12 | Nothing to do when a chat is done. It sinks down the list and a new message brings it back | Default |
 | 13 | A chat lives where it was started: in Lor, or in a Slack or Discord thread. No two-way sync | Default |
-| 14 | No private agents. Every member sees every agent, and any agent can be in any channel. What it learns in a private channel stays there by scope, like brain pages, and a private channel's instructions for it live on that channel. It replaced "an agent has one audience", built in the first cut | Jacob, 11-25 |
+| 14 | No private agents. Every member sees every agent, and any agent can be in any channel. What it learns in a private channel stays there by scope, like brain pages, and a private channel's instructions for it live on that channel. It replaced "an agent has one audience", built in the first cut | Jacob, 11-24 |
 | 15 | An event or Loop belongs to an agent and names the channel it reports in | Default |
-| 16 | Accounts are owned by the workspace and each agent picks its own, so two agents can share one and deleting an agent deletes none. The workspace's "Autonomous runs" section is gone: the settings are each agent's | Jacob, 11-25 |
+| 16 | Accounts are owned by the workspace and each agent picks its own, so two agents can share one and deleting an agent deletes none. The workspace's "Autonomous runs" section is gone: the settings are each agent's | Jacob, 11-24 |
 | 17 | An agent runs as Lor on a model, or on Claude Code or Codex, for its own turns and the sessions it starts. A plan can pay for either (the first cut of this doc said only for sessions, which was wrong) | As built 11-22 |
 | 18 | No signup question about where the team chats. Linking a channel to a chat app already decides it, per channel | Default |
-| 19 | Agents are in the sidebar: a row opens that agent's dialog, and a New agent row shows one can be added. A channel with no agent shows where to add one | Jacob, 11-25 |
-| 20 | An agent's settings are in its own dialog. A channel's dialog says which agent is in it and what the team wants from it there | Jacob, 11-25 |
+| 19 | A channel's agents are at the top of its right panel: a row opens that agent's dialog, and an Add agent row lists the workspace's other agents and makes a new one. The left sidebar is for chats and channels only, and a channel's row shows no agent face, since a channel can hold several. It replaced an Agents group in the left sidebar, built earlier the same day | Jacob, 11-24 |
+| 20 | An agent's settings are in its own dialog. A channel's dialog says which agent is in it and what the team wants from it there | Jacob, 11-24 |
 
 Considered and dropped:
 
@@ -91,7 +91,7 @@ Considered and dropped:
 1. Sam writes in `#eng`: "@Inky the login redirect loops on Safari, can you
    fix it".
 2. Inky answers under that message, which starts a chat. The chat shows as a
-   thread in `#eng` and under Inky in Sam's sidebar.
+   thread in `#eng` and in Sam's sidebar.
 3. Inky starts a code session, shown as a card in the chat.
 4. Jacob opens the thread and writes in it. The chat is now in his sidebar.
 5. Eli asks Inky for something else. That is a second chat, and it runs at the
@@ -157,19 +157,18 @@ explicit choice.
 
 ```
 Needs you                              only while something waits
-Agents
-  Inky  Eng
-    Login redirect loop on Safari      a chat you are in
-      web · fix/login-redirect         its session
-  Quill  GTM
-Channels
+Chats
+  Login redirect loop on Safari        a chat you are in, with Inky
+    web · fix/login-redirect           its session
+Channels                               for a team that uses Lor's channels
   # general
-  # eng          Inky is here
-  # gtm          Quill is here
+  # eng
+  # gtm
 ```
 
-The agent's page lists everyone's chats with it. Yours are also in the
-sidebar.
+The sidebar holds chats and channels, not agents (decision 19). A channel's
+agents are at the top of its right panel, with the row that adds one. The
+agent's page lists everyone's chats with it. Yours are also in the sidebar.
 
 ## 7. What changes in what is built
 
@@ -185,7 +184,7 @@ sidebar.
 | Discord link | One Lor channel to one Discord channel | One agent in many Discord channels, each copied to a Lor channel |
 | Accounts for work nobody asked for | Workspace settings | Picked per agent |
 | Session ceiling | 15 at once per channel | Per agent, and higher: 15 is too low for ten people |
-| Sidebar | Channels, each with its agent's face and your sessions | Agents with your chats, then channels |
+| Sidebar | Channels, each with its agent's face and your sessions | Your chats, then channels. No agent faces: a channel's agents are in its right panel |
 
 Existing channels would not change on the day this lands: each channel's
 agent becomes its own agent, already added to that channel. A team can then
@@ -216,13 +215,13 @@ tools all stay.
 
 Each step ends in something the team uses. Steps 2 to 5 are not sized.
 
-### Step 1: agents apart from channels (built 2026-11-24 and 11-25)
+### Step 1: agents apart from channels (built 2026-11-24)
 
 - [x] **`agent` table** (`packages/db/src/schemas/agents.ts`): name, creature,
   role, brief, model, creator.
 - [x] **`channel_agent`**: which agents are in which channel, with the team's
   instructions for that agent in that channel (`brief`). The shape allows
-  several; `MAX_CHANNEL_AGENTS` (`packages/db/src/queries/agents.ts`) holds a
+  several; `MAX_CHANNEL_AGENTS` (`packages/db/src/constants.ts`) holds a
   channel to one. A channel payload carries `agentIds`.
 - [x] **Off the channel:** `agent_name`, `agent_creature`,
   `agent_identity_updated_at`, `agent_brief`, `agent_brief_updated_at`,
@@ -276,14 +275,20 @@ Each step ends in something the team uses. Steps 2 to 5 are not sized.
   first agent, private ones too. A new workspace starts with one agent in
   every text channel.
 - [x] **Web:**
-  - the sidebar has an Agents group above Channels: a row per agent, and a
-    New agent row for people who manage channels (decision 19);
+  - a channel's right panel starts with its agents
+    (`right-panel/channel-agents-section.tsx`, decision 19): a row per
+    agent, and an Add agent row for people who manage channels, which lists
+    the workspace's other agents (a name opens that agent's dialog, so one
+    in no channel is still reachable) and makes a new one. At the limit of
+    one, the agent picked replaces the one there. The left sidebar and its
+    channel rows show no agents;
   - the agent dialog (`components/agent/agent-dialog.tsx`, opened by
     `?agent=<id>`): Profile, Memory, Channels and Runs;
   - the channel dialog, redesigned on the same shell
     (`components/ui/pane-dialog.tsx`): Overview, Agent (who is here, and
     instructions for this channel), Tools and Webhooks;
-  - a channel with no agent shows "Add agent" in its header.
+  - the channel's header shows the agent that answers there, and nothing
+    when it has none.
 - [x] **Mobile:** follows the same data. Which agent a channel has, and how
   an agent runs, are set on web.
 - [x] **Checked** on throwaway Postgres databases:
@@ -335,8 +340,8 @@ Rollout, per environment, with API, realtime, worker, web and mobile together:
 ### Step 2: chats
 
 The chat record, a queue and context per chat, a mention that is work
-starting one, New chat, session reports going back to their chat, and the
-sidebar's Agents group. The log and the open block become the agent's.
+starting one, New chat, session reports going back to their chat, and chats
+in the sidebar. The log and the open block become the agent's.
 
 ### Step 3: tools and events per agent
 
@@ -358,4 +363,6 @@ In the same shape.
 `apps/web/src/components/prototype/agents/`) shows this shape: the sidebar,
 a channel with and without an agent, a channel that lives in Slack, a mention
 becoming a chat, a chat with its sessions, New chat, and the agent's settings.
+Its sidebar still lists agents with their chats under them, which decision 19
+replaced.
 `/prototype/orchestration` still shows the earlier thread-based shape.

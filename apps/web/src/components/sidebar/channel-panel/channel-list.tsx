@@ -58,7 +58,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useMemo, useState } from "react"
-import { AgentCreature } from "@/components/agent/agent-creature"
 import { ArchiveProjectDialog } from "@/components/project/archive-project-dialog"
 import {
   SessionStateIndicator,
@@ -87,12 +86,7 @@ import {
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUnread } from "@/context/unread-context"
-import {
-  agentCreature,
-  channelAgentOf,
-  useAgentsById,
-  useAgentsUpdates,
-} from "@/hooks/use-agents"
+import { useAgentsUpdates } from "@/hooks/use-agents"
 import { useNewIds } from "@/hooks/use-appended-ids"
 import { useChannelCreated } from "@/hooks/use-channel-created"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
@@ -115,12 +109,6 @@ const channelIcons = {
 } as const
 
 type ChannelData = ListChannelsResponse
-
-const AGENT_STATE_LABELS = {
-  asleep: "is asleep",
-  working: "is working",
-  needs_you: "needs you",
-} as const
 
 function ChannelIcon({
   type,
@@ -1105,19 +1093,9 @@ function SortableChannelItem({
         sessions.filter((session) => session.state !== "running")
       )
     : undefined
-  // The agent in the channel on its row, when it has one: its creature with
-  // what it is doing now. And how many sessions are running here, the
-  // person's own or not.
-  const { workspaceSlug } = useParams({ strict: false })
-  const placed = channelAgentOf(ch, useAgentsById(workspaceSlug))
-  const agent = placed
-    ? { name: placed.name, creature: agentCreature(placed) }
-    : null
-  const agentState = activity?.agentNeeds.length
-    ? "needs_you"
-    : activity?.agentWorking
-      ? "working"
-      : "asleep"
+  // How many sessions are running here, the person's own or not. A row
+  // shows no agent: a channel can hold several, and they are in its right
+  // panel.
   const runningCount = activity?.runningSessions ?? 0
   const runningLabel = `${runningCount} ${runningCount === 1 ? "session" : "sessions"} running`
 
@@ -1172,14 +1150,7 @@ function SortableChannelItem({
               onClick={onClick}
               {...(canManage ? { ...attributes, ...listeners } : {})}
               aria-current={active ? "page" : undefined}
-              title={
-                agent
-                  ? [
-                      `${agent.name} ${AGENT_STATE_LABELS[agentState]}`,
-                      ...(runningCount > 0 ? [runningLabel] : []),
-                    ].join(" · ")
-                  : undefined
-              }
+              title={runningCount > 0 ? runningLabel : undefined}
               className="min-w-0 flex-1 cursor-pointer truncate text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring/50 active:opacity-100"
             >
               {ch.name}
@@ -1201,19 +1172,6 @@ function SortableChannelItem({
                 <SessionCollapseToggle
                   collapsed={sessionCollapse.collapsed}
                   onToggle={sessionCollapse.toggle}
-                />
-              )}
-              {/* Last, so the faces line up down the sidebar. No pointer
-                  events: the creature is positioned and would otherwise sit
-                  above the row's click overlay. */}
-              {agent && (
-                <AgentCreature
-                  creature={agent.creature}
-                  state={agentState}
-                  size={24}
-                  still={agentState !== "working"}
-                  label={`${agent.name} ${AGENT_STATE_LABELS[agentState]}`}
-                  className="pointer-events-none -my-1"
                 />
               )}
             </div>

@@ -81,12 +81,7 @@ export function ChatHeader({
         </span>
       )}
       <div className="ml-auto flex items-center gap-1">
-        {context.type === "channel" && workspaceSlug && (
-          <AgentHeaderChip
-            workspaceSlug={workspaceSlug}
-            channelId={channelId}
-          />
-        )}
+        {context.type === "channel" && <AgentHeaderChip />}
         <HeaderSearch
           mode={context.type === "channel" ? "workspace" : "dm"}
           channelId={channelId}

@@ -64,7 +64,7 @@ export const agentRelations = relations(agent, ({ one }) => ({
 export type Agent = typeof agent.$inferSelect
 
 // The agents in a channel. The shape allows several; the app holds a channel
-// to one for now (MAX_CHANNEL_AGENTS in queries/agents.ts). A channel with no
+// to one for now (MAX_CHANNEL_AGENTS in constants.ts). A channel with no
 // row is plain human chat that wakes nothing.
 export const channelAgent = pgTable(
   "channel_agent",

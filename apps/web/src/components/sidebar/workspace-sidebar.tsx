@@ -50,7 +50,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
-import { AgentsGroup } from "@/components/sidebar/channel-panel/agents-group"
 import { ChannelActivityProvider } from "@/components/sidebar/channel-panel/channel-activity"
 import { ChannelList } from "@/components/sidebar/channel-panel/channel-list"
 import {
@@ -494,14 +493,11 @@ function WorkspaceSidebarInner() {
                 workspaceSlug={activeWorkspace?.slug}
                 workspaceId={activeWorkspace?.id}
               >
-                {/* What needs you, the agents, then the channels with
-                    their agent and your sessions under them. */}
+                {/* One list: what needs you, then the channels with your
+                    sessions under them. A channel's agents are in its right
+                    panel (reference/agents-and-chats.md, decision 19). */}
                 <div className="px-2">
                   <NeedsYouGroup />
-                  <AgentsGroup />
-                  <h3 className="px-2 pb-1 font-medium text-muted-foreground text-xs">
-                    Channels
-                  </h3>
                 </div>
                 <ChannelList />
               </VoicePresenceProvider>

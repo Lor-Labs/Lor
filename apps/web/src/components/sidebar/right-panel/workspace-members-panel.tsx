@@ -44,12 +44,8 @@ import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
-import { AgentCreature } from "@/components/agent/agent-creature"
-import {
-  type ChannelAgent,
-  ChannelAgentProvider,
-  useChannelAgentContext,
-} from "@/components/agent/channel-agent"
+import { ChannelAgentProvider } from "@/components/agent/channel-agent"
+import { ChannelAgentsSection } from "@/components/sidebar/right-panel/channel-agents-section"
 import { FollowUpsSection } from "@/components/sidebar/right-panel/follow-ups-section"
 import { LoopsOverviewSection } from "@/components/sidebar/right-panel/loops-overview-section"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -156,10 +152,6 @@ function MemberRow({
   const canKick = canKickPermission && canManageTarget
 
   const showActions = canUpdateRole || canKick
-  const channelAgent = useChannelAgentContext()
-  if (channelAgent && member.userId === LOR_USER_ID) {
-    return <AgentMemberRow agent={channelAgent} />
-  }
 
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1.5 hover:bg-foreground/[0.04]">
@@ -259,35 +251,6 @@ function MemberRow({
           </DropdownMenu>
         )}
       </div>
-    </div>
-  )
-}
-
-const AGENT_STATE_LABELS = {
-  asleep: "Resting",
-  idle: "Here",
-  working: "Working",
-  needs_you: "Needs you",
-} as const
-
-// In a channel's panel, Lor is that channel's agent: its creature in its
-// real state, and its name (reference/always-on-agents.md, decision 33).
-function AgentMemberRow({ agent }: { agent: ChannelAgent }) {
-  return (
-    <div className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1.5">
-      <AgentCreature
-        creature={agent.creature}
-        state={agent.state}
-        size={24}
-        label={agent.name}
-      />
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[13px] font-medium">{agent.name}</div>
-        <div className="truncate text-[11px] text-muted-foreground">Agent</div>
-      </div>
-      <span className="max-w-16 shrink-0 truncate pl-2 text-[11px] text-muted-foreground">
-        {AGENT_STATE_LABELS[agent.state]}
-      </span>
     </div>
   )
 }
@@ -550,16 +513,15 @@ export function WorkspaceMembersPanel({
     }
   }, [socket, workspaceId, queryClient, queryKey])
 
-  // A text channel with no agent is people only: Lor isn't listed there
-  // (reference/agents-and-chats.md).
+  // A text channel lists people only: its agents have their own section
+  // above them (reference/agents-and-chats.md).
   const { data: channelDetail } = useQuery({
     ...channelQueryOptions(view.workspaceSlug, view.channelId),
     enabled: Boolean(view.workspaceSlug && view.channelId),
   })
-  const noAgent =
-    channelDetail?.type === "text" && channelDetail.agentIds.length === 0
+  const peopleOnly = channelDetail?.type === "text"
   const members = (data?.members ?? []).filter(
-    (member) => !(noAgent && member.userId === LOR_USER_ID)
+    (member) => !(peopleOnly && member.userId === LOR_USER_ID)
   )
   const onlineMembers = members.filter((member) => member.status !== "offline")
   const offlineMembers = members.filter((member) => member.status === "offline")
@@ -632,6 +594,10 @@ export function WorkspaceMembersPanel({
 
         <ScrollArea className="min-w-0 flex-1 overflow-x-hidden px-2 py-2">
           <div className="min-w-0 space-y-3 px-1 pb-3">
+            <ChannelAgentsSection
+              workspaceSlug={view.workspaceSlug}
+              channelId={view.channelId}
+            />
             <section aria-label="Members">
               <div className="space-y-3">
                 {isPending ? (

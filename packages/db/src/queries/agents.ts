@@ -1,5 +1,6 @@
 import { agentIdentityFor } from "@repo/utils/bestiary"
 import { and, asc, eq, inArray, isNull, or } from "drizzle-orm"
+import { MAX_CHANNEL_AGENTS } from "../constants"
 import { db } from "../index"
 import { agentFact } from "../schemas/agent-facts"
 import { type Agent, agent, channelAgent } from "../schemas/agents"
@@ -11,12 +12,10 @@ import { resolveAccessContainer } from "./channel-access"
 // member sees every agent. What it learns in a private channel stays there
 // by scope, like brain pages, so any agent can be added to any channel.
 
+export { MAX_CHANNEL_AGENTS }
+
 type ReadExecutor = Pick<typeof db, "select">
 type WriteExecutor = Pick<typeof db, "insert">
-
-// The data allows several agents in a channel; the app holds it to one until
-// each has its own conversation there (step 2 of the plan).
-export const MAX_CHANNEL_AGENTS = 1
 
 // The agent that answers in a channel, or null: a channel with no agent
 // wakes nothing. With several, the first one added.
