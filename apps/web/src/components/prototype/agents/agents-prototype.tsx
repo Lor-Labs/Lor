@@ -2,15 +2,16 @@ import { SidebarInset, SidebarProvider } from "@repo/ui/components/sidebar"
 import { AnimatePresence, motion } from "motion/react"
 import { type CSSProperties, useEffect, useRef, useState } from "react"
 import { AgentCanvas, WorkCanvas } from "./agent-canvas"
-import { AgentPage, NewCodeSession } from "./agent-page"
-import { ThreadView } from "./agent-thread"
-import { agentById } from "./agents-data"
+import { ChatView } from "./agent-chat"
+import { AgentPage, NewChat, NewCodeSession } from "./agent-page"
+import { agentById, channelById } from "./agents-data"
 import { AgentsSidebar } from "./agents-sidebar"
 import { AgentsStore, useProto } from "./agents-store"
+import { ChannelView } from "./channel-view"
 
-// Dev-only prototype of reference/planned/team-agents.md: a channel is an
-// agent, a thread is a conversation with it, the agent starts code sessions
-// under a thread, and the team's chat is a room attached to the agent.
+// Dev-only prototype of reference/planned/agents-and-chats.md: agents are
+// separate from channels and added to them, a chat is one piece of work with
+// an agent, and the agent starts code sessions under a chat.
 export function AgentsPrototype() {
   return (
     <AgentsStore>
@@ -22,10 +23,10 @@ export function AgentsPrototype() {
 const DRAWER = [0.32, 0.72, 0, 1] as const
 
 function Main() {
-  const { view, threads, works } = useProto()
-  if (view.kind === "thread") {
-    const thread = threads.find((item) => item.id === view.threadId)
-    return thread ? <ThreadView key={thread.id} thread={thread} /> : null
+  const { view, chats, works } = useProto()
+  if (view.kind === "chat") {
+    const chat = chats.find((item) => item.id === view.chatId)
+    return chat ? <ChatView key={chat.id} chat={chat} /> : null
   }
   if (view.kind === "code") {
     const work = works[view.workId]
@@ -35,7 +36,13 @@ function Main() {
       </div>
     ) : null
   }
+  if (view.kind === "channel") {
+    const channel = channelById(view.channelId)
+    return channel ? <ChannelView key={channel.id} channel={channel} /> : null
+  }
   if (view.kind === "new")
+    return <NewChat key={view.agentId} agentId={view.agentId} />
+  if (view.kind === "newCode")
     return <NewCodeSession key={view.agentId} agentId={view.agentId} />
   const agent = agentById(view.agentId)
   return agent ? (

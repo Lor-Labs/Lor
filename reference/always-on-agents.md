@@ -8,9 +8,15 @@ the work ships in one batch (Jacob, 11-19). It replaces the proposal in `planned
 as the record of how the design was reached. Where the two differ, this doc
 wins.
 
-The mocks at `/prototype/agents` and `/prototype/orchestration` show an
-earlier shape, with threads and a page per agent. §9 says which parts of them
-still apply.
+**Changing next:** `planned/agents-and-chats.md` (Jacob, 2026-11-24) takes the
+agent off the channel: agents are their own thing and are added to channels,
+and each piece of work with an agent is a chat with its own queue. It replaces
+decisions 1, 2, 8 and 32 below and is design only. This doc stays the record
+of what is built.
+
+The mock at `/prototype/orchestration` shows an earlier shape, with threads
+and a page per agent. §9 says which parts of it still apply. The mock at
+`/prototype/agents` now shows `planned/agents-and-chats.md`.
 
 ## 1. The product
 

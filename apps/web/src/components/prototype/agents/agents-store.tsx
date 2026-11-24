@@ -10,25 +10,26 @@ import {
   me,
   mentionedPeople,
   type Person,
+  people,
   titleFromPrompt,
 } from "../prototype-data"
 import {
   agentById,
   agents,
   type Block,
+  type ChannelMessage,
+  type Chat,
+  type ChatItem,
+  channels,
   type Draft,
+  initialChannelChat,
+  initialChats,
   initialDrafts,
-  initialThreads,
   initialTranscripts,
   initialWorks,
   leads,
   linearIssues,
-  type Room,
-  type RoomLevel,
-  roomName,
   type Starter,
-  type Thread,
-  type ThreadItem,
   type Work,
   type WorkState,
 } from "./agents-data"
@@ -41,65 +42,57 @@ export type Canvas =
   | { kind: "work"; workId: string; tab?: WorkTab }
   | { kind: "draft"; draftId: string }
   | { kind: "chart"; chartId: string }
-  | { kind: "setup"; agentId: string }
   | { kind: "log"; agentId: string }
 
-export type AgentTab = "work" | "room"
-export type SidebarTab = "work" | "agents"
+export type AgentTab = "chats" | "settings"
 
 export type View =
-  | { kind: "thread"; threadId: string }
+  | { kind: "chat"; chatId: string }
   | { kind: "code"; workId: string }
   | { kind: "agent"; agentId: string; tab: AgentTab }
+  | { kind: "channel"; channelId: string }
+  // A new chat with an agent, or a code session straight in one repo.
   | { kind: "new"; agentId: string }
-
-// A message in Lor's own chat for a channel. People only: mentioning Lor
-// starts a thread, linked under the message.
-export type RoomMessage = {
-  id: string
-  author: Person
-  text: string
-  threadId?: string
-}
+  | { kind: "newCode"; agentId: string }
 
 type Store = {
   view: View
-  sidebarTab: SidebarTab
   canvas: Canvas | null
   works: Record<string, Work>
   drafts: Record<string, Draft>
-  threads: Thread[]
-  transcripts: Record<string, ThreadItem[]>
+  chats: Chat[]
+  transcripts: Record<string, ChatItem[]>
   pins: Record<string, string[]>
   configured: Record<string, boolean>
-  rooms: Record<string, Room | null>
-  roomLevel: Record<string, RoomLevel>
-  roomChat: Record<string, RoomMessage[]>
-  stateOf: (threadId: string) => WorkState
-  childrenOf: (threadId: string) => Work[]
-  setSidebarTab: (tab: SidebarTab) => void
-  openThread: (threadId: string) => void
+  // Which agent is in each channel, if any.
+  channelAgents: Record<string, string | null>
+  channelChat: Record<string, ChannelMessage[]>
+  stateOf: (chatId: string) => WorkState
+  childrenOf: (chatId: string) => Work[]
+  openChat: (chatId: string) => void
   openWork: (workId: string) => void
   openAgent: (agentId: string, tab?: AgentTab) => void
+  openChannel: (channelId: string) => void
   openNew: (agentId?: string) => void
+  openNewCode: (agentId?: string) => void
   openCanvas: (canvas: Canvas) => void
   closeCanvas: () => void
   approve: (workId: string) => void
   sendDraft: (draftId: string) => void
   editDraft: (draftId: string, body: string) => void
   reply: (workId: string, text: string) => void
-  send: (threadId: string, text: string) => void
-  // Talk to the channel's agent. It decides what to start.
+  send: (chatId: string, text: string) => void
+  // Put one more teammate in a chat, so it shows in their sidebar.
+  addPerson: (chatId: string) => void
+  // Start a chat with an agent. It decides what to start.
   ask: (agentId: string, text: string) => void
   // A code session a person starts directly, in a repo they pick.
   startCode: (agentId: string, text: string, repo: string) => void
-  draftOutreach: (threadId: string, leadIds: string[]) => void
-  approveSetup: (agentId: string, threadId: string) => void
+  draftOutreach: (chatId: string, leadIds: string[]) => void
+  approveSetup: (agentId: string, chatId: string) => void
   togglePin: (agentId: string, chartId: string) => void
-  connectRoom: (agentId: string, room: Room) => void
-  disconnectRoom: (agentId: string) => void
-  setRoomLevel: (agentId: string, level: RoomLevel) => void
-  postRoom: (agentId: string, text: string) => void
+  setChannelAgent: (channelId: string, agentId: string | null) => void
+  postChannel: (channelId: string, text: string) => void
 }
 
 const StoreContext = createContext<Store | null>(null)
@@ -110,11 +103,11 @@ export function useProto() {
   return store
 }
 
-// The thread a card is shown in.
-const ThreadContext = createContext<string | null>(null)
-export const ThreadProvider = ThreadContext.Provider
-export function useThreadId() {
-  return useContext(ThreadContext)
+// The chat a card is shown in.
+const ChatContext = createContext<string | null>(null)
+export const ChatProvider = ChatContext.Provider
+export function useChatId() {
+  return useContext(ChatContext)
 }
 
 const byId = <T extends { id: string }>(items: T[]) =>
@@ -122,13 +115,12 @@ const byId = <T extends { id: string }>(items: T[]) =>
 
 const uid = () => crypto.randomUUID()
 
+// What turns a mention in a channel into work, and so into a chat.
+const WORK =
+  /\b(fix|add|change|implement|build|upgrade|make|look into|investigate|linear|issues|set up|draft|write)\b/i
+
 export function AgentsStore({ children }: { children: ReactNode }) {
-  const [view, setView] = useState<View>({
-    kind: "agent",
-    agentId: "eng",
-    tab: "work",
-  })
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("work")
+  const [view, setView] = useState<View>({ kind: "channel", channelId: "eng" })
   const [canvas, setCanvas] = useState<Canvas | null>(null)
   const [works, setWorks] = useState<Record<string, Work>>(() =>
     byId(initialWorks)
@@ -136,7 +128,7 @@ export function AgentsStore({ children }: { children: ReactNode }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
     byId(initialDrafts)
   )
-  const [threads, setThreads] = useState(initialThreads)
+  const [chats, setChats] = useState(initialChats)
   const [transcripts, setTranscripts] = useState(initialTranscripts)
   const [pins, setPins] = useState<Record<string, string[]>>({})
   const [configured, setConfigured] = useState<Record<string, boolean>>(() =>
@@ -144,11 +136,14 @@ export function AgentsStore({ children }: { children: ReactNode }) {
       agents.map((agent) => [agent.id, agent.watching.length > 0])
     )
   )
-  const [rooms, setRooms] = useState<Record<string, Room | null>>(() =>
-    Object.fromEntries(agents.map((agent) => [agent.id, agent.room ?? null]))
+  const [channelAgents, setChannelAgents] = useState<
+    Record<string, string | null>
+  >(() =>
+    Object.fromEntries(
+      channels.map((channel) => [channel.id, channel.agentId ?? null])
+    )
   )
-  const [roomLevel, setRoomLevels] = useState<Record<string, RoomLevel>>({})
-  const [roomChat, setRoomChat] = useState<Record<string, RoomMessage[]>>({})
+  const [channelChat, setChannelChat] = useState(initialChannelChat)
   const timers = useRef<number[]>([])
 
   useEffect(() => {
@@ -168,52 +163,50 @@ export function AgentsStore({ children }: { children: ReactNode }) {
       return work ? { ...prev, [workId]: { ...work, ...patch } } : prev
     })
 
-  const post = (threadId: string, ...items: ThreadItem[]) =>
+  const post = (chatId: string, ...items: ChatItem[]) =>
     setTranscripts((prev) => ({
       ...prev,
-      [threadId]: [...(prev[threadId] ?? []), ...items],
+      [chatId]: [...(prev[chatId] ?? []), ...items],
     }))
 
-  const say = (threadId: string, text: string, blocks?: Block[]) =>
-    post(threadId, { id: uid(), kind: "agent", time: "now", text, blocks })
+  const say = (chatId: string, text: string, blocks?: Block[]) =>
+    post(chatId, { id: uid(), kind: "agent", time: "now", text, blocks })
 
   const settle = (
-    threadId: string,
+    chatId: string,
     itemId: string,
     text: string,
     blocks?: Block[]
   ) =>
     setTranscripts((prev) => ({
       ...prev,
-      [threadId]: (prev[threadId] ?? []).map((item) =>
+      [chatId]: (prev[chatId] ?? []).map((item) =>
         item.id === itemId && item.kind === "agent"
           ? { ...item, pending: false, text, blocks }
           : item
       ),
     }))
 
-  const retitle = (threadId: string, title: string) =>
-    setThreads((prev) =>
-      prev.map((thread) =>
-        thread.id === threadId ? { ...thread, title } : thread
-      )
+  const retitle = (chatId: string, title: string) =>
+    setChats((prev) =>
+      prev.map((chat) => (chat.id === chatId ? { ...chat, title } : chat))
     )
 
-  const childrenOf = (threadId: string) =>
-    Object.values(works).filter((work) => work.parentId === threadId)
+  const childrenOf = (chatId: string) =>
+    Object.values(works).filter((work) => work.parentId === chatId)
 
-  // A thread shows the strongest state of what runs under it.
-  const stateOf = (threadId: string): WorkState => {
-    const kids = childrenOf(threadId)
+  // A chat shows the strongest state of what runs under it.
+  const stateOf = (chatId: string): WorkState => {
+    const kids = childrenOf(chatId)
     const waiting =
       kids.some((work) => work.state === "needs_you") ||
       Object.values(drafts).some(
-        (draft) => draft.threadId === threadId && !draft.sent
+        (draft) => draft.chatId === chatId && !draft.sent
       )
     if (waiting) return "needs_you"
     const busy =
       kids.some((work) => work.state === "running") ||
-      (transcripts[threadId] ?? []).some(
+      (transcripts[chatId] ?? []).some(
         (item) => item.kind === "agent" && item.pending
       )
     return busy ? "running" : "done"
@@ -221,14 +214,14 @@ export function AgentsStore({ children }: { children: ReactNode }) {
 
   // The agent picks the repos and starts one code session per issue, then
   // reports back in the chat as each one finishes.
-  const startLinearIssues = (thread: Thread, itemId: string) => {
+  const startLinearIssues = (chat: Chat, itemId: string) => {
     const started: Work[] = linearIssues.map((issue) => ({
       id: uid(),
-      agentId: thread.agentId,
-      parentId: thread.id,
+      agentId: chat.agentId,
+      parentId: chat.id,
       repo: issue.repo,
       branch: issue.branch,
-      owner: me,
+      asker: me,
       title: `${issue.key} ${issue.title}`,
       mode: "code",
       state: "running",
@@ -236,9 +229,9 @@ export function AgentsStore({ children }: { children: ReactNode }) {
       replies: [],
     }))
     setWorks((prev) => ({ ...prev, ...byId(started) }))
-    retitle(thread.id, "My Linear issues")
+    retitle(chat.id, "My Linear issues")
     settle(
-      thread.id,
+      chat.id,
       itemId,
       "You have four open issues. Three are ready to start, so I started a session for each: two in api and one in web. LOR-177 needs a decision from you first: should exports include archived projects?",
       [
@@ -261,7 +254,7 @@ export function AgentsStore({ children }: { children: ReactNode }) {
           "The header row was written after the first flush, so any export larger than one batch lost it. The header is now written before the stream starts, and the export matches the fixture.",
       })
       say(
-        thread.id,
+        chat.id,
         "LOR-173 is ready. The header row is back and the export matches the fixture. Approve it and I'll open the pull request.",
         [{ kind: "work", workId: csv.id }]
       )
@@ -276,25 +269,25 @@ export function AgentsStore({ children }: { children: ReactNode }) {
           "A workspace with no invoices showed a blank table. It now shows the empty state from the design system with a link to create the first invoice.",
       })
       say(
-        thread.id,
+        chat.id,
         "LOR-171 is ready to look at. LOR-175 is still running: the retry queue needs a migration, so it will take longer."
       )
     }, 16000)
   }
 
   // One piece of work that touches two repos: two code sessions under the
-  // same thread. A thread is not tied to a repo, so it can grow this way.
-  const startAcrossRepos = (thread: Thread, itemId: string) => {
+  // same chat. A chat is not tied to a repo, so it can grow this way.
+  const startAcrossRepos = (chat: Chat, itemId: string) => {
     const started: Work[] = [
       { repo: "api", part: "export job" },
       { repo: "web", part: "project picker" },
     ].map(({ repo, part }) => ({
       id: uid(),
-      agentId: thread.agentId,
-      parentId: thread.id,
+      agentId: chat.agentId,
+      parentId: chat.id,
       repo,
       branch: `lor/lor-177-archived-${repo}`,
-      owner: me,
+      asker: me,
       title: `LOR-177 Archived projects: ${part}`,
       mode: "code",
       state: "running",
@@ -307,7 +300,7 @@ export function AgentsStore({ children }: { children: ReactNode }) {
     }))
     setWorks((prev) => ({ ...prev, ...byId(started) }))
     settle(
-      thread.id,
+      chat.id,
       itemId,
       "Then LOR-177 can start. It touches the export job in api and the project picker in web, so I started a session in each. I'll check them against each other before I ask you to look.",
       [
@@ -328,7 +321,7 @@ export function AgentsStore({ children }: { children: ReactNode }) {
         })
       }
       say(
-        thread.id,
+        chat.id,
         "Both sides of LOR-177 are ready and agree with each other: an archived project now shows in the picker and comes out in the export."
       )
     }, 9000)
@@ -337,7 +330,7 @@ export function AgentsStore({ children }: { children: ReactNode }) {
   // A plain conversation turns into code when the work calls for it. The
   // agent picks the repo: the one named in the message, or its first.
   const startOne = (
-    thread: Thread,
+    chat: Chat,
     itemId: string,
     text: string,
     repos: string[]
@@ -352,11 +345,11 @@ export function AgentsStore({ children }: { children: ReactNode }) {
       repos.find((name) => tokens.has(name.toLowerCase())) ?? repos[0]
     const work: Work = {
       id: uid(),
-      agentId: thread.agentId,
-      parentId: thread.id,
+      agentId: chat.agentId,
+      parentId: chat.id,
       repo,
-      branch: "lor/from-thread",
-      owner: me,
+      branch: "lor/from-chat",
+      asker: me,
       title: titleFromPrompt(text),
       mode: "code",
       state: "running",
@@ -369,7 +362,7 @@ export function AgentsStore({ children }: { children: ReactNode }) {
     }
     setWorks((prev) => ({ ...prev, [work.id]: work }))
     settle(
-      thread.id,
+      chat.id,
       itemId,
       `That needs a code change, so I started a session in ${repo}.`,
       [{ kind: "work", workId: work.id }]
@@ -383,19 +376,16 @@ export function AgentsStore({ children }: { children: ReactNode }) {
         summary:
           "Done on a branch. I ran the app and checked it in the browser. Open Preview to see it, or reply to change it.",
       })
-      say(
-        thread.id,
-        "It's ready to look at. Reply here if you want it changed."
-      )
+      say(chat.id, "It's ready to look at. Reply here if you want it changed.")
     }, 8000)
   }
 
-  const answer = (thread: Thread, itemId: string, text: string) => {
+  const answer = (chat: Chat, itemId: string, text: string) => {
     const lower = text.toLowerCase()
-    const agent = agentById(thread.agentId)
-    if (!configured[thread.agentId]) {
+    const agent = agentById(chat.agentId)
+    if (!configured[chat.agentId]) {
       settle(
-        thread.id,
+        chat.id,
         itemId,
         "Here is what I would set up. Approve it and I start watching.",
         [{ kind: "proposal" }]
@@ -403,16 +393,16 @@ export function AgentsStore({ children }: { children: ReactNode }) {
       return
     }
     if (/linear|issues/.test(lower) && agent && agent.repos.length > 0) {
-      startLinearIssues(thread, itemId)
+      startLinearIssues(chat, itemId)
       return
     }
     if (/lor-177|archived/.test(lower) && agent && agent.repos.length > 0) {
-      startAcrossRepos(thread, itemId)
+      startAcrossRepos(chat, itemId)
       return
     }
     if (/error|trend|chart|graph/.test(lower)) {
       settle(
-        thread.id,
+        chat.id,
         itemId,
         "Errors are down by a third. Thursday's spike is the checkout bug I'm working on.",
         [{ kind: "chart", chartId: "errors-week" }]
@@ -421,7 +411,7 @@ export function AgentsStore({ children }: { children: ReactNode }) {
     }
     if (/signed up|signup|sign up|leads/.test(lower)) {
       settle(
-        thread.id,
+        chat.id,
         itemId,
         "14 teams signed up last week. These five look worth a call.",
         [{ kind: "leads" }]
@@ -433,15 +423,15 @@ export function AgentsStore({ children }: { children: ReactNode }) {
       agent &&
       agent.repos.length > 0
     ) {
-      startOne(thread, itemId, text, agent.repos)
+      startOne(chat, itemId, text, agent.repos)
       return
     }
     // Anything else it works out on its own computer, with no repo involved.
     const work: Work = {
       id: uid(),
-      agentId: thread.agentId,
-      parentId: thread.id,
-      owner: me,
+      agentId: chat.agentId,
+      parentId: chat.id,
+      asker: me,
       title: titleFromPrompt(text),
       mode: "chat",
       state: "running",
@@ -451,61 +441,63 @@ export function AgentsStore({ children }: { children: ReactNode }) {
         "Writing up what I found",
       ],
       summary:
-        "I checked team memory, the related pull requests and the last three threads on this. Reply here to steer it.",
+        "I checked team memory, the related pull requests and the last three chats on this. Reply here to steer it.",
       replies: [],
     }
     setWorks((prev) => ({ ...prev, [work.id]: work }))
-    settle(thread.id, itemId, "On it.", [{ kind: "work", workId: work.id }])
+    settle(chat.id, itemId, "On it.", [{ kind: "work", workId: work.id }])
     later(() => {
       patchWork(work.id, { state: "done", result: "Written up" })
       say(
-        thread.id,
+        chat.id,
         "Done. I wrote up what I found. Open it to read the details or reply to steer it."
       )
     }, 6200)
   }
 
-  const createThread = (agentId: string, text: string, starter: Starter) => {
-    const thread: Thread = {
+  const createChat = (agentId: string, text: string, starter: Starter) => {
+    const chat: Chat = {
       id: uid(),
       agentId,
       title: titleFromPrompt(text),
       starter,
-      owner: me,
       people: [me],
       time: "now",
     }
     const itemId = uid()
-    setThreads((prev) => [thread, ...prev])
+    setChats((prev) => [chat, ...prev])
     setTranscripts((prev) => ({
       ...prev,
-      [thread.id]: [
+      [chat.id]: [
         { id: uid(), kind: "person", author: me, time: "now", text },
         { id: itemId, kind: "agent", time: "now", pending: true },
       ],
     }))
-    later(() => answer(thread, itemId, text), 1100)
-    return thread
+    later(() => answer(chat, itemId, text), 1100)
+    return chat
+  }
+
+  const currentAgentId = () => {
+    if ("agentId" in view) return view.agentId
+    if (view.kind === "channel") return channelAgents[view.channelId] ?? "eng"
+    return "eng"
   }
 
   const store: Store = {
     view,
-    sidebarTab,
     canvas,
     works,
     drafts,
-    threads,
+    chats,
     transcripts,
     pins,
     configured,
-    rooms,
-    roomLevel,
-    roomChat,
+    channelAgents,
+    channelChat,
     stateOf,
     childrenOf,
-    setSidebarTab,
-    openThread: (threadId) => {
-      setView({ kind: "thread", threadId })
+    openChat: (chatId) => {
+      setView({ kind: "chat", chatId })
       setCanvas(null)
     },
     // A code session opens beside the chat that started it, or on its own
@@ -514,21 +506,27 @@ export function AgentsStore({ children }: { children: ReactNode }) {
       const work = works[workId]
       if (!work) return
       if (work.parentId) {
-        setView({ kind: "thread", threadId: work.parentId })
+        setView({ kind: "chat", chatId: work.parentId })
         setCanvas({ kind: "work", workId })
         return
       }
       setView({ kind: "code", workId })
       setCanvas(null)
     },
-    openAgent: (agentId, tab = "work") => {
+    openAgent: (agentId, tab = "chats") => {
       setView({ kind: "agent", agentId, tab })
       setCanvas(null)
     },
+    openChannel: (channelId) => {
+      setView({ kind: "channel", channelId })
+      setCanvas(null)
+    },
     openNew: (agentId) => {
-      const current =
-        view.kind === "agent" || view.kind === "new" ? view.agentId : "eng"
-      setView({ kind: "new", agentId: agentId ?? current })
+      setView({ kind: "new", agentId: agentId ?? currentAgentId() })
+      setCanvas(null)
+    },
+    openNewCode: (agentId) => {
+      setView({ kind: "newCode", agentId: agentId ?? currentAgentId() })
       setCanvas(null)
     },
     openCanvas: setCanvas,
@@ -553,7 +551,7 @@ export function AgentsStore({ children }: { children: ReactNode }) {
       if (!draft) return
       setDrafts((prev) => ({ ...prev, [draftId]: { ...draft, sent: true } }))
       later(
-        () => say(draft.threadId, "Sent. I'll tell you here if Dana replies."),
+        () => say(draft.chatId, "Sent. I'll tell you here if Dana replies."),
         900
       )
     },
@@ -576,42 +574,46 @@ export function AgentsStore({ children }: { children: ReactNode }) {
           return { ...prev, [workId]: { ...current, replies } }
         })
       add(me, text)
-      // A mention talks to a person. Anything else steers Lor in this thread.
+      // A mention talks to a person. Anything else steers the session.
       if (mentionedPeople(text).length > 0) return
-      // Lor knows whose call this is: the owner steers, others suggest.
-      const owner = work.owner.name.split(" ")[0]
       const response =
-        work.owner.id !== me.id
-          ? `Noted as a suggestion. ${owner} owns this one, so I've asked ${owner} before I change course.`
-          : work.mode === "code"
-            ? "Got it. I'll update the branch and tell you here when it's ready to look at again."
-            : "Understood. I'll add that and update what I wrote."
+        work.mode === "code"
+          ? "Got it. I'll update the branch and tell you here when it's ready to look at again."
+          : "Understood. I'll add that and update what I wrote."
       later(() => add(null, response), 1600)
     },
-    send: (threadId, text) => {
-      const thread = threads.find((item) => item.id === threadId)
-      if (!thread) return
+    send: (chatId, text) => {
+      const chat = chats.find((item) => item.id === chatId)
+      if (!chat) return
       const itemId = uid()
       post(
-        threadId,
+        chatId,
         { id: uid(), kind: "person", author: me, time: "now", text },
         { id: itemId, kind: "agent", time: "now", pending: true }
       )
-      later(() => answer(thread, itemId, text), 1100)
+      later(() => answer(chat, itemId, text), 1100)
     },
+    addPerson: (chatId) =>
+      setChats((prev) =>
+        prev.map((chat) => {
+          if (chat.id !== chatId) return chat
+          const next = Object.values(people).find(
+            (person) => !chat.people.some((item) => item.id === person.id)
+          )
+          return next ? { ...chat, people: [...chat.people, next] } : chat
+        })
+      ),
     ask: (agentId, text) => {
       setCanvas(null)
-      setSidebarTab("work")
-      const thread = createThread(agentId, text, {
+      const chat = createChat(agentId, text, {
         kind: "person",
         person: me,
       })
-      setView({ kind: "thread", threadId: thread.id })
+      setView({ kind: "chat", chatId: chat.id })
     },
     // No agent above it: straight to one coding agent in one repo.
     startCode: (agentId, text, repo) => {
       setCanvas(null)
-      setSidebarTab("work")
       const title = titleFromPrompt(text)
       const slug = title
         .toLowerCase()
@@ -622,7 +624,7 @@ export function AgentsStore({ children }: { children: ReactNode }) {
         agentId,
         repo,
         branch: `lor/${slug.slice(0, 24)}`,
-        owner: me,
+        asker: me,
         title,
         mode: "code",
         state: "running",
@@ -649,17 +651,17 @@ export function AgentsStore({ children }: { children: ReactNode }) {
         8000
       )
     },
-    draftOutreach: (threadId, leadIds) => {
-      const thread = threads.find((item) => item.id === threadId)
-      if (!thread) return
+    draftOutreach: (chatId, leadIds) => {
+      const chat = chats.find((item) => item.id === chatId)
+      if (!chat) return
       const names = leads
         .filter((lead) => leadIds.includes(lead.id))
         .map((lead) => lead.company)
       const work: Work = {
         id: uid(),
-        agentId: thread.agentId,
-        parentId: threadId,
-        owner: me,
+        agentId: chat.agentId,
+        parentId: chatId,
+        asker: me,
         title: `Outreach for ${names.length} teams`,
         mode: "chat",
         state: "running",
@@ -681,27 +683,25 @@ export function AgentsStore({ children }: { children: ReactNode }) {
           ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`
           : (names[0] ?? "them")
       setWorks((prev) => ({ ...prev, [work.id]: work }))
-      say(threadId, `Drafting for ${list}.`, [
-        { kind: "work", workId: work.id },
-      ])
+      say(chatId, `Drafting for ${list}.`, [{ kind: "work", workId: work.id }])
       later(() => {
         patchWork(work.id, {
           state: "done",
           result: `${names.length} drafts ready`,
         })
         say(
-          threadId,
+          chatId,
           "The drafts are ready. Nothing goes out until you approve each one."
         )
       }, 5200)
     },
-    approveSetup: (agentId, threadId) => {
+    approveSetup: (agentId, chatId) => {
       setConfigured((prev) => ({ ...prev, [agentId]: true }))
       later(
         () =>
           say(
-            threadId,
-            "Set up. I'm watching Figma now and will start a thread when something needs you."
+            chatId,
+            "Set up. I'm watching Figma now and will start a chat when something needs you. Add me to a channel when you want me to follow one."
           ),
         700
       )
@@ -716,32 +716,51 @@ export function AgentsStore({ children }: { children: ReactNode }) {
             : [...current, chartId],
         }
       }),
-    connectRoom: (agentId, room) =>
-      setRooms((prev) => ({ ...prev, [agentId]: room })),
-    disconnectRoom: (agentId) =>
-      setRooms((prev) => ({ ...prev, [agentId]: null })),
-    setRoomLevel: (agentId, level) =>
-      setRoomLevels((prev) => ({ ...prev, [agentId]: level })),
-    postRoom: (agentId, text) => {
-      const agent = agentById(agentId)
-      const room = rooms[agentId]
-      if (!agent || !room) return
-      // People talk to people here. Mentioning Lor hands it the message, and
-      // it answers in a thread linked under that message.
-      const thread = /@lor\b/i.test(text)
-        ? createThread(agentId, text.replace(/@lor\b/gi, "").trim(), {
-            kind: "room",
-            person: me,
-            room: roomName(room, agent),
-          })
-        : undefined
-      setRoomChat((prev) => ({
-        ...prev,
-        [agentId]: [
-          ...(prev[agentId] ?? []),
-          { id: uid(), author: me, text, threadId: thread?.id },
-        ],
-      }))
+    setChannelAgent: (channelId, agentId) =>
+      setChannelAgents((prev) => ({ ...prev, [channelId]: agentId })),
+    postChannel: (channelId, text) => {
+      const agent = agentById(channelAgents[channelId] ?? "")
+      const add = (message: ChannelMessage) =>
+        setChannelChat((prev) => ({
+          ...prev,
+          [channelId]: [...(prev[channelId] ?? []), message],
+        }))
+      const mention = agent ? new RegExp(`@${agent.name}\\b`, "i") : null
+      // No agent here, or nobody addressed it: people talking to people.
+      if (!agent || !mention?.test(text)) {
+        add({ id: uid(), author: me, time: "now", text })
+        return
+      }
+      const ask = text.replace(new RegExp(mention, "gi"), "").trim()
+      // A quick question gets a plain reply in the channel. Work becomes a
+      // chat, shown here as a thread and under the agent in the sidebar.
+      if (!WORK.test(ask)) {
+        const id = uid()
+        add({ id, author: me, time: "now", text })
+        later(
+          () =>
+            setChannelChat((prev) => ({
+              ...prev,
+              [channelId]: (prev[channelId] ?? []).map((message) =>
+                message.id === id
+                  ? {
+                      ...message,
+                      reply:
+                        "The last deploy went out at 9:02 from main and is healthy. Ask me to dig in and I'll start a chat for it.",
+                    }
+                  : message
+              ),
+            })),
+          1100
+        )
+        return
+      }
+      const chat = createChat(agent.id, ask, {
+        kind: "channel",
+        person: me,
+        channelId,
+      })
+      add({ id: uid(), author: me, time: "now", text, chatId: chat.id })
     },
   }
 

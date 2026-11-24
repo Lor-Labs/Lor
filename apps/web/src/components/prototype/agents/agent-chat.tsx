@@ -1,30 +1,42 @@
-import { ArrowUp02Icon } from "@hugeicons/core-free-icons"
+import { ArrowUpRight01Icon, UserAdd01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { Button } from "@repo/ui/components/button"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { AnimatePresence, motion } from "motion/react"
 import { type KeyboardEvent, useEffect, useRef, useState } from "react"
-import { me } from "../prototype-data"
+import { me, people } from "../prototype-data"
 import { MentionText, PersonAvatar } from "../prototype-parts"
 import { BlockView, Spark } from "./agent-blocks"
 import {
   type Agent,
   agentById,
+  type Chat,
+  type ChatItem,
   charts,
+  chatChannel,
+  placeNames,
   starterLine,
-  type Thread,
-  type ThreadItem,
 } from "./agents-data"
-import { AgentAvatar, LorMark, PRESS } from "./agents-parts"
-import { ThreadProvider, useProto } from "./agents-store"
+import { AgentAvatar, PlaceIcon, PRESS, SendButton } from "./agents-parts"
+import { ChatProvider, useProto } from "./agents-store"
 
-// A thread with a channel's agent: one piece of work, the people on it,
-// and cards for the code sessions the agent runs under it.
-export function ThreadView({ thread }: { thread: Thread }) {
-  const { transcripts, pins, openCanvas, openAgent, send, childrenOf } =
-    useProto()
-  const agent = agentById(thread.agentId)
-  const items = transcripts[thread.id] ?? []
+// A chat with an agent: one piece of work, the people in it, and cards for
+// the code sessions the agent runs under it. It belongs to the agent, not to
+// a channel; one that began in a channel also shows there as a thread.
+export function ChatView({ chat }: { chat: Chat }) {
+  const {
+    transcripts,
+    pins,
+    openCanvas,
+    openAgent,
+    openChannel,
+    send,
+    addPerson,
+    childrenOf,
+  } = useProto()
+  const agent = agentById(chat.agentId)
+  const items = transcripts[chat.id] ?? []
   const scroller = useRef<HTMLDivElement>(null)
   const seen = useRef(0)
   const count = items.length
@@ -71,12 +83,13 @@ export function ThreadView({ thread }: { thread: Thread }) {
   const pinned = charts.filter((chart) =>
     (pins[agent.id] ?? []).includes(chart.id)
   )
-  const owner =
-    thread.owner.id === me.id
-      ? "you own it"
-      : `${thread.owner.name.split(" ")[0]} owns it`
-  // A thread has no repo of its own. It shows the ones its sessions touch.
-  const code = childrenOf(thread.id).filter((work) => work.mode === "code")
+  const channel = chatChannel(chat)
+  const outside = channel && channel.place !== "lor" ? channel : undefined
+  const canAdd = Object.values(people).some(
+    (person) => !chat.people.some((item) => item.id === person.id)
+  )
+  // A chat has no repo of its own. It shows the ones its sessions touch.
+  const code = childrenOf(chat.id).filter((work) => work.mode === "code")
   const repos = [...new Set(code.flatMap((work) => work.repo ?? []))]
   const spans =
     code.length === 0
@@ -93,18 +106,34 @@ export function ThreadView({ thread }: { thread: Thread }) {
           title={`Open ${agent.name}`}
           className={cn("cursor-pointer rounded-[10px]", PRESS)}
         >
-          <AgentAvatar agent={agent} className="size-8" />
+          <AgentAvatar agent={agent} size={32} />
         </button>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[15px] font-semibold leading-5">
-            {thread.title}
+            {chat.title}
           </div>
           <div className="truncate text-[12.5px] leading-4 text-muted-foreground">
-            {agent.name} · {starterLine(thread.starter)} · {owner} · {spans}
+            {agent.name} · {starterLine(chat.starter)} · {spans}
           </div>
         </div>
-        <span className="mr-1 hidden -space-x-1.5 sm:flex">
-          {thread.people.map((person) => (
+        {channel && (
+          <button
+            type="button"
+            onClick={() => openChannel(channel.id)}
+            title={`This chat is also a thread in #${channel.name}`}
+            className={cn(
+              "hidden shrink-0 cursor-pointer items-center gap-1 rounded-full border border-border/70 px-2.5 py-1 text-[12.5px] text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground sm:flex",
+              PRESS
+            )}
+          >
+            {channel.place !== "lor" && (
+              <PlaceIcon place={channel.place} className="size-3" />
+            )}
+            #{channel.name}
+          </button>
+        )}
+        <span className="hidden -space-x-1.5 sm:flex">
+          {chat.people.map((person) => (
             <PersonAvatar
               key={person.id}
               person={person}
@@ -112,6 +141,24 @@ export function ThreadView({ thread }: { thread: Thread }) {
             />
           ))}
         </span>
+        {canAdd && (
+          <button
+            type="button"
+            onClick={() => addPerson(chat.id)}
+            aria-label="Add a person"
+            title="Add a person. Writing in the chat or being mentioned adds you too."
+            className={cn(
+              "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
+              PRESS
+            )}
+          >
+            <HugeiconsIcon
+              icon={UserAdd01Icon}
+              className="size-[18px]"
+              strokeWidth={1.8}
+            />
+          </button>
+        )}
       </header>
 
       <AnimatePresence initial={false}>
@@ -148,18 +195,42 @@ export function ThreadView({ thread }: { thread: Thread }) {
             ref={content}
             className="mx-auto flex w-full max-w-[720px] flex-col gap-7 px-6 pt-5 pb-8"
           >
-            <ThreadProvider value={thread.id}>
+            <ChatProvider value={chat.id}>
               {items.map((item) => (
-                <ThreadRow key={item.id} item={item} agent={agent} />
+                <ItemRow key={item.id} item={item} agent={agent} />
               ))}
-            </ThreadProvider>
+            </ChatProvider>
           </div>
         </div>
         <div className="pointer-events-none absolute inset-x-0 top-0 h-5 bg-gradient-to-b from-background to-transparent" />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-5 bg-gradient-to-t from-background to-transparent" />
       </div>
 
-      <Composer agent={agent} onSend={(text) => send(thread.id, text)} />
+      {outside ? (
+        <div className="mx-auto w-full max-w-[720px] shrink-0 px-6 pb-5">
+          <div className="flex items-center gap-3 rounded-2xl border border-border/70 px-4 py-3">
+            <PlaceIcon
+              place={outside.place}
+              className="text-muted-foreground"
+            />
+            <p className="min-w-0 flex-1 text-[13.5px] leading-5 text-muted-foreground">
+              This chat is a thread in #{outside.name} in{" "}
+              {placeNames[outside.place]}. Reply there. Its sessions and
+              approvals open here.
+            </p>
+            <Button size="sm" variant="outline">
+              Open in {placeNames[outside.place]}
+              <HugeiconsIcon
+                icon={ArrowUpRight01Icon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Composer agent={agent} onSend={(text) => send(chat.id, text)} />
+      )}
     </div>
   )
 }
@@ -170,7 +241,7 @@ const enter = {
   transition: { duration: 0.24, ease: EASE_OUT },
 }
 
-function ThreadRow({ item, agent }: { item: ThreadItem; agent: Agent }) {
+function ItemRow({ item, agent }: { item: ChatItem; agent: Agent }) {
   if (item.kind === "person") {
     if (item.author.id === me.id) {
       return (
@@ -203,19 +274,11 @@ function ThreadRow({ item, agent }: { item: ThreadItem; agent: Agent }) {
 
   return (
     <motion.div {...enter} className="flex gap-3">
-      <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-agent/12">
-        <LorMark className="size-3.5" />
-      </span>
+      <AgentAvatar agent={agent} size={28} className="mt-0.5" />
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div>
           <div className="flex items-baseline gap-2">
-            <span className="text-[14px] font-semibold">Lor</span>
-            {item.woke && (
-              <span className="text-[12px] text-muted-foreground">
-                {item.woke}
-              </span>
-            )}
-
+            <span className="text-[14px] font-semibold">{agent.name}</span>
             <span className="text-[12px] text-muted-foreground/80">
               {item.time}
             </span>
@@ -287,28 +350,11 @@ function Composer({
           placeholder={`Reply to ${agent.name}, or @mention a teammate`}
           className="field-sizing-content block max-h-40 min-h-8 flex-1 resize-none bg-transparent py-1 text-[15px] leading-6 outline-none placeholder:text-muted-foreground"
         />
-        <button
-          type="button"
-          onClick={() => submit(text)}
-          disabled={!canSend}
-          aria-label="Send"
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-full transition-[transform,background-color,color] duration-150 ease-out",
-            canSend
-              ? "cursor-pointer bg-foreground text-background active:scale-[0.94]"
-              : "bg-foreground/[0.07] text-muted-foreground"
-          )}
-        >
-          <HugeiconsIcon
-            icon={ArrowUp02Icon}
-            className="size-[18px]"
-            strokeWidth={2.2}
-          />
-        </button>
+        <SendButton enabled={canSend} onClick={() => submit(text)} />
       </div>
       <p className="mt-2 text-center text-[11.5px] text-muted-foreground/70">
-        Everyone in {agent.name} can open this thread. Only the people in it are
-        notified.
+        Anyone who can see {agent.name} can open this chat. Only the people in
+        it are notified.
       </p>
     </div>
   )

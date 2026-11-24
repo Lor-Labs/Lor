@@ -246,6 +246,13 @@ wins. It has no launch flag and needs `db:push` before deploy. The agent's
 turns run on Lor's own loop (`packages/lor/src/agent-loop.ts`), not Pi, and
 open no sandbox: the session rules below do not apply to them.
 
+Next, design only (`reference/planned/agents-and-chats.md`, 2026-11-24): agents
+come off channels. An agent is a teammate with its own settings, accounts and
+memory, added to channels; a channel can have no agent; each piece of work
+with an agent is a chat with its own queue, and the agent starts code sessions
+under it. The mock is `/prototype/agents`. Until it is built, the code follows
+`always-on-agents.md`.
+
 ### Conventions
 
 - DO NOT make extremely verbose comments for every tiny detail or every line of code changed. this bloats the codebase and makes it harder to read and maintain. THIS IS VERY IMPORTANT.
