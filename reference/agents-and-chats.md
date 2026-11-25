@@ -563,3 +563,34 @@ becoming a chat, a chat with its sessions, New chat, and the agent's settings.
 Its sidebar still lists agents with their chats under them, which decision 19
 replaced.
 `/prototype/orchestration` still shows the earlier thread-based shape.
+
+`/prototype/chats` (dev only, made-up data,
+`apps/web/src/components/prototype/chats/`) shows the direction under
+discussion since 2026-11-25, not yet a decision in §3: Lor as named group
+chats, each with people and any number of agents (the app holds one per
+channel today), and nothing else to start with (no statuses, kinds of chat
+or projects). The sidebar lists chats in Lor's own sidebar language: pinned
+ones first, which keep their place, then recent ones, where a chat with a
+new message moves to the top. A row has the chat's face (its agents and
+people in one circle), its name, who spoke last and what they said, or which
+agent is working there now. A chat's header opens the right panel: its name,
+agents, people and sessions, and an agent's row opens that agent. The
+composer has a chip per agent that puts its name on a message; the agents
+named answer, and alone with one agent it reads every message. New chat is
+a start screen: pick agents and people, name it or leave it to be called by
+who is in it. A chat's code sessions are listed under its row in the
+sidebar, with the rows the sidebar has today under a channel (icon, title,
+line counts, state, archive on hover; the newest three, the rest behind "N
+more"). A thread with an agent in Slack or Discord shows as a chat with its
+sessions and approvals.
+
+Jacob's calls on it so far (2026-11-25), not yet numbered decisions:
+- A chat can hold several agents.
+- A message that names an agent is answered at once. One that names nobody
+  goes to the inbox of every agent in the chat, and an agent that finds it
+  meant for it at its next check-in answers then (the wait lane and
+  `sweepCheckIns` from step 3).
+- Sessions keep the look and behaviour they have today.
+- Open: where a session of your own goes, one you sit in yourself with no
+  agent and no chat. The mock lists them in a Sessions section between
+  Pinned and Recent.
