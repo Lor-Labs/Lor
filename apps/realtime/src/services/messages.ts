@@ -9,6 +9,7 @@ import {
 } from "@repo/db"
 import { LOR_USER_ID } from "@repo/db/constants"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
+import { agentAuthorId } from "@repo/db/queries/agents"
 import { hasPersonalAccount } from "@repo/db/queries/personal-accounts"
 import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
@@ -114,7 +115,7 @@ async function loadReferencedMessage(
       authorImage: schema.user.image,
       overrideName: schema.message.overrideName,
       overrideAvatarUrl: schema.message.overrideAvatarUrl,
-      agentId: schema.message.agentId,
+      agentId: agentAuthorId(schema.user),
     })
     .from(schema.message)
     .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
@@ -178,6 +179,7 @@ async function loadReferencedMessage(
     },
     overrideName: refMsg.overrideName,
     overrideAvatarUrl: refMsg.overrideAvatarUrl,
+    agentId: refMsg.agentId,
     mentions: refMentions.map((mention) => ({
       ...mention,
       avatarColor: mentionColors.get(mention.id) ?? null,

@@ -2,18 +2,7 @@ import {
   approvalResolverSpecFor,
   canResolveApproval,
 } from "@repo/auth/permissions"
-import {
-  and,
-  db,
-  desc,
-  eq,
-  gt,
-  inArray,
-  isNull,
-  LOR_USER_ID,
-  schema,
-  sql,
-} from "@repo/db"
+import { and, db, desc, eq, gt, inArray, isNull, schema, sql } from "@repo/db"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import {
   type AgentNeed,
@@ -213,7 +202,6 @@ export async function getWorkspaceActivity(
         and(
           inArray(schema.message.channelId, channelIds),
           eq(schema.message.type, "agent_post"),
-          eq(schema.message.authorId, LOR_USER_ID),
           gt(
             schema.message.createdAt,
             sql`now() - make_interval(days => ${QUESTION_DAYS})`

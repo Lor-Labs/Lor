@@ -47,12 +47,14 @@ function run(command, args) {
 // Before the push, in order: extensions, then data moves the push would
 // otherwise destroy (agents-from-channels.ts copies each channel's agent
 // settings onto `agent` rows before their columns are dropped), then a
-// column drop the push would otherwise ask a question about.
+// column drop the push would otherwise ask a question about, then the bot
+// users the push's foreign key from `agent.id` needs.
 const BEFORE_PUSH = [
   "src/scripts/ensure-extensions.ts",
   "src/scripts/agents-from-channels.ts",
   "src/scripts/agent-facts-unscoped.ts",
   "src/scripts/agent-conversations.ts",
+  "src/scripts/agent-bot-users.ts",
 ]
 
 let code = 0

@@ -28,7 +28,8 @@ export function isReplyToLor(referencedMessage: ReplyTarget): boolean {
 // The agents in a chat that a message names (reference/agents-and-chats.md,
 // decision 32): each one mentioned by its own id, the first agent when Lor's
 // own mention is used (what every chat with one agent has always sent), and
-// the agent that wrote the message being replied to. `agentIds` is the
+// the agent that wrote the message being replied to (the first agent for
+// one of Lor's own, or one by an agent no longer here). `agentIds` is the
 // chat's agents in the order they were added.
 export function agentsNamed(args: {
   content: string | null | undefined
@@ -48,8 +49,8 @@ export function agentsNamed(args: {
     if (mentioned.has(id)) named.add(id)
   }
   if (mentioned.has(LOR_USER_ID)) named.add(first)
-  if (isReplyToLor(args.referencedMessage)) {
-    const wrote = args.referencedMessage?.agentId
+  const wrote = args.referencedMessage?.agentId
+  if (wrote || isReplyToLor(args.referencedMessage)) {
     named.add(wrote && args.agentIds.includes(wrote) ? wrote : first)
   }
   return named

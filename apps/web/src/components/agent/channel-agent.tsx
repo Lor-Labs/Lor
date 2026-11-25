@@ -164,17 +164,25 @@ export function useChannelAgent(
 
 type ChannelAgentsValue = {
   agents: ChannelAgent[]
-  // The agent that wrote one of Lor's messages here (`message.agentId`).
+  // The agent with this id, here or since removed. An agent's id is also
+  // its bot user's, so this tells an agent from a person by a user id.
+  byId: (id: string | null | undefined) => ChannelAgent | null
+  // The agent that wrote a message here (`message.agentId`), or for one of
+  // Lor's own the chat's first agent.
   of: (agentId: string | null | undefined) => ChannelAgent | null
 }
 
-const NO_CHANNEL_AGENTS: ChannelAgentsValue = { agents: [], of: () => null }
+const NO_CHANNEL_AGENTS: ChannelAgentsValue = {
+  agents: [],
+  byId: () => null,
+  of: () => null,
+}
 const ChannelAgentsContext =
   createContext<ChannelAgentsValue>(NO_CHANNEL_AGENTS)
 
-// Lor's messages under this provider are the channel's agents': the name and
-// creature of the one that wrote each replace Lor's. Session views have
-// none, so Lor stays Lor there.
+// Under this provider an agent's messages wear its name and creature, and
+// Lor's own are the chat's first agent's. Session views have none, so Lor
+// stays Lor there.
 export function ChannelAgentProvider({
   workspaceSlug,
   channelId,
@@ -188,27 +196,23 @@ export function ChannelAgentProvider({
   const all = useAgentsById(workspaceSlug)
   const value = useMemo<ChannelAgentsValue>(() => {
     const first = agents[0] ?? null
-    return {
-      agents,
-      // An agent that has since left the channel keeps its name. A message
-      // with no agent on it, from before agents shared a chat, is the first
-      // agent's.
-      of: (agentId) => {
-        if (!agentId || !first) return first
-        const placed = agents.find((agent) => agent.id === agentId)
-        if (placed) return placed
-        const gone = all.get(agentId)
-        return gone
-          ? {
-              id: gone.id,
-              channelId,
-              name: gone.name,
-              creature: agentCreature(gone),
-              state: "asleep",
-            }
-          : first
-      },
+    // An agent that has since left the channel keeps its name.
+    const byId: ChannelAgentsValue["byId"] = (id) => {
+      if (!id) return null
+      const placed = agents.find((agent) => agent.id === id)
+      if (placed) return placed
+      const gone = all.get(id)
+      return gone
+        ? {
+            id: gone.id,
+            channelId,
+            name: gone.name,
+            creature: agentCreature(gone),
+            state: "asleep",
+          }
+        : null
     }
+    return { agents, byId, of: (agentId) => byId(agentId) ?? first }
   }, [agents, all, channelId])
   return <ChannelAgentsContext value={value}>{children}</ChannelAgentsContext>
 }
@@ -224,9 +228,14 @@ export function useChannelAgentContext() {
   return useContext(ChannelAgentsContext).agents[0] ?? null
 }
 
-// The agent that wrote one of Lor's messages in this channel.
+// The agent that wrote a message in this channel.
 export function useMessageAgent(agentId: string | null | undefined) {
   return useContext(ChannelAgentsContext).of(agentId)
+}
+
+// Tells an agent from a person by a user id: the agent, or null.
+export function useAgentById() {
+  return useContext(ChannelAgentsContext).byId
 }
 
 // The same lookup for a list, where a hook per row can't be called.

@@ -9,7 +9,6 @@ import {
   GitBranchIcon,
   Infinity01Icon,
   LinkSquare02Icon,
-  LockIcon,
   PencilEdit02Icon,
   PinIcon,
   PinOffIcon,
@@ -18,6 +17,7 @@ import {
   SidebarRight01Icon,
   SlackIcon,
   SourceCodeIcon,
+  SquareLock02Icon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
@@ -55,16 +55,13 @@ const FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
 const SPRING = { type: "spring", bounce: 0, duration: 0.4 } as const
 
 type View =
-  | { kind: "chat"; id: string }
+  // `agents` is the chat's agents talking to each other, shown in place of
+  // the chat. `focus` is the exchange it was opened at.
+  | { kind: "chat"; id: string; agents?: { focus?: string } }
   // chatId is null for a session of your own, under no chat.
   | { kind: "session"; chatId: string | null; id: string }
   | { kind: "new" }
-type Panel =
-  | { kind: "details" }
-  | { kind: "agent"; id: string }
-  // One agent's question to another, read-only.
-  | { kind: "exchange"; id: string }
-  | null
+type Panel = { kind: "details" } | { kind: "agent"; id: string } | null
 
 const PLACE_NAME: Record<Place, string> = {
   lor: "Lor",
@@ -305,7 +302,8 @@ function Preview({ chat, unread }: { chat: Chat; unread: boolean }) {
       </span>
     )
   }
-  const last = chat.messages.at(-1)
+  // What agents say to each other is not the chat's last message.
+  const last = chat.messages.filter((message) => !message.exchange).at(-1)
   return (
     <span
       className={cn(
@@ -759,37 +757,35 @@ function ApprovalCard({ text }: { text: string }) {
   )
 }
 
-// Under a message: the agent asked another agent while writing it. Agents
-// don't talk to each other in the chat; this opens what they said.
-function AskedMarker({
+// In the feed, where one agent messaged another: a quiet line of its own,
+// not a message and not hung under one. It opens the agents' chat.
+function MessagedLine({
   exchange,
+  time,
   onOpen,
 }: {
   exchange: Exchange
+  time: string
   onOpen: () => void
 }) {
   return (
     <button
       type="button"
       onClick={onOpen}
+      title="See what they said"
       className={cn(
         PRESS,
         FOCUS,
-        "mt-2 flex h-7 cursor-pointer items-center gap-1.5 rounded-full bg-foreground/[0.05] pr-2 pl-1 text-[12px] text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground"
+        "flex h-7 cursor-pointer items-center gap-1.5 self-center rounded-full px-2.5 text-[13px] text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground"
       )}
     >
-      <span className="flex items-center">
-        <Face id={exchange.from} size={18} still />
-        <span className="-ml-1.5">
-          <Face id={exchange.to} size={18} still />
-        </span>
+      <Face id={exchange.from} size={16} still />
+      {nameOf(exchange.from)} messaged
+      <Face id={exchange.to} size={16} still />
+      {nameOf(exchange.to)}
+      <span className="pl-1 text-[11px] text-muted-foreground/70 tabular-nums">
+        {time}
       </span>
-      Asked {nameOf(exchange.to)}
-      <HugeiconsIcon
-        icon={ArrowRight01Icon}
-        className="size-3"
-        strokeWidth={2}
-      />
     </button>
   )
 }
@@ -798,15 +794,12 @@ function MessageRow({
   message,
   chat,
   onSession,
-  onExchange,
 }: {
   message: Message
   chat: Chat
   onSession: (id: string) => void
-  onExchange: (id: string) => void
 }) {
   const session = chat.sessions.find((item) => item.id === message.session)
-  const exchange = EXCHANGES.find((item) => item.id === message.asked)
   return (
     <div className="flex gap-3">
       <Face id={message.from} size={32} />
@@ -824,12 +817,6 @@ function MessageRow({
           <SessionCard session={session} onOpen={() => onSession(session.id)} />
         )}
         {message.approval && <ApprovalCard text={message.approval} />}
-        {exchange && (
-          <AskedMarker
-            exchange={exchange}
-            onOpen={() => onExchange(exchange.id)}
-          />
-        )}
       </div>
     </div>
   )
@@ -1019,15 +1006,26 @@ function ChatView({
                 Nothing said yet.
               </p>
             )}
-            {chat.messages.map((message) => (
-              <MessageRow
-                key={message.id}
-                message={message}
-                chat={chat}
-                onSession={onSession}
-                onExchange={onExchange}
-              />
-            ))}
+            {chat.messages.map((message) => {
+              const exchange = EXCHANGES.find(
+                (item) => item.id === message.exchange
+              )
+              return exchange ? (
+                <MessagedLine
+                  key={message.id}
+                  exchange={exchange}
+                  time={message.time}
+                  onOpen={() => onExchange(exchange.id)}
+                />
+              ) : (
+                <MessageRow
+                  key={message.id}
+                  message={message}
+                  chat={chat}
+                  onSession={onSession}
+                />
+              )
+            })}
             {working.map((id) => (
               <div
                 key={id}
@@ -1435,14 +1433,17 @@ function Details({
   onChange,
   onAgent,
   onSession,
+  onAgentsChat,
   onClose,
 }: {
   chat: Chat
   onChange: (change: Partial<Chat>) => void
   onAgent: (id: string) => void
   onSession: (id: string) => void
+  onAgentsChat: () => void
   onClose: () => void
 }) {
+  const exchanges = EXCHANGES.filter((item) => item.chatId === chat.id)
   const working = chat.working ?? []
   return (
     <>
@@ -1524,6 +1525,32 @@ function Details({
             )}
             onAdd={(id) => onChange({ agentIds: [...chat.agentIds, id] })}
           />
+          {/* Always here, so what agents said to each other is never lost
+              up the feed. */}
+          {exchanges.length > 0 && (
+            <button
+              type="button"
+              onClick={onAgentsChat}
+              className={cn(
+                PANEL_ROW,
+                PRESS,
+                FOCUS,
+                "cursor-pointer text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
+              )}
+            >
+              <span className="flex size-7 shrink-0 items-center justify-center">
+                <HugeiconsIcon
+                  icon={SquareLock02Icon}
+                  className="size-3.5"
+                  strokeWidth={2}
+                />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[13px]">
+                Between agents
+              </span>
+              <span className="text-[11px]">Read-only</span>
+            </button>
+          )}
         </PanelSection>
         <PanelSection title={`People · ${chat.people.length}`}>
           {chat.people.map((id) => (
@@ -1586,59 +1613,114 @@ function Details({
 
 // One agent, from any chat it is in: where it is, where it reports, what it
 // does on a schedule and what it did on its own.
-// What two agents said to each other. People read it and don't write in
-// it: it is one question and its answer, and then it is over.
-function ExchangePanel({
-  exchange,
+// A chat's agents talking to each other about its work: one conversation,
+// oldest first, shown in place of the chat. Bubbles, no composer: it is
+// theirs, people only read it.
+function AgentsChatView({
+  chat,
+  focus,
   onBack,
-  onClose,
 }: {
-  exchange: Exchange
+  chat: Chat
+  focus?: string
   onBack: () => void
-  onClose: () => void
 }) {
-  const from = CHATS.find((item) => item.id === exchange.chatId)
+  const exchanges = EXCHANGES.filter((item) => item.chatId === chat.id)
+  const agents = [...new Set(exchanges.flatMap((item) => [item.from, item.to]))]
+  const focused = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    focused.current?.scrollIntoView({ block: "start" })
+  }, [])
   return (
-    <>
-      <PanelHeader
-        title={`${nameOf(exchange.from)} and ${nameOf(exchange.to)}`}
-        onBack={onBack}
-        onClose={onClose}
-      />
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-        {from && (
-          <p className="text-[12px] text-muted-foreground">
-            {nameOf(exchange.from)} asked while answering in {from.name}.
-          </p>
-        )}
-        {exchange.messages.map((message) => (
-          <div key={message.id} className="flex gap-2.5">
-            <Face id={message.from} size={26} still />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-baseline gap-2">
-                <span className="font-semibold text-[13px]">
-                  {nameOf(message.from)}
-                </span>
-                <span className="text-[11px] text-muted-foreground tabular-nums">
-                  {message.time}
-                </span>
+    <div className="fade-in-0 relative flex min-w-0 flex-1 animate-in flex-col duration-200 motion-reduce:animate-none">
+      <header className="relative flex h-14 shrink-0 items-center justify-center px-3">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label={`Back to ${chat.name}`}
+          title={`Back to ${chat.name}`}
+          className={cn(
+            PRESS,
+            FOCUS,
+            "absolute left-3 flex size-9 cursor-pointer items-center justify-center rounded-full bg-foreground/[0.06] text-foreground/80 hover:bg-foreground/[0.1] hover:text-foreground active:scale-[0.96]"
+          )}
+        >
+          <HugeiconsIcon
+            icon={ArrowLeft01Icon}
+            className="size-[18px]"
+            strokeWidth={2}
+          />
+        </button>
+        <span className="flex h-9 items-center gap-2 rounded-full bg-foreground/[0.06] pr-3.5 pl-1.5 text-[13px]">
+          <span className="flex items-center">
+            {agents.map((id, index) => (
+              <span
+                key={id}
+                className={cn(
+                  "rounded-full ring-2 ring-background",
+                  index > 0 && "-ml-2"
+                )}
+              >
+                <Face id={id} size={24} still />
+              </span>
+            ))}
+          </span>
+          <span className="font-medium">{LIST.format(agents.map(nameOf))}</span>
+        </span>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-4 pb-24">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+          {exchanges.map((exchange) => (
+            <div
+              key={exchange.id}
+              ref={exchange.id === focus ? focused : undefined}
+              className="flex scroll-mt-4 flex-col gap-1.5"
+            >
+              <div className="pb-2 text-center text-[12px] text-muted-foreground/80 tabular-nums">
+                Today {exchange.messages[0]?.time}
               </div>
-              <p className="text-pretty text-[13px] text-foreground/90 leading-relaxed">
-                {message.text}
-              </p>
+              {exchange.messages.map((message, index) => {
+                const first =
+                  exchange.messages[index - 1]?.from !== message.from
+                const last = exchange.messages[index + 1]?.from !== message.from
+                return (
+                  <div
+                    key={message.id}
+                    className={cn("flex items-end gap-2", first && "pt-2")}
+                  >
+                    {/* The face sits by the last bubble of a run. */}
+                    <span className="flex w-6 shrink-0 justify-center pb-0.5">
+                      {last && <Face id={message.from} size={22} still />}
+                    </span>
+                    <div className="min-w-0 max-w-[85%]">
+                      {first && (
+                        <div className="pb-1 pl-4 text-[12px] text-muted-foreground">
+                          {nameOf(message.from)}
+                        </div>
+                      )}
+                      <p className="text-pretty rounded-[22px] bg-foreground/[0.06] px-4 py-2.5 text-[14px] text-foreground/90 leading-relaxed">
+                        {message.text}
+                      </p>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2 border-border/60 border-t px-4 py-3 text-[12px] text-muted-foreground">
-        <HugeiconsIcon
-          icon={LockIcon}
-          className="size-3.5 shrink-0"
-          strokeWidth={2}
-        />
-        Read-only. One question, one answer, then it ends.
+      {/* Where the composer would be: people can't write here. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-background via-background/80 to-transparent pt-10 pb-5">
+        <span className="flex h-9 items-center gap-1.5 rounded-full border border-border bg-background px-4 text-[13px] text-muted-foreground shadow-sm">
+          <HugeiconsIcon
+            icon={SquareLock02Icon}
+            className="size-4"
+            strokeWidth={2}
+          />
+          Read-only
+        </span>
       </div>
-    </>
+    </div>
   )
 }
 
@@ -1738,8 +1820,8 @@ function AgentDetails({
                 </span>
                 <span className="min-w-0 flex-1 truncate">
                   {item.from === agent.id
-                    ? `Asked ${nameOf(item.to)}`
-                    : `Asked by ${nameOf(item.from)}`}
+                    ? `Messaged ${nameOf(item.to)}`
+                    : `Messaged by ${nameOf(item.from)}`}
                 </span>
                 <span className="text-[11px] text-muted-foreground tabular-nums">
                   {item.messages[0]?.time}
@@ -1970,10 +2052,6 @@ export function ChatsPrototype() {
       ? (sessionChat?.sessions ?? own).find((item) => item.id === view.id)
       : null
   const panelAgent = panel?.kind === "agent" ? agentById(panel.id) : undefined
-  const panelExchange =
-    panel?.kind === "exchange"
-      ? EXCHANGES.find((item) => item.id === panel.id)
-      : undefined
 
   const patch = (chatId: string, change: (chat: Chat) => Chat) =>
     setChats((list) =>
@@ -2056,6 +2134,8 @@ export function ChatsPrototype() {
     if (next.kind !== "chat") return
     patch(next.id, (item) => ({ ...item, unread: false }))
   }
+  const agentsChat = (id: string, focus?: string) =>
+    setView({ kind: "chat", id, agents: { focus } })
   // A chat that gets pinned goes under the ones pinned before it.
   const pin = (id: string) =>
     setChats((list) => {
@@ -2127,6 +2207,13 @@ export function ChatsPrototype() {
               sessionChat && open({ kind: "chat", id: sessionChat.id })
             }
           />
+        ) : chat && view.kind === "chat" && view.agents ? (
+          <AgentsChatView
+            key={`${chat.id}-${view.agents.focus ?? ""}`}
+            chat={chat}
+            focus={view.agents.focus}
+            onBack={() => setView({ kind: "chat", id: chat.id })}
+          />
         ) : chat ? (
           <ChatView
             key={chat.id}
@@ -2138,7 +2225,7 @@ export function ChatsPrototype() {
             onPin={() => pin(chat.id)}
             onSend={(text) => send(chat, text)}
             onSession={(id) => open({ kind: "session", chatId: chat.id, id })}
-            onExchange={(id) => setPanel({ kind: "exchange", id })}
+            onExchange={(id) => agentsChat(chat.id, id)}
           />
         ) : (
           <NewChat
@@ -2171,18 +2258,11 @@ export function ChatsPrototype() {
         )}
         {chat && panel && (
           <aside className="fade-in-0 slide-in-from-right-2 flex w-[300px] shrink-0 animate-in flex-col border-border/60 border-l duration-200 motion-reduce:animate-none">
-            {panelExchange ? (
-              <ExchangePanel
-                key={panelExchange.id}
-                exchange={panelExchange}
-                onBack={() => setPanel({ kind: "details" })}
-                onClose={() => setPanel(null)}
-              />
-            ) : panelAgent ? (
+            {panelAgent ? (
               <AgentDetails
                 key={panelAgent.id}
                 agent={panelAgent}
-                onExchange={(id) => setPanel({ kind: "exchange", id })}
+                onExchange={(id) => agentsChat(chat.id, id)}
                 onBack={() => setPanel({ kind: "details" })}
                 onRemove={() => {
                   patch(chat.id, (item) => ({
@@ -2203,6 +2283,7 @@ export function ChatsPrototype() {
                   patch(chat.id, (item) => ({ ...item, ...change }))
                 }
                 onAgent={(id) => setPanel({ kind: "agent", id })}
+                onAgentsChat={() => agentsChat(chat.id)}
                 onSession={(id) =>
                   open({ kind: "session", chatId: chat.id, id })
                 }

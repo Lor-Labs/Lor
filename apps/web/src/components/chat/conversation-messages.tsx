@@ -184,8 +184,6 @@ export function ConversationMessages({
       isDateBoundary ||
       !prev ||
       prev.authorId !== msg.authorId ||
-      // Two agents in a chat both post as Lor.
-      (prev.agentId ?? null) !== (msg.agentId ?? null) ||
       prev.type === "event" ||
       (!isWithinGroupWindow && !resumesPrev)
     return (

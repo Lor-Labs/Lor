@@ -42,6 +42,11 @@ import type { Message } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/message-markdown"
 import { isOptimisticMessage } from "@/lib/messages"
 
+// Lor's own message, or an agent's: an agent posts as its own bot user, and
+// `agentId` says so.
+const isLorMessage = (message: Pick<Message, "authorId" | "agentId">) =>
+  message.authorId === LOR_USER_ID || Boolean(message.agentId)
+
 export const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
 
 export function messageDisplayName(message: Message) {
@@ -89,7 +94,7 @@ function MessageAvatar({
   const foreground = useThemeColor("foreground")
   // In a code session Lor's replies are its coding agent's.
   const coder = useSessionCoder()
-  const isLor = message.authorId === LOR_USER_ID
+  const isLor = isLorMessage(message)
   if (agent && isLor) {
     return (
       <AgentCreature
@@ -181,7 +186,7 @@ function MessageRowBody({
   sessionThreadRootId?: string | null
 }) {
   const accent = useThemeColor("accent")
-  const isLor = message.authorId === LOR_USER_ID
+  const isLor = isLorMessage(message)
   const isPending = isOptimisticMessage(message)
   const isStreaming = isLor && message.status === "pending"
   const isMeetingPost =
@@ -390,7 +395,7 @@ export function MessageRow({
   )
   const channelAgent = useMessageAgent(message.agentId)
   if (message.type === "agent_session") return null
-  const isLor = message.authorId === LOR_USER_ID
+  const isLor = isLorMessage(message)
   const agent = isLor && !isDocument ? channelAgent : null
   const displayName = agent?.name ?? messageDisplayName(message)
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
@@ -544,7 +549,7 @@ export function ThreadRootMessage({
 }) {
   const channelAgent = useMessageAgent(message.agentId)
   if (message.type === "agent_session") return null
-  const isLor = message.authorId === LOR_USER_ID
+  const isLor = isLorMessage(message)
   const agent = isLor ? channelAgent : null
   const displayName = agent?.name ?? messageDisplayName(message)
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)

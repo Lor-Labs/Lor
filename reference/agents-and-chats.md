@@ -94,6 +94,9 @@ objected to and should confirm.
 | 32 | A chat can hold several agents. A message that names an agent is answered by it at once. One that names nobody goes to the inbox of every agent in the chat, and an agent that finds it meant for it at its next check-in answers then (decision 26) | Jacob, 11-25 |
 | 33 | The sidebar is chats: pinned ones first, then the rest by last message. A chat's code sessions are listed under it, and sessions keep the look and behaviour they have today | Jacob, 11-25 |
 | 34 | Slack comes after chats are built | Jacob, 11-25 |
+| 35 | Every chat is open and hidden: it is in the sidebar only of the people in it, and anyone else in the workspace can find it and join | Jacob, 11-25 |
+| 36 | Hiding a chat puts it away for that person only. Archiving it for everyone stays a separate, rare action. Pins are each person's own | Jacob, 11-25 |
+| 37 | Each agent gets a bot user of its own in place of all agents posting as the one Lor user. It is the next thing built, before the chat list | Jacob, 11-25 |
 
 Considered and dropped:
 
@@ -230,18 +233,21 @@ tools all stay.
 
 - **Two chats starting the same work.** The open block narrows it and does not
   close it.
-- **Agents asking each other.** Not built: agents in one chat do not wake
-  each other. Proposed 2026-11-25 and mocked in `/prototype/chats` (Launch
-  crew): one agent asks another directly, as a question with one answer that
-  comes back into the asker's turn, shown as a marker under the asker's
-  message that opens the exchange read-only, and listed on each agent. No
-  chat of agents only. Against loops: one answer per ask, no asking an agent
-  already in the chain, a depth cap and a cap per request.
-- **Hiding and pinning a chat.** Whether one person putting a chat away puts
-  it away for everyone, and whether pins are the team's or each person's.
-- **Who is in a chat, and who can see it.** A channel today is open to the
-  whole workspace or closed to its members, and has no list of people who
-  follow it.
+- **Agents messaging each other.** Not built: agents in one chat do not
+  wake each other. Proposed and mocked in `/prototype/chats` (Launch crew),
+  as Jacob shaped it on 2026-11-25: a chat has an agents' chat about its
+  work, which people read and don't write in. When one agent messages
+  another, a quiet centered line of its own appears in the chat's feed at
+  that moment ("Quill messaged Inky"; not under a message, so it is not a
+  thread). It opens the agents' chat in place of the chat: bubbles, the
+  agents' faces in the header, a Read-only mark where the composer would
+  be, and a way back. It is also always reachable from the chat's panel.
+  No counted caps against loops, three rules instead: only a message from
+  one agent to another wakes an agent (nothing posted in the people's chat
+  does); an answer goes back to the agent that asked and wakes nobody else;
+  an agent cannot message one that is waiting on its answer. Past that it is
+  part of the turn that started it, limited as any turn is, by spend and by
+  a person stopping it.
 - **A session of your own,** one you sit in yourself with no agent watching
   and no chat around it. The mock lists them in a Sessions section between
   Pinned and Recent.
@@ -585,13 +591,23 @@ the prompt's text and order are unchanged.
   25,219 tokens. The one-hour marker used above 100,000 tokens had the same
   fault and had never been measured.
 
-Several agents in a chat (decision 32, built 2026-11-25). Every agent posts
-as Lor's one user, so:
+Several agents in a chat (decision 32, built 2026-11-25), each posting as a
+bot user of its own (decision 37, built 2026-11-25):
 
-- **Who wrote a message** is `message.agent_id`. Null on people's messages,
-  in sessions and on Lor's messages from before this, which are the chat's
-  first agent's. The worker sets it on everything an agent's turn posts
-  (`postLorMessage`), and message payloads carry it (`agentId`).
+- **An agent is a user.** `agent.id` is also the id of a bot user
+  (`user.is_bot`, foreign key from `agent.id`), made with the agent by
+  `createAgent`. It has no account row, an address that can't receive mail
+  (`<id>@agent.lor.invalid`) and no workspace membership, so it never signs
+  in, counts as a seat, shows in the member list or gets a notification.
+  Renaming the agent renames it. Deleting the agent leaves it, so its
+  messages keep their author.
+- **Who wrote a message** is its author: the worker posts everything an
+  agent's turn says as that agent's user (`postLorMessage`). Message
+  payloads still carry `agentId`, now read from the author
+  (`agentAuthorId`), so clients tell an agent's message from a person's
+  without a list of agents. Lor's own user still writes sessions, cards and
+  events; one of its messages in a chat shows as the chat's first agent's.
+  Typing still comes as Lor's with the agent's id beside it.
 - **Mentions.** Each agent is mentioned by its own id, `<@agentId>`, which is
   what the composer inserts. Lor's own mention means the chat's first agent,
   as every chat with one agent used it (the mobile app and Discord still
@@ -611,15 +627,24 @@ as Lor's one user, so:
   agents; the channel and agent dialogs handle several.
 - **Left out on purpose:** one agent mentioning another does not wake it
   (they could answer each other without end), and each agent is told so.
-  Discord stays the first agent's. Notification previews show an agent
-  mention as "@unknown-user".
-- **Checked live** with two agents in one chat: a mention of one woke only
-  that one and waited for the other; a message naming nobody waited for
-  both; one naming both got an answer from each, under its own name and
-  face. Not run: replies, threads, typing with two agents at once, mobile
-  (type-checked only).
-- **Rollout:** `pnpm db:push` adds `message.agent_id` and `channel.kind`.
-  No data moves.
+  Discord stays the first agent's.
+- **What changed for people with bot users:** an agent's post now counts
+  toward a chat's unread badge after a reload (`countsAsUnread` skipped
+  Lor's messages, though the live notification always counted them), and a
+  notification preview names a mentioned agent.
+- **Checked live** with two agents in one chat. Before bot users: a mention
+  of one woke only that one and waited for the other; a message naming
+  nobody waited for both; one naming both got an answer from each, under its
+  own name and face. With bot users: the push script on a database with
+  agents and their messages, a mention, a reply to an agent's message with
+  no mention (it woke nobody until `loadReferencedMessage` passed the agent
+  on), and a new agent getting its user. Not run: threads, typing with two
+  agents at once, renaming, Discord, mobile (type-checked only).
+- **Rollout:** `pnpm db:push` with the workers stopped. It first runs
+  `agent-bot-users.ts`: a user for every agent, and each chat's earlier
+  agent posts (written as Lor) handed to the chat's first agent. Then it
+  adds `channel.kind` and the foreign key. Deploy API, realtime, worker and
+  web together: the old code posts as Lor and writes a column that is gone.
 
 ### Step 4: places and tools
 

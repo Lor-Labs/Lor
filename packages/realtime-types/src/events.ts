@@ -469,7 +469,7 @@ export type RealtimeReferencedMessage = {
   id: string
   content: string | null
   author: RealtimeAuthor
-  // The agent that wrote it, when Lor did in a chat (see RealtimeMessage).
+  // The agent that wrote it, when one did (see RealtimeMessage).
   agentId?: string | null
   // Webhook/connector display identity — mirrors RealtimeMessage so reply
   // previews show the same name/avatar as the referenced message itself.
@@ -522,10 +522,10 @@ export type RealtimeMessage = {
   // A person's session message: whether it went to Lor. false = for channel
   // members only. Null outside sessions.
   routedToLor?: boolean | null
-  // Which agent wrote one of Lor's messages in a chat: several agents share
-  // Lor's user id (`message.agent_id`). Null or absent: a person's message,
-  // a session's, or one from before agents shared a chat, which is the
-  // chat's first agent's.
+  // The agent that wrote it, when one did: the author's id, since an agent
+  // posts as its own bot user. Null or absent: a person's message, or Lor's
+  // own (a session's, and in a chat one from before agents had bot users,
+  // which is the chat's first agent's).
   agentId?: string | null
 }
 
@@ -837,7 +837,8 @@ export type TypingIndicatorEvent = {
   threadRootId?: string | null
   userId: string
   name: string
-  // Which agent, when Lor types in a chat. Absent: the chat's first agent.
+  // Which agent is typing in a chat: typing still comes as Lor's (`userId`)
+  // with the agent beside it. Absent: the chat's first agent.
   agentId?: string | null
 }
 

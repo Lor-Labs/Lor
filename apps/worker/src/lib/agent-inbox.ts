@@ -1232,7 +1232,7 @@ export async function runAgentTurnJob(
         >`(select r.author_id from message r where r.id = ${schema.message.referencedMessageId})`,
         // The agent already answers in a thread on its trigger: a turn that
         // went on after an approval stays where startThread moved it.
-        triggerHasAgentThread: sql<boolean>`exists (select 1 from message t where t.thread_root_id = ${schema.agentRun.triggerMessageId} and t.author_id = ${LOR_USER_ID}::uuid)`,
+        triggerHasAgentThread: sql<boolean>`exists (select 1 from message t where t.thread_root_id = ${schema.agentRun.triggerMessageId} and (t.author_id = ${LOR_USER_ID}::uuid or t.author_id = (select c.agent_id from agent_conversation c where c.id = ${schema.agentRun.conversationId})))`,
         loopId: schema.agentRun.loopId,
         hasDeliveries: sql<boolean>`exists (select 1 from trigger_delivery d where d.run_id = ${schema.agentRun.id})`,
       })
@@ -1352,9 +1352,11 @@ export async function runAgentTurnJob(
     // Typing only when a person addressed Lor: turns woken by an event, a
     // session's report or a thread it's part of often end quiet. A person's
     // id marks a person's message (the trigger of a note-only turn is null).
-    const explicit =
-      Boolean(run?.triggerContent?.includes(`<@${LOR_USER_ID}>`)) ||
-      run?.triggerReplyAuthorId === LOR_USER_ID
+    const explicit = [LOR_USER_ID, channel.agentId].some(
+      (id) =>
+        Boolean(run?.triggerContent?.includes(`<@${id}>`)) ||
+        run?.triggerReplyAuthorId === id
+    )
     const addressed = Boolean(userId) && (explicit || !turnPlace.threadRootId)
     // Before the typing and working timers start, so a failed lookup can't
     // leave them running.

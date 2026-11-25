@@ -1,8 +1,9 @@
 import { agentIdentityFor } from "@repo/utils/bestiary"
-import { asc, eq, inArray } from "drizzle-orm"
-import { MAX_CHANNEL_AGENTS } from "../constants"
+import { asc, eq, inArray, sql } from "drizzle-orm"
+import { APP_USER_ID, LOR_USER_ID, MAX_CHANNEL_AGENTS } from "../constants"
 import { db } from "../index"
 import { type Agent, agent, channelAgent } from "../schemas/agents"
+import { user } from "../schemas/users"
 
 // Agents apart from channels (reference/agents-and-chats.md): the agents a
 // channel holds. Every workspace member sees every agent, and what an agent
@@ -12,6 +13,19 @@ export { MAX_CHANNEL_AGENTS }
 
 type ReadExecutor = Pick<typeof db, "select">
 type WriteExecutor = Pick<typeof db, "insert">
+
+// An agent's bot user never signs in or gets mail: no account row, and an
+// address on a domain that can't exist.
+export const agentUserEmail = (agentId: string) =>
+  `${agentId}@agent.lor.invalid`
+
+// The agent that wrote a message, for a query that joins the message's
+// author: an agent's id is its bot user's id, so it is the author when the
+// author is a bot that isn't Lor itself or the app. Null for people.
+export const agentAuthorId = (author: typeof user = user) =>
+  sql<
+    string | null
+  >`case when ${author.isBot} and ${author.id} not in (${LOR_USER_ID}::uuid, ${APP_USER_ID}::uuid) then ${author.id} end`
 
 // The agent that answers in a channel, or null: a channel with no agent
 // wakes nothing. With several, the first one added.
@@ -103,7 +117,8 @@ export async function defaultAgentFor(
   return row ?? null
 }
 
-// A new agent. A name or creature nobody picked comes from its own id.
+// A new agent, with the bot user it posts as. A name or creature nobody
+// picked comes from its own id.
 export async function createAgent(
   input: {
     workspaceId: string
@@ -117,6 +132,14 @@ export async function createAgent(
 ): Promise<Agent> {
   const id = crypto.randomUUID()
   const identity = agentIdentityFor(id, input)
+  await executor.insert(user).values({
+    id,
+    name: identity.name,
+    email: agentUserEmail(id),
+    emailVerified: true,
+    onboardingCompleted: true,
+    isBot: true,
+  })
   const [made] = await executor
     .insert(agent)
     .values({

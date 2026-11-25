@@ -472,26 +472,26 @@ export async function triggerWakeCounts(
 }
 
 // Which of a chat's agents are part of a thread: each one that posted the
-// root or a reply. Lor's messages from before agents shared a chat carry no
-// agent and are the first agent's (`agentIds` is in the order they were
-// added).
+// root or a reply (an agent's message has its bot user, the agent's own id,
+// as author). Messages from before agents had bot users are Lor's, and are
+// the first agent's (`agentIds` is in the order they were added).
 export async function agentsInThread(
   threadRootId: string,
   agentIds: string[]
 ): Promise<Set<string>> {
   const rows = await db
-    .selectDistinct({ agentId: schema.message.agentId })
+    .selectDistinct({ authorId: schema.message.authorId })
     .from(schema.message)
     .where(
       and(
-        eq(schema.message.authorId, LOR_USER_ID),
+        inArray(schema.message.authorId, [LOR_USER_ID, ...agentIds]),
         sql`(${schema.message.id} = ${threadRootId} or ${schema.message.threadRootId} = ${threadRootId})`
       )
     )
   const here = new Set<string>()
   for (const row of rows) {
-    const id = row.agentId ?? agentIds[0]
-    if (id && agentIds.includes(id)) here.add(id)
+    const id = row.authorId === LOR_USER_ID ? agentIds[0] : row.authorId
+    if (id) here.add(id)
   }
   return here
 }
@@ -505,7 +505,7 @@ export async function agentInThread(threadRootId: string): Promise<boolean> {
     .from(schema.message)
     .where(
       and(
-        eq(schema.message.authorId, LOR_USER_ID),
+        sql`(${schema.message.authorId} = ${LOR_USER_ID}::uuid or exists (select 1 from agent a where a.id = ${schema.message.authorId}))`,
         sql`(${schema.message.id} = ${threadRootId} or ${schema.message.threadRootId} = ${threadRootId})`
       )
     )
@@ -687,7 +687,7 @@ export async function loadInboxBatch(
           referencedMessageId: schema.message.referencedMessageId,
           content: schema.message.content,
           attachments: schema.message.attachments,
-          // Another agent's message goes by that agent's name, not Lor's.
+          // An agent's message goes by the agent's name.
           authorName: sql<
             string | null
           >`coalesce(${schema.agent.name}, ${schema.user.name})`,
@@ -698,7 +698,7 @@ export async function loadInboxBatch(
           eq(schema.agentInbox.messageId, schema.message.id)
         )
         .leftJoin(schema.user, eq(schema.message.authorId, schema.user.id))
-        .leftJoin(schema.agent, eq(schema.message.agentId, schema.agent.id))
+        .leftJoin(schema.agent, eq(schema.message.authorId, schema.agent.id))
         .where(inArray(schema.agentInbox.id, shown))
     ).map((payload) => [payload.id, payload])
   )
@@ -795,7 +795,7 @@ async function repliedTo(
     })
     .from(schema.message)
     .leftJoin(schema.user, eq(schema.message.authorId, schema.user.id))
-    .leftJoin(schema.agent, eq(schema.message.agentId, schema.agent.id))
+    .leftJoin(schema.agent, eq(schema.message.authorId, schema.agent.id))
     .where(inArray(schema.message.id, ids))
   return new Map(
     found.map((message) => {

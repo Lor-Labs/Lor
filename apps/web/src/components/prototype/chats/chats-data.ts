@@ -43,18 +43,18 @@ export type Message = {
   text: string
   session?: string
   approval?: string
-  // While writing this the agent asked another agent something: the id of
-  // that exchange.
-  asked?: string
+  // Not a message: the point in the feed where one agent messaged another.
+  // The id of that exchange in the agents' chat.
+  exchange?: string
 }
 
-// One agent asking another, apart from any chat: a question and its answer,
-// which people can read and not write in.
+// One agent messaging another about a chat's work. Together a chat's
+// exchanges are its agents' chat, which people read and don't write in.
 export type Exchange = {
   id: string
   from: string
   to: string
-  // The chat it was asked from.
+  // The chat whose work it is about.
   chatId: string
   messages: { id: string; from: string; time: string; text: string }[]
 }
@@ -370,7 +370,7 @@ export const CHATS: Chat[] = [
     people: ["jacob", "ana"],
     unread: true,
     place: "lor",
-    when: "8:02 AM",
+    when: "8:21 AM",
     sessions: [
       {
         id: "l1",
@@ -397,12 +397,19 @@ export const CHATS: Chat[] = [
         time: "Yesterday",
         text: "Launch is Thursday. @Quill keep the checklist here up to date.",
       },
+      { id: "lx1", from: "quill", time: "8:01 AM", text: "", exchange: "x1" },
       {
         id: "l2",
         from: "quill",
         time: "8:02 AM",
         text: "As of this morning: landing page copy is in review, the email draft is ready for you, and the pricing page is one pull request away once Jacob confirms the numbers.",
-        asked: "x1",
+      },
+      { id: "lx2", from: "inky", time: "8:20 AM", text: "", exchange: "x2" },
+      {
+        id: "l4",
+        from: "quill",
+        time: "8:21 AM",
+        text: "Update: the pricing page pull request is open and in review.",
       },
     ],
   },
@@ -535,6 +542,26 @@ export const EXCHANGES: Exchange[] = [
         from: "inky",
         time: "8:01 AM",
         text: "One pull request away. It is waiting on Jacob to confirm the numbers; I can open it as soon as he does.",
+      },
+    ],
+  },
+  {
+    id: "x2",
+    from: "inky",
+    to: "quill",
+    chatId: "launch",
+    messages: [
+      {
+        id: "x2a",
+        from: "inky",
+        time: "8:20 AM",
+        text: "Jacob confirmed the numbers in Eng, and the pricing page pull request is open. Your checklist in Launch crew can move it to in review.",
+      },
+      {
+        id: "x2b",
+        from: "quill",
+        time: "8:20 AM",
+        text: "Thanks. Moving it now and telling the chat.",
       },
     ],
   },

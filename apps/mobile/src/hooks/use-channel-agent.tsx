@@ -89,7 +89,8 @@ function useAgentActivity(workspaceId: string | undefined, channelId: string) {
 
 const ChannelAgentContext = createContext<ChannelAgent | null>(null)
 // Every agent in the channel, first one first: a chat can hold several
-// (reference/agents-and-chats.md, decision 32), and they all post as Lor.
+// (reference/agents-and-chats.md, decision 32), each posting as its own
+// bot user.
 const NO_AGENTS: ChannelAgent[] = []
 const ChannelAgentsContext = createContext<ChannelAgent[]>(NO_AGENTS)
 // Apart from who it is, so a change of state doesn't re-render every message.
@@ -174,9 +175,8 @@ export function useChannelAgents() {
   return useContext(ChannelAgentsContext)
 }
 
-// The agent that wrote one of Lor's messages here (`message.agentId`). A
-// message with no agent on it, or by one no longer in the channel, is shown
-// as the first agent's.
+// The agent that wrote a message here (`message.agentId`). One of Lor's own,
+// or by an agent no longer in the channel, is shown as the first agent's.
 export function useMessageAgent(agentId: string | null | undefined) {
   const first = useContext(ChannelAgentContext)
   const agents = useContext(ChannelAgentsContext)

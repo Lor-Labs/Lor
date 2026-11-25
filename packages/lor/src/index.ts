@@ -19,7 +19,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
-import { channelAgentId } from "@repo/db/queries/agents"
+import { agentAuthorId, channelAgentId } from "@repo/db/queries/agents"
 import {
   assertHostedHarness,
   assertWorkspaceActive,
@@ -972,6 +972,7 @@ async function searchMessages(
       createdAt: schema.message.createdAt,
       authorId: schema.message.authorId,
       authorName: schema.user.name,
+      agentId: agentAuthorId().as("agent_author_id"),
       rank: sql<number>`ts_rank(${tsv}, ${tsq})`.as("rank"),
     })
     .from(schema.message)
@@ -1008,6 +1009,7 @@ async function searchMessages(
       createdAt: ranked.createdAt,
       authorId: ranked.authorId,
       authorName: ranked.authorName,
+      agentId: ranked.agentId,
       length,
       text: sql<string>`case when ${length} <= ${SNIPPET_MAX} then coalesce(${ranked.content}, '') else ts_headline('english', ${ranked.content}, ${tsq}, ${HEADLINE_OPTIONS}) end`,
       sessionId: schema.agentSession.id,
@@ -1032,7 +1034,7 @@ async function searchMessages(
         ? { sessionId: r.sessionId, sessionTitle: r.sessionTitle }
         : {}),
     },
-    fromLor: r.authorId === LOR_USER_ID,
+    fromLor: r.authorId === LOR_USER_ID || r.agentId !== null,
   }))
 }
 
@@ -1114,14 +1116,13 @@ async function readThread(
           id: schema.message.id,
           content: schema.message.content,
           createdAt: schema.message.createdAt,
-          // An agent's message in a chat goes by the agent's name: several
-          // agents post as Lor.
+          // An agent's message goes by the agent's name.
           authorName: sql<string>`coalesce(${schema.agent.name}, ${schema.user.name})`,
           attachments: schema.message.attachments,
         })
         .from(schema.message)
         .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
-        .leftJoin(schema.agent, eq(schema.message.agentId, schema.agent.id))
+        .leftJoin(schema.agent, eq(schema.message.authorId, schema.agent.id))
         .where(inArray(schema.message.id, fetchIds))
         .orderBy(asc(schema.message.createdAt), asc(schema.message.id))
     : []

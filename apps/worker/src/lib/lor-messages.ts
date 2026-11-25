@@ -19,7 +19,9 @@ export type LorMessageDeps = {
   redis: RedisClient
 }
 
-export async function loadLorAuthor() {
+// Who a worker message is from: Lor's own user, or the bot user of the
+// agent speaking (an agent's id is its bot user's id).
+export async function loadLorAuthor(agentId?: string) {
   return db
     .select({
       id: schema.user.id,
@@ -27,7 +29,7 @@ export async function loadLorAuthor() {
       image: schema.user.image,
     })
     .from(schema.user)
-    .where(eq(schema.user.id, LOR_USER_ID))
+    .where(eq(schema.user.id, agentId ?? LOR_USER_ID))
     .limit(1)
     .then((rows) => rows[0] ?? null)
 }
@@ -81,23 +83,17 @@ export async function fanoutLorMessage(
     messageId: string
     content: string
     threadRootId?: string
-    // The agent that wrote it; without one, the channel's first.
+    // The agent that wrote it. Without one it is Lor's own message, which
+    // in a chat goes by the name of the chat's first agent.
     agentId?: string
   }
 ): Promise<RealtimeMessage["mentions"]> {
   try {
-    const [channel, author, writer] = await Promise.all([
+    const [channel, author] = await Promise.all([
       loadChannel(input.channelId),
-      loadLorAuthor(),
-      input.agentId
-        ? db
-            .select({ name: schema.agent.name })
-            .from(schema.agent)
-            .where(eq(schema.agent.id, input.agentId))
-            .then((rows) => rows[0] ?? null)
-        : null,
+      loadLorAuthor(input.agentId),
     ])
-    if (!channel || !author) throw new Error("Channel or Lor user missing")
+    if (!channel || !author) throw new Error("Channel or author missing")
     const asAgent = await speaksAsAgent(channel, input.threadRootId).catch(
       (err) => {
         logger.warn(
@@ -108,13 +104,13 @@ export async function fanoutLorMessage(
       }
     )
     const fanout = await buildMessageFanout({
-      authorId: LOR_USER_ID,
+      authorId: author.id,
       channel,
       message: {
         id: input.messageId,
         content: input.content,
         author: {
-          name: (asAgent && (writer?.name ?? channel.agentName)) || author.name,
+          name: (!input.agentId && asAgent && channel.agentName) || author.name,
           image: author.image,
         },
         attachments: [],
@@ -174,26 +170,24 @@ export async function postLorMessage(
     silent?: boolean
     // A run's message: clients show the run's approval card under it.
     lorTriggerMessageId?: string
-    // The agent speaking, in a chat: several agents post as Lor
-    // (`message.agent_id`).
+    // The agent speaking, in a chat: the message's author is its bot user.
     agentId?: string
   }
 ): Promise<{ messageId: string }> {
-  const author = await loadLorAuthor()
-  if (!author) throw new Error("Lor user missing")
+  const author = await loadLorAuthor(input.agentId)
+  if (!author) throw new Error("Message author missing")
 
   const inserted = await db
     .insert(schema.message)
     .values({
       channelId: input.channelId,
-      authorId: LOR_USER_ID,
+      authorId: author.id,
       content: input.content,
       type: input.type ?? "default",
       eventType: input.eventType ?? null,
       eventPayload: input.eventPayload ?? null,
       referencedMessageId: input.referencedMessageId ?? null,
       threadRootId: input.threadRootId ?? null,
-      agentId: input.agentId ?? null,
       excludedFromMemory: input.type === "event",
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })

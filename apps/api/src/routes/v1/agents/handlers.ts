@@ -231,6 +231,13 @@ export const updateAgent: AppRouteHandler<UpdateAgentRoute> = async (c) => {
     .where(eq(schema.agent.id, agent.id))
     .returning()
   if (!updated) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
+  // Its bot user carries the name its messages and mentions show.
+  if (updated.name !== agent.name) {
+    await db
+      .update(schema.user)
+      .set({ name: updated.name })
+      .where(eq(schema.user.id, agent.id))
+  }
 
   const channelIds = await agentChannelIds(agent.id)
   // Every Discord-linked channel's @mention role follows the new name.
@@ -259,6 +266,7 @@ export const deleteAgent: AppRouteHandler<DeleteAgentRoute> = async (c) => {
   if (!agent) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
 
   // Its channels are left with no agent, and its conversations go with it.
+  // Its bot user stays, so its messages keep their author.
   await db.delete(schema.agent).where(eq(schema.agent.id, agent.id))
   emitAgentsUpdated(workspace.id)
   return c.json({ success: true as const }, HttpStatusCodes.OK)

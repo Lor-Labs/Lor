@@ -1,5 +1,6 @@
 import { db } from "@repo/db"
 import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
+import { agentAuthorId } from "@repo/db/queries/agents"
 import { visibleToSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import type {
   Attachment,
@@ -128,7 +129,8 @@ export const messageSelect = {
   forwarded: message.forwarded,
   threadRootId: message.threadRootId,
   routedToLor: message.routedToLor,
-  agentId: message.agentId,
+  // The agent that wrote it: its author, when that is an agent's bot user.
+  agentId: agentAuthorId(user),
   editedAt: message.editedAt,
   createdAt: message.createdAt,
   authorId: message.authorId,
@@ -147,7 +149,7 @@ export const referencedMessageSelect = {
   authorImage: user.image,
   overrideName: message.overrideName,
   overrideAvatarUrl: message.overrideAvatarUrl,
-  agentId: message.agentId,
+  agentId: agentAuthorId(user),
 } as const
 
 export function toReferencedMessage(row: {

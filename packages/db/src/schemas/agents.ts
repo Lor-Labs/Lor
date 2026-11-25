@@ -23,7 +23,13 @@ import { workspace } from "./workspaces"
 export const agent = pgTable(
   "agent",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    // Also the id of its bot user (`user.is_bot`), made with it by
+    // createAgent: the author of its messages and what a mention of it
+    // holds (reference/agents-and-chats.md, decision 37). Deleting the
+    // agent leaves that user, so its messages keep their author.
+    id: uuid("id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()

@@ -425,7 +425,8 @@ async function mirrorInto(
   // Into the agent's inbox: a mention of the bot or a reply to the agent
   // wakes it, anything else waits unread. A channel whose agent was removed
   // only mirrors.
-  if (!(await loadChannelAgent(link.channelId))) return
+  const agent = await loadChannelAgent(link.channelId)
+  if (!agent) return
   // In a thread a mention or a reply to the agent reaches it, and so does
   // every message in a thread it's part of, as in Lor's own threads.
   // A reply to anything the agent's webhook posted counts, mapped or not
@@ -433,6 +434,7 @@ async function mirrorInto(
   const addressed =
     content.includes(`<@${LOR_USER_ID}>`) ||
     referenced?.authorId === LOR_USER_ID ||
+    referenced?.authorId === agent.id ||
     event.referenced_message?.webhook_id === link.webhookId ||
     (threadRootId ? await agentInThread(threadRootId) : false)
   if (threadRootId && !addressed) return

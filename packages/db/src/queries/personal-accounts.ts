@@ -75,9 +75,10 @@ export async function channelRequestUserId(
       userId: message.authorId,
       isBot: user.isBot,
       workspaceId: channel.workspaceId,
-      explicit: sql<boolean>`${message.content} like ${`%<@${LOR_USER_ID}>%`}`,
+      // A mention of Lor or of one of the chat's agents by its own id.
+      explicit: sql<boolean>`(${message.content} like ${`%<@${LOR_USER_ID}>%`} or exists (select 1 from channel_agent ca where ca.channel_id = ${message.channelId} and ${message.content} like '%<@' || ca.agent_id || '>%'))`,
       threadRootId: message.threadRootId,
-      repliedToLor: sql<boolean>`exists (select 1 from message r where r.id = ${message.referencedMessageId} and r.author_id = ${LOR_USER_ID}::uuid)`,
+      repliedToLor: sql<boolean>`exists (select 1 from message r where r.id = ${message.referencedMessageId} and (r.author_id = ${LOR_USER_ID}::uuid or exists (select 1 from agent a where a.id = r.author_id)))`,
     })
     .from(message)
     .innerJoin(user, eq(user.id, message.authorId))

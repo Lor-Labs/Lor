@@ -1,3 +1,4 @@
+import { LOR_USER_ID } from "@repo/db/constants"
 import type {
   RealtimeMessage,
   TypingIndicatorEvent,
@@ -67,7 +68,12 @@ export function useTypingIndicator({
       // Only a post in this scope ends typing here, as onTypingUpdate scopes.
       if ((message.threadRootId ?? undefined) !== threadRootId) return
       setTypingUsers((prev) => {
-        const active = prev.filter((user) => user.userId !== message.author.id)
+        // An agent types as Lor and posts as its own bot user.
+        const active = prev.filter(
+          (user) =>
+            user.userId !== message.author.id &&
+            !(message.agentId && user.userId === LOR_USER_ID)
+        )
         return active.length === prev.length ? prev : active
       })
     }

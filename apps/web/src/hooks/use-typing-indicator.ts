@@ -86,12 +86,12 @@ export function useTypingIndicator({
       if ((message.threadRootId ?? undefined) !== threadRootId) return
       setTypingUsers((prev) => {
         // An agent's post ends that agent's typing, not another agent's.
-        const filtered = prev.filter(
-          (u) =>
-            u.userId !== message.author.id ||
-            (u.agentId !== null &&
-              message.agentId != null &&
-              u.agentId !== message.agentId)
+        // Its typing comes as Lor's with the agent's id; its post is by its
+        // own bot user.
+        const filtered = prev.filter((u) =>
+          u.agentId !== null && message.agentId != null
+            ? u.agentId !== message.agentId
+            : u.userId !== message.author.id
         )
         return filtered.length === prev.length ? prev : filtered
       })

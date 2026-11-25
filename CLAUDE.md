@@ -267,12 +267,15 @@ which first runs `agents-from-channels.ts`, `agent-facts-unscoped.ts` and
 `agent-conversations.ts` in `packages/db/src/scripts/`. Decided 2026-11-25
 (decisions 31 to 34): Lor is named group chats, a chat is a text channel
 (`channel.kind = "chat"`), and a chat holds several agents. Several agents in
-a chat is built: all post as Lor, so `message.agent_id` says which one wrote
-a message, each is mentioned by its own id (`<@agentId>`; Lor's own mention
-means the chat's first agent), a message that names agents wakes those and
-waits in the others' inboxes, and one that names nobody waits in every
-agent's (`apps/realtime/src/services/agent-inbox.ts`). It needs `db:push`
-(two new columns, no data move). Not built yet: the chat list and New chat
+a chat is built, each posting as a bot user of its own (decision 37):
+`agent.id` is also a `user.id` (`is_bot`, no account or membership, made by
+`createAgent`), so a message's author says which agent wrote it and payloads
+derive `agentId` from it. Each is mentioned by its own id (`<@agentId>`;
+Lor's own mention means the chat's first agent), a message that names agents
+wakes those and waits in the others' inboxes, and one that names nobody
+waits in every agent's (`apps/realtime/src/services/agent-inbox.ts`). It
+needs `db:push` with the workers stopped, which first runs
+`agent-bot-users.ts` (a user per agent, earlier agent posts re-authored). Not built yet: the chat list and New chat
 in the app, and Loops stored on the agent. The mock of the chat list is
 `/prototype/chats`; `/prototype/agents` is the earlier design.
 
