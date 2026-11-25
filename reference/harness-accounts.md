@@ -20,7 +20,7 @@ Implemented 2026-11-22. Requires the schema update before deployment.
   It selects the default agent for background channel work and new autonomous
   sessions, the Lor API model and payer,
   and separate Claude Code/Codex billing choices. API billing defaults to Lor
-  credits; workspace API keys are configured in Billing.
+  credits; workspace API keys are configured in AI providers.
 - Dedicated Lor accounts belong to one workspace. Linking one does not enable
   it: an admin explicitly selects subscription billing. Provider terms still
   apply; a dedicated subscription does not establish permission to automate it.

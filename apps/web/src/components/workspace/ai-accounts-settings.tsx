@@ -10,6 +10,7 @@ import { Spinner } from "@repo/ui/components/spinner"
 import { Switch } from "@repo/ui/components/switch"
 import { toast } from "@repo/ui/components/toast"
 import { features } from "@repo/utils/features"
+import { KEY_PROVIDER_PAYERS } from "@repo/utils/inference"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useId, useState } from "react"
 import { HarnessLogo } from "@/components/session/harness-logo"
@@ -174,7 +175,7 @@ export function AiAccountsSettings({
                   { value: "default", label: "Default model · Lor credits" },
                   ...(models.data?.models ?? []).map((m) => ({
                     value: m.id,
-                    label: `${m.name} · ${m.keyProvider ? `Your ${m.keyProvider === "anthropic" ? "Anthropic" : "OpenAI"} key` : "Lor credits"}`,
+                    label: `${m.name} · ${m.keyProvider ? `Your ${KEY_PROVIDER_PAYERS[m.keyProvider]}` : "Lor credits"}`,
                   })),
                 ]}
                 onChange={(value) =>
@@ -182,7 +183,7 @@ export function AiAccountsSettings({
                 }
               />
               <p className="text-xs text-muted-foreground">
-                Add customer API keys in Workspace settings → Billing.
+                Set up your own providers in Workspace settings → AI providers.
               </p>
             </div>
             {providers.filter(enabled).map((provider) => {

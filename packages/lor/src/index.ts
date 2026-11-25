@@ -2846,7 +2846,7 @@ async function respondImpl(
         }
         if (pick?.startsWith("key:") && funding.source !== "byok")
           throw new InferenceConfigError(
-            "The configured API key or model is unavailable. Update Workspace settings → AI accounts."
+            "The picked AI provider or model is unavailable. Update Workspace settings → AI providers."
           )
       }
       funding = (await run?.pinInferenceFunding?.(funding)) ?? funding
@@ -4310,7 +4310,9 @@ async function respondImpl(
         onUsage: async (usage, model, gatewayCostUsd) => {
           await record(
             {
-              model: billedModel(model),
+              model: native
+                ? `${native.provider}/${native.model}`
+                : billedModel(model),
               inputTokens: usage.inputTokens,
               cachedInputTokens: usage.cachedInputTokens,
               outputTokens: usage.outputTokens,
@@ -4852,7 +4854,12 @@ async function respondImpl(
             beforeRequest: run.assertCanInfer,
             abortSignal,
             onAssistantModel: (model, gatewayCostUsd) => {
-              stepModel = billedModel(model)
+              // An own-provider turn has no fallbacks, and its reported model
+              // can be an Azure deployment or a Bedrock profile; price the
+              // pinned catalog model.
+              stepModel = native
+                ? `${native.provider}/${native.model}`
+                : billedModel(model)
               stepGatewayCost = gatewayCostUsd
               stepBilled = false
             },
