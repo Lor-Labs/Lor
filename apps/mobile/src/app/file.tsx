@@ -211,7 +211,8 @@ function FileView({
   isError,
   onRetry,
 }: FileState) {
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  // Selected by URL, so a refresh that reorders the images keeps the same one.
+  const [selectedUrl, setSelectedUrl] = useState<string | null>(null)
   const images = (
     relatedImages?.length ? relatedImages : initialFile ? [initialFile] : []
   ).filter(
@@ -220,16 +221,12 @@ function FileView({
       image.mime.startsWith("image/") &&
       image.mime !== "image/svg+xml"
   )
+  const selectedImage = images.find((image) => image.url === selectedUrl)
+  const file = selectedImage ?? initialFile
   const imageIndex = Math.max(
     0,
-    Math.min(
-      images.length - 1,
-      selectedIndex ??
-        images.findIndex((image) => image.url === initialFile?.url)
-    )
+    images.findIndex((image) => image.url === file?.url)
   )
-  const file =
-    selectedIndex === null ? initialFile : (images[imageIndex] ?? initialFile)
   const { toast } = useToast()
   const [sharing, setSharing] = useState(false)
   // Hidden over the file's own session: that is its conversation.
@@ -358,7 +355,7 @@ function FileView({
         table={table}
         images={images}
         imageIndex={imageIndex}
-        onImageChange={setSelectedIndex}
+        onImageChange={(index) => setSelectedUrl(images[index]?.url ?? null)}
       />
     </>
   )

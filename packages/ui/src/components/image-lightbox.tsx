@@ -43,6 +43,7 @@ function ZoomStage({
   const stageRef = useRef<HTMLDivElement>(null)
   const [stage, setStage] = useState<Size | null>(null)
   const [natural, setNatural] = useState<Size | null>(null)
+  const [failed, setFailed] = useState(false)
   const [zoomed, setZoomed] = useState(false)
   const [offset, setOffset] = useState(CENTER)
   const [dragging, setDragging] = useState(false)
@@ -133,12 +134,18 @@ function ZoomStage({
       ref={stageRef}
       className="absolute inset-0 flex items-center justify-center"
     >
+      {failed && (
+        <p role="alert" className="px-16 text-center text-sm text-white/70">
+          Couldn't load this image.
+        </p>
+      )}
       <button
         type="button"
         aria-label={zoomed ? "Zoom out" : "Zoom in"}
         className={cn(
           "pointer-events-auto shrink-0 touch-none select-none rounded outline-none focus-visible:ring-2 focus-visible:ring-white/70 motion-reduce:transition-none",
           !natural && "invisible",
+          failed && "hidden",
           animate && "transition-transform duration-200 ease-out",
           dragging
             ? "cursor-grabbing"
@@ -236,6 +243,7 @@ function ZoomStage({
               height: Math.max(1, img.naturalHeight || img.height),
             })
           }}
+          onError={() => setFailed(true)}
         />
       </button>
     </div>

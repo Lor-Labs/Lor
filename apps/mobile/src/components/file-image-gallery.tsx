@@ -27,8 +27,19 @@ export function FileImageGallery({
     return () => navigation.setOptions({ gestureEnabled: true })
   }, [navigation, zoomed])
 
+  // The page the list shows. When the selection moves without a swipe (a
+  // refresh reordered the images), jump the list to it.
+  const page = useRef(index)
+  useEffect(() => {
+    if (page.current === index) return
+    page.current = index
+    list.current?.scrollToIndex({ index, animated: false })
+  }, [index])
+
   const select = (next: number) => {
+    page.current = next
     list.current?.scrollToIndex({ index: next, animated: true })
+    onIndexChange(next)
   }
 
   return (
@@ -54,15 +65,15 @@ export function FileImageGallery({
             scrollEnabled={!zoomed}
             showsHorizontalScrollIndicator={false}
             onMomentumScrollEnd={(event) => {
-              onIndexChange(
-                Math.max(
-                  0,
-                  Math.min(
-                    images.length - 1,
-                    Math.round(event.nativeEvent.contentOffset.x / width)
-                  )
+              const next = Math.max(
+                0,
+                Math.min(
+                  images.length - 1,
+                  Math.round(event.nativeEvent.contentOffset.x / width)
                 )
               )
+              page.current = next
+              onIndexChange(next)
               setZoomed(false)
             }}
             renderItem={({ item, index: itemIndex }) => (

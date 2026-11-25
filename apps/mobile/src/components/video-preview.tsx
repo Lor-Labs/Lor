@@ -14,10 +14,7 @@ export function VideoPreview({ url, name }: { url: string; name: string }) {
       const subscription = AppState.addEventListener("change", (state) => {
         if (state !== "active") player.pause()
       })
-      return () => {
-        subscription.remove()
-        player.pause()
-      }
+      return () => subscription.remove()
     }, [player])
   )
 
