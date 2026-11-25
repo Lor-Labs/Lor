@@ -31,7 +31,7 @@ const notFound = { success: false as const, message: "Chat not found" }
 export const listChats: AppRouteHandler<ListChatsRoute> = async (c) => {
   const workspace = c.var.workspace
   const me = c.var.user.id
-  const { channel, chatMember, message, user } = schema
+  const { channel, channelMember, message, user } = schema
 
   // The newest message the chat feed shows, per chat. Event lines ("created
   // this channel", a rename) are not something said, except an agent
@@ -76,8 +76,8 @@ export const listChats: AppRouteHandler<ListChatsRoute> = async (c) => {
         createdAt: channel.createdAt,
         audience: channel.audience,
         parentId: channel.parentId,
-        pinnedAt: chatMember.pinnedAt,
-        hiddenAt: chatMember.hiddenAt,
+        pinnedAt: channelMember.pinnedAt,
+        hiddenAt: channelMember.hiddenAt,
         lastId: last.lastId,
         lastAt: last.lastAt,
         lastContent: last.lastContent,
@@ -86,12 +86,12 @@ export const listChats: AppRouteHandler<ListChatsRoute> = async (c) => {
         lastAuthorName: last.lastAuthorName,
         lastAgentId: last.lastAgentId,
       })
-      .from(chatMember)
-      .innerJoin(channel, eq(channel.id, chatMember.channelId))
+      .from(channelMember)
+      .innerJoin(channel, eq(channel.id, channelMember.channelId))
       .leftJoinLateral(last, sql`true`)
       .where(
         and(
-          eq(chatMember.userId, me),
+          eq(channelMember.userId, me),
           eq(channel.workspaceId, workspace.id),
           eq(channel.type, "text"),
           isNull(channel.archivedAt)
@@ -120,24 +120,24 @@ export const listChats: AppRouteHandler<ListChatsRoute> = async (c) => {
     agentIdsByChannel(ids),
     db
       .select({
-        channelId: chatMember.channelId,
+        channelId: channelMember.channelId,
         id: user.id,
         name: user.name,
         image: user.image,
         avatarColor: schema.workspaceMember.avatarColor,
       })
-      .from(chatMember)
-      .innerJoin(user, eq(user.id, chatMember.userId))
+      .from(channelMember)
+      .innerJoin(user, eq(user.id, channelMember.userId))
       // Someone who left the workspace is no longer in its chats.
       .innerJoin(
         schema.workspaceMember,
         and(
-          eq(schema.workspaceMember.userId, chatMember.userId),
+          eq(schema.workspaceMember.userId, channelMember.userId),
           eq(schema.workspaceMember.workspaceId, workspace.id)
         )
       )
-      .where(inArray(chatMember.channelId, ids))
-      .orderBy(asc(chatMember.createdAt), asc(user.name)),
+      .where(inArray(channelMember.channelId, ids))
+      .orderBy(asc(channelMember.createdAt), asc(user.name)),
     db
       .select({ id: channel.id })
       .from(channel)
@@ -220,16 +220,16 @@ export const updateChat: AppRouteHandler<UpdateChatRoute> = async (c) => {
   const me = c.var.user.id
   const { channelId } = c.req.valid("param")
   const body = c.req.valid("json")
-  const { chatMember, channel } = schema
+  const { channelMember, channel } = schema
 
   const [chat] = await db
     .select({ id: channel.id })
-    .from(chatMember)
-    .innerJoin(channel, eq(channel.id, chatMember.channelId))
+    .from(channelMember)
+    .innerJoin(channel, eq(channel.id, channelMember.channelId))
     .where(
       and(
-        eq(chatMember.channelId, channelId),
-        eq(chatMember.userId, me),
+        eq(channelMember.channelId, channelId),
+        eq(channelMember.userId, me),
         eq(channel.workspaceId, workspace.id)
       )
     )
@@ -237,7 +237,7 @@ export const updateChat: AppRouteHandler<UpdateChatRoute> = async (c) => {
 
   const now = new Date()
   const [updated] = await db
-    .update(chatMember)
+    .update(channelMember)
     .set({
       ...(body.pinned !== undefined
         ? {
@@ -253,10 +253,12 @@ export const updateChat: AppRouteHandler<UpdateChatRoute> = async (c) => {
           : { hiddenAt: null }
         : {}),
     })
-    .where(and(eq(chatMember.channelId, channelId), eq(chatMember.userId, me)))
+    .where(
+      and(eq(channelMember.channelId, channelId), eq(channelMember.userId, me))
+    )
     .returning({
-      pinnedAt: chatMember.pinnedAt,
-      hiddenAt: chatMember.hiddenAt,
+      pinnedAt: channelMember.pinnedAt,
+      hiddenAt: channelMember.hiddenAt,
     })
   if (!updated) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
   return c.json(

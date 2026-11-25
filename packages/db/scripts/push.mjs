@@ -55,6 +55,7 @@ const BEFORE_PUSH = [
   "src/scripts/agent-facts-unscoped.ts",
   "src/scripts/agent-conversations.ts",
   "src/scripts/agent-bot-users.ts",
+  "src/scripts/chat-member-table.ts",
 ]
 
 // After the push, which creates their tables: one-time fills.

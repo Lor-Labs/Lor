@@ -733,12 +733,23 @@ export const removeProjectMember: AppRouteHandler<
     if (remaining.length <= 1 && wasMember) {
       return { ok: false as const }
     }
+    // Off the project and out of its chats: a row left on a chat would
+    // become access again if the project's category were ever deleted.
     await tx
       .delete(schema.channelMember)
       .where(
         and(
-          eq(schema.channelMember.channelId, project.categoryChannelId),
-          eq(schema.channelMember.userId, userId)
+          eq(schema.channelMember.userId, userId),
+          or(
+            eq(schema.channelMember.channelId, project.categoryChannelId),
+            inArray(
+              schema.channelMember.channelId,
+              tx
+                .select({ id: schema.channel.id })
+                .from(schema.channel)
+                .where(eq(schema.channel.parentId, project.categoryChannelId))
+            )
+          )
         )
       )
     return { ok: true as const, wasMember }

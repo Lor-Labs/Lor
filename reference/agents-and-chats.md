@@ -675,11 +675,16 @@ bot user of its own (decision 37, built 2026-11-25):
 
 The chat list (decisions 33, 35 and 36; sidebar built 2026-11-25):
 
-- **Who is in a chat** is `chat_member` (channel, user, `pinned_at`,
-  `hidden_at`). It is not access: who can see a channel is still its
-  audience (`channel_member` for private ones). Pins and hides are each
-  person's own. A hidden chat is left out until a message newer than the
-  hide, so nothing is written when one arrives.
+- **Who is in a chat** is `channel_member` on the chat itself, the table
+  that already lists the people of DMs and private channels (Jacob,
+  2026-11-25; a table of its own, `chat_member`, was built first and
+  replaced the same day). Each row carries that person's own `pinned_at`
+  and `hidden_at`. Whether the list also decides who can see the chat is
+  the audience, as before: for a private chat or project it is the rows on
+  the access container. A chat inside a project has its own rows for who is
+  in that chat, and leaving the project leaves its chats. A hidden chat is
+  left out until a message newer than the hide, so nothing is written when
+  one arrives.
 - **Who is put in a chat** (`packages/db/src/queries/chat-members.ts`).
   Until New chat picks its people: a chat made by the old create dialog, a
   proposal, a project or the workspace template starts with everyone who
@@ -704,16 +709,20 @@ The chat list (decisions 33, 35 and 36; sidebar built 2026-11-25):
   (voice is behind its launch flag); `channel-list.tsx` is unused and goes
   when New chat replaces the create dialog it still shares code with.
 - **Checked live** on a throwaway database with five people and three
-  agents: the one-time fill on existing chats (37 rows, a private chat only
-  its two members, a second run a no-op), the list order, pin and unpin,
+  agents: the fill of existing chats (a private chat only its two members,
+  a second run a no-op, a chat the person left not refilled), a database
+  with `chat_member` rows carried over with their pins and hides, a person
+  outside a private chat neither listing nor pinning it, the list order, pin and unpin,
   hide from the menu and the chat coming back on a new message, an agent's
   reply moving its chat to the top with an unread dot, sessions under their
   chats, a chat made through the API appearing live with its people, and a
   new member being put in the open chats and not the private one. Not run:
   invitations and project member adds through the app, mobile.
-- **Rollout:** `pnpm db:push` creates `chat_member`, then runs
-  `chat-members.ts`, which fills it once (everyone who can see each existing
-  chat) and is a no-op after.
+- **Rollout:** `pnpm db:push`. Before the push, `chat-member-table.ts`
+  moves the rows of a database that has `chat_member` onto `channel_member`
+  and drops the table. After it, `chat-members.ts` puts everyone who can see
+  it in each text channel nobody is in; chats with people are left alone,
+  so nobody is put back in one they left.
 
 ### Step 4: places and tools
 

@@ -1,10 +1,10 @@
 import { type SQL, sql } from "drizzle-orm"
 import { db } from "../index"
 
-// Who is in a chat (`chat_member`, reference/agents-and-chats.md, decisions
-// 35 and 36). Until New chat picks its people, a chat starts with everyone
-// who can see it, and a person who gains sight of chats is put in them, so
-// nobody's list is empty.
+// Who is in a chat: `channel_member` rows on the chat itself
+// (reference/agents-and-chats.md, decisions 35 and 36). Until New chat picks
+// its people, a chat starts with everyone who can see it, and a person who
+// gains sight of chats is put in them, so nobody's list is empty.
 
 type Executor = Pick<typeof db, "execute">
 
@@ -13,7 +13,7 @@ type Executor = Pick<typeof db, "execute">
 // An existing row is kept, with its pin and hide.
 async function joinVisible(scope: SQL, executor: Executor) {
   await executor.execute(sql`
-    insert into chat_member (channel_id, user_id)
+    insert into channel_member (channel_id, user_id)
     select c.id, wm.user_id
     from channel c
     join workspace_member wm on wm.workspace_id = c.workspace_id
@@ -66,8 +66,11 @@ export async function joinVisibleChats(
   )
 }
 
-// Every existing chat gets the people who can see it. For the one-time fill
-// after the table is added (scripts/chat-members.ts).
-export async function joinAllChats(executor: Executor = db) {
-  await joinVisible(sql`true`, executor)
+// A chat nobody is in gets everyone who can see it: channels from before
+// chats had a list of their people (scripts/chat-members.ts).
+export async function joinEmptyChats(executor: Executor = db) {
+  await joinVisible(
+    sql`not exists (select 1 from channel_member m where m.channel_id = c.id)`,
+    executor
+  )
 }

@@ -280,10 +280,11 @@ stay quiet. It
 needs `db:push` with the workers stopped, which first runs
 `agent-bot-users.ts` (a user per agent, earlier agent posts re-authored).
 The sidebar's chat list is built (decisions 33, 35 and 36): who is in a chat
-is `chat_member`, with each person's own pin and hide
+is its own `channel_member` rows, each with that person's pin and hide
 (`packages/db/src/queries/chat-members.ts`, `apps/api/src/routes/v1/chats`,
-`apps/web/src/components/sidebar/chat-panel`); `db:push` fills it once after
-the push (`chat-members.ts`). Not built yet: New chat, the chat's header and
+`apps/web/src/components/sidebar/chat-panel`); `db:push` moves an earlier
+`chat_member` table over (`chat-member-table.ts`) and, after the push, fills
+chats nobody is in (`chat-members.ts`). Not built yet: New chat, the chat's header and
 panel, finding and joining a chat, and Loops stored on the agent. The mock of the chat list is
 `/prototype/chats`; `/prototype/agents` is the earlier design.
 

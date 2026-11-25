@@ -128,8 +128,15 @@ export const channelRelations = relations(channel, ({ one, many }) => ({
   members: many(channelMember),
 }))
 
-// For DMs and group DMs — tracks which users are in non-workspace channels
-// Also useful later for per-channel permission overwrites on workspace channels
+// The people in a channel, one list for every kind
+// (reference/agents-and-chats.md, decisions 35 and 36):
+// - a DM or group DM: its people, which is also who can open it;
+// - a chat (text channel): who is in it, so it is in their list. Chats are
+//   open and hidden: anyone who can see one finds it and joins;
+// - a private chat or project (audience "members"): the rows on the access
+//   container (the parent category, else the channel) are also who can see
+//   it (queries/channel-access.ts). A chat inside a project has its own
+//   rows for who is in that chat.
 export const channelMember = pgTable(
   "channel_member",
   {
@@ -141,6 +148,11 @@ export const channelMember = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
+    // This person's own, for a chat. Pinned chats lead their list, in the
+    // order they were pinned.
+    pinnedAt: timestamp("pinned_at"),
+    // Put away by this person. A message after this time brings it back.
+    hiddenAt: timestamp("hidden_at"),
   },
   (table) => [
     uniqueIndex("channelMember_channel_user_uidx").on(
