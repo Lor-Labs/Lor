@@ -20,6 +20,35 @@ people with a few code sessions reach it. Tier 3 needs $200 a month of spend.
 Boat (boat.dev) is cheaper ($0.036/h for 4 vCPU / 8 GB) and allows 100 VMs at
 once on its $20 plan, so it takes the overflow (Jacob, 2026-11-05).
 
+## Direction: Boat becomes the default (Jacob, 2026-11-24)
+
+Not switched yet. Blaxel is still tried first, as built below.
+
+- **Why:** an 8 GB box is about $0.33 an hour on Blaxel and $0.036 on Boat,
+  and Lor charges $0.10 (`beta-pricing-runbook.md`, Cost basis). Blaxel
+  stops billing about 15 s after a turn and Boat runs 30 minutes past the
+  last command, yet Boat is still cheaper for any turn longer than about 4
+  minutes. The mix breaks even at $0.10 only when about 78% of box-hours
+  are on Boat.
+- **Scope:** coding sessions, whose boxes are disposable (the work folder
+  is checkpointed). The agent's computer is decided by its own spike
+  (`planned/agent-computer.md`).
+- **Before the switch:**
+  - [ ] The pricing runbook's conditions: start and resume quotas at Lor's
+    volume, resume time and file persistence, and restarting dev servers
+    after a stop.
+  - [ ] A plan that fits: 100 boxes running at once on $20, 300 on $100,
+    1,000 on $500, 2,000 on $2,000.
+  - [ ] Fall back to Blaxel when Boat is full. Today
+    `LOR_SANDBOX_PRIMARY=boat` sends every new sandbox to Boat and a full
+    Boat is a capacity error (`session-sandbox.ts`, `onBoatInstead`); only
+    Blaxel-first falls through to the other provider.
+- **What it costs people:** Boat runs only in Europe (checked again
+  2026-11-24), so the live view and terminal are slower from the US; dev
+  servers restart after a stop; Claude Code and Codex turns hold the real
+  credential in the sandbox; each command takes about half a second longer.
+  All in Limits below.
+
 ## Decisions (Jacob, 2026-11-05)
 
 - Blaxel stays primary. A new session sandbox goes to Boat only when Blaxel

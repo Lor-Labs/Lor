@@ -1,7 +1,9 @@
 import type { z } from "@hono/zod-openapi"
-import { and, db, desc, eq, schema } from "@repo/db"
+import { and, db, desc, eq, schema, sql } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import { visibleToSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import { env } from "@repo/env/server"
+import { filePreviewMime } from "@repo/utils/file-preview"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import {
@@ -70,6 +72,35 @@ export const getArtifact: AppRouteHandler<GetArtifactRoute> = async (c) => {
     (v) => v.version === row.artifact.currentVersion
   )
 
+  const images = new Map<
+    string,
+    z.infer<typeof getArtifactResponseSchema>["images"][number]
+  >()
+  if (
+    filePreviewMime(row.artifact.path, row.artifact.mime).startsWith("image/")
+  ) {
+    const [source] = await db
+      .select({ toolCalls: schema.message.lorToolCalls })
+      .from(schema.message)
+      .where(
+        and(
+          eq(schema.message.channelId, row.artifact.channelId),
+          visibleToSessionChatFilter(
+            currentUser.id,
+            schema.message.threadRootId
+          ),
+          sql`${schema.message.lorToolCalls} @> ${JSON.stringify([{ files: [{ artifactId }] }])}::jsonb`
+        )
+      )
+      .orderBy(desc(schema.message.createdAt), desc(schema.message.id))
+      .limit(1)
+    for (const toolCall of source?.toolCalls ?? []) {
+      for (const file of toolCall.files ?? []) {
+        images.set(file.artifactId, file)
+      }
+    }
+  }
+
   const payload: z.infer<typeof getArtifactResponseSchema> = {
     artifact: serializeArtifact(row.artifact, current ?? null),
     conversation:
@@ -86,6 +117,9 @@ export const getArtifact: AppRouteHandler<GetArtifactRoute> = async (c) => {
       url: blobUrl(v.blobKey),
       createdAt: v.createdAt.toISOString(),
     })),
+    images: [...images.values()].filter((file) =>
+      filePreviewMime(file.path, file.contentType).startsWith("image/")
+    ),
   }
   return c.json(payload, HttpStatusCodes.OK)
 }
