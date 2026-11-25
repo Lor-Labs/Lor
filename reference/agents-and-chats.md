@@ -201,6 +201,10 @@ Channels                               for a team that uses Lor's channels
   # gtm
 ```
 
+Superseded by decision 33 (2026-11-25): the sidebar is chats only, pinned
+first and the rest by last message, as built under "The chat list" in
+section 9. The sketch above is the earlier plan.
+
 The sidebar holds chats and channels, not agents (decision 19). A channel's
 agents are at the top of its right panel, with the row that adds one. The
 agent's page lists everyone's chats with it. Yours are also in the sidebar.
@@ -537,9 +541,9 @@ people wait on one queue.
     request and of the check-in;
   - the move kept 4 channel conversations and deleted 4 check-in Loops, and
     a second push changed nothing.
-- [ ] **Chats in the app:** a request that turns into work is not listed
-  anywhere yet. The sidebar's chat list, New chat with no channel, and a
-  view of what the agent did on its own are not built.
+- [ ] **Chats in the app:** the sidebar's chat list is built (see "The chat
+  list" below). Not built: New chat, the chat's header and panel, finding
+  and joining a chat, and a view of what the agent did on its own.
 - [ ] **Loops on the agent** (decision 27): a Loop is still stored on its
   channel, which is where it posts by default. It follows the channel's
   agent, not the agent. Events too.
@@ -668,6 +672,48 @@ bot user of its own (decision 37, built 2026-11-25):
   agent posts (written as Lor) handed to the chat's first agent. Then it
   adds `channel.kind` and the foreign key. Deploy API, realtime, worker and
   web together: the old code posts as Lor and writes a column that is gone.
+
+The chat list (decisions 33, 35 and 36; sidebar built 2026-11-25):
+
+- **Who is in a chat** is `chat_member` (channel, user, `pinned_at`,
+  `hidden_at`). It is not access: who can see a channel is still its
+  audience (`channel_member` for private ones). Pins and hides are each
+  person's own. A hidden chat is left out until a message newer than the
+  hide, so nothing is written when one arrives.
+- **Who is put in a chat** (`packages/db/src/queries/chat-members.ts`).
+  Until New chat picks its people: a chat made by the old create dialog, a
+  proposal, a project or the workspace template starts with everyone who
+  can see it; a new workspace member, and someone added to a private
+  project, is put in every chat they can now see. Bots are never members.
+- **The API** (`apps/api/src/routes/v1/chats`): `GET /chats` lists the
+  caller's chats with the last message the chat feed shows (not event
+  lines), a plain-text preview, the agents and the first four people; `PATCH
+  /chats/:channelId` pins or hides for the caller.
+- **The sidebar** (`apps/web/src/components/sidebar/chat-panel`): Pinned in
+  the order they were pinned, then Recent by last message. A row is the
+  chat's faces (agents, then people), its name, when it was last active and
+  one line of the last message, with the unread dot or mention count, a pin
+  on hover and its code sessions under it, as they sat under a channel. A
+  right click pins, hides, mutes, edits or deletes. Other people's messages
+  move a chat up from the unread notification; the person's own send
+  refetches. The default width went from 240 to 296.
+- **Not changed yet:** unread counts and notifications still go to everyone
+  who can see a chat, not only the people in it. It makes no difference
+  until New chat can pick a subset. The mobile app still lists channels.
+  Categories, projects and voice channels are no longer in the web sidebar
+  (voice is behind its launch flag); `channel-list.tsx` is unused and goes
+  when New chat replaces the create dialog it still shares code with.
+- **Checked live** on a throwaway database with five people and three
+  agents: the one-time fill on existing chats (37 rows, a private chat only
+  its two members, a second run a no-op), the list order, pin and unpin,
+  hide from the menu and the chat coming back on a new message, an agent's
+  reply moving its chat to the top with an unread dot, sessions under their
+  chats, a chat made through the API appearing live with its people, and a
+  new member being put in the open chats and not the private one. Not run:
+  invitations and project member adds through the app, mobile.
+- **Rollout:** `pnpm db:push` creates `chat_member`, then runs
+  `chat-members.ts`, which fills it once (everyone who can see each existing
+  chat) and is a no-op after.
 
 ### Step 4: places and tools
 

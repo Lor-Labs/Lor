@@ -3,6 +3,7 @@ import { isWorkspaceRole } from "@repo/auth/permissions"
 import { isConnectorEvent } from "@repo/connectors"
 import { and, db, eq, isUniqueViolation, max, schema, sql } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import { joinChatAudience } from "@repo/db/queries/chat-members"
 import type {
   ChangeOperation,
   ChangeProposal,
@@ -159,6 +160,7 @@ async function applyOperation(
         channelIds: [inserted.id],
         addedById: null,
       })
+      await joinChatAudience([inserted.id], ctx.tx)
       ctx.createdIds.set(position, inserted.id)
       return { resourceId: inserted.id }
     }

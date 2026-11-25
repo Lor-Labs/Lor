@@ -1,5 +1,6 @@
 import { db, schema } from "@repo/db"
 import { createAgent } from "@repo/db/queries/agents"
+import { joinChatAudience } from "@repo/db/queries/chat-members"
 import { isChannelFeatureEnabled } from "@repo/utils/features"
 
 type TemplateChannel = Pick<
@@ -58,6 +59,12 @@ export async function seedWorkspaceTemplate(workspaceId: string) {
         .values(
           text.map((channel) => ({ channelId: channel.id, agentId: agent.id }))
         )
+      // The starting chats are everyone's: whoever is a member already, and
+      // each person who joins (joinVisibleChats in auth.ts).
+      await joinChatAudience(
+        text.map((channel) => channel.id),
+        tx
+      )
     }
   })
 }

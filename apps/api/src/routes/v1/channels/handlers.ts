@@ -7,6 +7,7 @@ import {
   resolveChannelAccess,
   resolveChannelAudienceInfo,
 } from "@repo/db/queries/channel-access"
+import { joinChatAudience } from "@repo/db/queries/chat-members"
 import {
   canSeeSessionChat,
   visibleToSessionChatFilter,
@@ -320,6 +321,8 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
           })
           agentIds = agentId ? [agentId] : []
         }
+        // A chat made here starts with everyone who can see it.
+        await joinChatAudience([inserted.id], tx)
       }
       return { ...inserted, agentIds }
     })

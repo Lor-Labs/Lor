@@ -4,6 +4,10 @@ import {
   listChannelAudienceUserIds,
   resolveChannelAccess,
 } from "@repo/db/queries/channel-access"
+import {
+  joinChatAudience,
+  joinVisibleChats,
+} from "@repo/db/queries/chat-members"
 import type { ProjectUpdatedEvent } from "@repo/realtime-types/events"
 import { userRoom } from "@repo/realtime-types/rooms"
 import { placeDefaultAgent } from "@/lib/agents"
@@ -304,6 +308,11 @@ export const createProject: AppRouteHandler<CreateProjectRoute> = async (c) => {
         channelId: category.id,
         userId,
       }))
+    )
+    // The project's chats start with everyone who can see them.
+    await joinChatAudience(
+      channels.flatMap((ch) => (ch.type === "text" ? ch.id : [])),
+      tx
     )
 
     const inserted = await tx
@@ -654,6 +663,12 @@ export const addProjectMember: AppRouteHandler<AddProjectMemberRoute> = async (
   // onConflictDoNothing returns no row when the user was already a member —
   // no event for a no-op add.
   if (insertedMember) {
+    // They can see the project's chats now: put them in.
+    await joinVisibleChats({
+      workspaceId: workspace.id,
+      userIds: [userId],
+      containerId: project.categoryChannelId,
+    })
     await postMemberEventToProjectChannels({
       categoryChannelId: project.categoryChannelId,
       actorId: currentUser.id,

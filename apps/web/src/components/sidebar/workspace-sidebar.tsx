@@ -51,7 +51,6 @@ import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
 import { ChannelActivityProvider } from "@/components/sidebar/channel-panel/channel-activity"
-import { ChannelList } from "@/components/sidebar/channel-panel/channel-list"
 import {
   CreateChannelProvider,
   useCreateChannel,
@@ -59,6 +58,7 @@ import {
 import { NeedsYouGroup } from "@/components/sidebar/channel-panel/needs-you-list"
 import { VoicePresenceProvider } from "@/components/sidebar/channel-panel/voice-presence"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
+import { ChatList } from "@/components/sidebar/chat-panel/chat-list"
 import { NewSessionButton } from "@/components/sidebar/new-session-button"
 import {
   sidebarMenuHeader,
@@ -472,7 +472,7 @@ function WorkspaceSidebarInner() {
             align="start"
             onDismiss={channelsHint.dismiss}
           >
-            Your starting channels. Rename, reorder, or add channels here.
+            Your starting chats. Add another here.
           </HintPopover>
         </div>
         {workspaceSlug && (
@@ -493,13 +493,13 @@ function WorkspaceSidebarInner() {
                 workspaceSlug={activeWorkspace?.slug}
                 workspaceId={activeWorkspace?.id}
               >
-                {/* One list: what needs you, then the channels with your
-                    sessions under them. A channel's agents are in its right
-                    panel (reference/agents-and-chats.md, decision 19). */}
+                {/* One list: what needs you, then your chats, pinned first
+                    and the rest by last message, with their sessions under
+                    them (reference/agents-and-chats.md, decision 33). */}
                 <div className="px-2">
                   <NeedsYouGroup />
                 </div>
-                <ChannelList />
+                <ChatList workspaceId={activeWorkspace?.id} />
               </VoicePresenceProvider>
             </ChannelActivityProvider>
           </div>

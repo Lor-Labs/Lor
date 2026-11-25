@@ -16,6 +16,7 @@ import artifactsRouter from "@/routes/v1/artifacts/index"
 import billingRouter from "@/routes/v1/billing/index"
 import channelMutesRouter from "@/routes/v1/channel-mutes/index"
 import channelsRouter from "@/routes/v1/channels/index"
+import chatsRouter from "@/routes/v1/chats/index"
 import customToolsRouter from "@/routes/v1/custom-tools/index"
 import discordRouter from "@/routes/v1/discord/index"
 import dmsRouter from "@/routes/v1/dms/index"
@@ -132,6 +133,7 @@ const routes = app
   .route("/v1", workspaceAccountsRouter)
   .route("/v1", agentModelsRouter)
   .route("/v1", agentsRouter)
+  .route("/v1", chatsRouter)
   .route("/v1", pushTokensRouter)
   .route("/v1", channelMutesRouter)
   .route("/v1", hintsRouter)

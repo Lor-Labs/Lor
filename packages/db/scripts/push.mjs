@@ -57,10 +57,17 @@ const BEFORE_PUSH = [
   "src/scripts/agent-bot-users.ts",
 ]
 
+// After the push, which creates their tables: one-time fills.
+const AFTER_PUSH = ["src/scripts/chat-members.ts"]
+
 let code = 0
 for (const script of BEFORE_PUSH) {
   code = await run("tsx", [script])
   if (code !== 0) break
 }
-process.exitCode =
-  code === 0 ? await run("drizzle-kit", ["push", ...passthrough]) : code
+if (code === 0) code = await run("drizzle-kit", ["push", ...passthrough])
+for (const script of AFTER_PUSH) {
+  if (code !== 0) break
+  code = await run("tsx", [script])
+}
+process.exitCode = code
