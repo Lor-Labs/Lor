@@ -87,7 +87,9 @@ export async function getWorkspaceActivity(
       .select({
         threadRootId: schema.agentRun.threadRootId,
         channelId: schema.agentRun.channelId,
-        scopeKey: schema.agentRun.scopeKey,
+        // Set on an agent's own turn (agent-conversations.ts): the channel
+        // is then the one the turn is about.
+        conversationId: schema.agentRun.conversationId,
         // Set when the run's thread is an unarchived session.
         sessionId: schema.agentSession.id,
       })
@@ -125,7 +127,7 @@ export async function getWorkspaceActivity(
       .select({
         planThreadRootId: schema.plan.threadRootId,
         runThreadRootId: schema.agentRun.threadRootId,
-        runScopeKey: schema.agentRun.scopeKey,
+        runConversationId: schema.agentRun.conversationId,
         runChannelId: schema.agentRun.channelId,
         runMessageId: schema.agentRun.messageId,
         description: schema.approval.description,
@@ -227,14 +229,14 @@ export async function getWorkspaceActivity(
   // Session state is keyed by the session's thread root.
   const running = new Set<string>()
   const needsYou = new Set<string>()
-  // Per channel: the agent's own turn (its run holds the channel, with no
-  // thread), and every session with a run in progress.
+  // Per channel: a turn of its agent about it, in any of the agent's
+  // conversations, and every session with a run in progress.
   const agentWorking = new Set<string>()
   const runningSessions = new Map<string, Set<string>>()
   for (const run of runs) {
     if (run.threadRootId) running.add(run.threadRootId)
     if (!run.channelId) continue
-    if (!run.threadRootId && run.scopeKey === run.channelId) {
+    if (run.conversationId) {
       agentWorking.add(run.channelId)
     }
     if (run.sessionId) {
@@ -265,11 +267,11 @@ export async function getWorkspaceActivity(
       ? canResolveApproval(authority, spec, userId)
       : authority.isOwner
     if (threadRootId && canResolve) needsYou.add(threadRootId)
-    // A channel agent's turn: its run holds the channel, with no thread.
+    // An agent's own turn, about this channel.
     const agentTurn =
       !threadRootId &&
       approval.runChannelId !== null &&
-      approval.runScopeKey === approval.runChannelId
+      approval.runConversationId !== null
     if (
       agentTurn &&
       canResolve &&

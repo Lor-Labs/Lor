@@ -1,7 +1,6 @@
 import { APP_USER_ID, db, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
 import { loadChannelAgent } from "@repo/db/queries/agents"
 import { addInboxMessage, agentInThread } from "@repo/lor/channel-agent"
-import { ensureCheckInLoop } from "@repo/lor/check-in"
 import {
   type DiscordLink,
   discordLinkByDiscordChannel,
@@ -427,7 +426,6 @@ async function mirrorInto(
   // wakes it, anything else waits unread. A channel whose agent was removed
   // only mirrors.
   if (!(await loadChannelAgent(link.channelId))) return
-  void ensureCheckInLoop(link.channelId).catch(() => {})
   // In a thread a mention or a reply to the agent reaches it, and so does
   // every message in a thread it's part of, as in Lor's own threads.
   // A reply to anything the agent's webhook posted counts, mapped or not
@@ -439,13 +437,13 @@ async function mirrorInto(
     (threadRootId ? await agentInThread(threadRootId) : false)
   if (threadRootId && !addressed) return
   const lane = addressed ? "wake" : "wait"
-  const added = await addInboxMessage({
+  const conversationId = await addInboxMessage({
     workspaceId: channel.workspaceId,
     channelId: link.channelId,
     messageId: inserted.id,
     lane,
   })
-  if (added && lane === "wake") {
-    await flushAgentInbox(link.channelId, AGENT_INBOX_BATCH_MS)
+  if (conversationId && lane === "wake") {
+    await flushAgentInbox(conversationId, AGENT_INBOX_BATCH_MS)
   }
 }

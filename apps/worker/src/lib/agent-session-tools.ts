@@ -103,15 +103,23 @@ async function reposForChannel(
       }
 }
 
-async function agentSession(channelId: string, sessionId: string) {
+// A session the agent started, in any channel it is in: its conversations
+// all see the same sessions under "Open right now".
+async function agentSession(agentId: string, sessionId: string) {
   const [session] = await db
     .select()
     .from(schema.agentSession)
     .where(
       and(
         eq(schema.agentSession.id, sessionId),
-        eq(schema.agentSession.channelId, channelId),
-        eq(schema.agentSession.origin, "agent")
+        eq(schema.agentSession.origin, "agent"),
+        inArray(
+          schema.agentSession.channelId,
+          db
+            .select({ id: schema.channelAgent.channelId })
+            .from(schema.channelAgent)
+            .where(eq(schema.channelAgent.agentId, agentId))
+        )
       )
     )
   return session ?? null
@@ -221,6 +229,9 @@ export function agentSessionExecutors(
   deps: SessionToolDeps,
   args: {
     workspaceId: string
+    agentId: string
+    // The conversation that starts a session, which its turns report to.
+    conversationId: string
     channelId: string
     channelName: string | null
     // Who woke the agent: they follow the sessions it starts for them.
@@ -318,6 +329,7 @@ export function agentSessionExecutors(
           authorId: LOR_USER_ID,
           creatorId: args.askerId,
           origin: "agent",
+          conversationId: args.conversationId,
           harness,
           title,
           code: {
@@ -382,7 +394,7 @@ export function agentSessionExecutors(
     },
 
     check: async ({ sessionId }) => {
-      const session = await agentSession(channelId, sessionId)
+      const session = await agentSession(args.agentId, sessionId)
       if (!session) return { error: "No session you started has that id." }
       const [run, pending, lastRun, reply] = await Promise.all([
         activeRun(session.threadRootId),
@@ -444,7 +456,7 @@ export function agentSessionExecutors(
     },
 
     message: async ({ sessionId, message }) => {
-      const session = await agentSession(channelId, sessionId)
+      const session = await agentSession(args.agentId, sessionId)
       if (!session) return { error: "No session you started has that id." }
       if (session.archivedAt) {
         return { error: "That session is archived. Start a new one." }
@@ -478,7 +490,7 @@ export function agentSessionExecutors(
     },
 
     stop: async ({ sessionId }) => {
-      const session = await agentSession(channelId, sessionId)
+      const session = await agentSession(args.agentId, sessionId)
       if (!session) return { error: "No session you started has that id." }
       const run = await activeRun(session.threadRootId)
       if (!run) return { ok: true, note: "It was not working." }
@@ -525,20 +537,30 @@ export async function reportHelperTurn(
   const reply = args.reply.trim()
   const cut = reply.length > REPORT_REPLY_CHARS
   const note = `Session "${args.session.title}" (session ${args.session.id}${args.session.newBranch ? `, branch ${args.session.newBranch}` : ""}) ${OUTCOME_TEXT[args.outcome]}.${reply ? `\nIts reply${cut ? ` (cut short here; read_thread with message ${args.replyMessageId} reads it in full)` : ""}:\n${clip(reply, REPORT_REPLY_CHARS)}` : ""}`
+  // The conversation that started the session reads its report; a session
+  // from before conversations reports to the agent's own.
+  const [started] = await db
+    .select({ conversationId: schema.agentSession.conversationId })
+    .from(schema.agentSession)
+    .where(eq(schema.agentSession.id, args.session.id))
   const added = await addInboxNote({
     workspaceId: args.workspaceId,
     channelId: args.channelId,
+    conversationId: started?.conversationId ?? null,
     source: "session",
     sourceId: args.runId,
     note,
     lane: "wake",
   })
-  // A repeated report adds no note but still asks for the flush, in case
-  // the first one's enqueue failed.
-  if (!added) logger.info({ runId: args.runId }, "Helper report already noted")
+  // A repeated report adds no note, and the stranded-inbox sweep flushes a
+  // first one whose enqueue failed.
+  if (!added) {
+    logger.info({ runId: args.runId }, "Helper report already noted")
+    return
+  }
   await queue?.add(
     AGENT_INBOX_FLUSH_JOB,
-    { channelId: args.channelId },
+    { conversationId: added },
     { delay: AGENT_INBOX_BATCH_MS, removeOnComplete: true, removeOnFail: 100 }
   )
 }
@@ -627,7 +649,6 @@ export async function sweepUnreportedHelperRuns(): Promise<void> {
             .from(schema.agentInbox)
             .where(
               and(
-                eq(schema.agentInbox.channelId, schema.agentRun.channelId),
                 eq(schema.agentInbox.source, "session"),
                 eq(schema.agentInbox.sourceId, sql`${schema.agentRun.id}::text`)
               )

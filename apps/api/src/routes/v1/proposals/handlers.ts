@@ -258,13 +258,14 @@ async function postResolutionAndContinue(args: {
   if (!messageId) return null
   if (!proposal.threadRootId) {
     try {
-      const added = await addInboxMessage({
+      // The card's thread goes on with the request that filed the card.
+      const conversationId = await addInboxMessage({
         workspaceId: proposal.workspaceId,
         channelId: proposal.channelId,
         messageId,
         lane: "wake",
       })
-      if (added) await flushAgentInbox(proposal.channelId)
+      if (conversationId) await flushAgentInbox(conversationId)
     } catch (err) {
       logger.error(
         { err, proposalId: proposal.id },

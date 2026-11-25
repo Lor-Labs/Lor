@@ -1,4 +1,4 @@
-import { and, asc, count, db, eq, lte, schema } from "@repo/db"
+import { and, asc, count, db, eq, inArray, lte, schema } from "@repo/db"
 import {
   type AgentWakeUps,
   addInboxNote,
@@ -65,6 +65,9 @@ export function agentWakeUpExecutors(
   deps: Deps,
   input: {
     workspaceId: string
+    agentId: string
+    // The conversation that sets the wake-up, which it wakes.
+    conversationId: string
     channelId: string
     runId: string
     askedById: string | null
@@ -82,7 +85,7 @@ export function agentWakeUpExecutors(
         .from(schema.agentWakeUp)
         .where(
           and(
-            eq(schema.agentWakeUp.channelId, input.channelId),
+            eq(schema.agentWakeUp.conversationId, input.conversationId),
             eq(schema.agentWakeUp.status, "pending")
           )
         )
@@ -97,6 +100,7 @@ export function agentWakeUpExecutors(
         .values({
           workspaceId: input.workspaceId,
           channelId: input.channelId,
+          conversationId: input.conversationId,
           dueAt,
           note: note.trim(),
           runId: input.runId,
@@ -117,13 +121,20 @@ export function agentWakeUpExecutors(
         .where(
           and(
             eq(schema.agentWakeUp.id, wakeUpId),
-            eq(schema.agentWakeUp.channelId, input.channelId),
+            // Any of this agent's: "Open right now" lists them all.
+            inArray(
+              schema.agentWakeUp.conversationId,
+              db
+                .select({ id: schema.agentConversation.id })
+                .from(schema.agentConversation)
+                .where(eq(schema.agentConversation.agentId, input.agentId))
+            ),
             eq(schema.agentWakeUp.status, "pending")
           )
         )
         .returning({ id: schema.agentWakeUp.id })
       if (!cancelled[0]) {
-        return { ok: false, error: "No pending wake-up with that id here." }
+        return { ok: false, error: "You have no pending wake-up with that id." }
       }
       emitUpdated(deps, input.channelId)
       return { ok: true }
@@ -141,6 +152,7 @@ export async function sweepDueWakeUps(
       id: schema.agentWakeUp.id,
       workspaceId: schema.agentWakeUp.workspaceId,
       channelId: schema.agentWakeUp.channelId,
+      conversationId: schema.agentWakeUp.conversationId,
       note: schema.agentWakeUp.note,
       createdAt: schema.agentWakeUp.createdAt,
     })
@@ -156,6 +168,7 @@ export async function sweepDueWakeUps(
   if (due.length === 0) return
 
   const channels = new Set<string>()
+  const conversations = new Set<string>()
   const delivered: string[] = []
   for (const wakeUp of due) {
     // Claimed first, so a cancel that wins skips the note and a delivery
@@ -178,6 +191,7 @@ export async function sweepDueWakeUps(
           {
             workspaceId: wakeUp.workspaceId,
             channelId: wakeUp.channelId,
+            conversationId: wakeUp.conversationId,
             source: "wake_up",
             sourceId: wakeUp.id,
             note: wakeUpInboxNote({
@@ -192,29 +206,30 @@ export async function sweepDueWakeUps(
       })
       if (!fired) continue
       channels.add(wakeUp.channelId)
+      conversations.add(wakeUp.conversationId)
       delivered.push(wakeUp.id)
     } catch (err) {
       logger.error({ err, wakeUpId: wakeUp.id }, "Wake-up delivery failed")
     }
   }
-  for (const channelId of channels) {
-    emitUpdated(deps, channelId)
+  for (const channelId of channels) emitUpdated(deps, channelId)
+  for (const conversationId of conversations) {
     await deps.agentInboxQueue
-      .add(AGENT_INBOX_FLUSH_JOB, { channelId })
+      .add(AGENT_INBOX_FLUSH_JOB, { conversationId })
       .catch((err) =>
-        logger.error({ err, channelId }, "Wake-up inbox flush failed")
+        logger.error({ err, conversationId }, "Wake-up inbox flush failed")
       )
   }
   logger.info({ fired: delivered.length }, "Wake-ups fired")
 }
 
-export async function wakeUpDueSoon(channelId: string): Promise<boolean> {
+export async function wakeUpDueSoon(conversationId: string): Promise<boolean> {
   const [row] = await db
     .select({ id: schema.agentWakeUp.id })
     .from(schema.agentWakeUp)
     .where(
       and(
-        eq(schema.agentWakeUp.channelId, channelId),
+        eq(schema.agentWakeUp.conversationId, conversationId),
         eq(schema.agentWakeUp.status, "pending"),
         lte(
           schema.agentWakeUp.dueAt,

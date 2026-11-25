@@ -6,15 +6,14 @@ import {
   db,
   desc,
   eq,
-  gte,
   ilike,
   isNotNull,
   lt,
   schema,
   sql,
 } from "@repo/db"
+import { loadConversation } from "@repo/db/queries/agent-conversations"
 import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
-import { channelAgentId } from "@repo/db/queries/agents"
 import type { AgentStepKind, AgentStepMessage } from "@repo/db/schema"
 import {
   generateText,
@@ -34,7 +33,7 @@ import type { RunAgentContext } from "./channel-agent"
 import {
   applyFactChanges,
   factsForMemoryPass,
-  loadChannelProfile,
+  loadAgentFacts,
   memoryPassRequest,
   parseFactChanges,
 } from "./channel-profile"
@@ -83,7 +82,7 @@ const SUMMARY_REQUEST = `Summarize this conversation inside <summary></summary> 
 
 export type AgentTurnArgs = {
   workspaceId: string
-  channelId: string
+  conversationId: string
   agent: RunAgentContext
   run: RunHandle
   model: string
@@ -182,21 +181,24 @@ export function contextWindowOf(model: string): number {
   )
 }
 
-export async function loadAgentContext(workspaceId: string, channelId: string) {
+export async function loadAgentContext(
+  workspaceId: string,
+  conversationId: string
+) {
   await db
     .insert(schema.agentContext)
-    .values({ channelId, workspaceId })
+    .values({ conversationId, workspaceId })
     .onConflictDoNothing()
   const [row] = await db
     .select()
     .from(schema.agentContext)
-    .where(eq(schema.agentContext.channelId, channelId))
+    .where(eq(schema.agentContext.conversationId, conversationId))
   if (!row) throw new Error("Channel agent context missing")
   return row
 }
 
 async function loadEpochSteps(
-  channelId: string,
+  conversationId: string,
   epoch: number
 ): Promise<StoredStep[]> {
   return db
@@ -211,7 +213,7 @@ async function loadEpochSteps(
     .from(schema.agentStep)
     .where(
       and(
-        eq(schema.agentStep.channelId, channelId),
+        eq(schema.agentStep.conversationId, conversationId),
         eq(schema.agentStep.epoch, epoch)
       )
     )
@@ -227,7 +229,7 @@ export async function appendSteps(
   tx: Tx | typeof db,
   args: {
     workspaceId: string
-    channelId: string
+    conversationId: string
     epoch: number
     runId: string | null
     steps: { kind: AgentStepKind; message: AgentStepMessage }[]
@@ -237,12 +239,12 @@ export async function appendSteps(
   const [last] = await tx
     .select({ seq: sql<number>`coalesce(max(${schema.agentStep.seq}), -1)` })
     .from(schema.agentStep)
-    .where(eq(schema.agentStep.channelId, args.channelId))
+    .where(eq(schema.agentStep.conversationId, args.conversationId))
   const base = Number(last?.seq ?? -1) + 1
   await tx.insert(schema.agentStep).values(
     args.steps.map((step, index) => ({
       workspaceId: args.workspaceId,
-      channelId: args.channelId,
+      conversationId: args.conversationId,
       epoch: args.epoch,
       seq: base + index,
       runId: args.runId,
@@ -300,7 +302,7 @@ function openRequests(step: StoredStep) {
 
 // The run whose turn waits on approvals, when the conversation's last step
 // is one that asked for them.
-export async function pausedAgentRun(channelId: string): Promise<{
+export async function pausedAgentRun(conversationId: string): Promise<{
   runId: string
   epoch: number
 } | null> {
@@ -314,7 +316,7 @@ export async function pausedAgentRun(channelId: string): Promise<{
       message: schema.agentStep.message,
     })
     .from(schema.agentStep)
-    .where(eq(schema.agentStep.channelId, channelId))
+    .where(eq(schema.agentStep.conversationId, conversationId))
     .orderBy(desc(schema.agentStep.seq))
     .limit(4)
   const last = recent[0]
@@ -375,8 +377,8 @@ function gatewayOptions(model: string, conversation: string) {
   }
 }
 
-function conversationId(channelId: string, epoch: number): string {
-  return `lor-agent-${channelId}-${epoch}`
+function gatewaySession(conversationId: string, epoch: number): string {
+  return `lor-agent-${conversationId}-${epoch}`
 }
 
 // Reasoning signed under an earlier tool set or model is dropped from the
@@ -551,7 +553,7 @@ function lastAssistantText(messages: ModelMessage[]): string {
 export async function runAgentTurn(
   args: AgentTurnArgs
 ): Promise<AgentTurnResult> {
-  const { run, channelId, workspaceId } = args
+  const { run, conversationId, workspaceId } = args
   const ledger = usageLedger({
     workspaceId,
     runId: run.runId,
@@ -574,7 +576,10 @@ export async function runAgentTurn(
         .where(eq(schema.agentRun.id, run.runId))
         .catch(() => {})
     }
-    logger.info({ channelId, runId: run.runId, toolCalls }, "Agent turn ended")
+    logger.info(
+      { conversationId, runId: run.runId, toolCalls },
+      "Agent turn ended"
+    )
   }
 }
 
@@ -583,8 +588,8 @@ async function turnLoop(
   ledger: ReturnType<typeof usageLedger>,
   countToolCalls: (n: number) => void
 ): Promise<AgentTurnResult> {
-  const { run, channelId, workspaceId, agent } = args
-  let context = await loadAgentContext(workspaceId, channelId)
+  const { run, conversationId, workspaceId, agent } = args
+  let context = await loadAgentContext(workspaceId, conversationId)
 
   // The prompt's top is the epoch's: built by its first turn, then frozen.
   const toolsHash = sha256(
@@ -600,7 +605,7 @@ async function turnLoop(
       .set({ system: args.instructions, toolsHash, model: args.model })
       .where(
         and(
-          eq(schema.agentContext.channelId, channelId),
+          eq(schema.agentContext.conversationId, conversationId),
           eq(schema.agentContext.epoch, context.epoch)
         )
       )
@@ -615,7 +620,7 @@ async function turnLoop(
   else if (context.toolsHash !== toolsHash || context.model !== args.model) {
     logger.warn(
       {
-        channelId,
+        conversationId,
         toolsChanged: context.toolsHash !== toolsHash,
         modelChanged: context.model !== args.model,
       },
@@ -624,20 +629,20 @@ async function turnLoop(
     const [last] = await db
       .select({ seq: sql<number>`coalesce(max(${schema.agentStep.seq}), -1)` })
       .from(schema.agentStep)
-      .where(eq(schema.agentStep.channelId, channelId))
+      .where(eq(schema.agentStep.conversationId, conversationId))
     const reasoningCutSeq = Number(last?.seq ?? -1)
     await db
       .update(schema.agentContext)
       .set({ toolsHash, model: args.model, reasoningCutSeq })
-      .where(eq(schema.agentContext.channelId, channelId))
+      .where(eq(schema.agentContext.conversationId, conversationId))
     context = { ...context, toolsHash, model: args.model, reasoningCutSeq }
   }
 
-  let steps = await loadEpochSteps(channelId, context.epoch)
+  let steps = await loadEpochSteps(conversationId, context.epoch)
   const save = async (messages: ModelMessage[]) => {
     await appendSteps(db, {
       workspaceId,
-      channelId,
+      conversationId,
       epoch: context.epoch,
       runId: run.runId,
       steps: messages.map((message) => ({
@@ -728,7 +733,7 @@ async function turnLoop(
     })
     const decided: ModelMessage = { role: "tool", content: responses }
     await save([decided])
-    steps = await loadEpochSteps(channelId, context.epoch)
+    steps = await loadEpochSteps(conversationId, context.epoch)
   }
 
   let messages = promptMessages(steps, context.reasoningCutSeq)
@@ -816,7 +821,7 @@ async function turnLoop(
     ) {
       const compacted = await compactAgentConversation({
         workspaceId,
-        channelId,
+        conversationId,
         model: args.model,
         languageModel: args.languageModel,
         assertCanInfer: run.assertCanInfer,
@@ -837,9 +842,9 @@ async function turnLoop(
         break
       }
       if (compacted) {
-        context = await loadAgentContext(workspaceId, channelId)
+        context = await loadAgentContext(workspaceId, conversationId)
         await freeze()
-        steps = await loadEpochSteps(channelId, context.epoch)
+        steps = await loadEpochSteps(conversationId, context.epoch)
         messages = promptMessages(steps, context.reasoningCutSeq)
         promptTokens = 0
         expectWarm = false
@@ -886,7 +891,7 @@ async function turnLoop(
       stopWhen: isStepCount(1),
       providerOptions: gatewayOptions(
         args.model,
-        conversationId(channelId, context.epoch)
+        gatewaySession(conversationId, context.epoch)
       ),
       abortSignal,
       onToolExecutionEnd: ({ toolCall, toolOutput }) => {
@@ -963,7 +968,7 @@ async function turnLoop(
     // with what could explain it.
     logger.info(
       {
-        channelId,
+        conversationId,
         runId: run.runId,
         inputTokens: usage.inputTokens,
         cacheRead: usage.cachedInputTokens,
@@ -984,7 +989,7 @@ async function turnLoop(
     ) {
       logger.warn(
         {
-          channelId,
+          conversationId,
           runId: run.runId,
           call: turnCache.calls + 1,
           expectedCached: promptTokens,
@@ -1049,11 +1054,11 @@ async function turnLoop(
   await db
     .update(schema.agentContext)
     .set({ promptTokens, lastTurnEndedAt: new Date() })
-    .where(eq(schema.agentContext.channelId, channelId))
+    .where(eq(schema.agentContext.conversationId, conversationId))
   if (turnCache.calls > 0) {
     logger.info(
       {
-        channelId,
+        conversationId,
         runId: run.runId,
         calls: turnCache.calls,
         inputTokens: turnCache.input,
@@ -1075,8 +1080,9 @@ async function turnLoop(
   }
 }
 
-// The latest chat, word for word, for the top of a new epoch.
-async function recentChat(channelId: string): Promise<string> {
+// A channel's latest chat, word for word: for the top of a new epoch, and
+// for a request's first turn, which has seen none of it.
+export async function recentChat(channelId: string): Promise<string> {
   const rows = await db
     .select({
       id: schema.message.id,
@@ -1111,7 +1117,7 @@ async function recentChat(channelId: string): Promise<string> {
 // the summary and the latest chat. Null when there is nothing to compact.
 export async function compactAgentConversation(args: {
   workspaceId: string
-  channelId: string
+  conversationId: string
   model: string
   languageModel?: LanguageModel
   assertCanInfer?: () => Promise<void>
@@ -1121,9 +1127,9 @@ export async function compactAgentConversation(args: {
   abortSignal?: AbortSignal
   inTurn?: boolean
 }): Promise<{ epoch: number; summaryChars: number } | null> {
-  const context = await loadAgentContext(args.workspaceId, args.channelId)
+  const context = await loadAgentContext(args.workspaceId, args.conversationId)
   if (!context.system) return null
-  const steps = await loadEpochSteps(args.channelId, context.epoch)
+  const steps = await loadEpochSteps(args.conversationId, context.epoch)
   if (steps.length < 2 || openApprovals(steps).length > 0) return null
 
   // Same tool definitions so the prefix matches, but nothing runs.
@@ -1148,7 +1154,7 @@ export async function compactAgentConversation(args: {
     stopWhen: isStepCount(1),
     providerOptions: gatewayOptions(
       args.model,
-      conversationId(args.channelId, context.epoch)
+      gatewaySession(args.conversationId, context.epoch)
     ),
     ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
     runtimeContext: aiRuntimeContext(),
@@ -1161,10 +1167,19 @@ export async function compactAgentConversation(args: {
     raw.match(/<summary>([\s\S]*?)<\/summary>/)?.[1] ?? raw
   ).trim()
   if (!summary) {
-    logger.warn({ channelId: args.channelId }, "Agent compaction was empty")
+    logger.warn(
+      { conversationId: args.conversationId },
+      "Agent compaction was empty"
+    )
     return null
   }
-  const chat = await recentChat(args.channelId)
+  // A request picks up from its channel's chat. The own conversation spans
+  // every channel, and its next inbox says what is new in each.
+  const conversation = await loadConversation(args.conversationId)
+  const chat =
+    conversation?.kind === "request" && conversation.channelId
+      ? await recentChat(conversation.channelId)
+      : ""
   const opening = `${SUMMARY_HEADER}\n\n${summary}${chat ? `\n\nThe latest messages in the chat, word for word:\n${chat}` : ""}`
 
   const next = context.epoch + 1
@@ -1182,7 +1197,7 @@ export async function compactAgentConversation(args: {
       })
       .where(
         and(
-          eq(schema.agentContext.channelId, args.channelId),
+          eq(schema.agentContext.conversationId, args.conversationId),
           eq(schema.agentContext.epoch, context.epoch)
         )
       )
@@ -1190,7 +1205,7 @@ export async function compactAgentConversation(args: {
     if (updated.length === 0) return false
     await appendSteps(tx, {
       workspaceId: args.workspaceId,
-      channelId: args.channelId,
+      conversationId: args.conversationId,
       epoch: next,
       runId: null,
       steps: [{ kind: "summary", message: { role: "user", content: opening } }],
@@ -1200,7 +1215,7 @@ export async function compactAgentConversation(args: {
   if (!moved) return null
   logger.info(
     {
-      channelId: args.channelId,
+      conversationId: args.conversationId,
       epoch: next,
       inTurn: Boolean(args.inTurn),
       promptTokens: context.promptTokens,
@@ -1241,7 +1256,10 @@ export type MemoryPassResult = {
 // memory tool an approval rule covers. Nothing it writes joins the history.
 export async function agentMemoryPass(args: {
   workspaceId: string
-  channelId: string
+  conversationId: string
+  agentId: string
+  // The channel the turn was about, on its facts and journal entry.
+  channelId: string | null
   // The turn it follows: the pass reads the history up to that turn's end.
   turnRunId: string
   // The person the turn was for, on its journal entry.
@@ -1256,16 +1274,15 @@ export async function agentMemoryPass(args: {
   record: (usage: RunStepRecord & { reasoningTokens: number }) => void
   abortSignal?: AbortSignal
 }): Promise<MemoryPassResult | null> {
-  const context = await loadAgentContext(args.workspaceId, args.channelId)
+  const context = await loadAgentContext(args.workspaceId, args.conversationId)
   if (!context.system) return null
-  const steps = await loadEpochSteps(args.channelId, context.epoch)
+  const steps = await loadEpochSteps(args.conversationId, context.epoch)
   const through = steps.filter((step) => step.runId === args.turnRunId).at(-1)
   if (!through) return null
   const history = steps.filter((step) => step.seq <= through.seq)
   if (openApprovals(history).length > 0) return null
 
-  const profile = await loadChannelProfile(args.channelId)
-  const shown = factsForMemoryPass(profile)
+  const shown = factsForMemoryPass(await loadAgentFacts(args.agentId))
   const tools = Object.fromEntries(
     Object.entries(args.tools).map(([name, t]) => [
       name,
@@ -1294,7 +1311,7 @@ export async function agentMemoryPass(args: {
       stopWhen: isStepCount(1),
       providerOptions: gatewayOptions(
         args.model,
-        conversationId(args.channelId, context.epoch)
+        gatewaySession(args.conversationId, context.epoch)
       ),
       ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
       runtimeContext: aiRuntimeContext(),
@@ -1305,7 +1322,7 @@ export async function agentMemoryPass(args: {
     args.record(usage)
     logger.info(
       {
-        channelId: args.channelId,
+        conversationId: args.conversationId,
         runId: args.turnRunId,
         inputTokens: usage.inputTokens,
         cacheRead: usage.cachedInputTokens,
@@ -1321,7 +1338,7 @@ export async function agentMemoryPass(args: {
   const changes = parseFactChanges(reply)
   if (!changes) {
     logger.warn(
-      { channelId: args.channelId, runId: args.turnRunId, calls },
+      { conversationId: args.conversationId, runId: args.turnRunId, calls },
       "Agent memory pass left no facts block"
     )
     return {
@@ -1335,25 +1352,25 @@ export async function agentMemoryPass(args: {
   }
   const applied = await applyFactChanges({
     workspaceId: args.workspaceId,
+    agentId: args.agentId,
     channelId: args.channelId,
     shown: shown.ids,
     changes,
   })
-  const agentId = await channelAgentId(args.channelId)
-  const journaled =
-    agentId && changes.journal?.trim()
-      ? await addJournalEntry({
-          workspaceId: args.workspaceId,
-          agentId,
-          channelId: args.channelId,
-          runId: args.turnRunId,
-          userId: args.askedById ?? null,
-          text: changes.journal,
-        })
-      : false
+  const journaled = changes.journal?.trim()
+    ? await addJournalEntry({
+        workspaceId: args.workspaceId,
+        agentId: args.agentId,
+        channelId: args.channelId,
+        conversationId: args.conversationId,
+        runId: args.turnRunId,
+        userId: args.askedById ?? null,
+        text: changes.journal,
+      })
+    : false
   logger.info(
     {
-      channelId: args.channelId,
+      conversationId: args.conversationId,
       runId: args.turnRunId,
       calls,
       ...applied,
@@ -1365,34 +1382,33 @@ export async function agentMemoryPass(args: {
 }
 
 // The agent's own history, including what compaction left out of its
-// context, in every channel it is in (reference/agents-and-chats.md,
-// decision 25). A turn is one run. A channel's steps from before the agent
-// joined it were another agent's and are not read.
+// context, in every conversation it has (reference/agents-and-chats.md,
+// decision 25). A turn is one run.
 export const readAgentHistoryTool = {
   read_agent_history: tool({
     description:
-      "Read your own earlier work word for word, in this channel and every other channel you are in, including everything from before a conversation was summarized: what woke you, what you sent, the tools you called and what they returned. With `turn` (a turn id from an earlier result), reads that turn in full, a page at a time (`page`, from 0, when the result says there is more). With `query`, finds earlier turns whose text contains it. With neither, lists your recent turns. Each result names its channel. `before` (a date like 2026-11-01) limits results to earlier turns.",
+      "Read your own earlier work word for word, in this conversation and every other one you have (your own, and each request), including everything from before a conversation was summarized: what woke you, what you sent, the tools you called and what they returned. With `turn` (a turn id from an earlier result), reads that turn in full, a page at a time (`page`, from 0, when the result says there is more). With `query`, finds earlier turns whose text contains it. With neither, lists your recent turns. Each result says where it was. `before` (a date like 2026-11-01) limits results to earlier turns.",
     inputSchema: z.object({
       turn: z.string().uuid().optional().describe("a turn id to read in full"),
       page: z.number().optional().describe("a page of a long turn, from 0"),
       query: z.string().min(2).max(200).optional(),
       before: z.string().optional().describe("ISO date or datetime"),
     }),
-    contextSchema: z.object({ channelId: z.string() }),
+    contextSchema: z.object({ agentId: z.string() }),
     execute: async ({ turn, page, query, before }, { context }) => {
-      const agentId = await channelAgentId(context.channelId)
-      // The agent's steps: those of a channel it is in, since it joined.
-      const mine = agentId
-        ? and(
-            eq(schema.channelAgent.agentId, agentId),
-            gte(schema.agentStep.createdAt, schema.channelAgent.createdAt)
-          )
-        : eq(schema.agentStep.channelId, context.channelId)
-      const inPlace = eq(
-        schema.channelAgent.channelId,
-        schema.agentStep.channelId
+      const mine = eq(schema.agentConversation.agentId, context.agentId)
+      const inConversation = eq(
+        schema.agentConversation.id,
+        schema.agentStep.conversationId
       )
-      const named = eq(schema.channel.id, schema.agentStep.channelId)
+      const named = eq(schema.channel.id, schema.agentConversation.channelId)
+      const where = (row: {
+        kind: "own" | "request"
+        channelName: string | null
+      }) =>
+        row.kind === "own"
+          ? "your own conversation"
+          : `a request in #${row.channelName ?? "a channel"}`
       if (turn) {
         // From the stored messages, not the search text, which clips each
         // tool input and result.
@@ -1401,14 +1417,16 @@ export const readAgentHistoryTool = {
             kind: schema.agentStep.kind,
             message: schema.agentStep.message,
             createdAt: schema.agentStep.createdAt,
+            conversationKind: schema.agentConversation.kind,
             channelName: schema.channel.name,
           })
           .from(schema.agentStep)
-          .innerJoin(schema.channelAgent, inPlace)
-          .innerJoin(schema.channel, named)
+          .innerJoin(schema.agentConversation, inConversation)
+          .leftJoin(schema.channel, named)
           .where(and(mine, eq(schema.agentStep.runId, turn)))
           .orderBy(asc(schema.agentStep.seq))
-        if (rows.length === 0) return { error: "No turn of yours has that id." }
+        const first = rows[0]
+        if (!first) return { error: "No turn of yours has that id." }
         const body = rows
           .map(
             (row) =>
@@ -1419,8 +1437,11 @@ export const readAgentHistoryTool = {
         const at = Math.min(Math.max(0, Math.floor(page ?? 0)), pages - 1)
         return {
           turn,
-          channel: rows[0]?.channelName ? `#${rows[0].channelName}` : null,
-          startedAt: rows[0]?.createdAt.toISOString(),
+          where: where({
+            kind: first.conversationKind,
+            channelName: first.channelName,
+          }),
+          startedAt: first.createdAt.toISOString(),
           page: at,
           pages,
           text: body.slice(
@@ -1436,11 +1457,12 @@ export const readAgentHistoryTool = {
           kind: schema.agentStep.kind,
           text: schema.agentStep.text,
           createdAt: schema.agentStep.createdAt,
+          conversationKind: schema.agentConversation.kind,
           channelName: schema.channel.name,
         })
         .from(schema.agentStep)
-        .innerJoin(schema.channelAgent, inPlace)
-        .innerJoin(schema.channel, named)
+        .innerJoin(schema.agentConversation, inConversation)
+        .leftJoin(schema.channel, named)
         .where(
           and(
             mine,
@@ -1461,7 +1483,10 @@ export const readAgentHistoryTool = {
       return {
         turns: rows.map((row) => ({
           turn: row.runId,
-          channel: row.channelName ? `#${row.channelName}` : null,
+          where: where({
+            kind: row.conversationKind,
+            channelName: row.channelName,
+          }),
           at: row.createdAt.toISOString(),
           kind: row.kind,
           text: clip(row.text, 600),

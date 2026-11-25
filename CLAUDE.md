@@ -257,12 +257,16 @@ is built: one memory per agent under every conversation
 (`agent_fact.archived_at`), a journal (`agent_journal`) the memory pass writes
 and every turn reads, `remember` and `recall`, and code sessions in the
 agent's channel reading it. What an agent knows is shared with the whole
-workspace, and a new private channel starts with no agent. It needs `db:push`,
-which first runs `agents-from-channels.ts` and `agent-facts-unscoped.ts` in
-`packages/db/src/scripts/`. Not built yet: the agent's own conversation and a
-conversation per request (step 3), so an agent's work in a channel still
-shares that channel's one conversation. The mock of the earlier design is
-`/prototype/agents`.
+workspace, and a new private channel starts with no agent. Step 3's backend
+is built: an agent has conversations (`agent_conversation`), one of its own
+(its hidden 15-minute check-in, Loops, events) and one per request a person
+makes, each with its own inbox, steps, context and queue
+(`conversation_id`), so requests run side by side; `agent_run.channel_id` is
+the channel a turn is about. It needs `db:push` with the workers stopped,
+which first runs `agents-from-channels.ts`, `agent-facts-unscoped.ts` and
+`agent-conversations.ts` in `packages/db/src/scripts/`. Not built yet: chats
+in the sidebar, New chat, and Loops stored on the agent. The mock of the
+earlier design is `/prototype/agents`.
 
 ### Conventions
 

@@ -1,12 +1,15 @@
 import { db, eq, schema } from "../index"
 
-// A channel agent's turn is a run with steps (reference/always-on-agents.md
-// §4). Its approvals continue through the agent's inbox, not a session run.
-export async function isChannelAgentRun(runId: string): Promise<boolean> {
+// An agent's own turn is a run in one of its conversations
+// (schemas/agent-conversations.ts). Its approvals continue through that
+// conversation's inbox, not a session run. The conversation, or null for a
+// session's run.
+export async function agentRunConversation(
+  runId: string
+): Promise<string | null> {
   const [row] = await db
-    .select({ id: schema.agentStep.id })
-    .from(schema.agentStep)
-    .where(eq(schema.agentStep.runId, runId))
-    .limit(1)
-  return Boolean(row)
+    .select({ conversationId: schema.agentRun.conversationId })
+    .from(schema.agentRun)
+    .where(eq(schema.agentRun.id, runId))
+  return row?.conversationId ?? null
 }

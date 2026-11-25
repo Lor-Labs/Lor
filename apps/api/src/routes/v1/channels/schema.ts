@@ -66,14 +66,12 @@ export const listChannelsResponseSchema = z.object({
 // mechanics as a project, minus the lifecycle row). `agentIds` picks the
 // channel's agents: left out, the workspace's first agent; empty, none
 // (reference/agents-and-chats.md).
-export const createChannelRequestSchema = insertChannelSchema
-  .omit({ agentCheckInAt: true })
-  .extend({
-    agentIds: agentIdsSchema.optional(),
-    type: z.enum(["text", "voice", "category"]).default("text"),
-    audience: z.enum(["workspace", "members"]).default("workspace"),
-    memberIds: z.array(z.string().uuid()).max(200).optional(),
-  })
+export const createChannelRequestSchema = insertChannelSchema.extend({
+  agentIds: agentIdsSchema.optional(),
+  type: z.enum(["text", "voice", "category"]).default("text"),
+  audience: z.enum(["workspace", "members"]).default("workspace"),
+  memberIds: z.array(z.string().uuid()).max(200).optional(),
+})
 
 export const createChannelResponseSchema = channelSchema
 

@@ -6,7 +6,6 @@ import {
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import type { Agent } from "@repo/db/schema"
 import { keyFunding } from "@repo/lor/byok"
-import { resetAgentConversation } from "@repo/lor/channel-agent"
 import { agentProfileLock } from "@repo/lor/channel-profile"
 import { syncAgentRole } from "@repo/lor/discord"
 import { isLorCreditModel } from "@repo/lor/model-catalog"
@@ -259,17 +258,8 @@ export const deleteAgent: AppRouteHandler<DeleteAgentRoute> = async (c) => {
   const agent = await workspaceAgent(workspace.id, agentId)
   if (!agent) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
 
-  const channelIds = await agentChannelIds(agent.id)
+  // Its channels are left with no agent, and its conversations go with it.
   await db.delete(schema.agent).where(eq(schema.agent.id, agent.id))
-  // Its channels are left with no agent. Whoever is added next starts a
-  // fresh conversation there.
-  await Promise.all(
-    channelIds.map((channelId) =>
-      resetAgentConversation(channelId).catch((err: unknown) =>
-        logger.warn({ err, channelId }, "Agent conversation reset failed")
-      )
-    )
-  )
   emitAgentsUpdated(workspace.id)
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }

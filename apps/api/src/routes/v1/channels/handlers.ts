@@ -23,7 +23,6 @@ import {
   threadReadState,
   user,
 } from "@repo/db/schema"
-import { ensureCheckInLoop } from "@repo/lor/check-in"
 import { channelCodeRepo, listRepoBranches } from "@repo/lor/code-repo"
 import {
   listLinearPickerIssues,
@@ -342,14 +341,7 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
   }
   const newChannel = created
 
-  // A channel with an agent comes with its check-in (always-on-agents.md,
-  // decision 7). Best-effort: the channel's next message makes it otherwise.
-  if (newChannel.agentIds.length > 0) {
-    emitAgentsUpdated(workspace.id)
-    await ensureCheckInLoop(newChannel.id).catch((err) =>
-      logger.warn({ err, channelId: newChannel.id }, "Check-in Loop failed")
-    )
-  }
+  if (newChannel.agentIds.length > 0) emitAgentsUpdated(workspace.id)
 
   // Teammates' sidebars refetch on this; the creator's dialog already
   // invalidates locally. The effective audience (container inheritance
@@ -648,7 +640,7 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
                 tx,
               })
             : wantedAgentIds.length === 0
-              ? { ok: true as const, agentIds: [], changed: false }
+              ? { ok: true as const, agentIds: [], changed: false, removed: [] }
               : { ok: false as const, reason: "not_found" as const }
       if (placed && !placed.ok) throw new AgentsNotPlaced(placed.reason)
       return { prior, updated, placed }
@@ -683,6 +675,7 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
       workspaceId: workspace.id,
       channelId,
       hasAgent: placed.agentIds.length > 0,
+      removed: placed.removed,
     })
   }
   const agentIds =

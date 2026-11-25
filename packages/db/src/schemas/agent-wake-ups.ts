@@ -7,6 +7,7 @@ import {
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core"
+import { agentConversation } from "./agent-conversations"
 import { agentRun } from "./agent-runs"
 import { channel } from "./channels"
 import { user } from "./users"
@@ -33,6 +34,10 @@ export const agentWakeUp = pgTable(
     channelId: uuid("channel_id")
       .notNull()
       .references(() => channel.id, { onDelete: "cascade" }),
+    // The conversation that set it, which it wakes.
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => agentConversation.id, { onDelete: "cascade" }),
     dueAt: timestamp("due_at").notNull(),
     // The agent's note to its future self.
     note: text("note").notNull(),

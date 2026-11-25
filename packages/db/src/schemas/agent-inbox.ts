@@ -8,6 +8,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { agentConversation } from "./agent-conversations"
 import { agentRun } from "./agent-runs"
 import { channel } from "./channels"
 import { loop } from "./loops"
@@ -27,6 +28,8 @@ export const agentInboxSourceEnum = pgEnum("agent_inbox_source", [
   "loop",
   // A wake-up the agent set for itself came due (source id: the wake-up).
   "wake_up",
+  // The agent's regular check-in on its own conversation (source id: when).
+  "check_in",
 ])
 
 // "wake" starts the channel agent's next turn. "wait" sits unread until
@@ -38,9 +41,10 @@ export const agentInboxStatusEnum = pgEnum("agent_inbox_status", [
   "read",
 ])
 
-// The channel agent's inbox: everything that can concern it lands here, and
-// nothing calls the agent directly. One worker per channel reads pending rows
-// in a batch and starts one turn for them.
+// An agent's inbox: everything that can concern it lands here, and nothing
+// calls the agent directly. Each of its conversations has its own
+// (reference/agents-and-chats.md, decision 28): a worker reads a
+// conversation's pending rows in a batch and starts one turn for them.
 export const agentInbox = pgTable(
   "agent_inbox",
   {
@@ -49,6 +53,11 @@ export const agentInbox = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => agentConversation.id, { onDelete: "cascade" }),
+    // The channel the item is about: where the message was written, or
+    // where a Loop, an event or a session reports.
     channelId: uuid("channel_id")
       .notNull()
       .references(() => channel.id, { onDelete: "cascade" }),
@@ -76,13 +85,13 @@ export const agentInbox = pgTable(
     }),
   },
   (table) => [
-    uniqueIndex("agent_inbox_channel_source_uidx").on(
-      table.channelId,
+    uniqueIndex("agent_inbox_conversation_source_uidx").on(
+      table.conversationId,
       table.source,
       table.sourceId
     ),
-    index("agent_inbox_channel_pending_idx")
-      .on(table.channelId, table.createdAt)
+    index("agent_inbox_conversation_pending_idx")
+      .on(table.conversationId, table.createdAt)
       .where(sql`status = 'pending'`),
     index("agent_inbox_delivery_idx")
       .on(table.deliveryId)

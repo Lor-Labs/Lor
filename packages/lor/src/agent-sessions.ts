@@ -25,7 +25,9 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 // Drift guard (see wire-guard.ts), minus deliberate omissions.
 type OffWireSessionColumns =
   // Overlap checks only (session-overlap.ts); up to a file list per session.
-  "uncommittedPaths"
+  | "uncommittedPaths"
+  // The agent's conversation that started it: the worker's routing only.
+  | "conversationId"
 const _realtimeAgentSessionMirrorsDbRow: Exact<
   Omit<SerializedDates<AgentSession>, OffWireSessionColumns>,
   RealtimeAgentSession
@@ -98,6 +100,8 @@ export type CreateSessionArgs = {
   triggerSubject?: string | null
   contextMessageIds?: string[]
   subscriberIds?: string[]
+  // Origin "agent": the agent's conversation that starts it.
+  conversationId?: string | null
 }
 
 // Anchor, session row, context and subscriptions in the caller's
@@ -129,6 +133,7 @@ export async function createSession(
       threadRootId: anchor.id,
       creatorId: args.creatorId,
       origin: args.origin,
+      conversationId: args.conversationId ?? null,
       mode: args.code ? "code" : "chat",
       harness: args.harness ?? "pi",
       repoFullName: args.code?.repoFullName ?? null,

@@ -12,7 +12,7 @@ import {
   sql,
 } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
-import { isChannelAgentRun } from "@repo/db/queries/channel-agent"
+import { agentRunConversation } from "@repo/db/queries/channel-agent"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { Approval, ClaudeCodeAnswers, Plan } from "@repo/db/schema"
 import { channelRoom } from "@repo/realtime-types/rooms"
@@ -350,9 +350,10 @@ export async function resolveApproval(
   // A channel agent's turn needs no posted resolution: its paused turn goes
   // on from the agent's inbox worker. Read before the decision commits, so a
   // failed read leaves the approval pending and retryable.
-  const agentTurn = row.approval.runId
-    ? await isChannelAgentRun(row.approval.runId)
-    : false
+  const agentConversationId = row.approval.runId
+    ? await agentRunConversation(row.approval.runId)
+    : null
+  const agentTurn = agentConversationId !== null
 
   // CAS: only one resolver wins; a second click reads as already resolved.
   // A paused turn waits on its whole set: resolutions of one run serialize on
@@ -491,8 +492,8 @@ export async function resolveApproval(
       "Approval resolution broadcast failed; continuing"
     )
   }
-  if (agentTurn && decided.complete) {
-    await flushAgentInbox(scope.channelId).catch((err) =>
+  if (agentConversationId && decided.complete) {
+    await flushAgentInbox(agentConversationId).catch((err) =>
       logger.error(
         { err, approvalId, runId: resolved.runId },
         "Agent inbox flush after approval failed"

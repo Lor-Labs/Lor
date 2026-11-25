@@ -33,10 +33,12 @@ export type LorRespondJobData = {
   resumeApprovalId?: string
 }
 
-// The channel agent (reference/always-on-agents.md §3, §8). A flush reads
-// the channel's pending inbox items and starts one turn for them; it has no
-// jobId, since the pending rows are the dedupe. A turn job runs that turn.
-// A compact job summarizes the conversation once it is large and idle.
+// The always-on agent (reference/always-on-agents.md §3, §8). A flush reads
+// the pending inbox items of one of its conversations
+// (reference/agents-and-chats.md, decision 28) and starts one turn for them;
+// it has no jobId, since the pending rows are the dedupe. A turn job runs
+// that turn. A compact job summarizes the conversation once it is large and
+// idle.
 export const AGENT_INBOX_QUEUE = "agent-inbox"
 export const AGENT_INBOX_FLUSH_JOB = "flush"
 export const AGENT_TURN_JOB = "turn"
@@ -44,10 +46,13 @@ export const AGENT_COMPACT_JOB = "compact"
 // A few seconds of quiet, so quick messages in a row become one turn.
 export const AGENT_INBOX_BATCH_MS = 3000
 
-export type AgentInboxFlushJobData = { channelId: string }
-export type AgentTurnJobData = { channelId: string; runId: string }
+export type AgentInboxFlushJobData = { conversationId: string }
+export type AgentTurnJobData = { conversationId: string; runId: string }
 // `afterRunId`: the turn whose end scheduled it; a later turn cancels it.
-export type AgentCompactJobData = { channelId: string; afterRunId: string }
+export type AgentCompactJobData = {
+  conversationId: string
+  afterRunId: string
+}
 
 // Headless triggered runs (the Act effect — reference/automation-primitives.md
 // §2). The run row carries provenance (triggerId/deliveryId); the job carries

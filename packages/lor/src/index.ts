@@ -136,9 +136,9 @@ import {
   sendMessageTool,
 } from "./channel-agent"
 import {
-  channelAgentLog,
-  channelProfileSection,
-  loadChannelProfile,
+  agentProfileSection,
+  agentLog as loadAgentLog,
+  loadAgentProfile,
 } from "./channel-profile"
 import { chatgptCredential, saveChatgptModels } from "./chatgpt-account"
 import {
@@ -2764,7 +2764,8 @@ async function respondImpl(
   await assertWorkspaceActive(ctx.workspaceId)
   // The agent in the channel: its own settings pay when no person's plan
   // does (reference/agents-and-chats.md).
-  const policyAgentId = await channelAgentId(ctx.channelId)
+  const policyAgentId =
+    ctx.agent?.agentId ?? (await channelAgentId(ctx.channelId))
   // Whose memory this run reads and adds to: the channel agent's, on its own
   // turns and in a session in its channel.
   const memoryAgentId =
@@ -3274,7 +3275,7 @@ async function respondImpl(
       ...(ctx.agent
         ? {
             send_message: { sendMessage: ctx.agent.sendMessage },
-            read_agent_history: { channelId: ctx.channelId },
+            read_agent_history: { agentId: ctx.agent.agentId },
             ...(ctx.agent.sessions
               ? {
                   start_session: { sessions: ctx.agent.sessions },
@@ -3494,6 +3495,8 @@ async function respondImpl(
           let calls = 0
           const memory = await agentMemoryPass({
             workspaceId: ctx.workspaceId,
+            conversationId: ctx.agent.conversation.id,
+            agentId: ctx.agent.agentId,
             channelId: ctx.channelId,
             turnRunId: run.runId,
             askedById: ctx.userId ?? null,
@@ -3529,7 +3532,7 @@ async function respondImpl(
           const agent = ctx.agent
           const compacted = await compactAgentConversation({
             workspaceId: ctx.workspaceId,
-            channelId: ctx.channelId,
+            conversationId: ctx.agent.conversation.id,
             model: agentModel,
             languageModel,
             assertCanInfer: run.assertCanInfer,
@@ -3558,19 +3561,24 @@ async function respondImpl(
           await Promise.all([
             loadWorkspaceInstructions(ctx.workspaceId),
             loadMentionRoster(ctx.workspaceId),
-            loadChannelProfile(ctx.channelId),
-            channelAgentLog(ctx.channelId),
-            policyAgentId ? journalSection(policyAgentId) : null,
+            // A request reads its channel's instructions; the agent's own
+            // conversation reads those of every channel it is in.
+            loadAgentProfile(
+              ctx.agent.agentId,
+              ctx.agent.conversation.kind === "request" ? ctx.channelId : null
+            ),
+            loadAgentLog(ctx.agent.agentId),
+            journalSection(ctx.agent.agentId),
           ])
         const turn = await runAgentTurn({
           workspaceId: ctx.workspaceId,
-          channelId: ctx.channelId,
+          conversationId: ctx.agent.conversation.id,
           agent: ctx.agent,
           run,
           model: agentModel,
           languageModel,
           byok: funding?.source === "byok",
-          instructions: `${buildSystemPrompt(connectorPromptLines, ANSWERING)}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}\n\n${channelAgentPromptSection(ctx.agent)}\n\n${channelProfileSection(profile)}${journal ? `\n\n${journal}` : ""}${agentLog ? `\n\n${agentLog}` : ""}${rosterText}`,
+          instructions: `${buildSystemPrompt(connectorPromptLines, ANSWERING)}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}\n\n${channelAgentPromptSection(ctx.agent)}\n\n${agentProfileSection(profile)}${journal ? `\n\n${journal}` : ""}${agentLog ? `\n\n${agentLog}` : ""}${rosterText}`,
           tools: agentTools,
           toolsContext,
           approval: agentApproval,

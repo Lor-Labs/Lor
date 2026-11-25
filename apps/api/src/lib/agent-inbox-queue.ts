@@ -35,11 +35,11 @@ function getAgentInboxQueue(): Queue<AgentInboxFlushJobData> {
   return agentInboxQueue
 }
 
-// The channel agent reads its inbox again: a decided approval set lets its
-// paused turn go on, and a trigger's event wakes it
+// One of an agent's conversations reads its inbox again: a decided approval
+// set lets its paused turn go on, and a trigger's event wakes it
 // (reference/always-on-agents.md §3, §5).
 export async function flushAgentInbox(
-  channelId: string,
+  conversationId: string,
   delayMs = 0
 ): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -55,7 +55,7 @@ export async function flushAgentInbox(
     await Promise.race([
       getAgentInboxQueue().add(
         AGENT_INBOX_FLUSH_JOB,
-        { channelId },
+        { conversationId },
         delayMs > 0 ? { delay: delayMs } : {}
       ),
       timeout,

@@ -52,6 +52,7 @@ const BEFORE_PUSH = [
   "src/scripts/ensure-extensions.ts",
   "src/scripts/agents-from-channels.ts",
   "src/scripts/agent-facts-unscoped.ts",
+  "src/scripts/agent-conversations.ts",
 ]
 
 let code = 0

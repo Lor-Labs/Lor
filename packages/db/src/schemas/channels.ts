@@ -72,10 +72,7 @@ export const channel = pgTable(
       { onDelete: "set null" }
     ),
 
-    // When the channel got its agent's check-in Loop: it is made once, so a
-    // check-in someone deleted stays deleted. Which agents are in a channel
-    // is `channel_agent` (schemas/agents.ts).
-    agentCheckInAt: timestamp("agent_check_in_at"),
+    // Which agents are in a channel is `channel_agent` (schemas/agents.ts).
 
     // ordering within a category or workspace
     position: integer("position").default(0).notNull(),

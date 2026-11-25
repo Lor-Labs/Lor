@@ -16,7 +16,7 @@ import {
 } from "@/lib/agent-inbox"
 import { logger } from "@/lib/logger"
 
-// The channel agents' queue: inbox flushes, turns and compactions
+// The agents' queue: inbox flushes, turns and compactions, per conversation
 // (reference/always-on-agents.md §3, §8).
 export function createAgentInboxProcessor(deps: AgentDeps) {
   return async (job: Job<AgentQueueData>, token?: string) => {
@@ -31,8 +31,10 @@ export function createAgentInboxProcessor(deps: AgentDeps) {
     if (job.name !== AGENT_INBOX_FLUSH_JOB) {
       throw new Error(`Unknown agent inbox job: ${job.name}`)
     }
-    const { channelId } = job.data as AgentInboxFlushJobData
-    const outcome = await flushAgentInbox(deps, channelId)
-    logger.info({ channelId, outcome }, "Agent inbox flushed")
+    const { conversationId } = job.data as AgentInboxFlushJobData
+    // A job queued before conversations carries a channel id: nothing to read.
+    if (!conversationId) return
+    const outcome = await flushAgentInbox(deps, conversationId)
+    logger.info({ conversationId, outcome }, "Agent inbox flushed")
   }
 }

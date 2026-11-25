@@ -1,4 +1,10 @@
 import { and, asc, db, eq, inArray, LOR_USER_ID, schema, sql } from "@repo/db"
+import {
+  conversationForMessage,
+  loadConversation,
+  ownConversation,
+} from "@repo/db/queries/agent-conversations"
+import { channelAgentId } from "@repo/db/queries/agents"
 import type { AgentInboxLane } from "@repo/db/schema"
 import { tool } from "ai"
 import { z } from "zod"
@@ -6,10 +12,12 @@ import type { DbTransaction } from "./retrieval"
 import type { ApprovalDecision, RunCounters, RunStepRecord } from "./run"
 import { formatSpeakerLine, sanitizeInlineLabel } from "./transcript"
 
-// The channel's always-on agent (reference/always-on-agents.md): one
-// agent and one chat per channel. Its turns start from the channel's inbox,
-// run on its own loop (agent-loop.ts), keep its own text private, and reach
-// the channel chat only through send_message.
+// The always-on agent (reference/always-on-agents.md). Its turns start from
+// an inbox, run on its own loop (agent-loop.ts), keep their own text private
+// and reach a channel's chat only through send_message. It has several
+// conversations (reference/agents-and-chats.md, decision 28): one of its
+// own, for what nobody asked for, and one per request a person makes, each
+// with its own inbox and queue.
 
 // A runaway guard on one batch, not a window: the agent can read the chat
 // itself for anything older.
@@ -24,6 +32,8 @@ export type SendMessageExecutor = (input: {
   // Starts a thread, with this name, on the message the turn answers; the
   // rest of the turn posts there.
   startThread?: string
+  // Another channel the agent is in, by name, to post in its chat instead.
+  channel?: string
 }) => Promise<
   // discordError: the chat lives in Discord and the post there failed.
   { messageId: string; discordError?: string } | { error: string }
@@ -61,12 +71,16 @@ export type CompleteAgentLoop = (input: {
   closingNote: string
 }) => Promise<{ ok: true } | { ok: false; error: string }>
 
-// Set on every run of an agent in a channel. The worker binds the hooks,
-// since it owns the run's lease and billing.
+// Set on every run of an agent. The worker binds the hooks, since it owns
+// the run's lease and billing.
 export type RunAgentContext = {
+  // The conversation the turn runs in (reference/agents-and-chats.md,
+  // decision 28): the agent's own, or one request.
+  conversation: { id: string; kind: "own" | "request" }
+  agentId: string
+  // The channel the turn is about, where send_message posts by default.
   channelName: string | null
-  // The agent's name and creature, and the other channels it is in
-  // (reference/agents-and-chats.md): each channel is its own conversation.
+  // The agent's name and creature, and the other channels it is in.
   agentName: string
   creature: string
   otherChannels: string[]
@@ -93,7 +107,7 @@ const sendMessageContext = z.object({
 export const sendMessageTool = {
   send_message: tool({
     description:
-      "Post a message in this channel's chat, where the team reads it (on a turn woken in a thread, in that thread). This is the only way anything you write reaches people: your other text stays in your private working notes. Use it to answer whoever addressed you, to report a result, or to ask someone for a decision. Write for the whole channel and mention a person as <@id> when the message is for them. Do not call it when you have nothing worth saying: ending your turn without sending is fine. Set startThread to answer in a new thread on the message you're answering instead of the chat, for a back-and-forth that would crowd the chat; the rest of your turn then posts in that thread.",
+      "Post a message in a channel's chat, where the team reads it: the channel this turn is about (on a turn woken in a thread, that thread), or another channel you are in when you name it with `channel`. This is the only way anything you write reaches people: your other text stays in your private working notes. Use it to answer whoever addressed you, to report a result, or to ask someone for a decision. Write for the whole channel and mention a person as <@id> when the message is for them. Do not call it when you have nothing worth saying: ending your turn without sending is fine. Set startThread to answer in a new thread on the message you're answering instead of the chat, for a back-and-forth that would crowd the chat; the rest of your turn then posts in that thread.",
     inputSchema: z.object({
       content: z
         .string()
@@ -108,12 +122,21 @@ export const sendMessageTool = {
         .describe(
           "a short name for a new thread to answer in, shown in Discord when the chat lives there"
         ),
+      channel: z
+        .string()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe(
+          "the name of another channel you are in, to post in its chat instead of where this turn is"
+        ),
     }),
     contextSchema: sendMessageContext,
-    execute: async ({ content, startThread }, { context }) => {
+    execute: async ({ content, startThread, channel }, { context }) => {
       const sent = await context.sendMessage({
         content,
         ...(startThread ? { startThread } : {}),
+        ...(channel ? { channel } : {}),
       })
       if ("error" in sent) return { ok: false as const, error: sent.error }
       const { messageId, discordError } = sent
@@ -238,89 +261,98 @@ export const agentLoopTools = {
   }),
 }
 
-// A channel whose agent was changed starts a fresh conversation: the next
-// turn freezes a new system prompt (the new agent's name, brief and facts)
-// and reads none of the old history, which stays stored
-// (reference/agents-and-chats.md).
-export async function resetAgentConversation(channelId: string): Promise<void> {
-  const now = new Date()
+// An agent taken out of a channel reads nothing more from it: what waited
+// unread from that channel is dropped. Its conversations and their history
+// stay stored (reference/agents-and-chats.md).
+export async function clearAgentChannelInbox(
+  agentId: string,
+  channelId: string
+): Promise<void> {
   await db
-    .update(schema.agentContext)
-    .set({
-      epoch: sql`${schema.agentContext.epoch} + 1`,
-      system: null,
-      toolsHash: null,
-      model: null,
-      reasoningCutSeq: null,
-      promptTokens: 0,
-      compactedAt: now,
-      notesThrough: now,
-    })
-    .where(eq(schema.agentContext.channelId, channelId))
+    .delete(schema.agentInbox)
+    .where(
+      and(
+        eq(schema.agentInbox.channelId, channelId),
+        eq(schema.agentInbox.status, "pending"),
+        inArray(
+          schema.agentInbox.conversationId,
+          db
+            .select({ id: schema.agentConversation.id })
+            .from(schema.agentConversation)
+            .where(eq(schema.agentConversation.agentId, agentId))
+        )
+      )
+    )
 }
 
 // Frozen with the system prompt per conversation, so a channel added to the
 // agent later shows here only after the next compaction.
 export function channelAgentPromptSection(agent: RunAgentContext): string {
-  const channel = agent.channelName ? `#${agent.channelName}` : "this channel"
+  const channel = agent.channelName ? `#${agent.channelName}` : "a channel"
   const name = sanitizeInlineLabel(agent.agentName)
   const others = agent.otherChannels.map(
     (other) => `#${sanitizeInlineLabel(other)}`
   )
-  const elsewhere =
-    others.length > 0
-      ? ` You are also in ${others.join(", ")}. Each channel is its own conversation, so what was said elsewhere is not in this history. Your facts and your journal are the same everywhere and carry it across: people expect you to be the same teammate, who knows here what they told you there.`
-      : ""
+  const own = agent.conversation.kind === "own"
+  const where = own
+    ? `This is your own conversation: nobody talks to you here. It is where you keep watch for the team, in ${[channel, ...others].join(", ")}. Your regular check-in, the Loops the team set for you, events from the tools they connected and the wake-ups you set all wake you here. When a person addresses you, that request runs in a conversation of its own, at the same time as this one, so its history is not in this one.`
+    : `This conversation is one request: someone addressed you in ${channel}, and this is the conversation about it. Other requests, and the watch you keep in your own conversation (your check-in, Loops and events), each run in a conversation of their own at the same time, so their history is not in this one.${others.length > 0 ? ` You are also in ${others.join(", ")}.` : ""}`
   return `## You are ${name}
 
-You are ${name}, an always-on agent for this team: one teammate the team shares, shown in the app as a little ${agent.creature.toLowerCase()}. The team picked your name and can change it. Lor is the app you live in: its mentions of you (<@${LOR_USER_ID}>) appear to people as @${name}. Call yourself ${name}. This conversation is ${channel}: people and you talk in its chat.${elsewhere}
+You are ${name}, an always-on agent for this team: one teammate the team shares, shown in the app as a little ${agent.creature.toLowerCase()}. The team picked your name and can change it. Lor is the app you live in: its mentions of you (<@${LOR_USER_ID}>) appear to people as @${name}. Call yourself ${name}. ${where} Your facts and your journal are the same in every conversation and carry things across: people expect you to be the same teammate, who knows here what they told you there.
 
-- Each turn starts from your inbox, after the time. "Since you last looked" lists what people said in the chat that was not for you: read it as context and do not answer it line by line. "What woke you" is what you are asked to handle now.
-- Nothing you write here reaches anyone. This conversation is your private working notes. To speak, call send_message: it posts in the channel's chat for everyone.
-- Answer the person who addressed you with one send_message. Mention them as <@id> only when the message needs their attention.
+- Each turn starts from your inbox, after the time. ${own ? '"Since you last looked" lists what people said in your channels that was not for you, channel by channel: read it as context, and step in only where something needs you or the team would want you to. "What woke you" is what you are asked to handle now.' : '"What woke you" is what you are asked to handle now. On a request\'s first turn, the chat before it is there as context: do not answer it line by line.'}
+- Nothing you write here reaches anyone. This conversation is your private working notes. To speak, call send_message: it posts in a channel's chat for everyone.${own ? " Each turn says which channel it is about; pass `channel` to post in another one you are in." : ""}
+- ${own ? "When you speak here nobody asked just now: lead with what matters." : "Answer the person who addressed you with one send_message."} Mention a person as <@id> only when the message needs their attention.
 - You may stay quiet. When nothing needs saying, end the turn without send_message.
 - To follow up later, call wake_up. Never promise to come back otherwise.
 - For a back-and-forth that would crowd the chat (debugging, planning, anything long), answer with send_message's startThread: it starts a thread on the message you're answering. Keep quick answers in the chat.
 - In a thread you're part of (one under your message, or one you started or posted in), every message wakes you. Answer when you're addressed or have something useful to add; otherwise end the turn without sending.
 - You have no computer of your own yet: you can't run code, use a shell or make files yourself. Work on code goes to code sessions: start_session hands a task to a coding agent on one repository, and you are woken with its report when its turn ends. Tell people in the chat what you started and, when it reports, what came of it. People review the branch and open pull requests; you and the sessions never do.
-- A Loop is a schedule the team set for you: when one fires you are woken with its standing instructions, and you do its work then. propose_loop drafts a new one when a person asks for recurring work.
+- A Loop is a schedule the team set for you: when one fires you are woken${own ? "" : " in your own conversation"} with its standing instructions, and you do its work then. propose_loop drafts a new one when a person asks for recurring work.
 - In the chat, never narrate what woke you: no "my Loop ran", "a scheduled check", "an event came in" or "my inbox". Say what you noticed and what it means, the way a teammate who was keeping an eye on things would.
 - When you are done, end the turn. Any closing note to yourself is one short line.
-- Your conversation is kept across turns, and summarized when it grows long. read_agent_history reads your earlier turns word for word, in this channel and your others, and read_thread reads the chat. Use them before guessing at something you no longer see.
+- Your conversation is kept across turns, and summarized when it grows long. read_agent_history reads your earlier turns word for word, in this conversation and your others, and read_thread reads a chat. Use them before guessing at something you no longer see.
 - Your memory is one, wherever you work: your facts, and a journal you add to after each turn. remember saves a fact now, and recall searches your whole journal and the facts you archived. Everything in it can be read by anyone on the team and used in any of your channels, so there is nothing to keep back between them.`
 }
 
-// A channel with no agent takes nothing into an inbox: nobody would read it
-// (reference/agents-and-chats.md). Callers read "not added" as nothing to do.
-async function channelHasAgent(channelId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ agentId: schema.channelAgent.agentId })
-    .from(schema.channelAgent)
-    .where(eq(schema.channelAgent.channelId, channelId))
-    .limit(1)
-  return Boolean(row)
-}
-
 // An item that is not a chat message: a session's report, an event a trigger
-// delivered, a Loop's fire or a wake-up.
+// delivered, a Loop's fire, a wake-up or the check-in. It goes to
+// `conversationId`, else to the own conversation of the channel's agent. The
+// conversation it was added to, or null: a channel with no agent takes
+// nothing in (nobody would read it), and a duplicate is dropped. Callers
+// read null as nothing to do.
 export async function addInboxNote(
   input: {
     workspaceId: string
+    // The channel the item is about, where the turn posts by default.
     channelId: string
-    source: "session" | "trigger" | "loop" | "wake_up"
+    conversationId?: string | null
+    source: "session" | "trigger" | "loop" | "wake_up" | "check_in"
     sourceId: string
     note: string
     lane: AgentInboxLane
     deliveryId?: string
     loopId?: string
   },
-  executor: Pick<DbTransaction, "insert"> = db
-): Promise<boolean> {
-  if (!(await channelHasAgent(input.channelId))) return false
+  executor: Pick<DbTransaction, "insert" | "select"> = db
+): Promise<string | null> {
+  let conversationId = input.conversationId ?? null
+  if (!conversationId) {
+    const agentId = await channelAgentId(input.channelId)
+    if (!agentId) return null
+    conversationId = (
+      await ownConversation(
+        { workspaceId: input.workspaceId, agentId },
+        executor
+      )
+    ).id
+  }
   const rows = await executor
     .insert(schema.agentInbox)
     .values({
       workspaceId: input.workspaceId,
+      conversationId,
       channelId: input.channelId,
       source: input.source,
       sourceId: input.sourceId,
@@ -331,7 +363,7 @@ export async function addInboxNote(
     })
     .onConflictDoNothing()
     .returning({ id: schema.agentInbox.id })
-  return rows.length > 0
+  return rows.length > 0 ? conversationId : null
 }
 
 const TRIGGER_NOTE_CHARS = 12_000
@@ -439,17 +471,47 @@ export async function agentInThread(threadRootId: string): Promise<boolean> {
   return Boolean(row)
 }
 
+// A chat message for the channel's agent. In the wake lane it was addressed
+// to the agent and goes to its request's conversation, a new one unless it
+// continues an earlier request. In the wait lane it is something the agent
+// may read later and goes to the agent's own conversation, for its check-in.
+// The conversation it was added to, or null (no agent here, or a duplicate).
 export async function addInboxMessage(input: {
   workspaceId: string
   channelId: string
   messageId: string
   lane: AgentInboxLane
-}): Promise<boolean> {
-  if (!(await channelHasAgent(input.channelId))) return false
+}): Promise<string | null> {
+  const agentId = await channelAgentId(input.channelId)
+  if (!agentId) return null
+  const place = { workspaceId: input.workspaceId, agentId }
+  let conversationId: string
+  if (input.lane === "wake") {
+    const [message] = await db
+      .select({
+        id: schema.message.id,
+        threadRootId: schema.message.threadRootId,
+        referencedMessageId: schema.message.referencedMessageId,
+        authorId: schema.message.authorId,
+      })
+      .from(schema.message)
+      .where(eq(schema.message.id, input.messageId))
+    if (!message) return null
+    conversationId = (
+      await conversationForMessage({
+        ...place,
+        channelId: input.channelId,
+        message,
+      })
+    ).id
+  } else {
+    conversationId = (await ownConversation(place)).id
+  }
   const rows = await db
     .insert(schema.agentInbox)
     .values({
       workspaceId: input.workspaceId,
+      conversationId,
       channelId: input.channelId,
       source: "message",
       sourceId: input.messageId,
@@ -458,7 +520,7 @@ export async function addInboxMessage(input: {
     })
     .onConflictDoNothing()
     .returning({ id: schema.agentInbox.id })
-  return rows.length > 0
+  return rows.length > 0 ? conversationId : null
 }
 
 export type InboxBatch = {
@@ -474,14 +536,20 @@ export type InboxBatch = {
   loop: { id: string; scheduledFor: Date | null } | null
   // The human thread the turn answers in; null for the chat.
   threadRootId: string | null
+  // The channel the turn is about, where it posts by default: the channel of
+  // what woke it.
+  channelId: string
 }
 
-// Everything pending for the channel, as the text of one wake line. Null when
-// nothing in the wake lane is pending: unread items alone never start a turn.
+// Everything pending for the conversation, as the text of one wake line.
+// Null when nothing in the wake lane is pending: unread items alone never
+// start a turn.
 export async function loadInboxBatch(
-  channelId: string,
+  conversationId: string,
   canStart?: (triggerMessageId: string | null) => Promise<boolean>
 ): Promise<InboxBatch | null> {
+  const conversation = await loadConversation(conversationId)
+  if (!conversation) return null
   // Payloads (notes, content, attachments) load only for the rows shown.
   const pending = await db
     .select({
@@ -490,12 +558,18 @@ export async function loadInboxBatch(
       deliveryId: schema.agentInbox.deliveryId,
       loopId: schema.agentInbox.loopId,
       sourceId: schema.agentInbox.sourceId,
+      channelId: schema.agentInbox.channelId,
+      channelName: schema.channel.name,
       messageId: schema.message.id,
       authorId: schema.message.authorId,
       authorIsBot: schema.user.isBot,
       threadRootId: schema.message.threadRootId,
     })
     .from(schema.agentInbox)
+    .innerJoin(
+      schema.channel,
+      eq(schema.agentInbox.channelId, schema.channel.id)
+    )
     .leftJoin(
       schema.message,
       eq(schema.agentInbox.messageId, schema.message.id)
@@ -503,7 +577,7 @@ export async function loadInboxBatch(
     .leftJoin(schema.user, eq(schema.message.authorId, schema.user.id))
     .where(
       and(
-        eq(schema.agentInbox.channelId, channelId),
+        eq(schema.agentInbox.conversationId, conversationId),
         eq(schema.agentInbox.status, "pending")
       )
     )
@@ -599,17 +673,37 @@ export async function loadInboxBatch(
       `${row.content ?? ""}${files.join("")}\n(message ${head.messageId}${reply ? `, replying to ${reply}` : ""})`
     )
   }
+  const hash = (name: string | null) =>
+    `#${sanitizeInlineLabel(name ?? "channel")}`
+  // The own conversation reads every channel the agent is in, so what waited
+  // is listed channel by channel.
+  const own = conversation.kind === "own"
+  const byChannel = new Map<string, typeof unread>()
+  for (const row of unread) {
+    byChannel.set(row.channelId, [...(byChannel.get(row.channelId) ?? []), row])
+  }
+  const unreadText = own
+    ? [...byChannel.values()]
+        .map(
+          (group) =>
+            `In ${hash(group[0]?.channelName ?? null)}:\n${group.map(line).join("\n")}`
+        )
+        .join("\n\n")
+    : unread.map(line).join("\n")
   const sections = [
     unread.length > 0 || omitted > 0
       ? `Since you last looked:${
           omitted > 0
             ? `\n(${omitted} earlier message${omitted === 1 ? " is" : "s are"} not shown here. Read the chat if you need them.)`
             : ""
-        }\n${unread.map(line).join("\n")}`
+        }\n${unreadText}`
       : null,
     place
       ? `What woke you, in the thread on message ${place}. Your send_message posts go to that thread this turn; read_thread reads all of it:\n${woke.map(line).join("\n")}`
       : `What woke you:\n${woke.map(line).join("\n")}`,
+    own
+      ? `This turn is about ${hash(wake.channelName)}: send_message posts there unless you name another channel.`
+      : null,
   ].filter((section): section is string => section !== null)
 
   return {
@@ -629,6 +723,7 @@ export async function loadInboxBatch(
         }
       : null,
     threadRootId: place,
+    channelId: wake.channelId,
   }
 }
 
@@ -696,13 +791,13 @@ export async function markInboxRead(
   if (claimed.length !== itemIds.length) throw new StaleInboxBatchError()
 }
 
-export async function hasPendingWake(channelId: string): Promise<boolean> {
+export async function hasPendingWake(conversationId: string): Promise<boolean> {
   const [row] = await db
     .select({ id: schema.agentInbox.id })
     .from(schema.agentInbox)
     .where(
       and(
-        eq(schema.agentInbox.channelId, channelId),
+        eq(schema.agentInbox.conversationId, conversationId),
         eq(schema.agentInbox.status, "pending"),
         eq(schema.agentInbox.lane, "wake")
       )

@@ -5,9 +5,12 @@ step from §9. Step 1 (agents apart from channels) is built, all on 11-24.
 Later that day Jacob set the end goal this doc now follows (decisions 22 to
 30): an agent owns everything it has, its knowledge is shared with the whole
 workspace, it has one memory across every place it works, and people's
-requests run side by side. Step 2 (memory) is built, also on 11-24: lint and
-type checks pass and it was run live on a throwaway database, except the
-code-session part, which is type-checked only. Steps 3 to 5 are design only. `db:push` on the shared databases is owed (§9, rollout). It
+requests run side by side. Step 2 (memory) and the backend of step 3
+(conversations) are built, also on 11-24: lint and type checks pass and both
+were run live on a throwaway database, except code sessions, which are
+type-checked only. Left in step 3: chats in the app's sidebar, New chat, and
+Loops stored on the agent. Steps 4 and 5 are design only.
+`db:push` on the shared databases is owed (§9, rollout). It
 changes the shape built under `always-on-agents.md` (LOR-169): where a step
 here has landed, this doc says what the code does.
 
@@ -449,21 +452,97 @@ Rollout, with the worker, API, web and mobile together:
 2. Restart the workers: the agent's tools and prompt changed.
 3. Once every environment has pushed, take the script out of `BEFORE_PUSH`.
 
-### Step 3: conversations
+### Step 3: conversations (backend built 2026-11-24)
 
-The agent's own conversation and a conversation per request land together
+The agent's own conversation and a conversation per request landed together
 (decision 28): moving everything to one conversation first would make ten
 people wait on one queue.
 
-- The inbox, the stored steps, the context and the run scope move from the
-  channel to the agent for work nobody asked for, and to the chat for what a
-  person asks.
-- The hidden check-in replaces every check-in Loop (decision 26).
-- A Loop moves to the agent, with an optional place to post (decision 27).
-  Events follow.
-- The chat record, the chat list in the sidebar, New chat, and a session's
-  report going back to the chat that started it.
-- The log and the open block become the agent's.
+- [x] **`agent_conversation`** (`packages/db/src/schemas/agent-conversations.ts`):
+  kind `own` (one per agent) or `request`, with the request's channel and
+  the message it started from. `agent_inbox`, `agent_step`, `agent_context`
+  and `agent_wake_up` are keyed by `conversation_id`, and an agent's own run
+  carries it (`agent_run.conversation_id`, which is also its scope, so one
+  turn at a time per conversation). `agent_run.channel_id` is the channel a
+  turn is about.
+- [x] **Which conversation a message goes to** (`conversationForMessage`):
+  in a thread, that thread's request; a reply to, or a thread under,
+  something the agent posted for a request continues it
+  (`agent_request_post`, which also holds the Loop and proposal cards a
+  request filed); anything else addressed to the agent starts a new request.
+  What was not addressed to it waits in its own conversation.
+- [x] **A request's first turn** reads the channel's latest chat, or the
+  thread so far, since its conversation has seen none of it.
+- [x] **The agent's own conversation** reads every channel it is in: what
+  waited is listed channel by channel, and each turn names the channel it is
+  about. `send_message` takes `channel` to post in another channel the agent
+  is in.
+- [x] **The hidden check-in** (decision 26, `sweepCheckIns` in
+  `apps/worker/src/lib/agent-inbox.ts`): every minute the sweep wakes an own
+  conversation that has something unread, last looked at least 15 minutes
+  ago and has nothing else about to wake it. The check-in Loop, its
+  per-channel marker (`channel.agent_check_in_at`) and the code that made it
+  are gone.
+- [x] **Loops, events and wake-ups:** a Loop's fire and a trigger's event
+  wake the own conversation of their channel's agent, in a turn about that
+  channel. A wake-up wakes the conversation that set it. A session's report
+  goes to the conversation that started the session
+  (`agent_session.conversation_id`).
+- [x] **The profile, the log and the open block are the agent's.** A request
+  reads its channel's instructions and the own conversation reads those of
+  every channel. The log and "Open right now" span every conversation, so
+  two requests see the same running sessions and pending approvals.
+  `read_agent_history` reads every conversation.
+- [x] **An agent taken out of a channel** reads nothing more from it: what
+  waited from that channel is dropped, and a turn about it is skipped. Its
+  conversations stay. Deleting an agent deletes its conversations.
+- [x] **The data move** (`packages/db/src/scripts/agent-conversations.ts`,
+  run before the push): each channel's conversation so far becomes a kept
+  conversation of the agent now in it, to read and not to continue; what
+  waited unread and pending wake-ups go to that agent's own conversation;
+  check-in Loops are deleted.
+- [x] **Checked** live on a throwaway database, with the worker running:
+  - two requests in one channel became two conversations, and a quick one
+    started and finished while a slow one was still running;
+  - a reply to the agent's answer, and a thread under another answer, each
+    went on in their own request;
+  - two unaddressed messages in two channels were read by one check-in
+    turn, which stayed quiet about one and posted in the other channel;
+  - a request's next turn began with the journal entries of the other
+    request and of the check-in;
+  - the move kept 4 channel conversations and deleted 4 check-in Loops, and
+    a second push changed nothing.
+- [ ] **Chats in the app:** a request that turns into work is not listed
+  anywhere yet. The sidebar's chat list, New chat with no channel, and a
+  view of what the agent did on its own are not built.
+- [ ] **Loops on the agent** (decision 27): a Loop is still stored on its
+  channel, which is where it posts by default. It follows the channel's
+  agent, not the agent. Events too.
+
+Deviations and gaps:
+
+- **A request starts cold.** It has the agent's facts, journal and the
+  channel's latest chat, not the agent's earlier turns in that channel. The
+  kept channel conversations are read with `read_agent_history`.
+- **Two mentions in a row are two requests.** Only a reply or a thread
+  continues one, so "@Inky fix X" then "@Inky also Y" run side by side.
+- **A turn of the own conversation is about one channel:** the one of what
+  woke it. Posting elsewhere takes `send_message`'s `channel`.
+- **"Working" is per channel.** With two turns about one channel, the first
+  to end clears it until the other's next beat, up to 10 seconds.
+- **Not run:** Discord inbound, triggers, wake-ups, approvals pausing a
+  turn, sessions reporting back, and compaction are type-checked only.
+- **The push asks an unrelated question** on a database with brain pages
+  (`brain_node_parent_scope_name_uq`, truncate or not). It did before this
+  step. The answer is no.
+
+Rollout, with API, realtime and worker together:
+
+1. Stop the workers. Queued agent jobs name a channel and are dropped, and a
+   turn running during the move would write to columns that are going away.
+2. `pnpm db:push`. It runs `agent-conversations.ts` first.
+3. Start the workers. Once every environment has pushed, take the script
+   out of `BEFORE_PUSH`.
 
 ### Step 4: places and tools
 

@@ -1,4 +1,5 @@
 export * from "./accounts"
+export * from "./agent-conversations"
 export * from "./agent-facts"
 export * from "./agent-inbox"
 export * from "./agent-journal"

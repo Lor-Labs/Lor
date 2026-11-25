@@ -18,7 +18,10 @@ import {
   schema,
   sql,
 } from "@repo/db"
-import { channelAgentId, loadChannelAgent } from "@repo/db/queries/agents"
+import {
+  loadConversation,
+  recordConversationPost,
+} from "@repo/db/queries/agent-conversations"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import {
@@ -27,6 +30,7 @@ import {
   personalRequestHarness,
 } from "@repo/db/queries/personal-accounts"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
+import type { AgentConversation } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { type ModelMessage, respond } from "@repo/lor"
 import { saveHandoffNote } from "@repo/lor/act-runs"
@@ -37,10 +41,12 @@ import {
   COMPACT_IDLE_MS,
   loadAgentContext,
   pausedAgentRun,
+  recentChat,
   turnHeader,
 } from "@repo/lor/agent-loop"
 import { journalNotes } from "@repo/lor/agent-memory"
 import {
+  addInboxNote,
   hasPendingWake,
   type InboxBatch,
   loadInboxBatch,
@@ -49,6 +55,7 @@ import {
   StaleInboxBatchError,
 } from "@repo/lor/channel-agent"
 import { openBlock, profileChangeNotes } from "@repo/lor/channel-profile"
+import { CHECK_IN_MINUTES, CHECK_IN_NOTE } from "@repo/lor/check-in"
 import {
   postAgentToDiscord,
   showDiscordTyping,
@@ -197,13 +204,13 @@ const TURN_JOB_OPTIONS = {
   removeOnFail: 100,
 }
 
-async function activeAgentRun(channelId: string): Promise<boolean> {
+async function activeAgentRun(conversationId: string): Promise<boolean> {
   const [row] = await db
     .select({ id: schema.agentRun.id })
     .from(schema.agentRun)
     .where(
       and(
-        eq(schema.agentRun.scopeKey, channelId),
+        eq(schema.agentRun.scopeKey, conversationId),
         inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
       )
     )
@@ -225,29 +232,73 @@ async function pendingApproval(runId: string): Promise<boolean> {
   return Boolean(row)
 }
 
-// The agent's journal entries from elsewhere since `since`, those about the
-// person who woke this turn first.
+// The agent's journal entries from its other conversations since `since`,
+// those about the person who woke this turn first.
 async function journalSince(
-  args: { channelId: string; triggerMessageId: string | null },
+  args: {
+    agentId: string
+    conversationId: string
+    triggerMessageId: string | null
+  },
   since: Date
 ): Promise<string | null> {
-  const [agentId, author] = await Promise.all([
-    channelAgentId(args.channelId),
-    args.triggerMessageId
-      ? db
-          .select({ id: schema.message.authorId })
-          .from(schema.message)
-          .where(eq(schema.message.id, args.triggerMessageId))
-          .then((rows) => rows[0]?.id ?? null)
-      : null,
-  ])
-  if (!agentId) return null
+  const author = args.triggerMessageId
+    ? await db
+        .select({ id: schema.message.authorId })
+        .from(schema.message)
+        .where(eq(schema.message.id, args.triggerMessageId))
+        .then((rows) => rows[0]?.id ?? null)
+    : null
   return journalNotes({
-    agentId,
-    here: { channelId: args.channelId },
+    agentId: args.agentId,
+    here: { conversationId: args.conversationId },
     since,
     people: author ? [author] : [],
   })
+}
+
+const THREAD_SO_FAR_MESSAGES = 30
+
+// What a request reads on its first turn, since its conversation has seen
+// none of it: the thread it was addressed in, or the channel's latest chat.
+async function requestBackdrop(
+  channel: { id: string; name: string | null },
+  threadRootId: string | null
+): Promise<string | null> {
+  if (!threadRootId) {
+    const chat = await recentChat(channel.id)
+    return chat
+      ? `The latest messages in #${channel.name ?? "channel"}'s chat, word for word, for context. What woke you is below:\n${chat}`
+      : null
+  }
+  const rows = await db
+    .select({
+      id: schema.message.id,
+      content: schema.message.content,
+      authorName: schema.user.name,
+    })
+    .from(schema.message)
+    .innerJoin(schema.user, eq(schema.user.id, schema.message.authorId))
+    .where(
+      and(
+        or(
+          eq(schema.message.id, threadRootId),
+          eq(schema.message.threadRootId, threadRootId)
+        ),
+        isNotNull(schema.message.content)
+      )
+    )
+    .orderBy(desc(schema.message.createdAt))
+    .limit(THREAD_SO_FAR_MESSAGES)
+  return rows.length > 0
+    ? `The thread so far, word for word, for context. What woke you is below:\n${rows
+        .reverse()
+        .map(
+          (row) =>
+            `${row.authorName}: ${row.content ?? ""}\n(message ${row.id})`
+        )
+        .join("\n")}`
+    : null
 }
 
 // notesThrough: the profile-notes cursor before this run's opening advanced
@@ -256,12 +307,14 @@ type TurnRun = { runId: string; notesThrough?: Date | null }
 
 class SupersededRunError extends Error {}
 
-// A turn's run holds the channel's scope (one active run per scope), and its
-// inbox step and the items it read commit with it. Null when another run
-// holds the scope.
+// A turn's run holds its conversation's scope (one active run per scope),
+// and its inbox step and the items it read commit with it. Null when another
+// run holds the scope.
 async function createTurnRun(args: {
   workspaceId: string
-  channelId: string
+  conversation: AgentConversation
+  // The channel the turn is about and posts in by default.
+  channel: { id: string; name: string | null }
   triggerMessageId: string | null
   batch: InboxBatch | null
   // The Loop whose fire this turn answers: its run in the Loop's history.
@@ -270,6 +323,8 @@ async function createTurnRun(args: {
   afterRunId?: string
   resumeFromRunId?: string
 }): Promise<TurnRun | null> {
+  const conversationId = args.conversation.id
+  const agentId = args.conversation.agentId
   const loop = args.loop ?? args.batch?.loop ?? null
   // The newest message carries what changed in the profile since the agent
   // last saw it and what is open now (reference/always-on-agents.md §4). A
@@ -278,17 +333,39 @@ async function createTurnRun(args: {
   let opening: string | null = null
   let notesThrough: Date | null | undefined
   if (args.batch) {
-    const context = await loadAgentContext(args.workspaceId, args.channelId)
+    const context = await loadAgentContext(args.workspaceId, conversationId)
     notesThrough = context.notesThrough
     const since = context.notesThrough ?? context.compactedAt ?? new Date(0)
-    const [notes, journal, open] = await Promise.all([
-      context.system ? profileChangeNotes(args.channelId, since) : null,
-      // What the agent noted in its other channels and sessions meanwhile:
-      // one journal under every conversation (agents-and-chats.md, d. 25).
-      context.system ? journalSince(args, since) : null,
-      openBlock(args.channelId),
+    const request = args.conversation.kind === "request"
+    const [notes, journal, open, backdrop] = await Promise.all([
+      context.system
+        ? profileChangeNotes(agentId, request ? args.channel.id : null, since)
+        : null,
+      // What the agent noted in its other conversations and sessions
+      // meanwhile: one journal under all of them (agents-and-chats.md, d. 25).
+      context.system
+        ? journalSince(
+            {
+              agentId,
+              conversationId,
+              triggerMessageId: args.triggerMessageId,
+            },
+            since
+          )
+        : null,
+      openBlock(agentId),
+      !context.system && request
+        ? requestBackdrop(args.channel, args.batch.threadRootId)
+        : null,
     ])
-    opening = [turnHeader(notedAt), notes, journal, open, args.batch.text]
+    opening = [
+      turnHeader(notedAt),
+      notes,
+      journal,
+      open,
+      backdrop,
+      args.batch.text,
+    ]
       .filter((part): part is string => Boolean(part))
       .join("\n\n")
   }
@@ -306,7 +383,7 @@ async function createTurnRun(args: {
               and(
                 eq(schema.agentRun.id, args.resumeFromRunId),
                 eq(schema.agentRun.workspaceId, args.workspaceId),
-                eq(schema.agentRun.channelId, args.channelId)
+                eq(schema.agentRun.conversationId, conversationId)
               )
             )
             .then((rows) => rows[0])
@@ -315,8 +392,9 @@ async function createTurnRun(args: {
         .insert(schema.agentRun)
         .values({
           workspaceId: args.workspaceId,
-          channelId: args.channelId,
-          scopeKey: args.channelId,
+          channelId: args.channel.id,
+          scopeKey: conversationId,
+          conversationId,
           threadRootId: null,
           messageId: null,
           triggerMessageId: args.triggerMessageId,
@@ -341,7 +419,7 @@ async function createTurnRun(args: {
           .from(schema.agentRun)
           .where(
             and(
-              eq(schema.agentRun.scopeKey, args.channelId),
+              eq(schema.agentRun.scopeKey, conversationId),
               ne(schema.agentRun.id, run.id)
             )
           )
@@ -350,10 +428,10 @@ async function createTurnRun(args: {
         if (previous?.id !== args.afterRunId) throw new SupersededRunError()
       }
       if (args.batch && opening) {
-        const context = await loadAgentContext(args.workspaceId, args.channelId)
+        const context = await loadAgentContext(args.workspaceId, conversationId)
         await appendSteps(tx, {
           workspaceId: args.workspaceId,
-          channelId: args.channelId,
+          conversationId,
           epoch: context.epoch,
           runId: run.id,
           steps: [
@@ -374,7 +452,7 @@ async function createTurnRun(args: {
         await tx
           .update(schema.agentContext)
           .set({ notesThrough: notedAt })
-          .where(eq(schema.agentContext.channelId, args.channelId))
+          .where(eq(schema.agentContext.conversationId, conversationId))
         await markInboxRead(tx, args.batch.itemIds, run.id)
         // The delivery log points at the turn that read each event.
         if (args.batch.deliveryIds.length > 0) {
@@ -383,6 +461,17 @@ async function createTurnRun(args: {
             .set({ runId: run.id })
             .where(inArray(schema.triggerDelivery.id, args.batch.deliveryIds))
         }
+        await tx
+          .update(schema.agentConversation)
+          .set({
+            lastActivityAt: notedAt,
+            // A turn of the own conversation reads everything unread, so it
+            // is a check-in whatever woke it.
+            ...(args.conversation.kind === "own"
+              ? { checkedInAt: notedAt }
+              : {}),
+          })
+          .where(eq(schema.agentConversation.id, conversationId))
       }
       return { runId: run.id, notesThrough }
     })
@@ -419,40 +508,54 @@ async function turnFunded(
   return subscription || (await checkCredits(workspaceId)).allowed
 }
 
-// Reads one channel's inbox: starts a turn for its pending items, or lets a
-// turn paused on approvals go on once they are all decided. One turn at a
-// time; whatever arrives meanwhile waits for the next flush
-// (reference/always-on-agents.md §3).
-export async function flushAgentInbox(
-  deps: AgentDeps,
-  channelId: string
-): Promise<InboxFlushOutcome> {
-  const [channel] = await db
+// A channel a turn of this agent can be about: a text channel, not
+// archived, that the agent is in. Null otherwise (it was taken out since
+// the item was queued).
+async function turnChannel(agentId: string, channelId: string) {
+  const [row] = await db
     .select({
       id: schema.channel.id,
+      name: schema.channel.name,
       workspaceId: schema.channel.workspaceId,
-      type: schema.channel.type,
       archivedAt: schema.channel.archivedAt,
     })
     .from(schema.channel)
-    .where(eq(schema.channel.id, channelId))
-  // A channel with no agent wakes nothing: its items wait unread, and are
-  // read if an agent is added later.
-  const agent =
-    channel?.workspaceId && channel.type === "text" && !channel.archivedAt
-      ? await loadChannelAgent(channelId)
-      : null
-  if (!channel?.workspaceId || !agent) return "skipped"
-  const workspaceId = channel.workspaceId
+    .innerJoin(
+      schema.channelAgent,
+      and(
+        eq(schema.channelAgent.channelId, schema.channel.id),
+        eq(schema.channelAgent.agentId, agentId)
+      )
+    )
+    .where(
+      and(eq(schema.channel.id, channelId), eq(schema.channel.type, "text"))
+    )
+  return row && !row.archivedAt ? row : null
+}
+
+// Reads one conversation's inbox: starts a turn for its pending items, or
+// lets a turn paused on approvals go on once they are all decided. One turn
+// at a time in a conversation; whatever arrives meanwhile waits for the next
+// flush (reference/always-on-agents.md §3). Other conversations of the same
+// agent run beside it (reference/agents-and-chats.md, decision 28).
+export async function flushAgentInbox(
+  deps: AgentDeps,
+  conversationId: string
+): Promise<InboxFlushOutcome> {
+  const conversation = await loadConversation(conversationId)
+  if (!conversation) return "skipped"
+  const workspaceId = conversation.workspaceId
+  const agentId = conversation.agentId
   if ((await workspaceBetaAccess(workspaceId)).state !== "active") {
     return "skipped"
   }
-  if (await activeAgentRun(channelId)) return "busy"
-  const paused = await pausedAgentRun(channelId)
+  if (await activeAgentRun(conversationId)) return "busy"
+  const paused = await pausedAgentRun(conversationId)
   if (paused) {
     if (await pendingApproval(paused.runId)) return "busy"
     const [pausedRun] = await db
       .select({
+        channelId: schema.agentRun.channelId,
         triggerMessageId: schema.agentRun.triggerMessageId,
         loopId: schema.agentRun.loopId,
         funding: schema.agentRun.inferenceFunding,
@@ -461,18 +564,24 @@ export async function flushAgentInbox(
       })
       .from(schema.agentRun)
       .where(eq(schema.agentRun.id, paused.runId))
+    const channel = pausedRun
+      ? await turnChannel(agentId, pausedRun.channelId)
+      : null
+    // The agent left the channel the paused turn was about: it can't go on.
+    if (!pausedRun || !channel) return "skipped"
+    const channelId = channel.id
     // The continuation copies the pause's account and funding; it would meet
     // the same gate in runAgentTurn. Unfunded: say so once and keep the pause.
-    const funded = await turnFunded(workspaceId, agent.id, {
-      harnessAccount: pausedRun?.harnessAccount ?? null,
-      funding: pausedRun?.funding ?? null,
-      requestUserId: pausedRun?.harnessAccount
+    const funded = await turnFunded(workspaceId, agentId, {
+      harnessAccount: pausedRun.harnessAccount ?? null,
+      funding: pausedRun.funding ?? null,
+      requestUserId: pausedRun.harnessAccount
         ? pausedRun.harnessAccount.userId
-        : pausedRun?.loopId || pausedRun?.hasDeliveries
+        : pausedRun.loopId || pausedRun.hasDeliveries
           ? null
           : await channelRequestUserId(
               channelId,
-              pausedRun?.triggerMessageId ?? null
+              pausedRun.triggerMessageId ?? null
             ),
     })
     if (!funded) {
@@ -506,16 +615,17 @@ export async function flushAgentInbox(
     }
     const turnRun = await createTurnRun({
       workspaceId,
-      channelId,
-      triggerMessageId: pausedRun?.triggerMessageId ?? null,
+      conversation,
+      channel,
+      triggerMessageId: pausedRun.triggerMessageId ?? null,
       resumeFromRunId: paused.runId,
       batch: null,
-      loop: pausedRun?.loopId
+      loop: pausedRun.loopId
         ? { id: pausedRun.loopId, scheduledFor: null }
         : null,
     })
     if (!turnRun) return "busy"
-    await enqueueTurn(deps, workspaceId, channelId, turnRun)
+    await enqueueTurn(deps, workspaceId, conversationId, turnRun)
     return "resumed"
   }
 
@@ -525,7 +635,7 @@ export async function flushAgentInbox(
     .set({ status: "read", readAt: new Date() })
     .where(
       and(
-        eq(schema.agentInbox.channelId, channelId),
+        eq(schema.agentInbox.conversationId, conversationId),
         eq(schema.agentInbox.status, "pending"),
         isNotNull(schema.agentInbox.loopId),
         notInArray(
@@ -537,19 +647,38 @@ export async function flushAgentInbox(
         )
       )
     )
-  let batch = await loadInboxBatch(channelId)
+  let batch = await loadInboxBatch(conversationId)
   if (!batch) return "empty"
+  const channel = await turnChannel(agentId, batch.channelId)
+  if (!channel) {
+    // What woke it is about a channel the agent is no longer in: nothing it
+    // could say there. The items are read without a turn, and the rest of
+    // the inbox gets its own flush.
+    await db
+      .update(schema.agentInbox)
+      .set({ status: "read", readAt: new Date() })
+      .where(
+        and(
+          eq(schema.agentInbox.conversationId, conversationId),
+          eq(schema.agentInbox.channelId, batch.channelId),
+          eq(schema.agentInbox.status, "pending")
+        )
+      )
+    await flushIfWaiting(deps, conversationId)
+    return "skipped"
+  }
+  const channelId = channel.id
   const directUserId =
     batch.loop || batch.deliveryIds.length
       ? null
       : await channelRequestUserId(channelId, batch.triggerMessageId)
   const subscription = directUserId
     ? (await personalRequestHarness(workspaceId, directUserId)) !== "pi"
-    : await autonomousUsesSubscription(agent.id)
+    : await autonomousUsesSubscription(agentId)
   // Unfunded API work stays pending; personal subscriptions can still run.
   if (!subscription && !(await checkCredits(workspaceId)).allowed) {
     const harnessByUser = new Map<string, Promise<string>>()
-    batch = await loadInboxBatch(channelId, async (messageId) => {
+    batch = await loadInboxBatch(conversationId, async (messageId) => {
       const userId = await channelRequestUserId(channelId, messageId)
       if (!userId) return false
       let harness = harnessByUser.get(userId)
@@ -559,26 +688,27 @@ export async function flushAgentInbox(
       }
       return (await harness) !== "pi"
     })
-    if (!batch) return "skipped"
+    if (!batch || batch.channelId !== channelId) return "skipped"
   }
   const turnRun = await createTurnRun({
     workspaceId,
-    channelId,
+    conversation,
+    channel,
     triggerMessageId: batch.triggerMessageId,
     batch,
   })
   if (!turnRun) return "busy"
-  await enqueueTurn(deps, workspaceId, channelId, turnRun)
+  await enqueueTurn(deps, workspaceId, conversationId, turnRun)
   return "started"
 }
 
 async function enqueueTurn(
   deps: AgentDeps,
   workspaceId: string,
-  channelId: string,
+  conversationId: string,
   turnRun: TurnRun
 ) {
-  const data: AgentTurnJobData = { channelId, runId: turnRun.runId }
+  const data: AgentTurnJobData = { conversationId, runId: turnRun.runId }
   notifyWorkspaceActivity(workspaceId)
   try {
     await deps.queue.add(AGENT_TURN_JOB, data, {
@@ -603,13 +733,13 @@ async function enqueueTurn(
         await tx
           .update(schema.agentContext)
           .set({ notesThrough: turnRun.notesThrough })
-          .where(eq(schema.agentContext.channelId, channelId))
+          .where(eq(schema.agentContext.conversationId, conversationId))
       }
     })
     await deps.queue
       .add(
         AGENT_INBOX_FLUSH_JOB,
-        { channelId: data.channelId },
+        { conversationId },
         { delay: 30_000, removeOnComplete: true, removeOnFail: 100 }
       )
       .catch(() => {})
@@ -620,7 +750,7 @@ async function enqueueTurn(
 // A turn that stops before it reads its batch: the items go back to pending
 // and its opening is dropped, so a later flush reads them again. The notes
 // cursor goes back to the previous opening's time.
-async function returnBatchToPending(channelId: string, runId: string) {
+async function returnBatchToPending(conversationId: string, runId: string) {
   await db.transaction(async (tx) => {
     const opened = await tx
       .delete(schema.agentStep)
@@ -641,7 +771,7 @@ async function returnBatchToPending(channelId: string, runId: string) {
       .from(schema.agentStep)
       .where(
         and(
-          eq(schema.agentStep.channelId, channelId),
+          eq(schema.agentStep.conversationId, conversationId),
           eq(schema.agentStep.kind, "inbox")
         )
       )
@@ -650,16 +780,16 @@ async function returnBatchToPending(channelId: string, runId: string) {
     await tx
       .update(schema.agentContext)
       .set({ notesThrough: previous?.createdAt ?? null })
-      .where(eq(schema.agentContext.channelId, channelId))
+      .where(eq(schema.agentContext.conversationId, conversationId))
   })
 }
 
-async function flushIfWaiting(deps: AgentDeps, channelId: string) {
-  if (!(await hasPendingWake(channelId))) return
+async function flushIfWaiting(deps: AgentDeps, conversationId: string) {
+  if (!(await hasPendingWake(conversationId))) return
   await deps.queue
-    .add(AGENT_INBOX_FLUSH_JOB, { channelId })
+    .add(AGENT_INBOX_FLUSH_JOB, { conversationId })
     .catch((err) =>
-      logger.error({ err, channelId }, "Agent inbox re-flush failed")
+      logger.error({ err, conversationId }, "Agent inbox re-flush failed")
     )
 }
 
@@ -739,22 +869,41 @@ async function setUpBy(runId: string): Promise<string | null> {
 function agentProposeLoop(
   deps: AgentDeps,
   channel: { id: string; workspaceId: string },
-  askerId: string | null
+  askerId: string | null,
+  conversationId: string
 ): ProposeLoopExecutor {
-  return (input) => {
+  return async (input) => {
     if (!askerId) {
       throw new LoopProposalError(
         "Nobody asked for this in the chat just now. Propose a Loop only when a person asks for one."
       )
     }
-    return createLoopCard(deps, {
+    const made = await createLoopCard(deps, {
       workspaceId: channel.workspaceId,
       channelId: channel.id,
       threadRootId: null,
       creatorId: askerId,
       ...input,
     })
+    const [loop] = await db
+      .select({ cardMessageId: schema.loop.cardMessageId })
+      .from(schema.loop)
+      .where(eq(schema.loop.id, made.loopId))
+    await linkCard(loop?.cardMessageId, conversationId)
+    return made
   }
+}
+
+// A card the agent filed in the chat belongs to the request that filed it:
+// a reply or a decision in the card's thread goes on with that request.
+async function linkCard(
+  cardMessageId: string | null | undefined,
+  conversationId: string
+) {
+  if (!cardMessageId) return
+  await recordConversationPost(cardMessageId, conversationId).catch((err) =>
+    logger.warn({ err, cardMessageId }, "Agent card link failed")
+  )
 }
 
 // propose_workspace_change for the agent: the card posts in the chat (never
@@ -763,40 +912,45 @@ function agentProposeLoop(
 function agentProposeChange(
   deps: AgentDeps,
   channel: { id: string; workspaceId: string },
-  askerId: string | null
+  askerId: string | null,
+  conversationId: string
 ): ProposeChangeExecutor {
-  return (input) => {
+  return async (input) => {
     if (!askerId) {
       throw new ProposalRefusedError(
         "Nobody asked for this in the chat just now. Propose workspace changes only when a person asks for them."
       )
     }
-    return createProposalCard(deps, {
+    const made = await createProposalCard(deps, {
       workspaceId: channel.workspaceId,
       channelId: channel.id,
       threadRootId: null,
       ...input,
     })
+    const [proposal] = await db
+      .select({ cardMessageId: schema.changeProposal.cardMessageId })
+      .from(schema.changeProposal)
+      .where(eq(schema.changeProposal.id, made.proposalId))
+    await linkCard(proposal?.cardMessageId, conversationId)
+    return made
   }
 }
 
-// A channel with the agent in it, for a turn or a compaction: the agent's
-// name, face and model, and the other channels it is in. Null when the
-// channel has no agent (it was removed since the turn was queued).
-async function loadAgentChannel(channelId: string) {
-  const [[row], agent] = await Promise.all([
+// What a turn or a compaction runs with: its conversation, the agent, the
+// channel the turn is about and the other channels the agent is in. Null
+// when the conversation is gone or the agent is no longer in that channel
+// (it was taken out since the turn was queued).
+async function loadTurnPlace(conversationId: string, channelId: string) {
+  const conversation = await loadConversation(conversationId)
+  if (!conversation) return null
+  const [[agent], channel] = await Promise.all([
     db
-      .select({
-        id: schema.channel.id,
-        name: schema.channel.name,
-        workspaceId: schema.channel.workspaceId,
-        archivedAt: schema.channel.archivedAt,
-      })
-      .from(schema.channel)
-      .where(eq(schema.channel.id, channelId)),
-    loadChannelAgent(channelId),
+      .select()
+      .from(schema.agent)
+      .where(eq(schema.agent.id, conversation.agentId)),
+    turnChannel(conversation.agentId, channelId),
   ])
-  if (!row?.workspaceId || !agent) return null
+  if (!agent || !channel?.workspaceId) return null
   // Every other channel it is in, private ones too: what an agent knows is
   // shared (reference/agents-and-chats.md, decision 22).
   const others = await db
@@ -815,8 +969,9 @@ async function loadAgentChannel(channelId: string) {
     )
     .orderBy(asc(schema.channel.createdAt))
   return {
-    ...row,
-    workspaceId: row.workspaceId,
+    ...channel,
+    workspaceId: channel.workspaceId,
+    conversation,
     agentId: agent.id,
     agentModel: agent.model,
     agentName: agent.name,
@@ -832,6 +987,8 @@ function agentHooks(
     id: string
     name: string | null
     workspaceId: string
+    conversation: AgentConversation
+    agentId: string
     agentName: string
     agentCreature: string
     otherChannels: string[]
@@ -851,7 +1008,10 @@ function agentHooks(
     threadRootId: null,
   }
 ): RunAgentContext {
+  const conversation = channel.conversation
   return {
+    conversation: { id: conversation.id, kind: conversation.kind },
+    agentId: channel.agentId,
     channelName: channel.name,
     agentName: channel.agentName,
     creature: isCreatureId(channel.agentCreature)
@@ -861,6 +1021,8 @@ function agentHooks(
     mode,
     sessions: agentSessionExecutors(deps, {
       workspaceId: channel.workspaceId,
+      agentId: channel.agentId,
+      conversationId: conversation.id,
       channelId: channel.id,
       channelName: channel.name,
       askerId: turn.askerId,
@@ -870,16 +1032,50 @@ function agentHooks(
     completeLoop: agentCompleteLoop(deps, channel.id),
     wakeUps: agentWakeUpExecutors(deps, {
       workspaceId: channel.workspaceId,
+      agentId: channel.agentId,
+      conversationId: conversation.id,
       channelId: channel.id,
       runId: execution.runId,
       askedById: turn.askerId,
     }),
-    sendMessage: async ({ content, startThread }) => {
+    sendMessage: async ({ content, startThread, channel: named }) => {
+      // Another channel the agent is in, when it names one.
+      const wanted = named?.trim().replace(/^#/, "").toLowerCase()
+      const elsewhere =
+        wanted && wanted !== (channel.name ?? "").toLowerCase()
+          ? await db
+              .select({ id: schema.channel.id })
+              .from(schema.channelAgent)
+              .innerJoin(
+                schema.channel,
+                eq(schema.channel.id, schema.channelAgent.channelId)
+              )
+              .where(
+                and(
+                  eq(schema.channelAgent.agentId, channel.agentId),
+                  eq(schema.channel.type, "text"),
+                  sql`lower(${schema.channel.name}) = ${wanted}`
+                )
+              )
+              .then((rows) => rows[0] ?? null)
+          : undefined
+      if (elsewhere === null) {
+        return {
+          error: `You are not in a channel named #${wanted}. You can post in ${[channel.name, ...channel.otherChannels].map((name) => `#${name}`).join(", ")}.`,
+        }
+      }
+      if (elsewhere && startThread) {
+        return {
+          error:
+            "startThread answers the message that woke this turn, so it can't be used with another channel.",
+        }
+      }
+      const targetId = elsewhere?.id ?? channel.id
       // The channel may be archived while the model works.
       const [open] = await db
         .select({ archivedAt: schema.channel.archivedAt })
         .from(schema.channel)
-        .where(eq(schema.channel.id, channel.id))
+        .where(eq(schema.channel.id, targetId))
       if (!open || open.archivedAt) {
         return { error: "This channel is archived, so nothing more can post." }
       }
@@ -923,20 +1119,30 @@ function agentHooks(
           }
         )
       }
+      // A post in another channel goes to its chat, not to this turn's
+      // thread.
+      const threadRootId = elsewhere ? null : turn.threadRootId
       const posted = await postLorMessage(deps, {
-        channelId: channel.id,
+        channelId: targetId,
         content,
         type: "agent_post",
-        ...(turn.threadRootId ? { threadRootId: turn.threadRootId } : {}),
+        ...(threadRootId ? { threadRootId } : {}),
       })
       onSent()
+      // A reply to, or a thread under, a request's post in the chat goes on
+      // with that request.
+      if (conversation.kind === "request" && !threadRootId) {
+        await recordConversationPost(posted.messageId, conversation.id).catch(
+          (err) => logger.warn({ err }, "Agent post link failed")
+        )
+      }
       // A chat that lives in Discord gets the post there too (decision 22).
       // A thread Discord refused to start leaves the post in its chat.
       const discordError = await postAgentToDiscord({
-        channelId: channel.id,
+        channelId: targetId,
         messageId: posted.messageId,
         content,
-        threadRootId: threadNote ? null : turn.threadRootId,
+        threadRootId: threadNote ? null : threadRootId,
       }).then(
         () => undefined,
         (err: unknown) => {
@@ -956,21 +1162,25 @@ function agentHooks(
   }
 }
 
-// One turn of a channel's agent, on its own loop (agent-loop.ts).
+// One turn of an agent in one of its conversations, on its own loop
+// (agent-loop.ts).
 export async function runAgentTurnJob(
   deps: AgentDeps,
   job: Job<AgentTurnJobData>,
   token: string | undefined
 ): Promise<void> {
-  const { runId, channelId } = job.data
+  const { runId, conversationId } = job.data
+  // A job queued before conversations names a channel: its run is gone.
+  if (!conversationId) return
   const execution = await claim(job, token, runId)
   if (!execution) return
   const writer = execution.writer
   // A failed read releases the claim, so the run stays eligible for recovery.
-  const [channel, [run]] = await Promise.all([
-    loadAgentChannel(channelId),
-    db
+  const loaded = await (async () => {
+    const [run] = await db
       .select({
+        // The channel the turn is about, set when its run was made.
+        channelId: schema.agentRun.channelId,
         triggerMessageId: schema.agentRun.triggerMessageId,
         triggerAuthorId: schema.message.authorId,
         triggerContent: schema.message.content,
@@ -989,12 +1199,17 @@ export async function runAgentTurnJob(
         schema.message,
         eq(schema.message.id, schema.agentRun.triggerMessageId)
       )
-      .where(eq(schema.agentRun.id, runId)),
-  ]).catch((err: unknown) => {
+      .where(eq(schema.agentRun.id, runId))
+    return {
+      run,
+      channel: run ? await loadTurnPlace(conversationId, run.channelId) : null,
+    }
+  })().catch((err: unknown) => {
     execution.stop()
     throw err
   })
-  if (!channel) {
+  const { run, channel } = loaded
+  if (!run || !channel) {
     await writer.transition("failed", { stopReason: "error" })
     execution.stop()
     return
@@ -1006,6 +1221,7 @@ export async function runAgentTurnJob(
     return
   }
   const workspaceId = channel.workspaceId
+  const channelId = channel.id
   const userId = run?.triggerAuthorId ?? undefined
   const directUserId =
     run?.loopId || run?.hasDeliveries
@@ -1081,7 +1297,7 @@ export async function runAgentTurnJob(
       // Said only to a person who asked: events and Loops would repeat it.
       if (userId) await notice(OUT_OF_CREDITS_MESSAGE)
       // The inbox sweep wakes the agent again once credits are back.
-      await returnBatchToPending(channelId, runId)
+      await returnBatchToPending(conversationId, runId)
       await writer.transition("failed", { stopReason: "out_of_credits" })
       execution.stop()
       await settleLoop("failed", "out_of_credits")
@@ -1116,17 +1332,19 @@ export async function runAgentTurnJob(
         : {}),
       ...(userId ? { userId } : {}),
       autonomous: !requestUserId,
-      aiSessionId: channelId,
+      aiSessionId: conversationId,
       turn: { model: channel.agentModel ?? AGENT_DEFAULT_MODEL },
       proposeLoop: agentProposeLoop(
         deps,
         { id: channelId, workspaceId },
-        userId ?? null
+        userId ?? null,
+        conversationId
       ),
       proposeChange: agentProposeChange(
         deps,
         { id: channelId, workspaceId },
-        userId ?? null
+        userId ?? null,
+        conversationId
       ),
     }
     const result = await respond(
@@ -1279,7 +1497,7 @@ export async function runAgentTurnJob(
     }
 
     // The next turn may start now; the memory pass doesn't hold it up.
-    await flushIfWaiting(deps, channelId)
+    await flushIfWaiting(deps, conversationId)
 
     // The memory pass (decision 11), on the turn's warm cache. It replaces
     // write-back for the agent; a turn paused on approvals has its pass when
@@ -1326,7 +1544,7 @@ export async function runAgentTurnJob(
       await deps.queue
         .add(
           AGENT_COMPACT_JOB,
-          { channelId, afterRunId: runId },
+          { conversationId, afterRunId: runId },
           {
             delay: COMPACT_IDLE_MS,
             jobId: `compact-${runId}`,
@@ -1357,7 +1575,7 @@ export async function runAgentTurnJob(
     await settleLoop("failed", "error")
     notifyWorkspaceActivity(workspaceId)
   }
-  await flushIfWaiting(deps, channelId)
+  await flushIfWaiting(deps, conversationId)
 }
 
 // Summarizes a large conversation once it has been idle, while the cache is
@@ -1368,28 +1586,32 @@ export async function runAgentCompactJob(
   job: Job<AgentCompactJobData>,
   token: string | undefined
 ): Promise<void> {
-  const { channelId, afterRunId } = job.data
+  const { conversationId, afterRunId } = job.data
+  if (!conversationId) return
   const [latest] = await db
-    .select({ id: schema.agentRun.id })
+    .select({ id: schema.agentRun.id, channelId: schema.agentRun.channelId })
     .from(schema.agentRun)
-    .where(eq(schema.agentRun.scopeKey, channelId))
+    .where(eq(schema.agentRun.scopeKey, conversationId))
     .orderBy(desc(schema.agentRun.createdAt))
     .limit(1)
   // A later turn ran: it schedules its own compaction.
   if (latest?.id !== afterRunId) return
-  if (await hasPendingWake(channelId)) return
-  if (await pausedAgentRun(channelId)) return
-  if (await wakeUpDueSoon(channelId)) return
-  const channel = await loadAgentChannel(channelId)
+  if (await hasPendingWake(conversationId)) return
+  if (await pausedAgentRun(conversationId)) return
+  if (await wakeUpDueSoon(conversationId)) return
+  // The summary's run is about the channel its last turn was about.
+  const channel = await loadTurnPlace(conversationId, latest.channelId)
   if (!channel) return
   const workspaceId = channel.workspaceId
-  const context = await loadAgentContext(workspaceId, channelId)
+  const channelId = channel.id
+  const context = await loadAgentContext(workspaceId, conversationId)
   if (context.promptTokens < COMPACT_AT_TOKENS) return
 
   const runId = (
     await createTurnRun({
       workspaceId,
-      channelId,
+      conversation: channel.conversation,
+      channel,
       triggerMessageId: null,
       batch: null,
       afterRunId,
@@ -1405,7 +1627,7 @@ export async function runAgentCompactJob(
         channelId,
         conversation: [],
         runId,
-        aiSessionId: channelId,
+        aiSessionId: conversationId,
         // The epoch's model, so the summary reads its cache.
         turn: {
           model: context.model ?? channel.agentModel ?? AGENT_DEFAULT_MODEL,
@@ -1414,12 +1636,14 @@ export async function runAgentCompactJob(
         proposeLoop: agentProposeLoop(
           deps,
           { id: channelId, workspaceId },
-          null
+          null,
+          conversationId
         ),
         proposeChange: agentProposeChange(
           deps,
           { id: channelId, workspaceId },
-          null
+          null,
+          conversationId
         ),
         agent: agentHooks(
           deps,
@@ -1436,17 +1660,17 @@ export async function runAgentCompactJob(
       execution.handle
     )
     logger.info(
-      { channelId, compacted: result.agent?.compacted ?? false },
+      { conversationId, compacted: result.agent?.compacted ?? false },
       "Agent compaction run ended"
     )
     await execution.writer.transition("complete", { stopReason: "completed" })
   } catch (err) {
-    logger.error({ err, channelId }, "Agent compaction failed")
+    logger.error({ err, conversationId }, "Agent compaction failed")
     await execution.writer.transition("failed", { stopReason: "error" })
   } finally {
     execution.stop()
   }
-  await flushIfWaiting(deps, channelId)
+  await flushIfWaiting(deps, conversationId)
 }
 
 // Wakes a flush may have missed: a wake item still unread a minute after it
@@ -1459,35 +1683,29 @@ export async function sweepStrandedInboxes(
   queue: Queue<AgentQueueData>
 ): Promise<number> {
   const before = new Date(Date.now() - STRANDED_AFTER_MS)
-  // Random order: channels a flush keeps skipping (out of credits, beta
+  // Random order: conversations a flush keeps skipping (out of credits, beta
   // ended) can't hold every slot sweep after sweep.
   const unread = await db
-    .select({ channelId: schema.agentInbox.channelId })
+    .select({ conversationId: schema.agentInbox.conversationId })
     .from(schema.agentInbox)
-    .innerJoin(
-      schema.channel,
-      eq(schema.channel.id, schema.agentInbox.channelId)
-    )
     .where(
       and(
         eq(schema.agentInbox.status, "pending"),
         eq(schema.agentInbox.lane, "wake"),
-        lt(schema.agentInbox.createdAt, before),
-        eq(schema.channel.type, "text"),
-        isNull(schema.channel.archivedAt),
-        sql`exists (select 1 from channel_agent a where a.channel_id = ${schema.channel.id})`
+        lt(schema.agentInbox.createdAt, before)
       )
     )
-    .groupBy(schema.agentInbox.channelId)
+    .groupBy(schema.agentInbox.conversationId)
     .orderBy(sql`random()`)
     .limit(200)
-  // The channel's latest run paused on approvals none of which is pending.
-  const decided = await db.execute<{ channel_id: string }>(sql`
-    select r.scope_key::text as channel_id
+  // The conversation's latest run paused on approvals none of which is
+  // pending.
+  const decided = await db.execute<{ conversation_id: string }>(sql`
+    select r.conversation_id::text as conversation_id
     from agent_run r
     join channel c on c.id = r.channel_id and c.archived_at is null
     where r.stop_reason = 'awaiting_approval'
-      and r.scope_key = r.channel_id
+      and r.conversation_id is not null
       and r.updated_at < now() - interval '1 minute'
       and not exists (
         select 1 from approval a where a.run_id = r.id and a.status = 'pending'
@@ -1504,15 +1722,15 @@ export async function sweepStrandedInboxes(
     order by random()
     limit 200
   `)
-  const channelIds = new Set([
-    ...unread.map((row) => row.channelId),
-    ...decided.map((row) => row.channel_id),
+  const conversationIds = new Set([
+    ...unread.map((row) => row.conversationId),
+    ...decided.map((row) => row.conversation_id),
   ])
-  for (const channelId of channelIds) {
+  for (const conversationId of conversationIds) {
     await queue
-      .add(AGENT_INBOX_FLUSH_JOB, { channelId })
+      .add(AGENT_INBOX_FLUSH_JOB, { conversationId })
       .catch((err) =>
-        logger.error({ err, channelId }, "Stranded inbox flush failed")
+        logger.error({ err, conversationId }, "Stranded inbox flush failed")
       )
   }
   // A turn run that read its batch, or went on after a pause on approvals,
@@ -1522,12 +1740,13 @@ export async function sweepStrandedInboxes(
   const unclaimed = await db
     .select({
       runId: schema.agentRun.id,
-      channelId: schema.agentRun.channelId,
+      conversationId: schema.agentRun.conversationId,
     })
     .from(schema.agentRun)
     .where(
       and(
         eq(schema.agentRun.state, "queued"),
+        isNotNull(schema.agentRun.conversationId),
         isNull(schema.agentRun.deadlineAt),
         lt(schema.agentRun.createdAt, before),
         or(
@@ -1538,15 +1757,92 @@ export async function sweepStrandedInboxes(
     )
     .limit(200)
   for (const run of unclaimed) {
+    if (!run.conversationId) continue
     await queue
       .add(
         AGENT_TURN_JOB,
-        { channelId: run.channelId, runId: run.runId },
+        { conversationId: run.conversationId, runId: run.runId },
         { ...TURN_JOB_OPTIONS, jobId: run.runId }
       )
       .catch((err) =>
         logger.error({ err, runId: run.runId }, "Stranded turn enqueue failed")
       )
   }
-  return channelIds.size + unclaimed.length
+  return conversationIds.size + unclaimed.length
+}
+
+// The agent's check-in (reference/agents-and-chats.md, decision 26): wakes
+// an agent's own conversation when something waits unread in a channel it is
+// in, its last look was at least CHECK_IN_MINUTES ago and nothing else is
+// about to wake it (a wake waiting, a turn running, a wake-up due soon). A
+// quiet agent is never woken.
+export async function sweepCheckIns(
+  queue: Queue<AgentQueueData>
+): Promise<number> {
+  const due = await db.execute<{
+    conversation_id: string
+    workspace_id: string
+    channel_id: string | null
+  }>(sql`
+    select c.id as conversation_id, c.workspace_id,
+      -- The channel of the oldest unread item the agent can still answer in.
+      (
+        select i.channel_id from agent_inbox i
+        join channel ch on ch.id = i.channel_id and ch.archived_at is null
+        join channel_agent ca
+          on ca.channel_id = i.channel_id and ca.agent_id = c.agent_id
+        where i.conversation_id = c.id and i.status = 'pending'
+          and i.lane = 'wait'
+        order by i.created_at
+        limit 1
+      ) as channel_id
+    from agent_conversation c
+    where c.kind = 'own'
+      and (
+        c.checked_in_at is null
+        or c.checked_in_at < now() - make_interval(mins => ${CHECK_IN_MINUTES})
+      )
+      and exists (
+        select 1 from agent_inbox i
+        where i.conversation_id = c.id and i.status = 'pending'
+          and i.lane = 'wait'
+      )
+      and not exists (
+        select 1 from agent_inbox i
+        where i.conversation_id = c.id and i.status = 'pending'
+          and i.lane = 'wake'
+      )
+      and not exists (
+        select 1 from agent_run r
+        where r.scope_key = c.id
+          and r.state in ('queued', 'working', 'finalizing')
+      )
+    order by random()
+    limit 200
+  `)
+  // One note per agent per window, however many sweeps see it due.
+  const window = Math.floor(Date.now() / (CHECK_IN_MINUTES * 60_000))
+  let woken = 0
+  for (const row of due) {
+    if (!row.channel_id) continue
+    if (await wakeUpDueSoon(row.conversation_id)) continue
+    const added = await addInboxNote({
+      workspaceId: row.workspace_id,
+      channelId: row.channel_id,
+      conversationId: row.conversation_id,
+      source: "check_in",
+      sourceId: String(window),
+      note: CHECK_IN_NOTE,
+      lane: "wake",
+    }).catch((err) => {
+      logger.error({ err, row }, "Agent check-in failed")
+      return null
+    })
+    if (!added) continue
+    woken += 1
+    await queue
+      .add(AGENT_INBOX_FLUSH_JOB, { conversationId: row.conversation_id })
+      .catch((err) => logger.error({ err, row }, "Agent check-in flush failed"))
+  }
+  return woken
 }

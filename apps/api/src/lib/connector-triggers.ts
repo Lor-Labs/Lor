@@ -390,6 +390,7 @@ async function deliverToInbox(input: {
         outcome = "wake"
       }
     }
+    // An event goes to the own conversation of the channel's agent.
     const added = await addInboxNote(
       {
         workspaceId: input.workspaceId,
@@ -405,7 +406,7 @@ async function deliverToInbox(input: {
     return { added, lane, outcome }
   })
   if (added && lane === "wake") {
-    await flushAgentInbox(input.channelId, AGENT_INBOX_BATCH_MS)
+    await flushAgentInbox(added, AGENT_INBOX_BATCH_MS)
   }
   return outcome
 }

@@ -6,6 +6,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { agentConversation } from "./agent-conversations"
 import { agentRun } from "./agent-runs"
 import { agentSession } from "./agent-sessions"
 import { agent } from "./agents"
@@ -37,6 +38,11 @@ export const agentJournal = pgTable(
     sessionId: uuid("session_id").references(() => agentSession.id, {
       onDelete: "set null",
     }),
+    // The agent's conversation it was written in; null for a session's.
+    conversationId: uuid("conversation_id").references(
+      () => agentConversation.id,
+      { onDelete: "set null" }
+    ),
     // The turn it describes: one entry per turn.
     runId: uuid("run_id").references(() => agentRun.id, {
       onDelete: "set null",

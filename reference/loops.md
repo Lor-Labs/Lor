@@ -647,3 +647,11 @@ apps/realtime `services/lor.ts`, card rendering in web
   the overview panel only for a channel with no agent. No schema change: a
   loop still belongs to its channel, and its fires wake that channel's
   agent.
+- 2026-11-24 — Conversations (`agents-and-chats.md`, step 3, decisions 26
+  to 28). A fire on a text channel wakes the own conversation of that
+  channel's agent, in a turn about the Loop's channel
+  (`fireLoopToInbox`), no longer the channel's one conversation. The
+  check-in is not a Loop any more: `kind = 'check_in'` rows are deleted by
+  the data move and a leftover one does nothing; the agent's check-in is
+  `sweepCheckIns` in `apps/worker/src/lib/agent-inbox.ts`. A Loop is still
+  stored on its channel.

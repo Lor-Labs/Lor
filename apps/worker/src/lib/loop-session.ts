@@ -22,7 +22,6 @@ import {
   loopFireSourceId,
   loopInboxNote,
 } from "@repo/lor/channel-agent"
-import { checkInInboxNote } from "@repo/lor/check-in"
 import { describeLoopSchedule } from "@repo/lor/loop-schedule"
 import { toRealtimeLoop } from "@repo/lor/loops"
 import { channelEventContent } from "@repo/messaging"
@@ -63,22 +62,11 @@ export function emitLoopUpdated(
 
 type FireOutcome = "started" | "queued" | "skipped" | "failed"
 
-// A Loop's fire on a text channel wakes the channel's agent through its inbox
-// (reference/always-on-agents.md §3): the turn that reads it is the fire's
-// run. A fire of the same Loop still unread or running skips this one.
-async function checkInNeeded(channelId: string): Promise<boolean> {
-  const pendingIn = (lane: "wait" | "wake") => sql`exists (
-    select 1 from ${schema.agentInbox}
-    where ${schema.agentInbox.channelId} = ${channelId}
-      and ${schema.agentInbox.status} = 'pending'
-      and ${schema.agentInbox.lane} = ${lane}
-  )`
-  const [row] = await db.execute<{ needed: boolean }>(
-    sql`select ${pendingIn("wait")} and not ${pendingIn("wake")} as needed`
-  )
-  return Boolean(row?.needed)
-}
-
+// A Loop's fire on a text channel wakes that channel's agent in its own
+// conversation, through its inbox (reference/always-on-agents.md §3,
+// agents-and-chats.md decision 27): the turn that reads it is the fire's run
+// and is about the Loop's channel. A fire of the same Loop still unread or
+// running skips this one.
 async function fireLoopToInbox(
   deps: { agentInboxQueue: Queue<AgentQueueData> },
   loop: Loop,
@@ -86,7 +74,7 @@ async function fireLoopToInbox(
 ): Promise<FireOutcome> {
   const [[waiting], [running], [creator]] = await Promise.all([
     db
-      .select({ id: schema.agentInbox.id })
+      .select({ conversationId: schema.agentInbox.conversationId })
       .from(schema.agentInbox)
       .where(
         and(
@@ -117,41 +105,31 @@ async function fireLoopToInbox(
   // not strand it.
   if (waiting) {
     await deps.agentInboxQueue.add(AGENT_INBOX_FLUSH_JOB, {
-      channelId: loop.channelId,
+      conversationId: waiting.conversationId,
     })
     return "skipped"
   }
-  // The check-in wakes the agent only for what waits unread, and not when a
-  // turn is coming anyway (decision 7).
-  if (loop.kind === "check_in" && !(await checkInNeeded(loop.channelId))) {
-    return "skipped"
-  }
-  const added = await addInboxNote({
+  // The check-in is the agent's own now (lib/agent-inbox.ts sweepCheckIns):
+  // a check-in Loop left from before does nothing.
+  if (loop.kind === "check_in") return "skipped"
+  const conversationId = await addInboxNote({
     workspaceId: loop.workspaceId,
     channelId: loop.channelId,
     source: "loop",
     sourceId: loopFireSourceId(loop.id, scheduledFor),
     loopId: loop.id,
     lane: "wake",
-    note:
-      loop.kind === "check_in"
-        ? checkInInboxNote(loop.instructions)
-        : loopInboxNote({
-            loopId: loop.id,
-            name: loop.name,
-            scheduleDescription: describeLoopSchedule(
-              loop.schedule,
-              loop.timezone
-            ),
-            instructions: loop.instructions,
-            endCondition: loop.endCondition,
-            setUpBy: creator?.name ?? null,
-          }),
+    note: loopInboxNote({
+      loopId: loop.id,
+      name: loop.name,
+      scheduleDescription: describeLoopSchedule(loop.schedule, loop.timezone),
+      instructions: loop.instructions,
+      endCondition: loop.endCondition,
+      setUpBy: creator?.name ?? null,
+    }),
   })
-  if (!added) return "skipped"
-  await deps.agentInboxQueue.add(AGENT_INBOX_FLUSH_JOB, {
-    channelId: loop.channelId,
-  })
+  if (!conversationId) return "skipped"
+  await deps.agentInboxQueue.add(AGENT_INBOX_FLUSH_JOB, { conversationId })
   return "queued"
 }
 

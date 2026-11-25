@@ -1,7 +1,6 @@
 import { and, db, eq, inArray, schema, sql } from "@repo/db"
 import { defaultAgentFor, MAX_CHANNEL_AGENTS } from "@repo/db/queries/agents"
-import { resetAgentConversation } from "@repo/lor/channel-agent"
-import { ensureCheckInLoop } from "@repo/lor/check-in"
+import { clearAgentChannelInbox } from "@repo/lor/channel-agent"
 import { syncAgentRole } from "@repo/lor/discord"
 import { workspaceRoom } from "@repo/realtime-types"
 import { getEmitter } from "@/lib/bot-messages"
@@ -64,7 +63,8 @@ export async function placeDefaultAgent(
 }
 
 export type SetChannelAgentsResult =
-  | { ok: true; agentIds: string[]; changed: boolean }
+  // `removed`: the agents taken out of the channel.
+  | { ok: true; agentIds: string[]; changed: boolean; removed: string[] }
   | { ok: false; reason: "not_found" | "too_many" }
 
 // Sets which agents are in a text channel: any of the workspace's, in any
@@ -136,27 +136,30 @@ export async function setChannelAgents(input: {
       ok: true,
       agentIds: wanted,
       changed: removed.length > 0 || added.length > 0,
+      removed,
     }
   }
   return input.tx ? apply(input.tx) : db.transaction(apply)
 }
 
-// After a channel's agents changed: a different agent starts a fresh
-// conversation there, the channel gets its check-in with its first agent,
+// After a channel's agents changed: an agent taken out reads nothing more
+// from the channel (its conversations stay, and a new agent's are its own),
 // and a linked Discord channel's @mention role follows the new name.
 export async function afterChannelAgentsChanged(input: {
   workspaceId: string
   channelId: string
   hasAgent: boolean
+  removed: string[]
 }) {
   const { channelId } = input
-  await resetAgentConversation(channelId).catch((err: unknown) =>
-    logger.warn({ err, channelId }, "Agent conversation reset failed")
+  await Promise.all(
+    input.removed.map((agentId) =>
+      clearAgentChannelInbox(agentId, channelId).catch((err: unknown) =>
+        logger.warn({ err, channelId }, "Agent inbox clear failed")
+      )
+    )
   )
   if (input.hasAgent) {
-    await ensureCheckInLoop(channelId).catch((err: unknown) =>
-      logger.warn({ err, channelId }, "Check-in Loop failed")
-    )
     void syncAgentRole(channelId).catch((err: unknown) =>
       logger.warn({ err, channelId }, "Discord agent role rename failed")
     )

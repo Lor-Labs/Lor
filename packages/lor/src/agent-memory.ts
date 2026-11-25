@@ -12,6 +12,7 @@ import {
   ne,
   or,
   schema,
+  sql,
 } from "@repo/db"
 import { tool } from "ai"
 import { z } from "zod"
@@ -39,6 +40,8 @@ type JournalRow = {
   text: string
   channelName: string | null
   sessionTitle: string | null
+  // Written in the agent's own conversation, which spans its channels.
+  own: boolean | null
   userId: string | null
   userName: string | null
 }
@@ -48,6 +51,7 @@ const journalSelect = {
   text: schema.agentJournal.text,
   channelName: schema.channel.name,
   sessionTitle: schema.agentSession.title,
+  own: sql<boolean | null>`${schema.agentConversation.kind} = 'own'`,
   userId: schema.agentJournal.userId,
   userName: schema.user.name,
 }
@@ -64,6 +68,10 @@ function journalQuery() {
       schema.agentSession,
       eq(schema.agentSession.id, schema.agentJournal.sessionId)
     )
+    .leftJoin(
+      schema.agentConversation,
+      eq(schema.agentConversation.id, schema.agentJournal.conversationId)
+    )
     .leftJoin(schema.user, eq(schema.user.id, schema.agentJournal.userId))
 }
 
@@ -78,9 +86,11 @@ function journalLine(row: JournalRow): string {
     : null
   const where = row.sessionTitle
     ? `in the code session "${sanitizeInlineLabel(row.sessionTitle)}"${channel ? ` (${channel})` : ""}`
-    : channel
-      ? `in ${channel}`
-      : "elsewhere"
+    : row.own
+      ? "keeping watch on your own"
+      : channel
+        ? `in ${channel}`
+        : "elsewhere"
   const who = row.userName ? ` with ${sanitizeInlineLabel(row.userName)}` : ""
   return `- ${minute(row.at)} UTC, ${where}${who}: ${row.text}`
 }
@@ -91,6 +101,8 @@ export async function addJournalEntry(input: {
   agentId: string
   channelId: string | null
   sessionId?: string | null
+  // The agent's conversation it was written in.
+  conversationId?: string | null
   runId?: string | null
   // The person the turn was for; null for work nobody asked for.
   userId?: string | null
@@ -109,6 +121,7 @@ export async function addJournalEntry(input: {
         agentId: input.agentId,
         channelId: input.channelId,
         sessionId: input.sessionId ?? null,
+        conversationId: input.conversationId ?? null,
         runId: input.runId ?? null,
         userId: input.userId ?? null,
         text,
@@ -130,14 +143,14 @@ function notFrom(here: JournalPlace) {
         ne(schema.agentJournal.sessionId, here.sessionId)
       )
     : or(
-        isNull(schema.agentJournal.channelId),
-        ne(schema.agentJournal.channelId, here.channelId),
-        isNotNull(schema.agentJournal.sessionId)
+        isNull(schema.agentJournal.conversationId),
+        ne(schema.agentJournal.conversationId, here.conversationId)
       )
 }
 
-// The conversation reading the journal: a channel's, or a code session's.
-export type JournalPlace = { channelId: string } | { sessionId: string }
+// The conversation reading the journal: one of the agent's, or a code
+// session's.
+export type JournalPlace = { conversationId: string } | { sessionId: string }
 
 // The last days of the journal, for a conversation's frozen prompt.
 export async function journalSection(agentId: string): Promise<string | null> {

@@ -14,6 +14,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { agentConversation } from "./agent-conversations"
 import { approval } from "./approvals"
 import { channel } from "./channels"
 import { connectorTrigger } from "./connector-triggers"
@@ -91,6 +92,13 @@ export const agentRun = pgTable(
     // enforces one active run per scope — a mention during an active run
     // steers or queues instead of creating a sibling.
     scopeKey: uuid("scope_key").notNull(),
+    // Set on an agent's own turn: the conversation it runs in, whose id is
+    // also the scope. `channelId` is then the channel the turn is about and
+    // posts in by default. Null on a session's run.
+    conversationId: uuid("conversation_id").references(
+      () => agentConversation.id,
+      { onDelete: "set null" }
+    ),
 
     // Trigger provenance (Act effect): which trigger + delivery started this
     // run. Null on conversational runs; nulled (not cascaded) on trigger
