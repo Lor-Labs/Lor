@@ -21,7 +21,11 @@ export function FileImageGallery({
   const foreground = useThemeColor("foreground")
   const list = useRef<FlatList<FileImage>>(null)
   const [width, setWidth] = useState(0)
-  const [zoomed, setZoomed] = useState(false)
+  // Zoom lock follows the image, not its index: it holds when a refresh moves
+  // the image and drops when the image leaves the list.
+  const [zoomedUrl, setZoomedUrl] = useState<string | null>(null)
+  const selectedUrl = images[index]?.url
+  const zoomed = zoomedUrl !== null && zoomedUrl === selectedUrl
   useEffect(() => {
     navigation.setOptions({ gestureEnabled: !zoomed })
     return () => navigation.setOptions({ gestureEnabled: true })
@@ -77,15 +81,16 @@ export function FileImageGallery({
               if (next === page.current) return
               page.current = next
               onIndexChange(next)
-              setZoomed(false)
+              setZoomedUrl(null)
             }}
-            renderItem={({ item, index: itemIndex }) => (
+            renderItem={({ item }) => (
               <View style={{ width }}>
                 <ZoomableImage
                   accessibilityLabel={item.name}
                   uri={item.url}
                   onZoomChange={(value) => {
-                    if (itemIndex === index) setZoomed(value)
+                    if (item.url === selectedUrl)
+                      setZoomedUrl(value ? item.url : null)
                   }}
                 />
               </View>
