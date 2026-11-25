@@ -81,12 +81,21 @@ export async function fanoutLorMessage(
     messageId: string
     content: string
     threadRootId?: string
+    // The agent that wrote it; without one, the channel's first.
+    agentId?: string
   }
 ): Promise<RealtimeMessage["mentions"]> {
   try {
-    const [channel, author] = await Promise.all([
+    const [channel, author, writer] = await Promise.all([
       loadChannel(input.channelId),
       loadLorAuthor(),
+      input.agentId
+        ? db
+            .select({ name: schema.agent.name })
+            .from(schema.agent)
+            .where(eq(schema.agent.id, input.agentId))
+            .then((rows) => rows[0] ?? null)
+        : null,
     ])
     if (!channel || !author) throw new Error("Channel or Lor user missing")
     const asAgent = await speaksAsAgent(channel, input.threadRootId).catch(
@@ -105,7 +114,7 @@ export async function fanoutLorMessage(
         id: input.messageId,
         content: input.content,
         author: {
-          name: (asAgent && channel.agentName) || author.name,
+          name: (asAgent && (writer?.name ?? channel.agentName)) || author.name,
           image: author.image,
         },
         attachments: [],
@@ -165,6 +174,9 @@ export async function postLorMessage(
     silent?: boolean
     // A run's message: clients show the run's approval card under it.
     lorTriggerMessageId?: string
+    // The agent speaking, in a chat: several agents post as Lor
+    // (`message.agent_id`).
+    agentId?: string
   }
 ): Promise<{ messageId: string }> {
   const author = await loadLorAuthor()
@@ -181,6 +193,7 @@ export async function postLorMessage(
       eventPayload: input.eventPayload ?? null,
       referencedMessageId: input.referencedMessageId ?? null,
       threadRootId: input.threadRootId ?? null,
+      agentId: input.agentId ?? null,
       excludedFromMemory: input.type === "event",
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
@@ -194,6 +207,7 @@ export async function postLorMessage(
         messageId: inserted.id,
         content: input.content,
         ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
+        ...(input.agentId ? { agentId: input.agentId } : {}),
       })
 
   const message: RealtimeMessage = {
@@ -222,6 +236,7 @@ export async function postLorMessage(
         }
       : null,
     threadRootId: input.threadRootId ?? null,
+    agentId: input.agentId ?? null,
     ...(input.lorTriggerMessageId
       ? { lorTriggerMessageId: input.lorTriggerMessageId }
       : {}),

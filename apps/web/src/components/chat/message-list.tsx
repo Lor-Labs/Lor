@@ -596,6 +596,8 @@ export function MessageList({
                 isDateBoundary ||
                 !previous ||
                 previous.authorId !== msg.authorId ||
+                // Two agents in a chat both post as Lor.
+                (previous.agentId ?? null) !== (msg.agentId ?? null) ||
                 !isWithinGroupWindow ||
                 msg.type === "reply" ||
                 // An event row interrupts the visual group — re-anchor the

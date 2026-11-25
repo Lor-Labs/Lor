@@ -12,6 +12,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core"
 import { createInsertSchema, createSelectSchema } from "drizzle-zod"
+import { agent } from "./agents"
 import { channel } from "./channels"
 import { user } from "./users"
 
@@ -158,6 +159,15 @@ export const message = pgTable(
       (): AnyPgColumn => message.id,
       { onDelete: "cascade" }
     ),
+
+    // The agent that wrote one of Lor's messages in a chat. A chat can hold
+    // several agents and all of them post as Lor (authorId), so this says
+    // which one (reference/agents-and-chats.md, decision 32). Null on
+    // people's messages, in sessions, and on messages from before agents
+    // shared a chat, which are the chat's first agent's.
+    agentId: uuid("agent_id").references(() => agent.id, {
+      onDelete: "set null",
+    }),
 
     // A person's message in a Lor session: whether it went to Lor, decided
     // at send time by the session routing rule. false = for the session's

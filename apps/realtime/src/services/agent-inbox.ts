@@ -1,5 +1,5 @@
-import { db, eq, schema } from "@repo/db"
-import { addInboxMessage, agentInThread } from "@repo/lor/channel-agent"
+import { asc, db, eq, schema } from "@repo/db"
+import { addInboxMessage, agentsInThread } from "@repo/lor/channel-agent"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import {
   AGENT_INBOX_BATCH_MS,
@@ -7,55 +7,70 @@ import {
   type AgentInboxFlushJobData,
 } from "@repo/realtime-types/queues"
 import type { Queue } from "bullmq"
-import { isLorMentioned, isReplyToLor } from "@/services/lor-routing"
+import { agentsNamed } from "@/services/lor-routing"
 
-// A message in the channel chat lands in the inbox of the agent in that
-// channel (reference/always-on-agents.md §3). A mention or a reply to the
-// agent wakes it; anything else waits unread until its next turn
-// (reference/agents-and-chats.md, decision 8: no "every message" setting).
-// In a human thread a mention or a reply to the agent reaches it, and so
-// does every message in a thread it's part of (it may stay quiet); the agent
-// answers in that thread. What wakes it goes to its request's conversation,
-// so two people asking at once don't share a queue; what waits goes to the
-// agent's own conversation, for its check-in (reference/agents-and-chats.md,
-// decisions 26 and 28). A channel with no agent is plain human chat: nothing
-// is queued.
+// A message in a chat lands in the inbox of every agent in it
+// (reference/always-on-agents.md §3; reference/agents-and-chats.md, decision
+// 32). A mention of an agent or a reply to it wakes that agent; for the
+// others, and when nobody is named, it waits unread until their next turn
+// (decision 8: no "every message" setting). In a human thread a message
+// reaches the agents it names, or with none named every agent that is part
+// of the thread (each may stay quiet); they answer in that thread, and the
+// chat's other agents get nothing. What wakes an agent goes to its request's
+// conversation, so two people asking at once don't share a queue; what waits
+// goes to the agent's own conversation, for its check-in (decisions 26 and
+// 28). A chat with no agent is plain human chat: nothing is queued.
+// Returns the agents the message named, for the typing signal.
 export async function addChatMessageToAgentInbox(args: {
   workspaceId: string
   channelId: string
   message: RealtimeMessage
   queue: Queue<AgentInboxFlushJobData>
-  // "addressed": a mention of Lor or a reply to it, which always wakes it.
-  // "skipped": a thread reply not for the agent.
-}): Promise<"addressed" | "wake" | "wait" | "duplicate" | "skipped"> {
-  const [placed] = await db
-    .select({ agentId: schema.channelAgent.agentId })
+}): Promise<{ id: string; name: string }[]> {
+  const placed = await db
+    .select({ id: schema.agent.id, name: schema.agent.name })
     .from(schema.channelAgent)
+    .innerJoin(schema.agent, eq(schema.agent.id, schema.channelAgent.agentId))
     .where(eq(schema.channelAgent.channelId, args.channelId))
-    .limit(1)
-  if (!placed) return "skipped"
-  const threadRootId = args.message.threadRootId
-  const addressed =
-    isLorMentioned(args.message.content) ||
-    isReplyToLor(args.message.referencedMessage)
-  const inThread =
-    threadRootId && !addressed ? await agentInThread(threadRootId) : false
-  if (threadRootId && !addressed && !inThread) return "skipped"
-  const lane = addressed || inThread ? "wake" : "wait"
-  const conversationId = await addInboxMessage({
-    workspaceId: args.workspaceId,
-    channelId: args.channelId,
-    messageId: args.message.id,
-    lane,
-  })
-  if (!conversationId) return "duplicate"
-  if (lane === "wake") {
-    // A short delay, so quick messages in a row become one turn.
-    await args.queue.add(
-      AGENT_INBOX_FLUSH_JOB,
-      { conversationId },
-      { delay: AGENT_INBOX_BATCH_MS }
+    .orderBy(
+      asc(schema.channelAgent.createdAt),
+      asc(schema.channelAgent.agentId)
     )
+  if (placed.length === 0) return []
+  const agentIds = placed.map((agent) => agent.id)
+  const named = agentsNamed({
+    content: args.message.content,
+    referencedMessage: args.message.referencedMessage,
+    agentIds,
+  })
+  const threadRootId = args.message.threadRootId
+  const inThread =
+    threadRootId && named.size === 0
+      ? await agentsInThread(threadRootId, agentIds)
+      : new Set<string>()
+  const addressed: { id: string; name: string }[] = []
+  for (const agent of placed) {
+    const wakes = named.has(agent.id) || inThread.has(agent.id)
+    // A thread reply is not chat an agent outside the thread reads later.
+    if (threadRootId && !wakes) continue
+    const lane = wakes ? "wake" : "wait"
+    const conversationId = await addInboxMessage({
+      workspaceId: args.workspaceId,
+      channelId: args.channelId,
+      agentId: agent.id,
+      messageId: args.message.id,
+      lane,
+    })
+    if (!conversationId) continue
+    if (lane === "wake") {
+      // A short delay, so quick messages in a row become one turn.
+      await args.queue.add(
+        AGENT_INBOX_FLUSH_JOB,
+        { conversationId },
+        { delay: AGENT_INBOX_BATCH_MS }
+      )
+    }
+    if (named.has(agent.id)) addressed.push(agent)
   }
-  return addressed ? "addressed" : lane
+  return addressed
 }

@@ -1,7 +1,4 @@
-import {
-  ArrowDataTransferHorizontalIcon,
-  PlusSignIcon,
-} from "@hugeicons/core-free-icons"
+import { Cancel01Icon, PlusSignIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { MAX_CHANNEL_AGENTS } from "@repo/db/constants"
 import { Button } from "@repo/ui/components/button"
@@ -16,7 +13,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { type ReactElement, useState } from "react"
 import { AgentCreature } from "@/components/agent/agent-creature"
-import { useChannelAgentContext } from "@/components/agent/channel-agent"
+import { useChannelAgentsContext } from "@/components/agent/channel-agent"
 import { useAgentDialog } from "@/hooks/use-agent-dialog"
 import {
   agentCreature,
@@ -38,10 +35,10 @@ const row =
   "flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1.5 text-left outline-none transition-[background-color,color,transform] duration-150 ease-out hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.98]"
 
 // The agents in a channel, at the top of its right panel
-// (reference/agents-and-chats.md, decision 19). A row opens that agent's
-// dialog. People who manage channels get a row that adds one while the
-// channel has room, and a button on a row that swaps it once it is full. A
-// channel other than a text channel has no agents and shows nothing.
+// (reference/agents-and-chats.md, decisions 19 and 32). A row opens that
+// agent's dialog. People who manage channels get a row that adds one while
+// the channel has room, and a button on each row that takes that agent out.
+// A channel other than a text channel has no agents and shows nothing.
 export function ChannelAgentsSection({
   workspaceSlug,
   channelId,
@@ -55,9 +52,11 @@ export function ChannelAgentsSection({
   })
   const agents = useAgents(workspaceSlug)
   const canManage = useCanManageChannels(workspaceSlug)
-  // The one that answers here, with what it is doing now.
-  const answering = useChannelAgentContext()
+  // What each one is doing here now.
+  const live = useChannelAgentsContext()
   const dialog = useAgentDialog()
+  const queryClient = useQueryClient()
+  const [removing, setRemoving] = useState<string | null>(null)
   if (!channel || channel.type !== "text") return null
 
   const here = channel.agentIds.flatMap(
@@ -66,11 +65,22 @@ export function ChannelAgentsSection({
   const canChange = canManage && !channel.archivedAt
   if (here.length === 0 && !canChange) return null
   const full = here.length >= MAX_CHANNEL_AGENTS
-  const roster = {
-    workspaceSlug,
-    channelId,
-    here,
-    others: agents.filter((agent) => !here.includes(agent)),
+  const remove = async (agent: WorkspaceAgent) => {
+    setRemoving(agent.id)
+    try {
+      await setChannelAgents(
+        workspaceSlug,
+        channelId,
+        here.filter((item) => item !== agent).map((item) => item.id)
+      )
+      await refreshAgents(queryClient, workspaceSlug)
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Couldn't remove the agent"
+      )
+    } finally {
+      setRemoving(null)
+    }
   }
 
   return (
@@ -81,11 +91,12 @@ export function ChannelAgentsSection({
       <div className="space-y-0.5">
         {here.map((agent) => {
           const state =
-            answering?.id === agent.id ? answering.state : ("asleep" as const)
+            live.find((item) => item.id === agent.id)?.state ??
+            ("asleep" as const)
           return (
             <div
               key={agent.id}
-              className="relative flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1.5 transition-[background-color,transform] duration-150 ease-out hover:bg-foreground/[0.04] has-[[data-agent-row]:active]:scale-[0.98]"
+              className="group relative flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1.5 transition-[background-color,transform] duration-150 ease-out hover:bg-foreground/[0.04] has-[[data-agent-row]:active]:scale-[0.98]"
             >
               <span className="flex size-8 shrink-0 items-center justify-center">
                 <AgentCreature
@@ -95,8 +106,8 @@ export function ChannelAgentsSection({
                   still={state !== "working"}
                 />
               </span>
-              {/* The whole row opens the agent, under the button that swaps
-                  it. */}
+              {/* The whole row opens the agent, under the button that takes
+                  it out of the channel. */}
               <button
                 type="button"
                 data-agent-row
@@ -113,34 +124,31 @@ export function ChannelAgentsSection({
               <span className="max-w-16 shrink-0 truncate pl-2 text-[11px] text-muted-foreground">
                 {STATE_LABELS[state]}
               </span>
-              {canChange && full && (
-                <AgentRoster
-                  {...roster}
-                  replaced={agent}
-                  align="end"
-                  trigger={
-                    <button
-                      type="button"
-                      aria-label="Change the agent in this channel"
-                      title="Change agent"
-                      className="relative z-10 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-[background-color,color,transform] duration-150 ease-out hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.96] data-popup-open:bg-foreground/[0.06] data-popup-open:text-foreground"
-                    >
-                      <HugeiconsIcon
-                        icon={ArrowDataTransferHorizontalIcon}
-                        className="size-4"
-                        strokeWidth={2}
-                      />
-                    </button>
-                  }
-                />
+              {canChange && (
+                <button
+                  type="button"
+                  aria-label={`Remove ${agent.name} from this channel`}
+                  title="Remove from this channel"
+                  disabled={removing !== null}
+                  onClick={() => void remove(agent)}
+                  className="relative z-10 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none transition-[opacity,background-color,color,transform] duration-150 ease-out hover:bg-foreground/[0.06] hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.96] disabled:pointer-events-none group-hover:opacity-100"
+                >
+                  <HugeiconsIcon
+                    icon={Cancel01Icon}
+                    className="size-3.5"
+                    strokeWidth={2}
+                  />
+                </button>
               )}
             </div>
           )
         })}
         {canChange && !full && (
           <AgentRoster
-            {...roster}
-            align="start"
+            workspaceSlug={workspaceSlug}
+            channelId={channelId}
+            here={here}
+            others={agents.filter((agent) => !here.includes(agent))}
             trigger={
               <button
                 type="button"
@@ -169,24 +177,19 @@ export function ChannelAgentsSection({
 }
 
 // The workspace's other agents, to put in this channel, and a way to make a
-// new one. With `replaced`, the one picked takes that agent's place. An
-// agent's name opens its dialog, so one that is in no channel can still be
-// set up or deleted from here.
+// new one. An agent's name opens its dialog, so one that is in no channel
+// can still be set up or deleted from here.
 function AgentRoster({
   workspaceSlug,
   channelId,
   here,
   others,
-  replaced,
-  align,
   trigger,
 }: {
   workspaceSlug: string
   channelId: string
   here: WorkspaceAgent[]
   others: WorkspaceAgent[]
-  replaced?: WorkspaceAgent
-  align: "start" | "end"
   trigger: ReactElement
 }) {
   const queryClient = useQueryClient()
@@ -197,18 +200,15 @@ function AgentRoster({
   const place = async (agent: WorkspaceAgent) => {
     setBusy(true)
     try {
-      await setChannelAgents(
-        workspaceSlug,
-        channelId,
-        replaced
-          ? here.map((item) => (item === replaced ? agent.id : item.id))
-          : [...here.map((item) => item.id), agent.id]
-      )
+      await setChannelAgents(workspaceSlug, channelId, [
+        ...here.map((item) => item.id),
+        agent.id,
+      ])
       await refreshAgents(queryClient, workspaceSlug)
       setOpen(false)
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Couldn't change the agent"
+        error instanceof Error ? error.message : "Couldn't add the agent"
       )
     } finally {
       setBusy(false)
@@ -223,13 +223,13 @@ function AgentRoster({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger render={trigger} />
       <PopoverPopup
-        align={align}
+        align="start"
         sideOffset={6}
         className="w-64 max-w-[calc(100vw-24px)]"
         viewportClassName="p-1.5"
       >
         <PopoverTitle className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">
-          {replaced ? `Replace ${replaced.name} with` : "Add to this channel"}
+          Add to this channel
         </PopoverTitle>
         {others.map((agent) => (
           <div key={agent.id} className="flex items-center gap-1">
@@ -253,14 +253,10 @@ function AgentRoster({
               variant="outline"
               disabled={busy}
               onClick={() => void place(agent)}
-              aria-label={
-                replaced
-                  ? `Replace ${replaced.name} with ${agent.name}`
-                  : `Add ${agent.name}`
-              }
+              aria-label={`Add ${agent.name}`}
               className="mr-1 shrink-0"
             >
-              {replaced ? "Replace" : "Add"}
+              Add
             </Button>
           </div>
         ))}
@@ -279,11 +275,6 @@ function AgentRoster({
           </span>
           New agent
         </button>
-        {replaced && MAX_CHANNEL_AGENTS === 1 && (
-          <p className="px-2 pt-1.5 pb-1 text-[11px] text-muted-foreground">
-            A channel holds one agent for now.
-          </p>
-        )}
       </PopoverPopup>
     </Popover>
   )

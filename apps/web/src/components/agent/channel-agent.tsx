@@ -15,11 +15,7 @@ import {
   useSyncExternalStore,
 } from "react"
 import { useSocket } from "@/context/socket-context"
-import {
-  agentCreature,
-  channelAgentOf,
-  useAgentsById,
-} from "@/hooks/use-agents"
+import { agentCreature, useAgentsById } from "@/hooks/use-agents"
 import { workspaceActivityKey } from "@/hooks/use-workspace-activity"
 import { channelQueryOptions } from "@/lib/channel-query"
 
@@ -34,25 +30,53 @@ export type ChannelAgent = {
 
 const WORKING_FOR_MS = 15_000
 
-// Working while a turn runs: the worker beats "agent:working" every 10s
-// (showWorking), and typing counts too.
-function useAgentWorking(channelId: string) {
+type WorkingEvent = {
+  channelId: string
+  working: boolean
+  agentId?: string | null
+}
+
+const NO_DEADLINES = new Map<string, number>()
+
+// Which of a channel's agents are working: the worker beats "agent:working"
+// every 10s while a turn runs (showWorking), and typing counts too. A chat
+// can hold several agents, so each event names its agent; one that names
+// none is the chat's first agent's.
+function useAgentsWorking(
+  channelId: string,
+  firstAgentId: string | null
+): Set<string> {
   const socket = useSocket()
-  // The deadline belongs to the channel that set it.
-  const [deadline, setDeadline] = useState({ channelId, until: 0 })
-  const until = deadline.channelId === channelId ? deadline.until : 0
-  const setUntil = (at: number) => setDeadline({ channelId, until: at })
+  // The deadlines belong to the channel that set them.
+  const [deadlines, setDeadlines] = useState({
+    channelId,
+    until: NO_DEADLINES,
+  })
+  const until =
+    deadlines.channelId === channelId ? deadlines.until : NO_DEADLINES
   const [, setTick] = useState(0)
   useEffect(() => {
     if (!socket) return
+    const set = (agentId: string | null | undefined, at: number) => {
+      const id = agentId ?? firstAgentId
+      if (!id) return
+      setDeadlines((current) => {
+        const next = new Map(
+          current.channelId === channelId ? current.until : NO_DEADLINES
+        )
+        if (at > 0) next.set(id, at)
+        else next.delete(id)
+        return { channelId, until: next }
+      })
+    }
     const onTyping = (payload: TypingIndicatorEvent) => {
       if (payload.channelId !== channelId || payload.userId !== LOR_USER_ID)
         return
-      setUntil(Date.now() + WORKING_FOR_MS)
+      set(payload.agentId, Date.now() + WORKING_FOR_MS)
     }
-    const onWorking = (payload: { channelId: string; working: boolean }) => {
+    const onWorking = (payload: WorkingEvent) => {
       if (payload.channelId !== channelId) return
-      setUntil(payload.working ? Date.now() + WORKING_FOR_MS : 0)
+      set(payload.agentId, payload.working ? Date.now() + WORKING_FOR_MS : 0)
     }
     socket.on("typing:update", onTyping)
     socket.on("agent:working", onWorking)
@@ -60,26 +84,33 @@ function useAgentWorking(channelId: string) {
       socket.off("typing:update", onTyping)
       socket.off("agent:working", onWorking)
     }
-  }, [socket, channelId])
-  const working = until > Date.now()
+  }, [socket, channelId, firstAgentId])
+  const now = Date.now()
+  const live = [...until].filter(([, at]) => at > now)
+  const soonest = live.length > 0 ? Math.min(...live.map(([, at]) => at)) : 0
   useEffect(() => {
-    if (!working) return
+    if (soonest === 0) return
     const timer = setTimeout(
       () => setTick((tick) => tick + 1),
-      until - Date.now() + 50
+      soonest - Date.now() + 50
     )
     return () => clearTimeout(timer)
-  }, [working, until])
-  return working
+  }, [soonest])
+  const key = live
+    .map(([id]) => id)
+    .sort()
+    .join(",")
+  return useMemo(() => new Set(key ? key.split(",") : []), [key])
 }
 
-// The agent in a channel: its name and creature, and what it is doing in
-// this channel now (reference/agents-and-chats.md). Null when the channel
-// has no agent.
-export function useChannelAgent(
+// The agents in a channel, in the order they were added: each one's name
+// and creature, and what it is doing in this channel now
+// (reference/agents-and-chats.md, decision 32). Empty when the channel has
+// no agent.
+export function useChannelAgents(
   workspaceSlug: string | undefined,
   channelId: string
-): ChannelAgent | null {
+): ChannelAgent[] {
   const { data: channel } = useQuery({
     ...channelQueryOptions(workspaceSlug ?? "", channelId),
     enabled: Boolean(workspaceSlug && channelId),
@@ -93,27 +124,57 @@ export function useChannelAgent(
     () => queryClient.getQueryData<ChannelActivity[]>(activityKey)
   )
   const agents = useAgentsById(workspaceSlug)
-  const agent = channelAgentOf(channel, agents)
-  const working = useAgentWorking(channelId)
+  const agentIds = channel?.agentIds
+  const working = useAgentsWorking(channelId, agentIds?.[0] ?? null)
+  // What waits on a person is the channel's, not one agent's: the first
+  // agent shows it.
   const needsYou = Boolean(
     activity?.find((row) => row.channelId === channelId)?.agentNeeds.length
   )
-  return useMemo(() => {
-    if (!agent) return null
-    return {
-      id: agent.id,
-      channelId,
-      name: agent.name,
-      creature: agentCreature(agent),
-      state: needsYou ? "needs_you" : working ? "working" : "asleep",
-    }
-  }, [agent, channelId, needsYou, working])
+  return useMemo(
+    () =>
+      (agentIds ?? []).flatMap((id, index) => {
+        const agent = agents.get(id)
+        if (!agent) return []
+        return {
+          id: agent.id,
+          channelId,
+          name: agent.name,
+          creature: agentCreature(agent),
+          state:
+            needsYou && index === 0
+              ? ("needs_you" as const)
+              : working.has(id)
+                ? ("working" as const)
+                : ("asleep" as const),
+        }
+      }),
+    [agents, agentIds, channelId, needsYou, working]
+  )
 }
 
-const ChannelAgentContext = createContext<ChannelAgent | null>(null)
+// The agent that answers when nobody is named: the first one added. Null
+// when the channel has no agent.
+export function useChannelAgent(
+  workspaceSlug: string | undefined,
+  channelId: string
+): ChannelAgent | null {
+  return useChannelAgents(workspaceSlug, channelId)[0] ?? null
+}
 
-// Lor's messages under this provider are the channel agent's: its name and
-// creature replace Lor's. Session views have none, so Lor stays Lor there.
+type ChannelAgentsValue = {
+  agents: ChannelAgent[]
+  // The agent that wrote one of Lor's messages here (`message.agentId`).
+  of: (agentId: string | null | undefined) => ChannelAgent | null
+}
+
+const NO_CHANNEL_AGENTS: ChannelAgentsValue = { agents: [], of: () => null }
+const ChannelAgentsContext =
+  createContext<ChannelAgentsValue>(NO_CHANNEL_AGENTS)
+
+// Lor's messages under this provider are the channel's agents': the name and
+// creature of the one that wrote each replace Lor's. Session views have
+// none, so Lor stays Lor there.
 export function ChannelAgentProvider({
   workspaceSlug,
   channelId,
@@ -123,10 +184,52 @@ export function ChannelAgentProvider({
   channelId: string
   children: ReactNode
 }) {
-  const agent = useChannelAgent(workspaceSlug, channelId)
-  return <ChannelAgentContext value={agent}>{children}</ChannelAgentContext>
+  const agents = useChannelAgents(workspaceSlug, channelId)
+  const all = useAgentsById(workspaceSlug)
+  const value = useMemo<ChannelAgentsValue>(() => {
+    const first = agents[0] ?? null
+    return {
+      agents,
+      // An agent that has since left the channel keeps its name. A message
+      // with no agent on it, from before agents shared a chat, is the first
+      // agent's.
+      of: (agentId) => {
+        if (!agentId || !first) return first
+        const placed = agents.find((agent) => agent.id === agentId)
+        if (placed) return placed
+        const gone = all.get(agentId)
+        return gone
+          ? {
+              id: gone.id,
+              channelId,
+              name: gone.name,
+              creature: agentCreature(gone),
+              state: "asleep",
+            }
+          : first
+      },
+    }
+  }, [agents, all, channelId])
+  return <ChannelAgentsContext value={value}>{children}</ChannelAgentsContext>
 }
 
+// Every agent in the channel.
+export function useChannelAgentsContext() {
+  return useContext(ChannelAgentsContext).agents
+}
+
+// The channel's first agent: the one Lor's own mention, and messages from
+// before agents shared a chat, belong to.
 export function useChannelAgentContext() {
-  return useContext(ChannelAgentContext)
+  return useContext(ChannelAgentsContext).agents[0] ?? null
+}
+
+// The agent that wrote one of Lor's messages in this channel.
+export function useMessageAgent(agentId: string | null | undefined) {
+  return useContext(ChannelAgentsContext).of(agentId)
+}
+
+// The same lookup for a list, where a hook per row can't be called.
+export function useAgentOf() {
+  return useContext(ChannelAgentsContext).of
 }

@@ -955,7 +955,7 @@ io.on("connection", (socket) => {
           !session &&
           createdMessage.message.type !== "forward"
         ) {
-          const lane = await addChatMessageToAgentInbox({
+          const addressed = await addChatMessageToAgentInbox({
             workspaceId,
             channelId: parsed.channelId,
             message: createdMessage.message,
@@ -964,8 +964,8 @@ io.on("connection", (socket) => {
           // The agent's turn starts after a short batch delay; show it as
           // typing from the moment someone addresses it (the worker keeps it
           // up while the turn runs).
-          if (lane === "addressed") {
-            const threadRootId = createdMessage.message.threadRootId ?? null
+          const threadRootId = createdMessage.message.threadRootId ?? null
+          for (const agent of addressed) {
             io.to(
               threadRootId
                 ? threadRoom(threadRootId)
@@ -974,7 +974,8 @@ io.on("connection", (socket) => {
               channelId: parsed.channelId,
               threadRootId,
               userId: LOR_USER_ID,
-              name: "Lor",
+              name: agent.name,
+              agentId: agent.id,
             })
           }
           return

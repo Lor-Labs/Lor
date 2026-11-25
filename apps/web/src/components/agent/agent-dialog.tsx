@@ -6,6 +6,7 @@ import {
   ZapIcon,
 } from "@hugeicons/core-free-icons"
 import { authClient } from "@repo/auth/client"
+import { MAX_CHANNEL_AGENTS } from "@repo/db/constants"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -427,14 +428,14 @@ function AgentChannels({
         )}
       </SettingsSection>
       {canManage && others.length > 0 && (
-        <SettingsSection
-          title="Add to"
-          caption="A channel holds one agent for now. What an agent learns in a private channel stays in it."
-        >
+        <SettingsSection title="Add to">
           <SettingsGroup>
             {others.map((channel) => {
-              const other =
-                agents.find((item) => item.id === channel.agentIds[0]) ?? null
+              const here = channel.agentIds.flatMap(
+                (id) => agents.find((item) => item.id === id) ?? []
+              )
+              const other = here[0] ?? null
+              const full = here.length >= MAX_CHANNEL_AGENTS
               return (
                 <div
                   key={channel.id}
@@ -451,19 +452,24 @@ function AgentChannels({
                         size={18}
                         still
                       />
-                      {other.name} is here
+                      {here.length > 1
+                        ? `${other.name} and ${here.length - 1} more are here`
+                        : `${other.name} is here`}
                     </span>
                   )}
                   <Button
                     type="button"
                     size="sm"
-                    variant={other ? "ghost" : "outline"}
-                    disabled={busy === channel.id}
+                    variant="outline"
+                    disabled={busy === channel.id || full}
                     onClick={() =>
-                      void place(channel.id, [agent.id]).catch(() => {})
+                      void place(channel.id, [
+                        ...channel.agentIds,
+                        agent.id,
+                      ]).catch(() => {})
                     }
                   >
-                    {other ? "Replace" : "Add"}
+                    Add
                   </Button>
                 </div>
               )

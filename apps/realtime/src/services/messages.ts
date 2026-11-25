@@ -114,6 +114,7 @@ async function loadReferencedMessage(
       authorImage: schema.user.image,
       overrideName: schema.message.overrideName,
       overrideAvatarUrl: schema.message.overrideAvatarUrl,
+      agentId: schema.message.agentId,
     })
     .from(schema.message)
     .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))

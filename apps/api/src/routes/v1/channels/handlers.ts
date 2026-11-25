@@ -1,4 +1,5 @@
 import { db, schema } from "@repo/db"
+import { MAX_CHANNEL_AGENTS } from "@repo/db/constants"
 import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import { agentIdsByChannel } from "@repo/db/queries/agents"
 import {
@@ -656,7 +657,7 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
         success: false,
         message:
           result.message === "too_many"
-            ? "A channel holds one agent for now"
+            ? `A chat holds up to ${MAX_CHANNEL_AGENTS} agents`
             : "Agent not found",
       },
       HttpStatusCodes.NOT_FOUND

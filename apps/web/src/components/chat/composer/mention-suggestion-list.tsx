@@ -66,7 +66,9 @@ export function rankMentionCandidates(
     if (tier === null) continue
     people.push({
       candidate,
-      rank: tier * 2 + (candidate.id === LOR_USER_ID ? 0 : 1),
+      // Agents come before people in a tier.
+      rank:
+        tier * 2 + (candidate.id === LOR_USER_ID || candidate.creature ? 0 : 1),
     })
   }
   people.sort((a, b) => a.rank - b.rank)

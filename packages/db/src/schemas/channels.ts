@@ -36,6 +36,11 @@ export const channelAudienceEnum = pgEnum("channel_audience", [
   "members",
 ])
 
+// A text channel is a chat (reference/agents-and-chats.md, decision 31): a
+// named group of people and agents, listed by its last message. "channel" is
+// kept for long-lived channels, should they come back; nothing makes one yet.
+export const channelKindEnum = pgEnum("channel_kind", ["chat", "channel"])
+
 export const channel = pgTable(
   "channel",
   {
@@ -49,6 +54,7 @@ export const channel = pgTable(
     topic: text("topic"),
     type: channelTypeEnum("type").notNull().default("text"),
     audience: channelAudienceEnum("audience").notNull().default("workspace"),
+    kind: channelKindEnum("kind").notNull().default("chat"),
 
     // Archived channels are read-only and leave the active sidebar; set on
     // all of a project's channels when it archives.
@@ -175,6 +181,7 @@ export const insertChannelSchema = createInsertSchema(channel, {
   // (with membership handling), never raw channel create/update.
   audience: true,
   archivedAt: true,
+  kind: true,
 })
 
 export const updateChannelSchema = createUpdateSchema(channel, {
@@ -189,4 +196,5 @@ export const updateChannelSchema = createUpdateSchema(channel, {
   creatorId: true,
   audience: true,
   archivedAt: true,
+  kind: true,
 })

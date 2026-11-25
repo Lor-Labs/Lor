@@ -1114,11 +1114,14 @@ async function readThread(
           id: schema.message.id,
           content: schema.message.content,
           createdAt: schema.message.createdAt,
-          authorName: schema.user.name,
+          // An agent's message in a chat goes by the agent's name: several
+          // agents post as Lor.
+          authorName: sql<string>`coalesce(${schema.agent.name}, ${schema.user.name})`,
           attachments: schema.message.attachments,
         })
         .from(schema.message)
         .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+        .leftJoin(schema.agent, eq(schema.message.agentId, schema.agent.id))
         .where(inArray(schema.message.id, fetchIds))
         .orderBy(asc(schema.message.createdAt), asc(schema.message.id))
     : []

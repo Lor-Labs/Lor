@@ -28,7 +28,7 @@ import { formatTime, timeAgo } from "@repo/utils/date"
 import { isLorStoppedStockText } from "@repo/utils/lor"
 import { memo, useCallback, useEffect, useRef, useState } from "react"
 import { AgentCreature } from "@/components/agent/agent-creature"
-import { useChannelAgentContext } from "@/components/agent/channel-agent"
+import { useMessageAgent } from "@/components/agent/channel-agent"
 import { MessageApprovalCard } from "@/components/chat/approval-card"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
@@ -147,7 +147,7 @@ function ReplyPreview({
   // Document layout: the curve starts at the 28px gutter avatar's center.
   compact?: boolean
 }) {
-  const channelAgent = useChannelAgentContext()
+  const repliedAgent = useMessageAgent(referencedMessage?.agentId)
   const connector = (
     <div
       className={cn(
@@ -172,7 +172,7 @@ function ReplyPreview({
 
   const author = referencedMessage.author
   const referencedName =
-    (author.id === LOR_USER_ID ? channelAgent?.name : undefined) ??
+    (author.id === LOR_USER_ID ? repliedAgent?.name : undefined) ??
     referencedMessage.overrideName ??
     author.name
   const referencedAvatar = referencedMessage.overrideAvatarUrl ?? author.image
@@ -365,10 +365,10 @@ export const MessageItem = memo(function MessageItem({
   const author = message.author
   // Lor in a channel's chat or thread is the channel's agent: its name and
   // creature (reference/always-on-agents.md, decisions 32 and 33).
-  const channelAgent = useChannelAgentContext()
+  const messageAgent = useMessageAgent(message.agentId)
   const agent =
     message.authorId === LOR_USER_ID && layout !== "document"
-      ? channelAgent
+      ? messageAgent
       : null
   const agentInFlight =
     !!agent && (!!message.streaming || message.status === "pending")

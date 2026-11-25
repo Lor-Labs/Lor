@@ -84,6 +84,14 @@ export type RunAgentContext = {
   agentName: string
   creature: string
   otherChannels: string[]
+  // The other agents it shares a chat with (decision 32), each with the
+  // chats they share. A message that names one of them is that agent's.
+  otherAgents: {
+    id: string
+    name: string
+    role: string | null
+    channels: string[]
+  }[]
   sendMessage: SendMessageExecutor
   // "compact" summarizes the conversation instead of running a turn;
   // "memory" runs the memory pass after a turn.
@@ -285,6 +293,11 @@ export async function clearAgentChannelInbox(
     )
 }
 
+// Where an agent's prompt stops being the same for every conversation in a
+// workspace: everything above this heading is shared, and agent-loop.ts puts
+// a prompt cache point there.
+export const AGENT_SECTION_HEADING = "## You are "
+
 // Frozen with the system prompt per conversation, so a channel added to the
 // agent later shows here only after the next compaction.
 export function channelAgentPromptSection(agent: RunAgentContext): string {
@@ -294,18 +307,22 @@ export function channelAgentPromptSection(agent: RunAgentContext): string {
     (other) => `#${sanitizeInlineLabel(other)}`
   )
   const own = agent.conversation.kind === "own"
+  const teammates = agent.otherAgents.map(
+    (other) =>
+      `@${sanitizeInlineLabel(other.name)}${other.role ? ` (${sanitizeInlineLabel(other.role)})` : ""}, mentioned as <@${other.id}>, in ${other.channels.map((shared) => `#${sanitizeInlineLabel(shared)}`).join(", ")}`
+  )
   const where = own
     ? `This is your own conversation: nobody talks to you here. It is where you keep watch for the team, in ${[channel, ...others].join(", ")}. Your regular check-in, the Loops the team set for you, events from the tools they connected and the wake-ups you set all wake you here. When a person addresses you, that request runs in a conversation of its own, at the same time as this one, so its history is not in this one.`
     : `This conversation is one request: someone addressed you in ${channel}, and this is the conversation about it. Other requests, and the watch you keep in your own conversation (your check-in, Loops and events), each run in a conversation of their own at the same time, so their history is not in this one.${others.length > 0 ? ` You are also in ${others.join(", ")}.` : ""}`
-  return `## You are ${name}
+  return `${AGENT_SECTION_HEADING}${name}
 
-You are ${name}, an always-on agent for this team: one teammate the team shares, shown in the app as a little ${agent.creature.toLowerCase()}. The team picked your name and can change it. Lor is the app you live in: its mentions of you (<@${LOR_USER_ID}>) appear to people as @${name}. Call yourself ${name}. ${where} Your facts and your journal are the same in every conversation and carry things across: people expect you to be the same teammate, who knows here what they told you there.
+You are ${name}, an always-on agent for this team: one teammate the team shares, shown in the app as a little ${agent.creature.toLowerCase()}. The team picked your name and can change it. Lor is the app you live in: its mentions of you (<@${agent.agentId}>) appear to people as @${name}. Lor's own mention (<@${LOR_USER_ID}>) is the older form: in a chat it means the agent that was put there first. Call yourself ${name}. ${where} Your facts and your journal are the same in every conversation and carry things across: people expect you to be the same teammate, who knows here what they told you there.
 
 - Each turn starts from your inbox, after the time. ${own ? '"Since you last looked" lists what people said in your channels that was not for you, channel by channel: read it as context, and step in only where something needs you or the team would want you to. "What woke you" is what you are asked to handle now.' : '"What woke you" is what you are asked to handle now. On a request\'s first turn, the chat before it is there as context: do not answer it line by line.'}
 - Nothing you write here reaches anyone. This conversation is your private working notes. To speak, call send_message: it posts in a channel's chat for everyone.${own ? " Each turn says which channel it is about; pass `channel` to post in another one you are in." : ""}
 - ${own ? "When you speak here nobody asked just now: lead with what matters." : "Answer the person who addressed you with one send_message."} Mention a person as <@id> only when the message needs their attention.
 - You may stay quiet. When nothing needs saying, end the turn without send_message.
-- To follow up later, call wake_up. Never promise to come back otherwise.
+${teammates.length > 0 ? `- Other agents work for this team too, each with a memory of its own: ${teammates.join("; ")}. In a chat you share, a message that names one of them is theirs: leave it to them and never answer for them. One that names nobody may be for any of you, so answer it only when it is clearly yours. Naming another agent in what you send does not wake it: when something is theirs, say so and let the person ask them.\n` : ""}- To follow up later, call wake_up. Never promise to come back otherwise.
 - For a back-and-forth that would crowd the chat (debugging, planning, anything long), answer with send_message's startThread: it starts a thread on the message you're answering. Keep quick answers in the chat.
 - In a thread you're part of (one under your message, or one you started or posted in), every message wakes you. Answer when you're addressed or have something useful to add; otherwise end the turn without sending.
 - You have no computer of your own yet: you can't run code, use a shell or make files yourself. Work on code goes to code sessions: start_session hands a task to a coding agent on one repository, and you are woken with its report when its turn ends. Tell people in the chat what you started and, when it reports, what came of it. People review the branch and open pull requests; you and the sessions never do.
@@ -454,6 +471,31 @@ export async function triggerWakeCounts(
   return { hourly: row?.hourly ?? 0, daily: row?.daily ?? 0 }
 }
 
+// Which of a chat's agents are part of a thread: each one that posted the
+// root or a reply. Lor's messages from before agents shared a chat carry no
+// agent and are the first agent's (`agentIds` is in the order they were
+// added).
+export async function agentsInThread(
+  threadRootId: string,
+  agentIds: string[]
+): Promise<Set<string>> {
+  const rows = await db
+    .selectDistinct({ agentId: schema.message.agentId })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.authorId, LOR_USER_ID),
+        sql`(${schema.message.id} = ${threadRootId} or ${schema.message.threadRootId} = ${threadRootId})`
+      )
+    )
+  const here = new Set<string>()
+  for (const row of rows) {
+    const id = row.agentId ?? agentIds[0]
+    if (id && agentIds.includes(id)) here.add(id)
+  }
+  return here
+}
+
 // Whether the channel agent is part of a thread: it posted the root or a
 // reply. Every message in such a thread wakes it (Jacob, 2026-11-21); it
 // may still stay quiet.
@@ -471,18 +513,21 @@ export async function agentInThread(threadRootId: string): Promise<boolean> {
   return Boolean(row)
 }
 
-// A chat message for the channel's agent. In the wake lane it was addressed
-// to the agent and goes to its request's conversation, a new one unless it
-// continues an earlier request. In the wait lane it is something the agent
-// may read later and goes to the agent's own conversation, for its check-in.
-// The conversation it was added to, or null (no agent here, or a duplicate).
+// A chat message for one of the channel's agents. In the wake lane it was
+// addressed to the agent and goes to its request's conversation, a new one
+// unless it continues an earlier request. In the wait lane it is something
+// the agent may read later and goes to the agent's own conversation, for its
+// check-in. The conversation it was added to, or null (no agent here, or a
+// duplicate). With no agent given it is the channel's first: Discord and
+// proposals know only that one.
 export async function addInboxMessage(input: {
   workspaceId: string
   channelId: string
   messageId: string
   lane: AgentInboxLane
+  agentId?: string
 }): Promise<string | null> {
-  const agentId = await channelAgentId(input.channelId)
+  const agentId = input.agentId ?? (await channelAgentId(input.channelId))
   if (!agentId) return null
   const place = { workspaceId: input.workspaceId, agentId }
   let conversationId: string
@@ -642,7 +687,10 @@ export async function loadInboxBatch(
           referencedMessageId: schema.message.referencedMessageId,
           content: schema.message.content,
           attachments: schema.message.attachments,
-          authorName: schema.user.name,
+          // Another agent's message goes by that agent's name, not Lor's.
+          authorName: sql<
+            string | null
+          >`coalesce(${schema.agent.name}, ${schema.user.name})`,
         })
         .from(schema.agentInbox)
         .leftJoin(
@@ -650,6 +698,7 @@ export async function loadInboxBatch(
           eq(schema.agentInbox.messageId, schema.message.id)
         )
         .leftJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+        .leftJoin(schema.agent, eq(schema.message.agentId, schema.agent.id))
         .where(inArray(schema.agentInbox.id, shown))
     ).map((payload) => [payload.id, payload])
   )
@@ -740,10 +789,13 @@ async function repliedTo(
     .select({
       id: schema.message.id,
       content: schema.message.content,
-      authorName: schema.user.name,
+      authorName: sql<
+        string | null
+      >`coalesce(${schema.agent.name}, ${schema.user.name})`,
     })
     .from(schema.message)
     .leftJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+    .leftJoin(schema.agent, eq(schema.message.agentId, schema.agent.id))
     .where(inArray(schema.message.id, ids))
   return new Map(
     found.map((message) => {

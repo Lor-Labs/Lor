@@ -139,6 +139,8 @@ export const referencedMessageSchema = z
     author: messageAuthorSchema,
     overrideName: z.string().nullable(),
     overrideAvatarUrl: z.string().nullable(),
+    // The agent that wrote it, when Lor did in a chat.
+    agentId: z.string().uuid().nullable().optional(),
     // Lets reply previews resolve stored `<@uuid>` mention tokens in `content`.
     // Optional so endpoints that don't join mentions stay valid.
     mentions: z.array(messageAuthorSchema).optional(),

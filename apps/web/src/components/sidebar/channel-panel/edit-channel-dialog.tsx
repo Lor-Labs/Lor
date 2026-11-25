@@ -11,6 +11,7 @@ import {
   Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { MAX_CHANNEL_AGENTS } from "@repo/db/constants"
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
@@ -26,7 +27,7 @@ import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { useEffect, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import { AgentCreature } from "@/components/agent/agent-creature"
 import { DiscordChatSection } from "@/components/agent/discord-chat-section"
 import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
@@ -400,7 +401,13 @@ function AgentTab({
   const dialog = useAgentDialog()
   const agents = useAgents(workspaceSlug)
   const saved = useChannelSaved(workspaceSlug, channel.id)
-  const agent = agents.find((item) => item.id === channel.agentIds[0]) ?? null
+  // A channel can hold several agents (reference/agents-and-chats.md,
+  // decision 32), in the order they were added.
+  const placed = channel.agentIds.flatMap(
+    (id) => agents.find((item) => item.id === id) ?? []
+  )
+  const others = agents.filter((item) => !placed.includes(item))
+  const room = placed.length < MAX_CHANNEL_AGENTS
   const [busy, setBusy] = useState(false)
 
   const place = async (agentIds: string[]) => {
@@ -422,30 +429,80 @@ function AgentTab({
     dialog.open(id)
   }
 
-  if (agent) {
+  const add = (
+    <SettingsSection title={placed.length > 0 ? "Add another" : "Add an agent"}>
+      <SettingsGroup>
+        {others.map((item) => (
+          <div key={item.id} className="flex min-h-14 items-center gap-3">
+            <AgentCreature creature={agentCreature(item)} size={32} still />
+            <AgentName agent={item} />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() =>
+                void place([...channel.agentIds, item.id]).catch(() => {})
+              }
+            >
+              Add
+            </Button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => openAgent("new")}
+          className="group flex min-h-14 w-full cursor-pointer items-center gap-3 text-left text-muted-foreground text-sm outline-none transition-colors duration-150 hover:text-foreground focus-visible:text-foreground"
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 border-dashed transition-colors duration-150 group-hover:border-foreground/60">
+            <HugeiconsIcon
+              icon={PlusSignIcon}
+              className="size-3.5"
+              strokeWidth={2}
+            />
+          </span>
+          New agent
+        </button>
+      </SettingsGroup>
+    </SettingsSection>
+  )
+
+  const first = placed[0]
+  if (first) {
     return (
       <PaneBody
-        title="Agent"
-        description={`${agent.name} reads along in #${channel.name}. A mention or a reply wakes it at once.`}
+        title={placed.length > 1 ? "Agents" : "Agent"}
+        description={
+          placed.length > 1
+            ? `${NAMES.format(placed.map((item) => item.name))} read along in #${channel.name}. A mention or a reply wakes the one it names at once.`
+            : `${first.name} reads along in #${channel.name}. A mention or a reply wakes it at once.`
+        }
       >
-        <PlacedAgent
-          workspaceSlug={workspaceSlug}
-          channel={channel}
-          agent={agent}
-          onOpen={() => openAgent(agent.id)}
-          onRemove={() => place([])}
-        />
-        <ChannelInstructions
-          key={agent.id}
-          workspaceSlug={workspaceSlug}
-          channel={channel}
-          agent={agent}
-        />
+        {placed.map((agent) => (
+          <Fragment key={agent.id}>
+            <PlacedAgent
+              workspaceSlug={workspaceSlug}
+              channel={channel}
+              agent={agent}
+              onOpen={() => openAgent(agent.id)}
+              onRemove={() =>
+                place(channel.agentIds.filter((id) => id !== agent.id))
+              }
+            />
+            <ChannelInstructions
+              workspaceSlug={workspaceSlug}
+              channel={channel}
+              agent={agent}
+            />
+          </Fragment>
+        ))}
+        {room && add}
+        {/* Discord has one bot, which is the first agent here. */}
         <DiscordChatSection
           key={channel.id}
           workspaceSlug={workspaceSlug}
           channelId={channel.id}
-          agentName={agent.name}
+          agentName={first.name}
         />
       </PaneBody>
     )
@@ -455,42 +512,12 @@ function AgentTab({
       title="Agent"
       description={`No agent is in #${channel.name}. People talk here and nothing answers.`}
     >
-      <SettingsSection title="Add an agent">
-        <SettingsGroup>
-          {agents.map((item) => (
-            <div key={item.id} className="flex min-h-14 items-center gap-3">
-              <AgentCreature creature={agentCreature(item)} size={32} still />
-              <AgentName agent={item} />
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void place([item.id]).catch(() => {})}
-              >
-                Add
-              </Button>
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={() => openAgent("new")}
-            className="group flex min-h-14 w-full cursor-pointer items-center gap-3 text-left text-muted-foreground text-sm outline-none transition-colors duration-150 hover:text-foreground focus-visible:text-foreground"
-          >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 border-dashed transition-colors duration-150 group-hover:border-foreground/60">
-              <HugeiconsIcon
-                icon={PlusSignIcon}
-                className="size-3.5"
-                strokeWidth={2}
-              />
-            </span>
-            New agent
-          </button>
-        </SettingsGroup>
-      </SettingsSection>
+      {add}
     </PaneBody>
   )
 }
+
+const NAMES = new Intl.ListFormat("en", { style: "long", type: "conjunction" })
 
 function AgentName({ agent }: { agent: WorkspaceAgent }) {
   return (

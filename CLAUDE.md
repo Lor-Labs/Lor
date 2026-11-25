@@ -250,8 +250,8 @@ Agents are coming off channels, step by step, under
 `reference/agents-and-chats.md` (2026-11-24); where a step has landed that doc
 wins. Step 1 is built: an agent is its own row (`agent`) with its name, face,
 brief, model, facts and run settings (`agent_harness_settings`); which agents
-are in a channel is `channel_agent` (the data allows several, the app holds
-one, and a channel can have none); only a mention or a reply wakes it. Step 2
+are in a channel is `channel_agent` (up to `MAX_CHANNEL_AGENTS`, and a
+channel can have none); only a mention or a reply wakes it. Step 2
 is built: one memory per agent under every conversation
 (`packages/lor/src/agent-memory.ts`): facts with no private scope, an archive
 (`agent_fact.archived_at`), a journal (`agent_journal`) the memory pass writes
@@ -264,9 +264,17 @@ makes, each with its own inbox, steps, context and queue
 (`conversation_id`), so requests run side by side; `agent_run.channel_id` is
 the channel a turn is about. It needs `db:push` with the workers stopped,
 which first runs `agents-from-channels.ts`, `agent-facts-unscoped.ts` and
-`agent-conversations.ts` in `packages/db/src/scripts/`. Not built yet: chats
-in the sidebar, New chat, and Loops stored on the agent. The mock of the
-earlier design is `/prototype/agents`.
+`agent-conversations.ts` in `packages/db/src/scripts/`. Decided 2026-11-25
+(decisions 31 to 34): Lor is named group chats, a chat is a text channel
+(`channel.kind = "chat"`), and a chat holds several agents. Several agents in
+a chat is built: all post as Lor, so `message.agent_id` says which one wrote
+a message, each is mentioned by its own id (`<@agentId>`; Lor's own mention
+means the chat's first agent), a message that names agents wakes those and
+waits in the others' inboxes, and one that names nobody waits in every
+agent's (`apps/realtime/src/services/agent-inbox.ts`). It needs `db:push`
+(two new columns, no data move). Not built yet: the chat list and New chat
+in the app, and Loops stored on the agent. The mock of the chat list is
+`/prototype/chats`; `/prototype/agents` is the earlier design.
 
 ### Conventions
 

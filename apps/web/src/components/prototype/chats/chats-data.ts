@@ -43,6 +43,20 @@ export type Message = {
   text: string
   session?: string
   approval?: string
+  // While writing this the agent asked another agent something: the id of
+  // that exchange.
+  asked?: string
+}
+
+// One agent asking another, apart from any chat: a question and its answer,
+// which people can read and not write in.
+export type Exchange = {
+  id: string
+  from: string
+  to: string
+  // The chat it was asked from.
+  chatId: string
+  messages: { id: string; from: string; time: string; text: string }[]
 }
 
 export type Chat = {
@@ -387,13 +401,8 @@ export const CHATS: Chat[] = [
         id: "l2",
         from: "quill",
         time: "8:02 AM",
-        text: "As of this morning: landing page copy is in review, the email draft is ready for you, pricing page is waiting on Jacob.",
-      },
-      {
-        id: "l3",
-        from: "inky",
-        time: "8:02 AM",
-        text: "The pricing page change is one pull request away. I can open it once Jacob confirms the numbers.",
+        text: "As of this morning: landing page copy is in review, the email draft is ready for you, and the pricing page is one pull request away once Jacob confirms the numbers.",
+        asked: "x1",
       },
     ],
   },
@@ -504,6 +513,29 @@ export const OWN_SESSIONS: Session[] = [
     steps: ["Renamed the column and its uses", "Ran the type check"],
     files: [
       { path: "apps/api/src/routes/workspaces.ts", added: 22, removed: 22 },
+    ],
+  },
+]
+
+export const EXCHANGES: Exchange[] = [
+  {
+    id: "x1",
+    from: "quill",
+    to: "inky",
+    chatId: "launch",
+    messages: [
+      {
+        id: "x1a",
+        from: "quill",
+        time: "8:01 AM",
+        text: "For the launch checklist in Launch crew: is the pricing page change ready for Thursday, and what is it waiting on?",
+      },
+      {
+        id: "x1b",
+        from: "inky",
+        time: "8:01 AM",
+        text: "One pull request away. It is waiting on Jacob to confirm the numbers; I can open it as soon as he does.",
+      },
     ],
   },
 ]

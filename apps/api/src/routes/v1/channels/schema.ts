@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi"
+import { MAX_CHANNEL_AGENTS } from "@repo/db/constants"
 import {
   insertChannelSchema,
   integrationProviderEnum,
@@ -41,9 +42,8 @@ const channelSchema = selectChannelSchema.extend({
   agentIds: z.array(z.string().uuid()),
 })
 
-// Which agents are in a channel. The data allows several; the server holds
-// a channel to MAX_CHANNEL_AGENTS.
-const agentIdsSchema = z.array(z.string().uuid()).max(8)
+// Which agents are in a channel, in the order they were added.
+const agentIdsSchema = z.array(z.string().uuid()).max(MAX_CHANNEL_AGENTS)
 
 export const channelResponseSchema = channelSchema
 

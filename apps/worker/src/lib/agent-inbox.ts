@@ -150,7 +150,7 @@ function showTyping(
   channelId: string,
   // Read on every beat: a turn that starts a thread moves there.
   place: { threadRootId: string | null },
-  name: string
+  agent: { id: string; name: string }
 ) {
   let pausedUntil = 0
   let beats = 0
@@ -165,7 +165,8 @@ function showTyping(
         channelId,
         threadRootId,
         userId: LOR_USER_ID,
-        name,
+        name: agent.name,
+        agentId: agent.id,
       })
   }
   emit()
@@ -183,11 +184,11 @@ function showTyping(
 // clients drop the state 15s after the last beat.
 const WORKING_EVERY_MS = 10_000
 
-function showWorking(deps: AgentDeps, channelId: string) {
+function showWorking(deps: AgentDeps, channelId: string, agentId: string) {
   const emit = (working: boolean) =>
     deps.emitter
       .to(channelRoom(channelId))
-      .emit("agent:working", { channelId, working })
+      .emit("agent:working", { channelId, working, agentId })
   emit(true)
   const timer = setInterval(() => emit(true), WORKING_EVERY_MS)
   return () => {
@@ -595,6 +596,7 @@ export async function flushAgentInbox(
           channelId,
           content: PAUSED_OUT_OF_CREDITS_MESSAGE,
           type: "agent_post",
+          agentId,
         })
           .then((posted) =>
             postAgentToDiscord({
@@ -968,6 +970,42 @@ async function loadTurnPlace(conversationId: string, channelId: string) {
       )
     )
     .orderBy(asc(schema.channel.createdAt))
+  // The agents it shares a chat with, and which chats (decision 32).
+  const shared = await db
+    .select({
+      id: schema.agent.id,
+      name: schema.agent.name,
+      role: schema.agent.role,
+      channel: schema.channel.name,
+    })
+    .from(schema.channelAgent)
+    .innerJoin(schema.agent, eq(schema.agent.id, schema.channelAgent.agentId))
+    .innerJoin(
+      schema.channel,
+      eq(schema.channel.id, schema.channelAgent.channelId)
+    )
+    .where(
+      and(
+        ne(schema.channelAgent.agentId, agent.id),
+        isNull(schema.channel.archivedAt),
+        sql`${schema.channelAgent.channelId} in (select channel_id from channel_agent where agent_id = ${agent.id})`
+      )
+    )
+    .orderBy(asc(schema.agent.createdAt), asc(schema.channel.createdAt))
+  const otherAgents = new Map<
+    string,
+    { id: string; name: string; role: string | null; channels: string[] }
+  >()
+  for (const row of shared) {
+    const entry = otherAgents.get(row.id) ?? {
+      id: row.id,
+      name: row.name,
+      role: row.role,
+      channels: [],
+    }
+    if (row.channel) entry.channels.push(row.channel)
+    otherAgents.set(row.id, entry)
+  }
   return {
     ...channel,
     workspaceId: channel.workspaceId,
@@ -977,6 +1015,7 @@ async function loadTurnPlace(conversationId: string, channelId: string) {
     agentName: agent.name,
     agentCreature: agent.creature,
     otherChannels: others.flatMap((other) => other.name ?? []),
+    otherAgents: [...otherAgents.values()],
   }
 }
 
@@ -992,6 +1031,7 @@ function agentHooks(
     agentName: string
     agentCreature: string
     otherChannels: string[]
+    otherAgents: RunAgentContext["otherAgents"]
   },
   mode: RunAgentContext["mode"],
   onSent: () => void,
@@ -1018,6 +1058,7 @@ function agentHooks(
       ? creatureById(channel.agentCreature).label
       : "creature",
     otherChannels: channel.otherChannels,
+    otherAgents: channel.otherAgents,
     mode,
     sessions: agentSessionExecutors(deps, {
       workspaceId: channel.workspaceId,
@@ -1126,6 +1167,7 @@ function agentHooks(
         channelId: targetId,
         content,
         type: "agent_post",
+        agentId: channel.agentId,
         ...(threadRootId ? { threadRootId } : {}),
       })
       onSent()
@@ -1254,6 +1296,7 @@ export async function runAgentTurnJob(
       channelId,
       content,
       type: "agent_post",
+      agentId: channel.agentId,
       ...(turnPlace.threadRootId
         ? { threadRootId: turnPlace.threadRootId }
         : {}),
@@ -1317,9 +1360,12 @@ export async function runAgentTurnJob(
     // leave them running.
     turnPlace.planUserId = userId ?? (await setUpBy(runId))
     const typing = addressed
-      ? showTyping(deps, channelId, turnPlace, channel.agentName)
+      ? showTyping(deps, channelId, turnPlace, {
+          id: channel.agentId,
+          name: channel.agentName,
+        })
       : { pause: () => {}, stop: () => {} }
-    const stopWorking = showWorking(deps, channelId)
+    const stopWorking = showWorking(deps, channelId, channel.agentId)
     // The memory pass reuses this context, so its tools and prompt match
     // the turn's and it reads the turn's cache.
     const turnContext = {
@@ -1397,6 +1443,7 @@ export async function runAgentTurnJob(
         channelId,
         content: inbox ? APPROVAL_MESSAGE : ANOTHER_APPROVAL_MESSAGE,
         type: "agent_post",
+        agentId: channel.agentId,
         ...(run?.triggerMessageId
           ? { lorTriggerMessageId: run.triggerMessageId }
           : {}),

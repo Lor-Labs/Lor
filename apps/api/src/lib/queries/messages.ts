@@ -95,6 +95,8 @@ export type BareMessageRow = {
   forwarded: ForwardedMessage | null
   threadRootId: string | null
   routedToLor: boolean | null
+  // The agent that wrote it, when Lor did in a chat.
+  agentId: string | null
   editedAt: Date | null
   createdAt: Date
   authorId: string
@@ -126,6 +128,7 @@ export const messageSelect = {
   forwarded: message.forwarded,
   threadRootId: message.threadRootId,
   routedToLor: message.routedToLor,
+  agentId: message.agentId,
   editedAt: message.editedAt,
   createdAt: message.createdAt,
   authorId: message.authorId,
@@ -144,6 +147,7 @@ export const referencedMessageSelect = {
   authorImage: user.image,
   overrideName: message.overrideName,
   overrideAvatarUrl: message.overrideAvatarUrl,
+  agentId: message.agentId,
 } as const
 
 export function toReferencedMessage(row: {
@@ -154,10 +158,12 @@ export function toReferencedMessage(row: {
   authorImage: string | null
   overrideName: string | null
   overrideAvatarUrl: string | null
+  agentId: string | null
 }) {
   return {
     id: row.id,
     content: row.content,
+    agentId: row.agentId,
     author: {
       id: row.authorId,
       name: row.authorName,

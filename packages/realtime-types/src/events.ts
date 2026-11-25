@@ -469,6 +469,8 @@ export type RealtimeReferencedMessage = {
   id: string
   content: string | null
   author: RealtimeAuthor
+  // The agent that wrote it, when Lor did in a chat (see RealtimeMessage).
+  agentId?: string | null
   // Webhook/connector display identity — mirrors RealtimeMessage so reply
   // previews show the same name/avatar as the referenced message itself.
   overrideName: string | null
@@ -520,6 +522,11 @@ export type RealtimeMessage = {
   // A person's session message: whether it went to Lor. false = for channel
   // members only. Null outside sessions.
   routedToLor?: boolean | null
+  // Which agent wrote one of Lor's messages in a chat: several agents share
+  // Lor's user id (`message.agent_id`). Null or absent: a person's message,
+  // a session's, or one from before agents shared a chat, which is the
+  // chat's first agent's.
+  agentId?: string | null
 }
 
 export type RealtimeMessagePinToggled = {
@@ -830,6 +837,8 @@ export type TypingIndicatorEvent = {
   threadRootId?: string | null
   userId: string
   name: string
+  // Which agent, when Lor types in a chat. Absent: the chat's first agent.
+  agentId?: string | null
 }
 
 export interface ClientToServerEvents {
@@ -1007,7 +1016,12 @@ export interface ServerToClientEvents {
   // agent (reference/agents-and-chats.md): refetch agents and channels.
   "agents:updated": (payload: { workspaceId: string }) => void
   // A channel agent's turn started (beats every 10s) or ended.
-  "agent:working": (payload: { channelId: string; working: boolean }) => void
+  "agent:working": (payload: {
+    channelId: string
+    working: boolean
+    // Absent: the chat's first agent.
+    agentId?: string | null
+  }) => void
   "message:pin:toggled": (payload: RealtimeMessagePinToggled) => void
   "message:thread:updated": (payload: RealtimeMessageThreadUpdated) => void
   "notification:bootstrap": (payload: NotificationBootstrap) => void

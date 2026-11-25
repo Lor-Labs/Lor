@@ -36,7 +36,7 @@ import { ProposalCard } from "@/components/proposal-card"
 import { ThinkingIndicator } from "@/components/thinking-indicator"
 import { Avatar } from "@/components/ui/avatar"
 import { CallSummaryCard } from "@/components/voice/call-summary-card"
-import { type ChannelAgent, useChannelAgent } from "@/hooks/use-channel-agent"
+import { type ChannelAgent, useMessageAgent } from "@/hooks/use-channel-agent"
 import { useSessionCoder } from "@/hooks/use-session-agent"
 import type { Message } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/message-markdown"
@@ -388,7 +388,7 @@ export function MessageRow({
     }),
     [isDocument, message.routedToLor]
   )
-  const channelAgent = useChannelAgent()
+  const channelAgent = useMessageAgent(message.agentId)
   if (message.type === "agent_session") return null
   const isLor = message.authorId === LOR_USER_ID
   const agent = isLor && !isDocument ? channelAgent : null
@@ -542,7 +542,7 @@ export function ThreadRootMessage({
   onPressAuthor?: (message: Message) => void
   onToggleReaction?: (message: Message, emoji: string) => void
 }) {
-  const channelAgent = useChannelAgent()
+  const channelAgent = useMessageAgent(message.agentId)
   if (message.type === "agent_session") return null
   const isLor = message.authorId === LOR_USER_ID
   const agent = isLor ? channelAgent : null

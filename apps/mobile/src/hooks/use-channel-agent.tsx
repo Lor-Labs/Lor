@@ -88,6 +88,10 @@ function useAgentActivity(workspaceId: string | undefined, channelId: string) {
 }
 
 const ChannelAgentContext = createContext<ChannelAgent | null>(null)
+// Every agent in the channel, first one first: a chat can hold several
+// (reference/agents-and-chats.md, decision 32), and they all post as Lor.
+const NO_AGENTS: ChannelAgent[] = []
+const ChannelAgentsContext = createContext<ChannelAgent[]>(NO_AGENTS)
 // Apart from who it is, so a change of state doesn't re-render every message.
 const ChannelAgentStateContext = createContext<CreatureState>("asleep")
 // A text channel with no agent: plain human chat, where nothing answers @Lor.
@@ -122,6 +126,22 @@ export function ChannelAgentProvider({
         : null,
     [found, channelId]
   )
+  const agentIds = channel?.agentIds
+  const agents = useMemo(
+    () =>
+      (agentIds ?? []).flatMap((id) => {
+        const item = agentsById.get(id)
+        return item
+          ? {
+              id: item.id,
+              channelId,
+              name: item.name,
+              creature: agentCreature(item),
+            }
+          : []
+      }),
+    [agentIds, agentsById, channelId]
+  )
   const activity = useAgentActivity(workspace?.id, channelId)
   const working = useAgentWorking(channelId, Boolean(activity?.agentWorking))
   const needsYou = Boolean(activity?.agentNeeds.length)
@@ -132,19 +152,35 @@ export function ChannelAgentProvider({
       : "asleep"
   return (
     <ChannelAgentContext value={agent}>
-      <ChannelAgentStateContext value={state}>
-        <NoChannelAgentContext
-          value={channel?.type === "text" && channel.agentIds.length === 0}
-        >
-          {children}
-        </NoChannelAgentContext>
-      </ChannelAgentStateContext>
+      <ChannelAgentsContext value={agents}>
+        <ChannelAgentStateContext value={state}>
+          <NoChannelAgentContext
+            value={channel?.type === "text" && channel.agentIds.length === 0}
+          >
+            {children}
+          </NoChannelAgentContext>
+        </ChannelAgentStateContext>
+      </ChannelAgentsContext>
     </ChannelAgentContext>
   )
 }
 
 export function useChannelAgent() {
   return useContext(ChannelAgentContext)
+}
+
+// Every agent in the channel, for resolving a mention of one.
+export function useChannelAgents() {
+  return useContext(ChannelAgentsContext)
+}
+
+// The agent that wrote one of Lor's messages here (`message.agentId`). A
+// message with no agent on it, or by one no longer in the channel, is shown
+// as the first agent's.
+export function useMessageAgent(agentId: string | null | undefined) {
+  const first = useContext(ChannelAgentContext)
+  const agents = useContext(ChannelAgentsContext)
+  return (agentId && agents.find((agent) => agent.id === agentId)) || first
 }
 
 export function useChannelAgentState() {

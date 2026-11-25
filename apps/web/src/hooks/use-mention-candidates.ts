@@ -70,33 +70,35 @@ export function useMentionCandidates(
     // with no agent has nobody to mention.
     const inChat = agent && channel?.type === "text"
     const placed = inChat ? channelAgentOf(channel, agents) : null
-    const identity = placed
-      ? { name: placed.name, creature: agentCreature(placed) }
-      : null
+    // A chat can hold several agents (reference/agents-and-chats.md,
+    // decision 32), and each is mentioned by its own id, which the server
+    // routes to it. Lor's own id is not offered beside them: in a chat it
+    // only ever meant the first agent.
+    const here = placed
+      ? (channel?.agentIds ?? []).flatMap((id) => agents.get(id) ?? [])
+      : []
     const audienceIds = new Set(audience?.userIds ?? [])
     const people = (members ?? []).filter((member) =>
       member.isBot
-        ? !humanOnly && !(inChat && !placed && member.userId === LOR_USER_ID)
+        ? !humanOnly && !(inChat && member.userId === LOR_USER_ID)
         : audienceIds.has(member.userId)
     )
     return [
-      ...people.map((member) =>
-        identity && member.userId === LOR_USER_ID
-          ? {
-              id: member.userId,
-              label: identity.name,
-              name: identity.name,
-              search: "lor",
-              image: null,
-              creature: identity.creature,
-            }
-          : {
-              id: member.userId,
-              label: member.name,
-              name: member.name,
-              image: member.image,
-            }
-      ),
+      ...here.map((item, index) => ({
+        id: item.id,
+        label: item.name,
+        name: item.name,
+        // "@lor" still finds the agent that answers by default.
+        ...(index === 0 ? { search: "lor" } : {}),
+        image: null,
+        creature: agentCreature(item),
+      })),
+      ...people.map((member) => ({
+        id: member.userId,
+        label: member.name,
+        name: member.name,
+        image: member.image,
+      })),
       ...(broadcasts ? broadcastMentionCandidates(audience?.audience) : []),
     ]
   }, [members, channel, audience, broadcasts, agent, agents])

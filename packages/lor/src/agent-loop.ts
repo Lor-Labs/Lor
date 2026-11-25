@@ -17,6 +17,7 @@ import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import type { AgentStepKind, AgentStepMessage } from "@repo/db/schema"
 import {
   generateText,
+  type Instructions,
   isStepCount,
   type LanguageModel,
   type ModelMessage,
@@ -29,7 +30,7 @@ import {
 import { z } from "zod"
 import { addJournalEntry } from "./agent-memory"
 import { aiRuntimeContext, aiTelemetry } from "./ai-observability"
-import type { RunAgentContext } from "./channel-agent"
+import { AGENT_SECTION_HEADING, type RunAgentContext } from "./channel-agent"
 import {
   applyFactChanges,
   factsForMemoryPass,
@@ -339,26 +340,66 @@ export function turnHeader(now: Date): string {
   return `[${when} UTC]`
 }
 
-function requestOptions(promptTokens: number, message: ModelMessage) {
-  // Large conversations keep the cache an hour, so compaction after an idle
-  // stretch still reads it warm.
-  if (promptTokens < COMPACT_AT_TOKENS) return message
-  return {
-    ...message,
-    providerOptions: {
-      ...message.providerOptions,
-      anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } },
-    },
-  } as ModelMessage
+const HOUR_CACHE = {
+  anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } },
+} as const
+
+// Whether a conversation's turns are usually more than the cache's five
+// minutes apart, so its history is kept an hour. An agent's own
+// conversation wakes for its 15-minute check-in, and a large one must still
+// be warm when it compacts after an idle stretch. A request is a quick
+// exchange and stays on five minutes, where a cache write costs less.
+function keepsCacheAnHour(
+  model: string,
+  own: boolean,
+  promptTokens: number
+): boolean {
+  // Only where our own cache points mean something.
+  if (!model.startsWith("anthropic/")) return false
+  return own || promptTokens >= COMPACT_AT_TOKENS
 }
 
+// The gateway's automatic cache points last five minutes, and it puts its
+// own over a longer one asked for on the same message (measured 2026-11-25:
+// a check-in 16 minutes after the last read only the shared top). So a
+// conversation kept an hour marks its own, where the gateway would: the last
+// message, which the next call reads, and the one before the last thing a
+// person or the inbox said. gatewayOptions leaves the gateway's off for it.
 function withLongCache(
   messages: ModelMessage[],
-  promptTokens: number
+  long: boolean
 ): ModelMessage[] {
-  const last = messages.at(-1)
-  if (!last) return messages
-  return [...messages.slice(0, -1), requestOptions(promptTokens, last)]
+  if (!long || messages.length === 0) return messages
+  const last = messages.length - 1
+  const lastUser = messages.map((item) => item.role).lastIndexOf("user")
+  const marked = new Set([last, lastUser - 1])
+  return messages.map((item, index) =>
+    marked.has(index)
+      ? ({
+          ...item,
+          providerOptions: { ...item.providerOptions, ...HOUR_CACHE },
+        } as ModelMessage)
+      : item
+  )
+}
+
+// Prompt cache point for what every conversation in a workspace shares: the
+// tools and the prompt down to the agent's own section (about nine tenths of
+// a new conversation's prompt). Sent as its own block and kept an hour, a new
+// request or another agent's check-in reads it instead of writing it again.
+// Only the block boundary and the marker change: the text and its order are
+// the same. Every call of a conversation must send the same blocks.
+function cachedInstructions(model: string, system: string): Instructions {
+  const at = system.indexOf(`\n\n${AGENT_SECTION_HEADING}`)
+  if (at <= 0 || !model.startsWith("anthropic/")) return system
+  return [
+    {
+      role: "system",
+      content: system.slice(0, at),
+      providerOptions: HOUR_CACHE,
+    },
+    { role: "system", content: system.slice(at) },
+  ]
 }
 
 // One provider per conversation: the prompt cache and reasoning signatures
@@ -367,10 +408,15 @@ function withLongCache(
 // session id it fingerprints the prompt's opening and pinned every channel
 // agent to one provider. One id per conversation (channel and epoch), shared
 // by its turns, memory passes and compaction, also pins the exact credential.
-function gatewayOptions(model: string, conversation: string) {
+function gatewayOptions(
+  model: string,
+  conversation: string,
+  // The request marks its own cache points (withLongCache).
+  ownCachePoints = false
+) {
   return {
     gateway: {
-      caching: "auto" as const,
+      ...(ownCachePoints ? {} : { caching: "auto" as const }),
       sessionId: conversation,
       ...(model.startsWith("anthropic/") ? { order: ["anthropic"] } : {}),
     },
@@ -745,10 +791,13 @@ async function turnLoop(
   let promptTokens = context.promptTokens
   // The standing cache check (always-on-agents.md §8, step 4.5): the first
   // call of a turn is expected warm only when the last turn ended within the
-  // 5-minute lifetime (or the hour, above the compaction size); every later
-  // call should read what the call before it sent.
-  const lifetimeMs =
-    promptTokens >= COMPACT_AT_TOKENS ? 55 * 60_000 : 4 * 60_000
+  // 5-minute lifetime (or the hour, in the agent's own conversation and above
+  // the compaction size); every later call should read what the call before
+  // it sent.
+  const own = agent.conversation.kind === "own"
+  const lifetimeMs = keepsCacheAnHour(args.model, own, promptTokens)
+    ? 55 * 60_000
+    : 4 * 60_000
   let expectWarm =
     context.lastTurnEndedAt !== null &&
     Date.now() - context.lastTurnEndedAt.getTime() < lifetimeMs
@@ -876,14 +925,18 @@ async function turnLoop(
       turnMessages.push(checkpoint)
       sentMessages += sentIn([checkpoint])
     }
+    const long = keepsCacheAnHour(args.model, own, promptTokens)
     const result = await generateText({
       model: withInferenceGuard(
         args.languageModel ?? lorGatewayModel(args.model),
         run.assertCanInfer
       ),
       // The epoch's own prompt: after an in-turn compaction, the new one.
-      instructions: context.system ?? args.instructions,
-      messages: withLongCache(messages, promptTokens),
+      instructions: cachedInstructions(
+        args.model,
+        context.system ?? args.instructions
+      ),
+      messages: withLongCache(messages, long),
       tools: args.tools,
       // The context map is built for this tool set in respond().
       toolsContext: args.toolsContext as never,
@@ -891,7 +944,8 @@ async function turnLoop(
       stopWhen: isStepCount(1),
       providerOptions: gatewayOptions(
         args.model,
-        gatewaySession(conversationId, context.epoch)
+        gatewaySession(conversationId, context.epoch),
+        long
       ),
       abortSignal,
       onToolExecutionEnd: ({ toolCall, toolOutput }) => {
@@ -1148,7 +1202,7 @@ export async function compactAgentConversation(args: {
       args.languageModel ?? lorGatewayModel(args.model),
       args.assertCanInfer
     ),
-    instructions: context.system,
+    instructions: cachedInstructions(args.model, context.system),
     messages,
     tools: inert,
     stopWhen: isStepCount(1),
@@ -1304,7 +1358,7 @@ export async function agentMemoryPass(args: {
         args.languageModel ?? lorGatewayModel(args.model),
         args.assertCanInfer
       ),
-      instructions: context.system,
+      instructions: cachedInstructions(args.model, context.system),
       messages,
       tools,
       toolsContext: args.toolsContext as never,

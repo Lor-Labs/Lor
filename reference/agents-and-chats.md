@@ -90,6 +90,10 @@ objected to and should confirm.
 | 28 | The agent has one conversation of its own, for what nobody asked for (decisions 26 and 27, events, its wake-ups). Anything a person addresses to it runs in its own conversation, side by side with the others, so nobody waits behind background work or another person. A quick reply stays a thread; one that turns into work is listed as a chat | Jacob, 11-24 |
 | 29 | Tools belong to the agent, not to the channel it is working in | Jacob, 11-24 |
 | 30 | A fact the agent drops to make room is archived and stays searchable. It can save a fact during a turn, not only after one | Jacob, 11-24 |
+| 31 | Lor is named group chats: people and agents in a chat with a name, and nothing else to start with (no statuses, kinds of chat or projects). Chats replace channels in the app. A chat is a text channel (`channel.kind = "chat"`), and the kind is kept so long-lived channels can come back later without a new table. Teams keep talking in Slack or Discord; Lor is where the agents and their work are | Jacob, 11-25 |
+| 32 | A chat can hold several agents. A message that names an agent is answered by it at once. One that names nobody goes to the inbox of every agent in the chat, and an agent that finds it meant for it at its next check-in answers then (decision 26) | Jacob, 11-25 |
+| 33 | The sidebar is chats: pinned ones first, then the rest by last message. A chat's code sessions are listed under it, and sessions keep the look and behaviour they have today | Jacob, 11-25 |
+| 34 | Slack comes after chats are built | Jacob, 11-25 |
 
 Considered and dropped:
 
@@ -226,8 +230,21 @@ tools all stay.
 
 - **Two chats starting the same work.** The open block narrows it and does not
   close it.
-- **Several agents in one chat or channel.** Wanted later ("agents messaging
-  each other"). It brings back the question of who answers.
+- **Agents asking each other.** Not built: agents in one chat do not wake
+  each other. Proposed 2026-11-25 and mocked in `/prototype/chats` (Launch
+  crew): one agent asks another directly, as a question with one answer that
+  comes back into the asker's turn, shown as a marker under the asker's
+  message that opens the exchange read-only, and listed on each agent. No
+  chat of agents only. Against loops: one answer per ask, no asking an agent
+  already in the chain, a depth cap and a cap per request.
+- **Hiding and pinning a chat.** Whether one person putting a chat away puts
+  it away for everyone, and whether pins are the team's or each person's.
+- **Who is in a chat, and who can see it.** A channel today is open to the
+  whole workspace or closed to its members, and has no list of people who
+  follow it.
+- **A session of your own,** one you sit in yourself with no agent watching
+  and no chat around it. The mock lists them in a Sessions section between
+  Pinned and Recent.
 - **The agent's own computer** (`always-on-agents.md`, decision 36). One
   watchable computer assumes one thing happening at a time. With chats side by
   side it needs a computer per chat, or a queue for the one.
@@ -544,6 +561,66 @@ Rollout, with API, realtime and worker together:
 3. Start the workers. Once every environment has pushed, take the script
    out of `BEFORE_PUSH`.
 
+Prompt cache (2026-11-25, `packages/lor/src/agent-loop.ts`). Markers only:
+the prompt's text and order are unchanged.
+
+- **A shared cache point.** The tools and the prompt down to the agent's own
+  section (`AGENT_SECTION_HEADING`) are the same for every conversation in a
+  workspace, about nine tenths of a new conversation's prompt. They are sent
+  as their own block with a one-hour cache point (`cachedInstructions`), so
+  a new request, or another agent's check-in, reads them instead of writing
+  them again. Measured: the first call of a new request read 20,268 of
+  25,034 tokens, where it read 0 of 23,260 before. A check-in 16 minutes
+  after anything else ran still read it.
+- **The agent's own conversation is kept an hour** (`keepsCacheAnHour`): its
+  check-ins are 15 minutes apart, so on the five-minute cache every one paid
+  to write its whole history and read none of it. A request stays on five
+  minutes, where a write costs less (1.25 times the input price, against 2
+  times for an hour).
+- **The gateway's automatic cache points are five minutes and override a
+  longer one on the same message** (a check-in 16 minutes after the last
+  read only the shared top). A conversation kept an hour therefore marks its
+  own (`withLongCache`) and turns the gateway's off (`gatewayOptions`).
+  Measured after that: a check-in 9 minutes after the last read 24,937 of
+  25,219 tokens. The one-hour marker used above 100,000 tokens had the same
+  fault and had never been measured.
+
+Several agents in a chat (decision 32, built 2026-11-25). Every agent posts
+as Lor's one user, so:
+
+- **Who wrote a message** is `message.agent_id`. Null on people's messages,
+  in sessions and on Lor's messages from before this, which are the chat's
+  first agent's. The worker sets it on everything an agent's turn posts
+  (`postLorMessage`), and message payloads carry it (`agentId`).
+- **Mentions.** Each agent is mentioned by its own id, `<@agentId>`, which is
+  what the composer inserts. Lor's own mention means the chat's first agent,
+  as every chat with one agent used it (the mobile app and Discord still
+  send it).
+- **Routing** (`addChatMessageToAgentInbox`, `agentsNamed`). The agents a
+  message names (by mention, or by replying to what one wrote) are woken, each
+  in its own request conversation. Every other agent in the chat gets the
+  message in its wait lane, for its check-in; with nobody named, all of them
+  do. In a human thread it reaches the agents it names, or with none named
+  every agent already in the thread, and nobody else.
+- **What an agent is told.** Its own mention, the other agents it shares a
+  chat with (name, role, mention, which chats), that a message naming one of
+  them is theirs, and that one naming nobody is to be answered only when it
+  is clearly its own. Another agent's messages go by that agent's name in
+  what it reads (inbox, replies, `read_thread`).
+- **The cap** is `MAX_CHANNEL_AGENTS` (8). The right panel adds and removes
+  agents; the channel and agent dialogs handle several.
+- **Left out on purpose:** one agent mentioning another does not wake it
+  (they could answer each other without end), and each agent is told so.
+  Discord stays the first agent's. Notification previews show an agent
+  mention as "@unknown-user".
+- **Checked live** with two agents in one chat: a mention of one woke only
+  that one and waited for the other; a message naming nobody waited for
+  both; one naming both got an answer from each, under its own name and
+  face. Not run: replies, threads, typing with two agents at once, mobile
+  (type-checked only).
+- **Rollout:** `pnpm db:push` adds `message.agent_id` and `channel.kind`.
+  No data moves.
+
 ### Step 4: places and tools
 
 - A Slack or Discord channel as a place on the agent, not a Lor channel
@@ -565,11 +642,9 @@ replaced.
 `/prototype/orchestration` still shows the earlier thread-based shape.
 
 `/prototype/chats` (dev only, made-up data,
-`apps/web/src/components/prototype/chats/`) shows the direction under
-discussion since 2026-11-25, not yet a decision in §3: Lor as named group
-chats, each with people and any number of agents (the app holds one per
-channel today), and nothing else to start with (no statuses, kinds of chat
-or projects). The sidebar lists chats in Lor's own sidebar language: pinned
+`apps/web/src/components/prototype/chats/`) shows decisions 31 to 33: Lor as named group chats, each with people and
+any number of agents, and nothing else to start with (no statuses, kinds of
+chat or projects). The sidebar lists chats in Lor's own sidebar language: pinned
 ones first, which keep their place, then recent ones, where a chat with a
 new message moves to the top. A row has the chat's face (its agents and
 people in one circle), its name, who spoke last and what they said, or which
@@ -583,14 +658,3 @@ sidebar, with the rows the sidebar has today under a channel (icon, title,
 line counts, state, archive on hover; the newest three, the rest behind "N
 more"). A thread with an agent in Slack or Discord shows as a chat with its
 sessions and approvals.
-
-Jacob's calls on it so far (2026-11-25), not yet numbered decisions:
-- A chat can hold several agents.
-- A message that names an agent is answered at once. One that names nobody
-  goes to the inbox of every agent in the chat, and an agent that finds it
-  meant for it at its next check-in answers then (the wait lane and
-  `sweepCheckIns` from step 3).
-- Sessions keep the look and behaviour they have today.
-- Open: where a session of your own goes, one you sit in yourself with no
-  agent and no chat. The mock lists them in a Sessions section between
-  Pinned and Recent.
