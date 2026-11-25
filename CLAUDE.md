@@ -273,7 +273,10 @@ a chat is built, each posting as a bot user of its own (decision 37):
 derive `agentId` from it. Each is mentioned by its own id (`<@agentId>`;
 Lor's own mention means the chat's first agent), a message that names agents
 wakes those and waits in the others' inboxes, and one that names nobody
-waits in every agent's (`apps/realtime/src/services/agent-inbox.ts`). It
+waits in every agent's (`apps/realtime/src/services/agent-inbox.ts`) and
+is judged at once by Jev (LOR-171, `packages/lor/src/inbox-address.ts`): an
+agent it reads as meant for is woken now (`agent_inbox.inferred`) and may
+stay quiet. It
 needs `db:push` with the workers stopped, which first runs
 `agent-bot-users.ts` (a user per agent, earlier agent posts re-authored). Not built yet: the chat list and New chat
 in the app, and Loops stored on the agent. The mock of the chat list is

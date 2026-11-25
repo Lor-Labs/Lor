@@ -3,7 +3,9 @@ import { addInboxMessage, agentsInThread } from "@repo/lor/channel-agent"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import {
   AGENT_INBOX_BATCH_MS,
+  AGENT_INBOX_CLASSIFY_JOB,
   AGENT_INBOX_FLUSH_JOB,
+  type AgentInboxClassifyJobData,
   type AgentInboxFlushJobData,
 } from "@repo/realtime-types/queues"
 import type { Queue } from "bullmq"
@@ -13,7 +15,9 @@ import { agentsNamed } from "@/services/lor-routing"
 // (reference/always-on-agents.md §3; reference/agents-and-chats.md, decision
 // 32). A mention of an agent or a reply to it wakes that agent; for the
 // others, and when nobody is named, it waits unread until their next turn
-// (decision 8: no "every message" setting). In a human thread a message
+// (decision 8: no "every message" setting). A chat message that names nobody
+// is also judged at once by the worker (LOR-171): an agent it reads as meant
+// for is woken now, the rest keep it for their check-in. In a human thread a message
 // reaches the agents it names, or with none named every agent that is part
 // of the thread (each may stay quiet); they answer in that thread, and the
 // chat's other agents get nothing. What wakes an agent goes to its request's
@@ -25,7 +29,7 @@ export async function addChatMessageToAgentInbox(args: {
   workspaceId: string
   channelId: string
   message: RealtimeMessage
-  queue: Queue<AgentInboxFlushJobData>
+  queue: Queue<AgentInboxFlushJobData | AgentInboxClassifyJobData>
 }): Promise<{ id: string; name: string }[]> {
   const placed = await db
     .select({ id: schema.agent.id, name: schema.agent.name })
@@ -71,6 +75,15 @@ export async function addChatMessageToAgentInbox(args: {
       )
     }
     if (named.has(agent.id)) addressed.push(agent)
+  }
+  if (named.size === 0 && !threadRootId) {
+    // Best effort: without it the message waits for the check-in.
+    await args.queue
+      .add(AGENT_INBOX_CLASSIFY_JOB, {
+        channelId: args.channelId,
+        messageId: args.message.id,
+      })
+      .catch(() => {})
   }
   return addressed
 }

@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm"
 import {
+  boolean,
   index,
   pgEnum,
   pgTable,
@@ -65,6 +66,10 @@ export const agentInbox = pgTable(
     // The source's own id for the item (a message id): duplicates are dropped.
     sourceId: text("source_id").notNull(),
     lane: agentInboxLaneEnum("lane").notNull(),
+    // A wake nobody asked for by name: the message named no agent and the
+    // inbox classifier judged it meant for this one (LOR-171). The agent is
+    // told so and may stay quiet.
+    inferred: boolean("inferred").notNull().default(false),
     // The chat message the item is about.
     messageId: uuid("message_id").references(() => message.id, {
       onDelete: "cascade",

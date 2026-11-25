@@ -322,6 +322,7 @@ You are ${name}, an always-on agent for this team: one teammate the team shares,
 - Nothing you write here reaches anyone. This conversation is your private working notes. To speak, call send_message: it posts in a channel's chat for everyone.${own ? " Each turn says which channel it is about; pass `channel` to post in another one you are in." : ""}
 - ${own ? "When you speak here nobody asked just now: lead with what matters." : "Answer the person who addressed you with one send_message."} Mention a person as <@id> only when the message needs their attention.
 - You may stay quiet. When nothing needs saying, end the turn without send_message.
+- A message that names nobody can still wake you, when it reads as meant for you the way a teammate would know it was for them: from what was said before, your role and what you are working on. It is marked "not addressed to you by name". Answer when it is yours. When it is not, or it needs no answer (a thanks, an ok, people talking to each other), end the turn without send_message.
 ${teammates.length > 0 ? `- Other agents work for this team too, each with a memory of its own: ${teammates.join("; ")}. In a chat you share, a message that names one of them is theirs: leave it to them and never answer for them. One that names nobody may be for any of you, so answer it only when it is clearly yours. Naming another agent in what you send does not wake it: when something is theirs, say so and let the person ask them.\n` : ""}- To follow up later, call wake_up. Never promise to come back otherwise.
 - For a back-and-forth that would crowd the chat (debugging, planning, anything long), answer with send_message's startThread: it starts a thread on the message you're answering. Keep quick answers in the chat.
 - In a thread you're part of (one under your message, or one you started or posted in), every message wakes you. Answer when you're addressed or have something useful to add; otherwise end the turn without sending.
@@ -526,6 +527,8 @@ export async function addInboxMessage(input: {
   messageId: string
   lane: AgentInboxLane
   agentId?: string
+  // A wake the inbox classifier decided, not a mention or a reply.
+  inferred?: boolean
 }): Promise<string | null> {
   const agentId = input.agentId ?? (await channelAgentId(input.channelId))
   if (!agentId) return null
@@ -562,10 +565,47 @@ export async function addInboxMessage(input: {
       sourceId: input.messageId,
       messageId: input.messageId,
       lane: input.lane,
+      inferred: input.inferred ?? false,
     })
     .onConflictDoNothing()
     .returning({ id: schema.agentInbox.id })
   return rows.length > 0 ? conversationId : null
+}
+
+// A message that waited unread for an agent reads as meant for it after all
+// (the inbox classifier, LOR-171): it wakes a request of its own now and
+// leaves the agent's own conversation, so the check-in doesn't show it
+// again. The conversation to flush, or null when the agent already read it.
+export async function wakeForWaitingMessage(input: {
+  workspaceId: string
+  channelId: string
+  agentId: string
+  messageId: string
+}): Promise<string | null> {
+  const own = await ownConversation({
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+  })
+  const waiting = and(
+    eq(schema.agentInbox.conversationId, own.id),
+    eq(schema.agentInbox.source, "message"),
+    eq(schema.agentInbox.sourceId, input.messageId),
+    eq(schema.agentInbox.status, "pending")
+  )
+  const [row] = await db
+    .select({ id: schema.agentInbox.id })
+    .from(schema.agentInbox)
+    .where(waiting)
+  if (!row) return null
+  // The wake first: a crash in between shows the message twice, never not
+  // at all.
+  const conversationId = await addInboxMessage({
+    ...input,
+    lane: "wake",
+    inferred: true,
+  })
+  await db.delete(schema.agentInbox).where(waiting)
+  return conversationId
 }
 
 export type InboxBatch = {
@@ -600,6 +640,7 @@ export async function loadInboxBatch(
     .select({
       id: schema.agentInbox.id,
       lane: schema.agentInbox.lane,
+      inferred: schema.agentInbox.inferred,
       deliveryId: schema.agentInbox.deliveryId,
       loopId: schema.agentInbox.loopId,
       sourceId: schema.agentInbox.sourceId,
@@ -719,7 +760,7 @@ export async function loadInboxBatch(
     // mention ids come from the roster, never from text in a message.
     return formatSpeakerLine(
       row.authorName ?? "Someone",
-      `${row.content ?? ""}${files.join("")}\n(message ${head.messageId}${reply ? `, replying to ${reply}` : ""})`
+      `${row.content ?? ""}${files.join("")}\n(message ${head.messageId}${reply ? `, replying to ${reply}` : ""}${head.inferred ? "; not addressed to you by name: it reads as meant for you. Answer if it is yours, otherwise end the turn without sending" : ""})`
     )
   }
   const hash = (name: string | null) =>

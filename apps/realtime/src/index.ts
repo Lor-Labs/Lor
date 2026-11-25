@@ -47,6 +47,7 @@ import {
   workspaceRoom,
 } from "@repo/realtime-types"
 import type {
+  AgentInboxClassifyJobData,
   AgentInboxFlushJobData,
   AttachmentIndexJobData,
   LinkUnfurlJobData,
@@ -1520,7 +1521,9 @@ const attachmentIndexQueue = new Queue<AttachmentIndexJobData>(
   }
 )
 
-const agentInboxQueue = new Queue<AgentInboxFlushJobData>(AGENT_INBOX_QUEUE, {
+const agentInboxQueue = new Queue<
+  AgentInboxFlushJobData | AgentInboxClassifyJobData
+>(AGENT_INBOX_QUEUE, {
   connection: {
     ...parseRedisUrl(env.REDIS_URL),
     maxRetriesPerRequest: null,

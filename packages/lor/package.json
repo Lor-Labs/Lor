@@ -37,6 +37,7 @@
     "./github": "./src/github.ts",
     "./harness-accounts": "./src/harness-accounts.ts",
     "./harness-store": "./src/harness-store.ts",
+    "./inbox-address": "./src/inbox-address.ts",
     "./loop-schedule": "./src/loop-schedule.ts",
     "./loops": "./src/loops.ts",
     "./mcp-guarded-fetch": "./src/mcp-guarded-fetch.ts",

@@ -43,11 +43,18 @@ export const AGENT_INBOX_QUEUE = "agent-inbox"
 export const AGENT_INBOX_FLUSH_JOB = "flush"
 export const AGENT_TURN_JOB = "turn"
 export const AGENT_COMPACT_JOB = "compact"
+// A chat message that named no agent: Jev judges which of the chat's agents
+// it is meant for, and those are woken now (LOR-171).
+export const AGENT_INBOX_CLASSIFY_JOB = "classify"
 // A few seconds of quiet, so quick messages in a row become one turn.
 export const AGENT_INBOX_BATCH_MS = 3000
 
 export type AgentInboxFlushJobData = { conversationId: string }
 export type AgentTurnJobData = { conversationId: string; runId: string }
+export type AgentInboxClassifyJobData = {
+  channelId: string
+  messageId: string
+}
 // `afterRunId`: the turn whose end scheduled it; a later turn cancels it.
 export type AgentCompactJobData = {
   conversationId: string

@@ -1232,6 +1232,8 @@ export async function runAgentTurnJob(
         >`(select r.author_id from message r where r.id = ${schema.message.referencedMessageId})`,
         // The agent already answers in a thread on its trigger: a turn that
         // went on after an approval stays where startThread moved it.
+        // Woken by the inbox classifier, not by name (LOR-171).
+        triggerInferred: sql<boolean>`exists (select 1 from agent_inbox i where i.message_id = ${schema.agentRun.triggerMessageId} and i.conversation_id = ${schema.agentRun.conversationId} and i.inferred)`,
         triggerHasAgentThread: sql<boolean>`exists (select 1 from message t where t.thread_root_id = ${schema.agentRun.triggerMessageId} and (t.author_id = ${LOR_USER_ID}::uuid or t.author_id = (select c.agent_id from agent_conversation c where c.id = ${schema.agentRun.conversationId})))`,
         loopId: schema.agentRun.loopId,
         hasDeliveries: sql<boolean>`exists (select 1 from trigger_delivery d where d.run_id = ${schema.agentRun.id})`,
@@ -1337,8 +1339,9 @@ export async function runAgentTurnJob(
       requestUserId,
     })
     if (!funded) {
-      // Said only to a person who asked: events and Loops would repeat it.
-      if (userId) await notice(OUT_OF_CREDITS_MESSAGE)
+      // Said only to a person who asked: events and Loops would repeat it,
+      // and a message that named nobody shouldn't get it either.
+      if (userId && !run?.triggerInferred) await notice(OUT_OF_CREDITS_MESSAGE)
       // The inbox sweep wakes the agent again once credits are back.
       await returnBatchToPending(conversationId, runId)
       await writer.transition("failed", { stopReason: "out_of_credits" })
@@ -1357,7 +1360,11 @@ export async function runAgentTurnJob(
         Boolean(run?.triggerContent?.includes(`<@${id}>`)) ||
         run?.triggerReplyAuthorId === id
     )
-    const addressed = Boolean(userId) && (explicit || !turnPlace.threadRootId)
+    // A message the classifier woke it for may get no answer: no typing.
+    const addressed =
+      Boolean(userId) &&
+      !run?.triggerInferred &&
+      (explicit || !turnPlace.threadRootId)
     // Before the typing and working timers start, so a failed lookup can't
     // leave them running.
     turnPlace.planUserId = userId ?? (await setUpBy(runId))

@@ -78,6 +78,9 @@ export async function channelRequestUserId(
       // A mention of Lor or of one of the chat's agents by its own id.
       explicit: sql<boolean>`(${message.content} like ${`%<@${LOR_USER_ID}>%`} or exists (select 1 from channel_agent ca where ca.channel_id = ${message.channelId} and ${message.content} like '%<@' || ca.agent_id || '>%'))`,
       threadRootId: message.threadRootId,
+      // It named no agent and the inbox classifier woke one for it
+      // (LOR-171): the author did not ask, so their plan is not used.
+      inferred: sql<boolean>`exists (select 1 from agent_inbox i where i.message_id = ${message.id} and i.inferred)`,
       repliedToLor: sql<boolean>`exists (select 1 from message r where r.id = ${message.referencedMessageId} and (r.author_id = ${LOR_USER_ID}::uuid or exists (select 1 from agent a where a.id = r.author_id)))`,
     })
     .from(message)
@@ -86,7 +89,8 @@ export async function channelRequestUserId(
     .where(
       and(eq(message.id, triggerMessageId), eq(message.channelId, channelId))
     )
-  if (!trigger || trigger.isBot || !trigger.workspaceId) return null
+  if (!trigger || trigger.isBot || !trigger.workspaceId || trigger.inferred)
+    return null
   // In the chat only a mention or a reply wakes the agent, so a top-level
   // trigger was addressed to it. In a thread it also hears the rest.
   const addressed =

@@ -97,6 +97,8 @@ objected to and should confirm.
 | 35 | Every chat is open and hidden: it is in the sidebar only of the people in it, and anyone else in the workspace can find it and join | Jacob, 11-25 |
 | 36 | Hiding a chat puts it away for that person only. Archiving it for everyone stays a separate, rare action. Pins are each person's own | Jacob, 11-25 |
 | 37 | Each agent gets a bot user of its own in place of all agents posting as the one Lor user. It is the next thing built, before the chat list | Jacob, 11-25 |
+| 38 | A chat message that names no agent is judged at once (Jev, LOR-171): an agent it reads as meant for, from what was said before, its role, what it is working on and who wrote it, is woken now and not at its check-in. The agent may still stay quiet. A mention or a reply wakes as before | Jacob, 11-25 |
+| 39 | Agents messaging each other get no rules about who may message whom. They are prompted to write to another agent only when the work needs it and not to answer for the sake of answering, and the same wake rule applies to them: named wakes, otherwise decision 38 decides | Jacob, 11-25 |
 
 Considered and dropped:
 
@@ -234,20 +236,20 @@ tools all stay.
 - **Two chats starting the same work.** The open block narrows it and does not
   close it.
 - **Agents messaging each other.** Not built: agents in one chat do not
-  wake each other. Proposed and mocked in `/prototype/chats` (Launch crew),
-  as Jacob shaped it on 2026-11-25: a chat has an agents' chat about its
+  wake each other. Shaped by Jacob on 2026-11-25 and mocked in
+  `/prototype/chats` (Launch crew): a chat has an agents' chat about its
   work, which people read and don't write in. When one agent messages
   another, a quiet centered line of its own appears in the chat's feed at
   that moment ("Quill messaged Inky"; not under a message, so it is not a
   thread). It opens the agents' chat in place of the chat: bubbles, the
   agents' faces in the header, a Read-only mark where the composer would
   be, and a way back. It is also always reachable from the chat's panel.
-  No counted caps against loops, three rules instead: only a message from
-  one agent to another wakes an agent (nothing posted in the people's chat
-  does); an answer goes back to the agent that asked and wakes nobody else;
-  an agent cannot message one that is waiting on its answer. Past that it is
-  part of the turn that started it, limited as any turn is, by spend and by
-  a person stopping it.
+  No caps and no rules about who may message whom (decision 39; the three
+  rules proposed earlier that day are dropped): prompting, and the wake
+  rule of decision 38, which `classifyInboxMessage` already applies to any
+  author. What bounds it is what bounds any turn: spend, and a person
+  stopping it. It is shown in Lor only: nothing about it is posted to a
+  Slack or Discord thread (Jacob, 11-25).
 - **A session of your own,** one you sit in yourself with no agent watching
   and no chat around it. The mock lists them in a Sessions section between
   Pinned and Recent.
@@ -625,6 +627,26 @@ bot user of its own (decision 37, built 2026-11-25):
   what it reads (inbox, replies, `read_thread`).
 - **The cap** is `MAX_CHANNEL_AGENTS` (8). The right panel adds and removes
   agents; the channel and agent dialogs handle several.
+- **Woken without a mention** (decision 38, LOR-171, built 2026-11-25). A
+  top-level chat message that names no agent still waits in every agent's
+  inbox, and realtime queues a `classify` job for it (Discord's inbound
+  does the same). The worker (`classifyInboxMessage`) asks Jev one yes/no
+  question per agent (`packages/lor/src/inbox-address.ts`), given the chat's
+  last 12 messages, each agent's role, brief and open sessions in the chat,
+  and who wrote the message. An agent at or above `INBOX_ADDRESSED_MIN`
+  (0.5) is woken in a request of its own (`wakeForWaitingMessage`,
+  `agent_inbox.inferred`); the rest keep it for the check-in. The woken
+  agent reads "not addressed to you by name" on the message and may end the
+  turn quiet. Such a turn shows no typing, posts no out-of-credits notice,
+  and never runs on the writer's own plan. A failed or slow call (5 s)
+  leaves the message waiting, as before. Not classified: thread replies,
+  and messages that name any agent. Sampled live with an Eng and a Support
+  agent: asks in one agent's area scored 0.73 to 0.86 for it and at most
+  0.29 for the other; a follow-up to the agent's answer 0.85; talk between
+  people, an fyi, "ok thanks" and a question for a named person at most
+  0.11; "does anyone know when the next release goes out?" 0.21. About
+  1,000 tokens, $0.00004 and under half a second a message, recorded as an
+  unbilled usage row (`lor.inbox.classify`).
 - **Left out on purpose:** one agent mentioning another does not wake it
   (they could answer each other without end), and each agent is told so.
   Discord stays the first agent's.
@@ -640,7 +662,8 @@ bot user of its own (decision 37, built 2026-11-25):
   no mention (it woke nobody until `loadReferencedMessage` passed the agent
   on), and a new agent getting its user. Not run: threads, typing with two
   agents at once, renaming, Discord, mobile (type-checked only).
-- **Rollout:** `pnpm db:push` with the workers stopped. It first runs
+- **Rollout:** `pnpm db:push` with the workers stopped (it also adds
+  `agent_inbox.inferred`). It first runs
   `agent-bot-users.ts`: a user for every agent, and each chat's earlier
   agent posts (written as Lor) handed to the chat's first agent. Then it
   adds `channel.kind` and the foreign key. Deploy API, realtime, worker and

@@ -1,8 +1,10 @@
 import {
   AGENT_COMPACT_JOB,
+  AGENT_INBOX_CLASSIFY_JOB,
   AGENT_INBOX_FLUSH_JOB,
   AGENT_TURN_JOB,
   type AgentCompactJobData,
+  type AgentInboxClassifyJobData,
   type AgentInboxFlushJobData,
   type AgentTurnJobData,
 } from "@repo/realtime-types/queues"
@@ -14,6 +16,7 @@ import {
   runAgentCompactJob,
   runAgentTurnJob,
 } from "@/lib/agent-inbox"
+import { classifyInboxMessage } from "@/lib/agent-inbox-classify"
 import { logger } from "@/lib/logger"
 
 // The agents' queue: inbox flushes, turns and compactions, per conversation
@@ -26,6 +29,15 @@ export function createAgentInboxProcessor(deps: AgentDeps) {
     }
     if (job.name === AGENT_COMPACT_JOB) {
       await runAgentCompactJob(deps, job as Job<AgentCompactJobData>, token)
+      return
+    }
+    if (job.name === AGENT_INBOX_CLASSIFY_JOB) {
+      // Queued by realtime and the API, never by the worker: not in
+      // AgentQueueData, whose producers all pass a conversation.
+      await classifyInboxMessage(
+        deps,
+        job.data as unknown as AgentInboxClassifyJobData
+      )
       return
     }
     if (job.name !== AGENT_INBOX_FLUSH_JOB) {

@@ -19,7 +19,7 @@ import {
   userRoom,
 } from "@repo/realtime-types"
 import { AGENT_INBOX_BATCH_MS } from "@repo/realtime-types/queues"
-import { flushAgentInbox } from "@/lib/agent-inbox-queue"
+import { classifyAgentInbox, flushAgentInbox } from "@/lib/agent-inbox-queue"
 import { getEmitter } from "@/lib/bot-messages"
 import { threadInfo } from "@/lib/discord/threads"
 import { logger } from "@/lib/logger"
@@ -447,5 +447,7 @@ async function mirrorInto(
   })
   if (conversationId && lane === "wake") {
     await flushAgentInbox(conversationId, AGENT_INBOX_BATCH_MS)
+  } else if (conversationId) {
+    classifyAgentInbox(link.channelId, inserted.id)
   }
 }
