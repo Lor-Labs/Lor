@@ -72,6 +72,9 @@ export function FileImageGallery({
                   Math.round(event.nativeEvent.contentOffset.x / width)
                 )
               )
+              // A refresh jump lands on the page it already set; only a swipe
+              // to another image resets zoom.
+              if (next === page.current) return
               page.current = next
               onIndexChange(next)
               setZoomed(false)

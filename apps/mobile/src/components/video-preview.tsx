@@ -2,17 +2,21 @@ import { useEvent } from "expo"
 import { useFocusEffect } from "expo-router"
 import { useVideoPlayer, VideoView } from "expo-video"
 import { Spinner } from "heroui-native/spinner"
-import { useCallback } from "react"
+import { useCallback, useRef } from "react"
 import { AppState, Text, View } from "react-native"
 
 export function VideoPreview({ url, name }: { url: string; name: string }) {
   const player = useVideoPlayer(url)
   const { status } = useEvent(player, "statusChange", { status: player.status })
 
+  // Android fullscreen is a separate activity, which reports the app as
+  // backgrounded; it must not pause playback.
+  const fullscreen = useRef(false)
+
   useFocusEffect(
     useCallback(() => {
       const subscription = AppState.addEventListener("change", (state) => {
-        if (state !== "active") player.pause()
+        if (state !== "active" && !fullscreen.current) player.pause()
       })
       return () => subscription.remove()
     }, [player])
@@ -37,6 +41,12 @@ export function VideoPreview({ url, name }: { url: string; name: string }) {
             contentFit="contain"
             fullscreenOptions={{ enable: true }}
             nativeControls
+            onFullscreenEnter={() => {
+              fullscreen.current = true
+            }}
+            onFullscreenExit={() => {
+              fullscreen.current = false
+            }}
             player={player}
             style={{ flex: 1 }}
           />
