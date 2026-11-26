@@ -744,7 +744,7 @@ async function updatePanel(interaction: DiscordInteraction, content: string) {
 
 const SEND_TEXT = "text"
 
-// "Send to session" on a session's card opens a form at once: Discord takes
+// "Follow up" on a session's card opens a form at once: Discord takes
 // a form only as the first answer.
 async function openSendForm(
   interaction: DiscordInteraction,
@@ -763,7 +763,7 @@ async function openSendForm(
         type: 9,
         data: {
           custom_id: `lor-send:${sessionId}`,
-          title: `Send to ${session?.title ?? "the session"}`.slice(0, 45),
+          title: `Follow up on ${session?.title ?? "the session"}`.slice(0, 45),
           components: [
             {
               type: 1,
@@ -839,12 +839,12 @@ async function handleSendForm(
     await discordRequest(`/channels/${interaction.channel_id}/messages`, {
       method: "POST",
       body: {
-        content: `**${displayName(interaction)}** sent to the session:\n>>> ${value.slice(0, 1800)}`,
+        content: `**${displayName(interaction)}** followed up:\n>>> ${value.slice(0, 1800)}`,
         allowed_mentions: { parse: [] },
       },
     }).catch(() => {})
   }
-  return reply(interaction, "Sent. The agent passes it to the session.")
+  return reply(interaction, "Sent. The agent passes it on to the session.")
 }
 
 export async function handleDiscordInteraction(

@@ -119,9 +119,9 @@ const STATE_TITLE: Record<SessionCardView["state"], string> = {
 const STATE_HINT: Record<SessionCardView["state"], string> = {
   working: "Replies in this thread go to it through the agent.",
   approval: "It goes on once someone decides below.",
-  finished: "Reply here, or send it more, to keep going.",
+  finished: "Follow up, or reply here, to keep it going.",
   failed: "Open it in Lor to see what went wrong.",
-  stopped: "Send it more to start it again.",
+  stopped: "Follow up to start it again.",
 }
 
 // A code session's card: what it works on, how it is doing, whose it is.
@@ -134,7 +134,7 @@ export function sessionCard(view: SessionCardView): Component[] {
   }
   links.push({
     customId: `lor-send:${view.sessionId}`,
-    label: "Send to session",
+    label: "Follow up",
     style: "secondary",
   })
   const where = [

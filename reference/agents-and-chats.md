@@ -311,7 +311,7 @@ other and Loops on the agent were first and are built, see below):
    Follow-ups go through the agent, on the owner's plan. Not run against a
    real Discord server either. Then (Jacob, 11-26): cards in Components V2
    (`packages/lor/src/discord-ui.ts`: the hello, the session card with a
-   "Send to session" form, approvals), a mention in a channel with no agent
+   "Follow up" form, approvals), a mention in a channel with no agent
    answered with an "Add an agent" button that opens a private menu of
    agents with their roles (or "Add Rusty here" for an agent's role), and
    agents attaching files to what they post (send_message's `files`,
