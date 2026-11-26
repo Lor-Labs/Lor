@@ -467,8 +467,8 @@ export const MessageInput = memo(function MessageInput({
     placeholderOverride ??
     (context.type === "channel"
       ? lorIntro && !lorHint.dismissed && lorCandidate
-        ? `Message #${context.name}, or ask @${lorLabel}`
-        : `Message #${context.name}`
+        ? `Message ${context.name}, or ask @${lorLabel}`
+        : `Message ${context.name}`
       : `Message ${context.name}`)
 
   const normalizedMentionCandidates = useMemo(() => {

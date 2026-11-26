@@ -3,13 +3,18 @@ import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import jsonContent from "@/lib/helpers/openapi/json-content"
 import {
   badRequestSchema,
+  forbiddenSchema,
   notFoundSchema,
   unauthorizedSchema,
 } from "@/lib/helpers/openapi/schemas"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
+  addChatPeopleRequestSchema,
   chatParamsSchema,
+  chatPeopleChangedResponseSchema,
+  chatPersonParamsSchema,
   chatWorkspaceParamsSchema,
+  listChatPeopleResponseSchema,
   listChatsResponseSchema,
   updateChatRequestSchema,
   updateChatResponseSchema,
@@ -62,5 +67,76 @@ export const updateChat = createRoute({
   },
 })
 
+export const listChatPeople = createRoute({
+  path: "/workspaces/{workspaceSlug}/chats/{channelId}/people",
+  method: "get",
+  summary: "List the people in a chat",
+  description: "Everyone in the chat, for anyone who can see it.",
+  tags: ["Chats"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: chatParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listChatPeopleResponseSchema,
+      description: "The people in the chat",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export const addChatPeople = createRoute({
+  path: "/workspaces/{workspaceSlug}/chats/{channelId}/people",
+  method: "post",
+  summary: "Add people to a chat",
+  description:
+    "Puts people in a chat they can see. Adding someone to a private chat lets them see it, which takes channel:update.",
+  tags: ["Chats"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: chatParamsSchema,
+    body: jsonContent({
+      schema: addChatPeopleRequestSchema,
+      description: "Who to add",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: chatPeopleChangedResponseSchema,
+      description: "Added",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export const removeChatPerson = createRoute({
+  path: "/workspaces/{workspaceSlug}/chats/{channelId}/people/{userId}",
+  method: "delete",
+  summary: "Leave a chat, or remove someone from it",
+  description:
+    "Anyone can leave a chat they are in. Removing someone else takes channel:update.",
+  tags: ["Chats"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: chatPersonParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: chatPeopleChangedResponseSchema,
+      description: "Removed",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
 export type ListChatsRoute = typeof listChats
+export type ListChatPeopleRoute = typeof listChatPeople
+export type AddChatPeopleRoute = typeof addChatPeople
+export type RemoveChatPersonRoute = typeof removeChatPerson
 export type UpdateChatRoute = typeof updateChat

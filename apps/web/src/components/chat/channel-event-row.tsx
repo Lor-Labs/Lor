@@ -45,7 +45,7 @@ import { channelLoopsQueryOptions } from "@/hooks/use-channel-loops"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 
-// Channel events ("Jacob created this channel", "Alice was added") — compact
+// Channel events ("Jacob created this chat", "Alice was added") — compact
 // system rows in the feed, iconless text on the message-content axis. See
 // reference/channel-events.md.
 
@@ -413,7 +413,7 @@ function eventText(
       if (p.via === "proposal") {
         return (
           <>
-            {actor} created this channel from an approved change proposal
+            {actor} created this chat from an approved change proposal
             {p.originChannelName ? (
               <>
                 {" in "}
@@ -429,7 +429,7 @@ function eventText(
           </>
         )
       }
-      return <>{actor} created this channel</>
+      return <>{actor} created this chat</>
     }
     case "channel_renamed": {
       if (!payload) break
@@ -438,8 +438,8 @@ function eventText(
       // name is the channel itself.
       return (
         <>
-          {actor} renamed the channel from <Name>#{p.from}</Name> to{" "}
-          <ChannelName channelId={message.channelId}>#{p.to}</ChannelName>
+          {actor} renamed the chat from <Name>{p.from}</Name> to{" "}
+          <ChannelName channelId={message.channelId}>{p.to}</ChannelName>
         </>
       )
     }
@@ -462,7 +462,7 @@ function eventText(
       )
     }
     case "member_left":
-      return <>{actor} left the channel</>
+      return <>{actor} left the chat</>
     case "loop_created": {
       if (!payload) break
       const p = payload as LoopPayload
@@ -663,7 +663,7 @@ function eventText(
 }
 
 // Collapsed sentence for a run of same-kind member events ("Jacob added Alice
-// and Bob", "Alice and Bob left the channel").
+// and Bob", "Alice and Bob left the chat").
 function groupText(
   events: Message[],
   resolveUserName?: ResolveUserName
@@ -719,7 +719,7 @@ function groupText(
       </UserName>
     ))
   )
-  return <>{names} left the channel</>
+  return <>{names} left the chat</>
 }
 
 // Only membership churn collapses — renames and loop lifecycle stay one row

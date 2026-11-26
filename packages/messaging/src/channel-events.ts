@@ -105,18 +105,18 @@ export function channelEventContent(input: ChannelEventContentInput): string {
     case "channel_created":
       if (input.viaProposal) {
         return input.originChannelName
-          ? `${input.actorName} created this channel from an approved change proposal in #${input.originChannelName}`
-          : `${input.actorName} created this channel from an approved change proposal`
+          ? `${input.actorName} created this chat from an approved change proposal in ${input.originChannelName}`
+          : `${input.actorName} created this chat from an approved change proposal`
       }
-      return `${input.actorName} created this channel`
+      return `${input.actorName} created this chat`
     case "channel_renamed":
-      return `${input.actorName} renamed the channel from #${input.from} to #${input.to}`
+      return `${input.actorName} renamed the chat from ${input.from} to ${input.to}`
     case "member_added":
       return `${input.actorName} added ${joinNames(input.memberNames)}`
     case "member_removed":
       return `${input.actorName} removed ${input.memberName}`
     case "member_left":
-      return `${input.actorName} left the channel`
+      return `${input.actorName} left the chat`
     case "loop_created":
       return input.viaProposal
         ? `${input.actorName} created the loop "${input.loopName}" from an approved change proposal`

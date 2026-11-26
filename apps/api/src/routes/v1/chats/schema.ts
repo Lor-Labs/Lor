@@ -57,6 +57,26 @@ export const listChatsResponseSchema = z.object({
   chats: z.array(chatSchema),
 })
 
+// Everyone in a chat (reference/agents-and-chats.md, decision 35).
+export const listChatPeopleResponseSchema = z.object({
+  people: z.array(chatPersonSchema),
+})
+
+export const addChatPeopleRequestSchema = z.object({
+  userIds: z.array(z.string().uuid()).min(1).max(50),
+})
+
+export const chatPersonParamsSchema = chatParamsSchema.extend({
+  userId: z
+    .string()
+    .uuid()
+    .openapi({ param: { name: "userId", in: "path", required: true } }),
+})
+
+export const chatPeopleChangedResponseSchema = z.object({
+  success: z.literal(true),
+})
+
 export const updateChatRequestSchema = z
   .object({
     pinned: z.boolean().optional(),
