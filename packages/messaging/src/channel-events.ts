@@ -85,6 +85,15 @@ export type ChannelEventContentInput =
       repoFullName: string
     }
   | {
+      eventType: "session_checks"
+      outcome: "failed" | "passed"
+      total: number
+      failed: { name: string }[]
+      headSha: string
+      pullRequestNumber: number
+      repoFullName: string
+    }
+  | {
       eventType: "session_pr_opened" | "session_pr_merged"
       actorName: string
       pullRequestNumber: number
@@ -141,6 +150,16 @@ export function channelEventContent(input: ChannelEventContentInput): string {
     // untrusted and reaches Lor only through a person's Fix with Lor.
     case "session_reviewed":
       return `${input.reviewer}${input.reviewerBot ? " (bot)" : ""} ${input.state === "approved" ? "approved" : input.state === "changes_requested" ? "requested changes on" : "reviewed"} pull request #${input.pullRequestNumber} on ${input.repoFullName}`
+    // Lor reads it, so it knows CI broke and where to look. Check names come
+    // from the repository's CI config; each is clipped.
+    case "session_checks": {
+      const where = `pull request #${input.pullRequestNumber} on ${input.repoFullName} at ${input.headSha.slice(0, 7)}`
+      if (input.outcome === "passed") {
+        return `All ${input.total} checks passed on ${where}`
+      }
+      const names = input.failed.map((check) => check.name.slice(0, 80))
+      return `Checks failed on ${where}: ${input.failed.length} of ${input.total} failed (${names.join(", ")}). fetch_github with logs: true reads the logs of the pull request's latest commit; if it has moved on, the failed checks' own links show these.`
+    }
     // Lor reads these. The PR title is left out: it is untrusted text.
     case "session_pr_opened":
       return `${input.actorName} opened pull request #${input.pullRequestNumber} from ${input.headBranch} into ${input.baseBranch} on ${input.repoFullName} (${input.pullRequestUrl})`

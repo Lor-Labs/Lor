@@ -1,6 +1,7 @@
 import { db, schema } from "@repo/db"
 import type {
   AgentSession,
+  SessionChecksPayload,
   SessionCommittedPayload,
   SessionForkedPayload,
   SessionPullRequestPayload,
@@ -33,6 +34,7 @@ export async function postSessionEvent(
     | { eventType: "session_forked"; eventPayload: SessionForkedPayload }
     | { eventType: "session_rewound"; eventPayload: SessionRewoundPayload }
     | { eventType: "session_reviewed"; eventPayload: SessionReviewedPayload }
+    | { eventType: "session_checks"; eventPayload: SessionChecksPayload }
     | {
         eventType: "session_pr_opened" | "session_pr_merged"
         eventPayload: SessionPullRequestPayload
