@@ -652,7 +652,8 @@ export type CommitCheck = {
 
 export type CommitChecks = {
   sha: string
-  // forbidden: the App lacks Checks: read on the repository.
+  // forbidden: the App lacks Checks: read on the repository. error: check
+  // runs or statuses couldn't be read, so the list may be incomplete.
   access: "ok" | "forbidden" | "error"
   checks: CommitCheck[]
 }
@@ -720,15 +721,25 @@ export async function fetchCommitChecks(
     listCheckRuns(octokit, target, sha).catch((err: unknown) =>
       forbidden(err) ? ("forbidden" as const) : ("error" as const)
     ),
-    octokit.rest.repos
-      .getCombinedStatusForRef({
+    // Every status ever set, newest first: the first per context is current.
+    // Without Commit statuses: read there are none to show; any other
+    // failure makes the whole result unreliable.
+    octokit
+      .paginate(octokit.rest.repos.listCommitStatusesForRef, {
         ...target,
         ref: sha,
         per_page: FETCH_PAGE_SIZE,
         request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
       })
-      .then((r) => r.data.statuses)
-      .catch(() => []),
+      .then((all) => {
+        const seen = new Set<string>()
+        return all.filter((status) => {
+          if (seen.has(status.context)) return false
+          seen.add(status.context)
+          return true
+        })
+      })
+      .catch((err: unknown) => (forbidden(err) ? [] : ("error" as const))),
   ])
   const checks: CommitCheck[] = [
     ...(Array.isArray(runs) ? runs : []).map((run) => ({
@@ -738,7 +749,7 @@ export async function fetchCommitChecks(
       url: run.details_url ?? run.html_url ?? null,
       app: run.app?.slug ?? null,
     })),
-    ...statuses.map((status) => ({
+    ...(Array.isArray(statuses) ? statuses : []).map((status) => ({
       id: null,
       name: status.context,
       state: (status.state === "success"
@@ -756,7 +767,11 @@ export async function fetchCommitChecks(
   )
   return {
     sha,
-    access: Array.isArray(runs) ? "ok" : runs,
+    access: !Array.isArray(runs)
+      ? runs
+      : Array.isArray(statuses)
+        ? "ok"
+        : "error",
     checks,
   }
 }
