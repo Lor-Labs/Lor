@@ -37,6 +37,7 @@ import { Link, useParams } from "@tanstack/react-router"
 import { type ReactNode, useState } from "react"
 import { ChannelAgentProvider } from "@/components/agent/channel-agent"
 import { MessageItem } from "@/components/chat/message-item"
+import { ChecksCard, isChecksEvent } from "@/components/session/checks"
 import { isReviewedEvent, ReviewCard } from "@/components/session/review-card"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
@@ -855,6 +856,9 @@ export function ChannelEventRow({
 
   if (layout === "document" && events.length === 1 && isReviewedEvent(first)) {
     return <ReviewCard message={first} />
+  }
+  if (layout === "document" && events.length === 1 && isChecksEvent(first)) {
+    return <ChecksCard message={first} />
   }
   const sessionIcon = first.eventType
     ? SESSION_EVENT_ICONS[first.eventType]

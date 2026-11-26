@@ -11,7 +11,7 @@ import {
 } from "@repo/db"
 import type { AgentSession } from "@repo/db/schema"
 import { activeGithubInstallation } from "@repo/lor/github"
-import { reviewStartsThreads } from "@repo/lor/pr-reviews"
+import { fetchCommitChecks, reviewStartsThreads } from "@repo/lor/pr-reviews"
 import { channelEventContent } from "@repo/messaging"
 import { threadRoom } from "@repo/realtime-types/rooms"
 import { getEmitter } from "@/lib/bot-messages"
@@ -141,6 +141,80 @@ export async function announceReview(input: {
     { id: LOR_USER_ID, name: lor?.name ?? "Lor", image: lor?.image ?? null },
     { eventType: "session_reviewed", eventPayload },
     channelEventContent({ eventType: "session_reviewed", ...eventPayload })
+  )
+}
+
+const CHECKS_CARD_FAILED_MAX = 10
+
+// A pull request's checks finished on its head commit: a card in the session
+// when they failed, or passed again after a failure card. Posted as the
+// GitHub app user, so Lor reads it in its next turn. Waits until every check
+// run is done; each check suite's completion asks again.
+export async function announceChecks(input: {
+  session: AgentSession
+  installationId: number
+  pullRequest: { number: number; url: string }
+  headSha: string
+}): Promise<void> {
+  const { session, pullRequest, headSha } = input
+  const repoFullName = session.repoFullName
+  if (!repoFullName) return
+  const result = await fetchCommitChecks(
+    String(input.installationId),
+    repoFullName,
+    headSha
+  )
+  if (!result || result.access !== "ok") return
+  const counted = result.checks.filter((check) => check.state !== "skipped")
+  const runs = counted.filter((check) => check.id !== null)
+  if (
+    runs.length === 0 ||
+    runs.some((check) => check.state === "queued" || check.state === "running")
+  ) {
+    return
+  }
+  const failed = counted.filter((check) => check.state === "failed")
+  if (failed.length === 0) {
+    const [last] = await db
+      .select({ payload: schema.message.eventPayload })
+      .from(schema.message)
+      .where(
+        and(
+          eq(schema.message.threadRootId, session.threadRootId),
+          eq(schema.message.eventType, "session_checks"),
+          sql`${schema.message.eventPayload}->>'pullRequestNumber' = ${String(pullRequest.number)}`
+        )
+      )
+      .orderBy(desc(schema.message.createdAt))
+      .limit(1)
+    const lastOutcome = (last?.payload as { outcome?: string } | null)?.outcome
+    if (lastOutcome !== "failed") return
+  }
+  const outcome: "failed" | "passed" = failed.length > 0 ? "failed" : "passed"
+  const eventPayload = {
+    sessionId: session.id,
+    repoFullName,
+    pullRequestNumber: pullRequest.number,
+    pullRequestUrl: pullRequest.url,
+    headSha,
+    outcome,
+    total: counted.length,
+    failed: failed
+      .slice(0, CHECKS_CARD_FAILED_MAX)
+      .map((check) => ({ name: check.name, url: check.url })),
+  }
+  await postSessionEvent(
+    session,
+    { id: APP_USER_ID, name: "GitHub", image: null },
+    { eventType: "session_checks", eventPayload },
+    channelEventContent({
+      eventType: "session_checks",
+      ...eventPayload,
+      failed: failed.map((check) => ({ name: check.name })),
+    }),
+    // Suites finishing together both see every run done; one card per commit
+    // and outcome.
+    `session_checks:${session.threadRootId}:${headSha}:${outcome}`
   )
 }
 

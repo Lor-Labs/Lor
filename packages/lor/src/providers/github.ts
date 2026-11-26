@@ -495,7 +495,11 @@ async function checkRunsText(
     }
     return line
   })
-  return `Checks on ${sha.slice(0, 7)}:\n${lines.join("\n")}`
+  const hint =
+    failed.length > 0
+      ? "\n(fetch_github with logs: true reads the failed jobs' steps and logs)"
+      : ""
+  return `Checks on ${sha.slice(0, 7)}:\n${lines.join("\n")}${hint}`
 }
 
 export async function fetchIssueOrPr(
@@ -624,6 +628,315 @@ export async function fetchIssueOrPr(
     }
   } catch (err) {
     logger.error({ err, ref }, "GitHub issue/PR fetch failed")
+    return null
+  }
+}
+
+// One commit's CI: check runs (GitHub Actions jobs, apps like Vercel) and
+// legacy commit statuses, for the session's Checks list, its checks cards and
+// fetch_github's logs mode. Check runs need the App's Checks: read; statuses
+// need Commit statuses: read and are skipped without it.
+export type CommitCheckState =
+  | "queued"
+  | "running"
+  | "passed"
+  | "failed"
+  | "cancelled"
+  | "skipped"
+  | "neutral"
+
+export type CommitCheck = {
+  // The check run id (for GitHub Actions, also the job id); null for a
+  // commit status.
+  id: number | null
+  name: string
+  state: CommitCheckState
+  url: string | null
+  // The app that ran it ("github-actions", "vercel"); null for a status.
+  app: string | null
+}
+
+export type CommitChecks = {
+  sha: string
+  // forbidden: the App lacks Checks: read on the repository.
+  access: "ok" | "forbidden" | "error"
+  checks: CommitCheck[]
+}
+
+type CheckRun = Awaited<
+  ReturnType<Octokit["rest"]["checks"]["listForRef"]>
+>["data"]["check_runs"][number]
+
+function checkRunState(run: {
+  status: string
+  conclusion: string | null
+}): CommitCheckState {
+  if (run.status === "queued" || run.status === "pending") return "queued"
+  if (run.status !== "completed") return "running"
+  switch (run.conclusion) {
+    case "success":
+      return "passed"
+    case "cancelled":
+      return "cancelled"
+    case "skipped":
+      return "skipped"
+    case "neutral":
+    case "stale":
+      return "neutral"
+    default:
+      return "failed"
+  }
+}
+
+const CHECK_ORDER: Record<CommitCheckState, number> = {
+  failed: 0,
+  running: 1,
+  queued: 2,
+  cancelled: 3,
+  passed: 4,
+  neutral: 5,
+  skipped: 6,
+}
+
+async function listCheckRuns(
+  octokit: Octokit,
+  target: { owner: string; repo: string },
+  sha: string
+): Promise<CheckRun[]> {
+  return octokit.paginate(octokit.rest.checks.listForRef, {
+    ...target,
+    ref: sha,
+    per_page: FETCH_PAGE_SIZE,
+    request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+  })
+}
+
+export async function fetchCommitChecks(
+  installationId: string,
+  repoFullName: string,
+  sha: string
+): Promise<CommitChecks | null> {
+  const app = getApp()
+  const id = parseGithubInstallationId(installationId)
+  const [owner, repo] = repoFullName.split("/")
+  if (!app || id === null || !(owner && repo)) return null
+  const octokit = await app.getInstallationOctokit(id)
+  const target = { owner, repo }
+  const [runs, statuses] = await Promise.all([
+    listCheckRuns(octokit, target, sha).catch((err: unknown) =>
+      forbidden(err) ? ("forbidden" as const) : ("error" as const)
+    ),
+    octokit.rest.repos
+      .getCombinedStatusForRef({
+        ...target,
+        ref: sha,
+        per_page: FETCH_PAGE_SIZE,
+        request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+      })
+      .then((r) => r.data.statuses)
+      .catch(() => []),
+  ])
+  const checks: CommitCheck[] = [
+    ...(Array.isArray(runs) ? runs : []).map((run) => ({
+      id: run.id,
+      name: run.name,
+      state: checkRunState(run),
+      url: run.details_url ?? run.html_url ?? null,
+      app: run.app?.slug ?? null,
+    })),
+    ...statuses.map((status) => ({
+      id: null,
+      name: status.context,
+      state: (status.state === "success"
+        ? "passed"
+        : status.state === "pending"
+          ? "running"
+          : "failed") as CommitCheckState,
+      url: status.target_url ?? null,
+      app: null,
+    })),
+  ].sort(
+    (a, b) =>
+      CHECK_ORDER[a.state] - CHECK_ORDER[b.state] ||
+      a.name.localeCompare(b.name)
+  )
+  return {
+    sha,
+    access: Array.isArray(runs) ? "ok" : runs,
+    checks,
+  }
+}
+
+const LOG_RUNS_MAX = 3
+const LOG_CONTEXT_LINES = 150
+const LOG_WINDOW_LINES = 300
+const LOG_RUN_CHARS = 12_000
+const LOG_TIMEOUT_MS = 20_000
+
+// The part of an Actions job log that explains the failure: from a little
+// before the first ##[error] line to just after the last, else the tail.
+// Timestamps and ANSI colors are stripped.
+function logExcerpt(raw: string): string {
+  const lines = raw
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) =>
+      line
+        .replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, "")
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escapes
+        .replace(/\x1b\[[0-9;]*m/g, "")
+    )
+  const errors = lines.flatMap((line, i) =>
+    line.includes("##[error]") ? [i] : []
+  )
+  const first = errors[0]
+  const last = errors.at(-1)
+  let start: number
+  let end: number
+  if (first === undefined || last === undefined) {
+    end = lines.length
+    start = Math.max(0, end - LOG_CONTEXT_LINES)
+  } else {
+    end = Math.min(lines.length, last + 10)
+    start = Math.max(0, first - LOG_CONTEXT_LINES, end - LOG_WINDOW_LINES)
+  }
+  let text = lines.slice(start, end).join("\n").trim()
+  if (text.length > LOG_RUN_CHARS) {
+    text = `…${text.slice(text.length - LOG_RUN_CHARS)}`
+  }
+  return `(log lines ${start + 1}–${end} of ${lines.length})\n${text}`
+}
+
+async function checkRunLogText(
+  octokit: Octokit,
+  target: { owner: string; repo: string },
+  run: CheckRun
+): Promise<string> {
+  const result = run.status === "completed" ? run.conclusion : run.status
+  const head = `## ${run.name}: ${result ?? "unknown"}${run.details_url ? ` (${run.details_url})` : ""}`
+  if (run.app?.slug !== "github-actions") {
+    const output = [run.output.title, run.output.summary, run.output.text]
+      .map((part) => part?.trim())
+      .filter(Boolean)
+      .join("\n\n")
+    return `${head}\nRun by ${run.app?.name ?? "another app"}, not GitHub Actions: no log to read here.${output ? `\n\n${clipTo(stripGithubHtml(output), LOG_RUN_CHARS)}` : ""}`
+  }
+  const request = () => ({ signal: AbortSignal.timeout(LOG_TIMEOUT_MS) })
+  try {
+    const [{ data: job }, { data: log }] = await Promise.all([
+      octokit.rest.actions.getJobForWorkflowRun({
+        ...target,
+        job_id: run.id,
+        request: request(),
+      }),
+      octokit.request("GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs", {
+        ...target,
+        job_id: run.id,
+        request: request(),
+      }),
+    ])
+    const steps = (job.steps ?? [])
+      .map(
+        (step) =>
+          `- ${step.number}. ${step.name}: ${step.conclusion ?? step.status}`
+      )
+      .join("\n")
+    // The log redirects to blob storage; its content type decides whether
+    // Octokit hands back text or bytes.
+    const raw =
+      typeof log === "string"
+        ? log
+        : log instanceof ArrayBuffer
+          ? new TextDecoder().decode(log)
+          : null
+    const logText = raw ? logExcerpt(raw) : "(no log)"
+    return `${head}\nSteps:\n${steps || "(none)"}\n\nLog:\n${logText}`
+  } catch (err) {
+    return forbidden(err)
+      ? `${head}\nLog unavailable: the Lor GitHub App isn't granted Actions: read on this repository.`
+      : `${head}\nLog couldn't be read right now.`
+  }
+}
+
+// fetch_github's logs mode: the pull request head's failed checks (or the
+// ones whose name contains `check`), each with its Actions job steps and an
+// excerpt of its log around the errors.
+export async function fetchPullRequestCheckLogs(
+  installationId: string,
+  ref: string,
+  check?: string
+): Promise<FetchedIssue | { error: string } | null> {
+  const app = getApp()
+  const id = parseGithubInstallationId(installationId)
+  const parsed = parseRef(ref, "#")
+  if (!app || id === null || !parsed) return null
+  try {
+    const octokit = await app.getInstallationOctokit(id)
+    const target = { owner: parsed.owner, repo: parsed.repo }
+    const pr = await octokit.rest.pulls
+      .get({
+        ...target,
+        pull_number: parsed.id,
+        request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+      })
+      .then((r) => r.data)
+      .catch((err: unknown) => {
+        if ((err as { status?: number }).status === 404) return null
+        throw err
+      })
+    if (!pr) return { error: `${ref} isn't a pull request` }
+    let runs: CheckRun[]
+    try {
+      runs = await listCheckRuns(octokit, target, pr.head.sha)
+    } catch (err) {
+      if (!forbidden(err)) throw err
+      return {
+        error:
+          "The Lor GitHub App isn't granted Checks: read on this repository, so its checks can't be read.",
+      }
+    }
+    const wanted = check?.trim().toLowerCase()
+    const chosen = runs.filter((run) =>
+      wanted
+        ? run.name.toLowerCase().includes(wanted)
+        : checkRunState(run) === "failed"
+    )
+    const sha = pr.head.sha.slice(0, 7)
+    let content: string
+    if (chosen.length === 0) {
+      content = wanted
+        ? `No check on ${sha} matches "${check}". Checks: ${runs.map((run) => run.name).join(", ") || "none"}`
+        : `No failed checks on ${sha} (${runs.length} check run${runs.length === 1 ? "" : "s"}).`
+    } else {
+      const parts = await Promise.all(
+        chosen
+          .slice(0, LOG_RUNS_MAX)
+          .map((run) => checkRunLogText(octokit, target, run))
+      )
+      const more = chosen.length - LOG_RUNS_MAX
+      content = [
+        `# Checks on ${sha} for #${pr.number} ${pr.title}`,
+        ...parts,
+        ...(more > 0
+          ? [
+              `(${more} more: ${chosen
+                .slice(LOG_RUNS_MAX)
+                .map((run) => run.name)
+                .join(", ")}; pass check to read one)`,
+            ]
+          : []),
+      ].join("\n\n")
+    }
+    return {
+      ref: `${parsed.owner}/${parsed.repo}#${parsed.id}`,
+      type: "pull_request",
+      title: pr.title,
+      state: pr.merged_at ? "merged" : pr.state,
+      url: pr.html_url,
+      content,
+    }
+  } catch (err) {
+    logger.error({ err, ref }, "GitHub check logs fetch failed")
     return null
   }
 }
@@ -951,6 +1264,7 @@ export type GithubBranchPullRequest = {
   title: string
   state: "OPEN" | "CLOSED" | "MERGED"
   isDraft: boolean
+  headRefOid: string
   reviews: {
     databaseId: number
     state: string
@@ -1017,7 +1331,7 @@ export async function fetchBranchPullRequest(
       repository(owner: $owner, name: $name) {
         pullRequests(headRefName: $branch, first: 5, orderBy: { field: CREATED_AT, direction: DESC }) {
           nodes {
-            number url title state isDraft
+            number url title state isDraft headRefOid
             headRepository { nameWithOwner }
             reviews(last: 50) {
               nodes { databaseId state body url submittedAt ${author} }
@@ -1053,6 +1367,7 @@ export async function fetchBranchPullRequest(
     title: pr.title,
     state: pr.state,
     isDraft: pr.isDraft,
+    headRefOid: pr.headRefOid,
     reviews: pr.reviews.nodes,
     threads: pr.reviewThreads.nodes.map((thread) => ({
       ...thread,

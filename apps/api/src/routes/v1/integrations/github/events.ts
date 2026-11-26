@@ -14,6 +14,7 @@ import {
 import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 import { logger } from "@/lib/logger"
 import {
+  announceChecks,
   announcePullRequest,
   announceReview,
   broadcastReviewUpdated,
@@ -404,6 +405,70 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
       if (session) broadcastReviewUpdated(session)
     }
   )
+
+  // CI on a code session's pull request (needs the App's Checks: read and the
+  // check_run, check_suite and status subscriptions). A finished check suite
+  // may post a checks card; every change refreshes the Details panel's list.
+  // Fork pull requests list no pull_requests here, so they match nothing.
+  webhooks.on("check_suite.completed", async ({ payload }) => {
+    const suite = payload.check_suite
+    const pr = suite.pull_requests.find(
+      (item) => item.head.repo.id === payload.repository.id
+    )
+    if (!pr || !suite.head_branch || payload.installation?.id === undefined) {
+      return
+    }
+    const session = await sessionForPullRequest({
+      installationId: payload.installation.id,
+      repoFullName: payload.repository.full_name,
+      headRef: suite.head_branch,
+      headRepoFullName: payload.repository.full_name,
+    })
+    if (!session) return
+    try {
+      // A suite for an older commit only refreshes.
+      if (pr.head.sha === suite.head_sha) {
+        await announceChecks({
+          session,
+          installationId: payload.installation.id,
+          pullRequest: {
+            number: pr.number,
+            url: `${payload.repository.html_url}/pull/${pr.number}`,
+          },
+          headSha: suite.head_sha,
+        })
+      }
+    } finally {
+      broadcastReviewUpdated(session)
+    }
+  })
+
+  webhooks.on(
+    ["check_run.created", "check_run.completed", "check_run.rerequested"],
+    async ({ payload }) => {
+      const branch = payload.check_run.check_suite.head_branch
+      if (!branch || payload.check_run.pull_requests.length === 0) return
+      const session = await sessionForPullRequest({
+        installationId: payload.installation?.id,
+        repoFullName: payload.repository.full_name,
+        headRef: branch,
+        headRepoFullName: payload.repository.full_name,
+      })
+      if (session) broadcastReviewUpdated(session)
+    }
+  )
+
+  webhooks.on("status", async ({ payload }) => {
+    for (const branch of payload.branches.slice(0, 5)) {
+      const session = await sessionForPullRequest({
+        installationId: payload.installation?.id,
+        repoFullName: payload.repository.full_name,
+        headRef: branch.name,
+        headRepoFullName: payload.repository.full_name,
+      })
+      if (session) broadcastReviewUpdated(session)
+    }
+  })
 
   // App lifecycle: uninstall drops the connection (sources cascade-purge);
   // Suspension revokes access; reconnect must prove ownership again.

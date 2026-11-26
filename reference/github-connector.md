@@ -155,7 +155,7 @@ reading is part of Lor's own turn, metered like the rest of it.
 ### 🟡 For the "proper = read + write" bar
 
 - [ ] Write side moves to code sessions (later; [code-channels.md](planned/code-channels.md) §2). Add `checks: read` to the App then, so Lor can read CI results and iterate.
-- [ ] Grant the App **Checks: read** (prod and dev; installation owners approve). `fetch_github` already reads the PR head's check runs and failure annotations, and the PR card's CI status uses them; without the grant both report checks as unavailable. Actions run logs would also need **Actions: read** and a new tool.
+- [ ] **CI access (built 2026-11-26, owed: App settings).** On the prod and dev Apps grant repository permissions **Checks: read**, **Actions: read** and **Commit statuses: read**, and subscribe to the **Check run**, **Check suite** and **Status** events; installation owners approve the changed permissions on GitHub. What reads them: `fetch_github` lists a PR head's checks with failure annotations, and with `logs: true` (or `check`) reads failed GitHub Actions jobs' steps and an excerpt of each log around its `##[error]` lines (`fetchPullRequestCheckLogs`); the PR card's CI status; a code session's Checks list and checks cards ([pr-reviews.md](planned/pr-reviews.md) step 5). Logs are a mode of `fetch_github`, not a new tool, because saved connections never enable new catalog tools ([connector-tools.md](connector-tools.md)). Without Checks: read each surface says checks are unavailable; without Actions: read the logs mode says so per job.
 
 ### ⚪ Nice-to-have / robustness
 

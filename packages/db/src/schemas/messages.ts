@@ -90,6 +90,9 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   // In a code session: someone reviewed the pull request of its branch on
   // GitHub (reference/planned/pr-reviews.md). The card reads the comments live.
   "session_reviewed",
+  // In a code session: its pull request's checks finished on the head commit
+  // and failed, or passed again after failing. A snapshot of the result.
+  "session_checks",
   // In a code session: a pull request from its branch was opened, or merged.
   "session_pr_opened",
   "session_pr_merged",
@@ -416,6 +419,19 @@ export type SessionReviewedPayload = {
   state: "approved" | "changes_requested" | "commented"
 }
 
+// session_checks. `failed` holds the failed checks at posting time (empty
+// when they passed); the Details panel's Checks list reads them live.
+export type SessionChecksPayload = {
+  sessionId: string
+  repoFullName: string
+  pullRequestNumber: number
+  pullRequestUrl: string
+  headSha: string
+  outcome: "failed" | "passed"
+  total: number
+  failed: { name: string; url: string | null }[]
+}
+
 // session_pr_opened / session_pr_merged. The author is the workspace member
 // whose linked GitHub account did it, else the app user (githubLogin names
 // them).
@@ -457,6 +473,7 @@ export type ChannelEventPayload =
   | SessionForkedPayload
   | SessionRewoundPayload
   | SessionReviewedPayload
+  | SessionChecksPayload
   | SessionPullRequestPayload
   | SessionSetupChangedPayload
   | null

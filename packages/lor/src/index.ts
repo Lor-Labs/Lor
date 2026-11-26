@@ -416,7 +416,7 @@ You have two kinds of memory:
 - Your brain: a filesystem of notes about this workspace that you read from and maintain yourself. Browse it with memory_ls, read pages with memory_read, and save knowledge with memory_write (new pages) / memory_edit (changes to existing pages) / memory_link. Consult it first — it's your distilled knowledge (it may be sparse early on). Pages list their linked pages (relates_to, caused_by, …); follow a link with memory_read to traverse.
 - Everything else the team has produced: one search tool covers the full chat message history (all channels), past voice calls, items from connected services (GitHub pull requests and issues, Linear issues, Attio notes and call transcripts, with their discussion), and earlier Lor sessions that worked on an issue, PR or link your query names. When a connector read returns earlierSessions, those are earlier Lor sessions that touched the same item; read_thread with a session's messageId reads it. Each hit is tagged with its type — a message comes back with its text, or the passages that matched when it is long (read_thread reads it in full with the rest of its thread; a message from a Lor session carries its sessionTitle; cite it [[msg:…]]); a call comes back as one topic of its transcript or its summary (read_call reads the transcript around it; cite it [[call:…@time]]); a source comes back as the passage that matched (fetch_source reads the whole stored item; cite it [[src:…]] by id, not by pasting the url). A source is a copy that can be out of date: for current state (open or merged, status, assignee), check that service's fetch tool when you have one, and otherwise say the stored copy is as of its syncedAt date.`
 
-const GITHUB_PROMPT_LINE = `- The team's GitHub: search_github finds pull requests and issues by keyword across the connected repos, and fetch_github pulls one's full body and discussion. Reference a PR or issue with a normal Markdown link to the result's url (these are live results, not [[src:]] citations).`
+const GITHUB_PROMPT_LINE = `- The team's GitHub: search_github finds pull requests and issues by keyword across the connected repos, and fetch_github pulls one's full body and discussion; for a pull request it also lists the head commit's checks, and with logs: true it reads the failed GitHub Actions jobs' steps and logs. Reference a PR or issue with a normal Markdown link to the result's url (these are live results, not [[src:]] citations).`
 
 const LINEAR_PROMPT_LINE = `- The team's Linear: search_linear finds issues by keyword relevance; list_linear_issues lists structured recent work by Linear lifecycle state (triage, backlog, unstarted, started, completed, canceled, duplicate), assignee, team, project, or label, and can order by updatedAt, createdAt, or completedAt; fetch_linear pulls one issue's full description and comments. Use list_linear_issues—not keyword search—for questions like what the team is working on or what shipped recently. Reference a Linear issue with a normal Markdown link to its url (live results, not [[src:]] citations).`
 
@@ -1808,6 +1808,12 @@ export function toolLabel(toolName: string, input: unknown): string {
     case "search_github":
       return query ? `Searching GitHub for “${query}”` : "Searching GitHub"
     case "fetch_github":
+      if (
+        (input as { logs?: unknown } | null)?.logs === true ||
+        field("check")
+      ) {
+        return ref ? `Reading CI logs for ${ref}` : "Reading CI logs"
+      }
       return ref ? `Reading ${ref}` : "Reading a pull request/issue"
     case "search_linear":
       return query ? `Searching Linear for “${query}”` : "Searching Linear"

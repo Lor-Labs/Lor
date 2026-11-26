@@ -450,6 +450,29 @@ export const sessionReviewResponseSchema = z.object({
         state: z.enum(["open", "closed", "merged"]),
         draft: z.boolean(),
       }),
+      // CI on the pull request's head commit; "forbidden": the GitHub App
+      // lacks Checks: read.
+      checks: z.object({
+        sha: z.string(),
+        access: z.enum(["ok", "forbidden", "error"]),
+        checks: z.array(
+          z.object({
+            id: z.number().int().nullable(),
+            name: z.string(),
+            state: z.enum([
+              "queued",
+              "running",
+              "passed",
+              "failed",
+              "cancelled",
+              "skipped",
+              "neutral",
+            ]),
+            url: z.string().nullable(),
+            app: z.string().nullable(),
+          })
+        ),
+      }),
       reviews: z.array(
         z.object({
           id: z.number().int(),

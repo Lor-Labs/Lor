@@ -1,10 +1,12 @@
 import { activeGithubInstallation } from "./github"
 import {
+  type CommitChecks,
   fetchBranchPullRequest,
+  fetchCommitChecks,
   type GithubReviewAuthor,
 } from "./providers/github"
 
-export { reviewStartsThreads } from "./providers/github"
+export { fetchCommitChecks, reviewStartsThreads } from "./providers/github"
 
 // A code session's pull request review, read live from GitHub for the review
 // card and the Details panel's Review list (reference/planned/pr-reviews.md).
@@ -32,6 +34,8 @@ export type SessionPullRequestReview = {
     state: "open" | "closed" | "merged"
     draft: boolean
   }
+  // CI on the pull request's head commit. access "error": GitHub failed.
+  checks: CommitChecks
   reviews: {
     id: number
     author: ReviewAuthor
@@ -185,7 +189,17 @@ export async function sessionPullRequestReview(session: {
     session.newBranch
   )
   if (!pr) return null
+  const checks = (await fetchCommitChecks(
+    installationId,
+    session.repoFullName,
+    pr.headRefOid
+  ).catch(() => null)) ?? {
+    sha: pr.headRefOid,
+    access: "error" as const,
+    checks: [],
+  }
   return {
+    checks,
     pullRequest: {
       number: pr.number,
       url: pr.url,
