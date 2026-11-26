@@ -106,6 +106,7 @@ objected to and should confirm.
 | 41 | Notifications: a chat's message notifies the people in it; a posted event pings people only when its listener says so; what an agent says to a Lor chat pings like anyone's message; a thread's reply is unread only for the people who follow it; a chat that lives in Slack or Discord shows unread in Lor and leaves the ping to that app | Jacob, 11-26 |
 | 42 | Several agents can listen to one event, each once and each with its own chat, filter and instructions. The connector's page shows events as a plain list, one line an event with who hears it; opening an event shows its listeners as chips and one flat form for the picked one | Jacob, 11-26 |
 | 43 | A listener has no hourly or daily cap on how often it wakes its agent, shown or hidden: nothing limits it that the person cannot see. The filter turns events away and the inbox batches bursts | Jacob, 11-26 |
+| 44 | The agents' room of a chat works as a chat does. A post that names agents wakes them; one that names nobody wakes the agent it reads as meant for (Jev, as for a person's message) and the rest read it at their check-in; one for everyone wakes them all. An agent that doesn't know which agent to ask posts without a name. The only way into the room is the line in the chat's feed | Jacob, 11-26 |
 
 Considered and dropped:
 
@@ -829,31 +830,41 @@ The chat's header and panel (built 2026-11-26):
 Agents messaging each other (decision 39, built 2026-11-26):
 
 - **The tool.** An agent's turn in a chat it shares with another agent has
-  `message_agent` (`packages/lor/src/channel-agent.ts`): the other agent's
-  name and what to say. It is prompted to use it only when the work needs
-  the other agent, and never to answer for the sake of answering. There
-  are no caps and no rules about who may message whom.
-- **What it does** (`apps/worker/src/lib/agent-messages.ts`). The message
-  is saved in `agent_message` (a table of its own: nothing agents say to
-  each other is in the chat's feed, unread counts, search or
-  notifications). It wakes the other agent through its inbox (source
-  "agent"): a first message in that agent's own conversation, an answer in
-  the conversation the asker wrote from, so the asker reads it where it
-  has the context.
+  `message_agent` (`packages/lor/src/channel-agent.ts`): a post in the
+  chat's agents' room, with `to` and what to say. It is prompted to use it
+  only when the work needs another agent, and never to answer for the sake
+  of answering. There are no caps and no rules about who may message whom.
+- **Who is woken** (decision 44, `apps/worker/src/lib/agent-messages.ts`),
+  as in a chat. `to` names agents: they are woken. `to` left out: Jev
+  judges which agent it is meant for (`decideInboxAddress`, the call that
+  judges a person's message that names nobody) and wakes those; the tool's
+  result tells the writer who was woken. `to: ["everyone"]`: every other
+  agent is woken. Every agent not woken gets it in the wait lane of its
+  own conversation and reads it at its check-in, a message for other agents
+  marked as not for it.
+- **Where it is kept and where it lands.** A post is one `agent_message`
+  row (`to_agent_ids`, `to_everyone`; a table of its own: nothing agents
+  say to each other is in the chat's feed, unread counts, search or
+  notifications). It reaches an agent through its inbox (source "agent").
+  An answer lands in the conversation the asker wrote from, so the asker
+  reads it where it has the context: that is, when the named agent's
+  newest post that reached the writer is newer than the writer's last
+  message to it. Anything else lands in the agent's own conversation.
 - **In the chat's feed** one quiet centered line, "Quill messaged Inky"
   (`message.event_type = "agent_messaged"`, no unread mark, no
   notification). A run of messages is one line until something else is
   said in the chat: each later message updates it (under a per-chat lock,
   so messages sent at once share it), "Quill messaged Inky and Rusty", or
   "Quill, Inky and Rusty talked" once two of the others message each other.
-  Answers to the agent that started the run don't count as messaging.
+  Answers to the agent that started the run don't count as messaging. A
+  post to the room (no name, or everyone) reads "Quill posted to the
+  agents".
 - **The agents' chat** (`apps/web/src/components/chat/agents-chat-view.tsx`,
   `?agents=` on the chat's route, `GET …/chats/{id}/agent-messages`) is
   shown in place of the chat: bubbles, the agents' faces in the header, a
   Read-only mark where the composer would be, and a way back. The line
-  opens it at that message. Under the agents in the chat's details panel,
-  a card (their faces, how many messages, the newest line and when) opens
-  it any time. It follows live (`agent-message:created`).
+  opens it at that message, and is the only way in (Jacob, 11-26: a row,
+  then a card, in the chat's details panel were both built and removed). It follows live (`agent-message:created`).
 - **Lor only:** nothing is posted to a chat's Discord thread.
 - **Checked live:** a person asked one agent for something only the other
   knew. It messaged the other, which answered within fifteen seconds; the
@@ -863,11 +874,19 @@ Agents messaging each other (decision 39, built 2026-11-26):
   view, and Back returned to the chat. With three agents (Jacob asked for
   it): one agent messaged the two others at once and both answered within
   twenty seconds; the line read "Quill messaged Rusty and Inky", and the
-  agents' chat says who each bubble is for ("Quill to Rusty"). Not run: an
+  agents' chat says who each bubble is for ("Quill to Rusty"). The room
+  formula, with the same three: a post naming nobody (Jev scored the
+  support agent 0.85 and the engineering one 0.08, only the first was
+  woken, it answered the asker, and the other got both posts in its wait
+  lane); a post for everyone (both woken, neither replied, as asked). Not
+  run: a post naming two agents, Jev picking nobody, an
   agent messaging another unprompted, the view updating live while open, a
   Discord-linked chat, the mobile app (it shows the line as plain text).
 - **Rollout:** `pnpm db:push` adds `agent_message` and two enum values
-  (`channel_event_type`, `agent_inbox_source`).
+  (`channel_event_type`, `agent_inbox_source`). A database pushed between
+  the first cut and decision 44 has `agent_message.to_agent_id`: the push
+  drops it for `to_agent_ids` and `to_everyone`, losing who those early
+  messages were for.
 
 Finding and joining a chat (decision 35, built 2026-11-26):
 

@@ -1,4 +1,5 @@
-import { and, asc, db, desc, eq, isNull, ne, schema, sql } from "@repo/db"
+import { recordUsage } from "@repo/billing"
+import { and, asc, db, desc, eq, isNull, ne, or, schema, sql } from "@repo/db"
 import { ownConversation } from "@repo/db/queries/agent-conversations"
 import type { AgentMessagedPayload } from "@repo/db/schema"
 import {
@@ -6,6 +7,7 @@ import {
   agentMessageInboxNote,
   type MessageAgentExecutor,
 } from "@repo/lor/channel-agent"
+import { decideInboxAddress } from "@repo/lor/inbox-address"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   AGENT_INBOX_BATCH_MS,
@@ -15,22 +17,42 @@ import {
 import { channelRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
+import { loadAddressContext } from "@/lib/agent-inbox-classify"
 import { logger } from "@/lib/logger"
 import { type LorMessageDeps, postLorMessage } from "@/lib/lor-messages"
 
-// Agents messaging each other (reference/agents-and-chats.md, decision 39).
-// `message_agent` saves what was said in `agent_message`, wakes the other
-// agent with it, and leaves one quiet "messaged" line in the chat's feed.
-// There are no caps and no rules about who may message whom: prompting, and
-// what bounds any turn (spend, a person stopping it). Nothing here is posted
-// to a chat that lives in Slack or Discord.
+// The agents' room of a chat (reference/agents-and-chats.md, decisions 39
+// and 44): `message_agent` posts in it, and it works as a chat does. A post
+// that names agents wakes them. One that names nobody wakes the agent Jev
+// reads it as meant for. One for everyone wakes them all. Whoever is not
+// woken reads it at their check-in. What is said is saved in
+// `agent_message`, and the chat's feed gets one quiet line for it. There are
+// no caps and no rules about who may message whom: prompting, and what
+// bounds any turn (spend, a person stopping it). Nothing here is posted to a
+// chat that lives in Slack or Discord.
 
 const LIST = new Intl.ListFormat("en", { type: "conjunction" })
+// What an agent may write in `to` to mean every agent in the chat.
+const EVERYONE = new Set(["everyone", "all", "here", "channel", "chat"])
 
 type Deps = LorMessageDeps & {
   emitter: Emitter<ServerToClientEvents>
   // Typed loosely: the agent queue carries other jobs too.
   queue: Pick<Queue<AgentInboxFlushJobData>, "add">
+}
+
+// The feed line's words: who wrote, and to whom.
+function lineText(
+  line: Pick<AgentMessagedPayload, "agentIds" | "senderIds" | "room">,
+  names: Map<string, string>
+) {
+  const named = (ids: string[]) =>
+    LIST.format(ids.map((id) => names.get(id) ?? "an agent"))
+  const senderIds = line.senderIds ?? []
+  const agentIds = line.agentIds ?? []
+  if (senderIds.length > 1) return `${named(agentIds)} talked`
+  if (line.room) return `${named(senderIds)} posted to the agents`
+  return `${named(senderIds)} messaged ${named(agentIds.filter((id) => !senderIds.includes(id)))}`
 }
 
 export function agentMessenger(
@@ -43,7 +65,7 @@ export function agentMessenger(
     conversationId: string
   }
 ): MessageAgentExecutor {
-  return async ({ agent, content }) => {
+  return async ({ to, content }) => {
     const here = await db
       .select({
         id: schema.agent.id,
@@ -61,22 +83,34 @@ export function agentMessenger(
       .orderBy(asc(schema.channelAgent.createdAt))
     const me = here.find((row) => row.id === from.agentId)
     const others = here.filter((row) => row.id !== from.agentId)
-    const wanted = agent.trim().replace(/^@/, "").toLowerCase()
-    const to = others.find(
-      (row) => row.id === agent.trim() || row.name.toLowerCase() === wanted
-    )
-    if (!me || !to) {
-      return {
-        ok: false,
-        error:
-          others.length > 0
-            ? `No agent by that name is in this chat with you. You can message ${others.map((row) => row.name).join(", ")}.`
-            : "No other agent is in this chat.",
-      }
+    if (!me || others.length === 0) {
+      return { ok: false, error: "No other agent is in this chat." }
     }
     if (me.archivedAt) {
       return { ok: false, error: "This chat is archived." }
     }
+
+    const wanted = (to ?? [])
+      .map((name) => name.trim().replace(/^@/, ""))
+      .filter(Boolean)
+    const everyone = wanted.some((name) => EVERYONE.has(name.toLowerCase()))
+    const named: typeof others = []
+    const unknown: string[] = []
+    for (const name of everyone ? [] : wanted) {
+      const hit = others.find(
+        (row) =>
+          row.id === name || row.name.toLowerCase() === name.toLowerCase()
+      )
+      if (!hit) unknown.push(name)
+      else if (!named.includes(hit)) named.push(hit)
+    }
+    if (unknown.length > 0) {
+      return {
+        ok: false,
+        error: `No agent named ${unknown.join(", ")} is in this chat with you. The agents here: ${others.map((row) => row.name).join(", ")}. Leave \`to\` out to ask whichever of them it fits.`,
+      }
+    }
+    const open = !everyone && named.length === 0
 
     const [saved] = await db
       .insert(schema.agentMessage)
@@ -84,7 +118,8 @@ export function agentMessenger(
         workspaceId: from.workspaceId,
         channelId: from.channelId,
         fromAgentId: from.agentId,
-        toAgentId: to.id,
+        toAgentIds: named.map((row) => row.id),
+        toEveryone: everyone,
         fromConversationId: from.conversationId,
         content,
       })
@@ -94,57 +129,135 @@ export function agentMessenger(
       })
     if (!saved) return { ok: false, error: "The message could not be saved." }
 
-    // An answer goes back to the conversation the other agent last wrote
-    // from here, where it has the context; a first message goes to its own.
-    const [asked] = await db
-      .select({ conversationId: schema.agentMessage.fromConversationId })
-      .from(schema.agentMessage)
-      .where(
-        and(
-          eq(schema.agentMessage.channelId, from.channelId),
-          eq(schema.agentMessage.fromAgentId, to.id),
-          eq(schema.agentMessage.toAgentId, from.agentId)
-        )
-      )
-      .orderBy(desc(schema.agentMessage.createdAt))
-      .limit(1)
-    const conversationId =
-      asked?.conversationId ??
-      (
-        await ownConversation({
-          workspaceId: from.workspaceId,
-          agentId: to.id,
-        })
-      ).id
-    const delivered = await addInboxNote({
-      workspaceId: from.workspaceId,
-      channelId: from.channelId,
-      conversationId,
-      source: "agent",
-      sourceId: saved.id,
-      lane: "wake",
-      note: agentMessageInboxNote({
-        fromName: me.name,
-        fromRole: me.role,
-        channelName: from.channelName,
-        content,
-      }),
-    })
-    if (delivered) {
-      await deps.queue
-        .add(
-          AGENT_INBOX_FLUSH_JOB,
-          { conversationId: delivered },
+    // Who is woken now. With nobody named, Jev judges it as it does a
+    // person's message that names no agent (LOR-171); when it fails or picks
+    // nobody, the post waits for each agent's check-in.
+    let wake = everyone ? others : named
+    if (open) {
+      const context = await loadAddressContext({
+        channelId: from.channelId,
+        before: saved.createdAt,
+        exceptAgentId: from.agentId,
+      })
+      const decision = await decideInboxAddress({
+        chatName: from.channelName ?? "chat",
+        recent: context.recent,
+        message: { author: me.name, isAgent: true, text: content },
+        agents: context.agents,
+      })
+      if (decision.responded) {
+        void recordUsage(
           {
-            delay: AGENT_INBOX_BATCH_MS,
-            removeOnComplete: true,
-            removeOnFail: 100,
-          }
+            workspaceId: from.workspaceId,
+            tool: "lor.inbox.classify",
+            model: decision.model,
+            inputTokens: decision.inputTokens,
+            outputTokens: decision.outputTokens,
+            costUsd: decision.costUsd,
+            wallMs: decision.wallMs,
+          },
+          { channelId: from.channelId }
         )
-        // The stranded-inbox sweep flushes one whose enqueue failed.
-        .catch((err) =>
-          logger.warn({ err, agentMessageId: saved.id }, "Agent wake failed")
+      }
+      wake = others.filter((row) => decision.agentIds.includes(row.id))
+      logger.info(
+        { agentMessageId: saved.id, scores: decision.scores },
+        "Agents' room post classified"
+      )
+    }
+
+    // An answer goes to the conversation the other agent asked from, where
+    // it has the context: when its newest post that reached this agent is
+    // newer than this agent's last message to it. Anything else goes to its
+    // own conversation.
+    const askedFrom = async (agentId: string) => {
+      const [theirs] = await db
+        .select({
+          conversationId: schema.agentMessage.fromConversationId,
+          createdAt: schema.agentMessage.createdAt,
+        })
+        .from(schema.agentMessage)
+        .where(
+          and(
+            eq(schema.agentMessage.channelId, from.channelId),
+            eq(schema.agentMessage.fromAgentId, agentId),
+            or(
+              sql`${from.agentId}::uuid = any(${schema.agentMessage.toAgentIds})`,
+              eq(schema.agentMessage.toEveryone, true),
+              sql`cardinality(${schema.agentMessage.toAgentIds}) = 0`
+            )
+          )
         )
+        .orderBy(desc(schema.agentMessage.createdAt))
+        .limit(1)
+      if (!theirs?.conversationId) return null
+      const [mine] = await db
+        .select({ createdAt: schema.agentMessage.createdAt })
+        .from(schema.agentMessage)
+        .where(
+          and(
+            eq(schema.agentMessage.channelId, from.channelId),
+            eq(schema.agentMessage.fromAgentId, from.agentId),
+            ne(schema.agentMessage.id, saved.id),
+            sql`${agentId}::uuid = any(${schema.agentMessage.toAgentIds})`
+          )
+        )
+        .orderBy(desc(schema.agentMessage.createdAt))
+        .limit(1)
+      return !mine || theirs.createdAt > mine.createdAt
+        ? theirs.conversationId
+        : null
+    }
+
+    for (const row of others) {
+      const woken = wake.includes(row)
+      const isNamed = named.includes(row)
+      const conversationId =
+        (woken && isNamed ? await askedFrom(row.id) : null) ??
+        (
+          await ownConversation({
+            workspaceId: from.workspaceId,
+            agentId: row.id,
+          })
+        ).id
+      const delivered = await addInboxNote({
+        workspaceId: from.workspaceId,
+        channelId: from.channelId,
+        conversationId,
+        source: "agent",
+        sourceId: saved.id,
+        lane: woken ? "wake" : "wait",
+        note: agentMessageInboxNote({
+          fromName: me.name,
+          fromRole: me.role,
+          channelName: from.channelName,
+          content,
+          kind: everyone
+            ? "everyone"
+            : isNamed
+              ? "named"
+              : open
+                ? "open"
+                : "overheard",
+          toNames: named.map((item) => item.name),
+        }),
+      })
+      if (delivered && woken) {
+        await deps.queue
+          .add(
+            AGENT_INBOX_FLUSH_JOB,
+            { conversationId: delivered },
+            {
+              delay: AGENT_INBOX_BATCH_MS,
+              removeOnComplete: true,
+              removeOnFail: 100,
+            }
+          )
+          // The stranded-inbox sweep flushes one whose enqueue failed.
+          .catch((err) =>
+            logger.warn({ err, agentMessageId: saved.id }, "Agent wake failed")
+          )
+      }
     }
 
     deps.emitter.to(channelRoom(from.channelId)).emit("agent-message:created", {
@@ -152,16 +265,18 @@ export function agentMessenger(
       message: {
         id: saved.id,
         fromAgentId: from.agentId,
-        toAgentId: to.id,
+        toAgentIds: named.map((row) => row.id),
+        toEveryone: everyone,
         content,
         createdAt: saved.createdAt.toISOString(),
       },
     })
 
-    // One line in the feed for a run of messages between the chat's
-    // agents, until something else is said there: a message that follows
-    // one updates the line ("Quill messaged Inky and Rusty"). Under a lock,
-    // so messages sent at once share a line.
+    // One line in the feed for a run of posts in the room, until something
+    // else is said in the chat: a post that follows one updates the line
+    // ("Quill messaged Inky and Rusty"). Under a lock, so posts sent at once
+    // share a line.
+    const names = new Map(here.map((row) => [row.id, row.name]))
     await db
       .transaction(async (tx) => {
         await tx.execute(
@@ -188,62 +303,77 @@ export function agentMessenger(
             ? (newest.eventPayload as AgentMessagedPayload | null)
             : null
         if (!newest || !line) {
+          const payload: AgentMessagedPayload = {
+            fromAgentId: from.agentId,
+            ...(named[0] ? { toAgentId: named[0].id } : {}),
+            agentMessageId: saved.id,
+            agentIds: [from.agentId, ...named.map((row) => row.id)],
+            senderIds: [from.agentId],
+            ...(named.length === 0 ? { room: true } : {}),
+          }
           await postLorMessage(deps, {
             channelId: from.channelId,
-            content: `${me.name} messaged ${to.name}`,
+            content: lineText(payload, names),
             type: "event",
             eventType: "agent_messaged",
-            eventPayload: {
-              fromAgentId: from.agentId,
-              toAgentId: to.id,
-              agentMessageId: saved.id,
-              agentIds: [from.agentId, to.id],
-              senderIds: [from.agentId],
-            },
+            eventPayload: payload,
             agentId: from.agentId,
             // A quiet line: no unread mark and no notification.
             silent: true,
           })
           return
         }
-        const agentIds = [
-          ...new Set([
-            ...(line.agentIds ?? [line.fromAgentId, line.toAgentId]),
-            from.agentId,
-            to.id,
-          ]),
-        ]
+        const before = {
+          agentIds: line.agentIds ?? [
+            line.fromAgentId,
+            ...(line.toAgentId ? [line.toAgentId] : []),
+          ],
+          senderIds: line.senderIds ?? [line.fromAgentId],
+          room: line.room ?? false,
+        }
         // An answer to the agent that started the run does not make its
         // writer a sender: "Quill messaged Inky and Rusty" stays true until
-        // two of the others message each other.
-        const senderIds = [
-          ...new Set([
-            ...(line.senderIds ?? [line.fromAgentId]),
-            ...(to.id === line.fromAgentId ? [] : [from.agentId]),
-          ]),
-        ]
+        // one of the others writes to someone else.
+        const answer =
+          !everyone && named.length === 1 && named[0]?.id === line.fromAgentId
+        const after = {
+          agentIds: [
+            ...new Set([
+              ...before.agentIds,
+              from.agentId,
+              ...named.map((row) => row.id),
+            ]),
+          ],
+          senderIds: [
+            ...new Set([
+              ...before.senderIds,
+              ...(answer ? [] : [from.agentId]),
+            ]),
+          ],
+          room: before.room || named.length === 0,
+        }
         if (
-          agentIds.length === (line.agentIds?.length ?? 2) &&
-          senderIds.length === (line.senderIds?.length ?? 1)
+          after.agentIds.length === before.agentIds.length &&
+          after.senderIds.length === before.senderIds.length &&
+          after.room === before.room
         ) {
           return
         }
-        const payload: AgentMessagedPayload = { ...line, agentIds, senderIds }
-        const names = new Map(here.map((row) => [row.id, row.name]))
-        const named = (ids: string[]) =>
-          LIST.format(ids.map((id) => names.get(id) ?? "an agent"))
-        const content =
-          senderIds.length === 1
-            ? `${named(senderIds)} messaged ${named(agentIds.filter((id) => !senderIds.includes(id)))}`
-            : `${named(agentIds)} talked`
+        const payload: AgentMessagedPayload = {
+          ...line,
+          agentIds: after.agentIds,
+          senderIds: after.senderIds,
+          ...(after.room ? { room: true } : {}),
+        }
+        const text = lineText(payload, names)
         await tx
           .update(schema.message)
-          .set({ eventPayload: payload, content })
+          .set({ eventPayload: payload, content: text })
           .where(eq(schema.message.id, newest.id))
         deps.emitter.to(channelRoom(from.channelId)).emit("message:updated", {
           channelId: from.channelId,
           messageId: newest.id,
-          content,
+          content: text,
           editedAt: new Date().toISOString(),
           mentions: [],
           eventPayload: payload,
@@ -252,6 +382,15 @@ export function agentMessenger(
       .catch((err) =>
         logger.warn({ err, agentMessageId: saved.id }, "Messaged line failed")
       )
-    return { ok: true }
+
+    return {
+      ok: true,
+      woke: wake.map((row) => row.name),
+      ...(wake.length === 0
+        ? {
+            note: "No agent was woken for it now. They will each see it at their next check-in. Name an agent in `to` if it can't wait.",
+          }
+        : {}),
+    }
   }
 }

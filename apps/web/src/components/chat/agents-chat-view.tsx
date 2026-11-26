@@ -29,13 +29,10 @@ const TIME = new Intl.DateTimeFormat(undefined, {
 // A pause this long starts a new stretch, with its time above it.
 const STRETCH_GAP_MS = 30 * 60_000
 
-export const agentMessagesKey = (workspaceSlug: string, channelId: string) =>
+const agentMessagesKey = (workspaceSlug: string, channelId: string) =>
   ["agent-messages", workspaceSlug, channelId] as const
 
-export function agentMessagesQueryOptions(
-  workspaceSlug: string,
-  channelId: string
-) {
+function agentMessagesQueryOptions(workspaceSlug: string, channelId: string) {
   return {
     queryKey: agentMessagesKey(workspaceSlug, channelId),
     queryFn: async () => {
@@ -49,7 +46,7 @@ export function agentMessagesQueryOptions(
 }
 
 // Adds what the agents say as they say it, for whoever has the chat open.
-export function useAgentMessagesLive(workspaceSlug: string, channelId: string) {
+function useAgentMessagesLive(workspaceSlug: string, channelId: string) {
   const socket = useSocket()
   const queryClient = useQueryClient()
   useEffect(() => {
@@ -117,7 +114,7 @@ export function AgentsChatView({
 
   const agentIds = [
     ...new Set(
-      (messages ?? []).flatMap((item) => [item.fromAgentId, item.toAgentId])
+      (messages ?? []).flatMap((item) => [item.fromAgentId, ...item.toAgentIds])
     ),
   ]
   const nameOf = (id: string) => agentsById.get(id)?.name ?? "An agent"
@@ -198,11 +195,14 @@ export function AgentsChatView({
             const stretchEnds =
               !after ||
               new Date(after.createdAt).getTime() - at > STRETCH_GAP_MS
-            // A run is one agent writing to one other: with three in the
-            // chat, who a bubble is for matters as much as who wrote it.
+            // A run is one agent writing to the same agents: with three in
+            // the room, who a bubble is for matters as much as who wrote it.
+            const audience = (item: (typeof messages)[number]) =>
+              item.toEveryone ? "everyone" : item.toAgentIds.join(",")
             const sameRun = (other: (typeof messages)[number] | undefined) =>
-              other?.fromAgentId === message.fromAgentId &&
-              other?.toAgentId === message.toAgentId
+              other !== undefined &&
+              other.fromAgentId === message.fromAgentId &&
+              audience(other) === audience(message)
             const first = stretch || !sameRun(before)
             const last = stretchEnds || !sameRun(after)
             return (
@@ -230,11 +230,20 @@ export function AgentsChatView({
                     {first && (
                       <div className="pb-1 pl-4 text-[12px] text-muted-foreground">
                         {nameOf(message.fromAgentId)}
-                        {agentIds.length > 2 && (
+                        {/* As in a chat: named, everyone, or nobody. */}
+                        {message.toEveryone ? (
                           <span className="text-muted-foreground/70">
                             {" "}
-                            to {nameOf(message.toAgentId)}
+                            to everyone
                           </span>
+                        ) : (
+                          message.toAgentIds.length > 0 &&
+                          agentIds.length > 2 && (
+                            <span className="text-muted-foreground/70">
+                              {" "}
+                              to {LIST.format(message.toAgentIds.map(nameOf))}
+                            </span>
+                          )
                         )}
                       </div>
                     )}

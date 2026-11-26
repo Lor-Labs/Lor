@@ -1,12 +1,21 @@
-import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
+import {
+  boolean,
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core"
 import { agentConversation } from "./agent-conversations"
 import { agent } from "./agents"
 import { channel } from "./channels"
 import { workspace } from "./workspaces"
 
-// What one agent said to another about a chat's work
-// (reference/agents-and-chats.md, decision 39): the agents' own chat, which
-// people read and don't write in. It is not a `message`: nothing here is in
+// What a chat's agents say to each other about its work
+// (reference/agents-and-chats.md, decisions 39 and 44): the agents' own
+// chat, which people read and don't write in. It works as a chat does: a
+// post names the agents it is for, names nobody, or is for everyone. It is not a `message`: nothing here is in
 // the chat's feed, its unread counts, search or notifications. The feed gets
 // one "agent_messaged" line, which opens this.
 export const agentMessage = pgTable(
@@ -24,9 +33,15 @@ export const agentMessage = pgTable(
     fromAgentId: uuid("from_agent_id")
       .notNull()
       .references(() => agent.id, { onDelete: "cascade" }),
-    toAgentId: uuid("to_agent_id")
+    // The agents it names, who are woken with it. Empty: it names nobody,
+    // and the agent it reads as meant for is woken (Jev), unless
+    // `toEveryone`, which wakes them all. The others read it at their
+    // check-in. No foreign key: an agent deleted since stays as an id.
+    toAgentIds: uuid("to_agent_ids")
+      .array()
       .notNull()
-      .references(() => agent.id, { onDelete: "cascade" }),
+      .default(sql`'{}'::uuid[]`),
+    toEveryone: boolean("to_everyone").notNull().default(false),
     // The sender's conversation it was written in: an answer goes back
     // there, so the sender reads it where it has the context.
     fromConversationId: uuid("from_conversation_id").references(

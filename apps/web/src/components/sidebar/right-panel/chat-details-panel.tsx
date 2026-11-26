@@ -1,5 +1,4 @@
 import {
-  ArrowRight01Icon,
   Cancel01Icon,
   DocumentAttachmentIcon,
   PlusSignIcon,
@@ -28,12 +27,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
-import { AgentCreature } from "@/components/agent/agent-creature"
 import { ChannelAgentProvider } from "@/components/agent/channel-agent"
-import {
-  agentMessagesQueryOptions,
-  useAgentMessagesLive,
-} from "@/components/chat/agents-chat-view"
 import { ChatAvatar } from "@/components/sidebar/chat-panel/chat-avatar"
 import { ChannelAgentsSection } from "@/components/sidebar/right-panel/channel-agents-section"
 import { FollowUpsSection } from "@/components/sidebar/right-panel/follow-ups-section"
@@ -42,7 +36,7 @@ import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-
 import type { WorkspaceMembersSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSocket } from "@/context/socket-context"
-import { agentCreature, useAgentsById } from "@/hooks/use-agents"
+import { useAgentsById } from "@/hooks/use-agents"
 import { useCanManageChannels } from "@/hooks/use-can-manage-channels"
 import { type Chat, chatsKey, orderChats } from "@/hooks/use-chats"
 import { apiClient } from "@/lib/api-client"
@@ -190,16 +184,10 @@ export function ChatDetailsPanel({
               </div>
             </div>
 
-            <div>
-              <ChannelAgentsSection
-                workspaceSlug={workspaceSlug}
-                channelId={channelId}
-              />
-              <BetweenAgentsRow
-                workspaceSlug={workspaceSlug}
-                channelId={channelId}
-              />
-            </div>
+            <ChannelAgentsSection
+              workspaceSlug={workspaceSlug}
+              channelId={channelId}
+            />
             <ChatPeople
               workspaceSlug={workspaceSlug}
               channelId={channelId}
@@ -645,83 +633,5 @@ export function JoinChatBar({
         </button>
       </div>
     </div>
-  )
-}
-
-// What the chat's agents said to each other, as a card under them once they
-// have: their faces, the newest line and when. It opens the agents' chat.
-function BetweenAgentsRow({
-  workspaceSlug,
-  channelId,
-}: {
-  workspaceSlug: string
-  channelId: string
-}) {
-  const navigate = useNavigate()
-  const agentsById = useAgentsById(workspaceSlug)
-  const { data: messages } = useQuery(
-    agentMessagesQueryOptions(workspaceSlug, channelId)
-  )
-  useAgentMessagesLive(workspaceSlug, channelId)
-  const last = messages?.at(-1)
-  if (!messages || !last) return null
-  const talked = [
-    ...new Set(messages.flatMap((item) => [item.fromAgentId, item.toAgentId])),
-  ].flatMap((id) => agentsById.get(id) ?? [])
-  const preview = last.content
-    .replace(/[*_`#>[\]()-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-  return (
-    <button
-      type="button"
-      onClick={() =>
-        void navigate({
-          to: "/$workspaceSlug/$channelId",
-          params: { workspaceSlug, channelId },
-          search: { agents: "all" },
-        })
-      }
-      className="group mt-2 flex w-full cursor-pointer flex-col gap-1.5 rounded-xl bg-foreground/[0.04] px-3 py-2.5 text-left outline-none transition-[background-color,transform] duration-150 ease-out hover:bg-foreground/[0.07] focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
-    >
-      <span className="flex items-center gap-2">
-        <span className="flex shrink-0 items-center">
-          {talked.slice(0, 3).map((agent, index) => (
-            <span
-              key={agent.id}
-              className={cn(
-                "flex rounded-full ring-2 ring-[color-mix(in_oklab,var(--foreground)_4%,var(--sidebar))]",
-                index > 0 && "-ml-1.5"
-              )}
-            >
-              <AgentCreature creature={agentCreature(agent)} size={18} still />
-            </span>
-          ))}
-        </span>
-        <span className="min-w-0 flex-1 truncate font-medium text-[12px]">
-          Agents talked
-          <span className="pl-1 font-normal text-muted-foreground">
-            · {messages.length}
-          </span>
-        </span>
-        <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-          {new Date(last.createdAt).toLocaleTimeString(undefined, {
-            hour: "numeric",
-            minute: "2-digit",
-          })}
-        </span>
-        <HugeiconsIcon
-          icon={ArrowRight01Icon}
-          className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out group-hover:translate-x-0.5"
-          strokeWidth={2}
-        />
-      </span>
-      <span className="line-clamp-2 text-[12px] text-muted-foreground leading-snug">
-        <span className="text-foreground/80">
-          {agentsById.get(last.fromAgentId)?.name ?? "An agent"}:
-        </span>{" "}
-        {preview}
-      </span>
-    </button>
   )
 }

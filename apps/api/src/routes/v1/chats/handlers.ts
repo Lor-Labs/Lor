@@ -325,7 +325,8 @@ export const listAgentMessages: AppRouteHandler<
     .select({
       id: agentMessage.id,
       fromAgentId: agentMessage.fromAgentId,
-      toAgentId: agentMessage.toAgentId,
+      toAgentIds: agentMessage.toAgentIds,
+      toEveryone: agentMessage.toEveryone,
       content: agentMessage.content,
       createdAt: agentMessage.createdAt,
     })

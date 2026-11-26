@@ -1048,6 +1048,7 @@ function AgentMessagedLine({ message }: { message: Message }) {
     agentMessageId?: string
     agentIds?: string[]
     senderIds?: string[]
+    room?: boolean
   } | null
   const ids = payload?.agentIds ?? [
     payload?.fromAgentId ?? "",
@@ -1055,31 +1056,30 @@ function AgentMessagedLine({ message }: { message: Message }) {
   ]
   const senderIds = payload?.senderIds ?? [payload?.fromAgentId ?? ""]
   const involved = ids.flatMap((id) => agents.get(id) ?? [])
+  const senders = involved.filter((agent) => senderIds.includes(agent.id))
+  const others = involved.filter((agent) => !senderIds.includes(agent.id))
+  // One writer posting to the whole room, naming nobody or everyone.
+  const toRoom = Boolean(payload?.room) && senders.length === 1
   // An agent since deleted: the line keeps the words it was written with.
-  if (involved.length < 2 || !workspaceSlug) {
+  if (
+    !workspaceSlug ||
+    senders.length === 0 ||
+    (!toRoom && involved.length < 2)
+  ) {
     return (
       <div className="flex justify-center py-1 text-[13px] text-muted-foreground">
         {message.content}
       </div>
     )
   }
-  const face = (agent: (typeof involved)[number]) => (
-    <AgentCreature
-      key={agent.id}
-      creature={agentCreature(agent)}
-      size={16}
-      still
-    />
-  )
-  const senders = involved.filter((agent) => senderIds.includes(agent.id))
-  const others = involved.filter((agent) => !senderIds.includes(agent.id))
-  // Faces sit by their names: "Quill messaged Inky and Rusty", or past one
-  // writer, "Quill, Inky and Rusty talked".
+  // Faces sit by their names: "Quill messaged Inky and Rusty", "Quill
+  // posted to the agents", or past one writer "Quill, Inky and Rusty
+  // talked".
   const names = (list: typeof involved) =>
     list.map((agent, index) => (
       <span key={agent.id} className="flex items-center gap-1">
         {index > 0 && <span>{index === list.length - 1 ? " and" : ","}</span>}
-        {face(agent)}
+        <AgentCreature creature={agentCreature(agent)} size={16} still />
         {agent.name}
       </span>
     ))
@@ -1097,16 +1097,21 @@ function AgentMessagedLine({ message }: { message: Message }) {
         }
         className="flex h-7 max-w-full cursor-pointer items-center gap-1.5 truncate rounded-full px-2.5 text-[13px] text-muted-foreground outline-none transition-[background-color,color,transform] duration-150 ease-out hover:bg-foreground/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100"
       >
-        {senders.length === 1 && others.length > 0 ? (
+        {senders.length > 1 ? (
+          <>
+            {names(involved)}
+            <span>talked</span>
+          </>
+        ) : toRoom ? (
+          <>
+            {names(senders)}
+            <span>posted to the agents</span>
+          </>
+        ) : (
           <>
             {names(senders)}
             <span>messaged</span>
             {names(others)}
-          </>
-        ) : (
-          <>
-            {names(involved)}
-            <span>talked</span>
           </>
         )}
         <span className="pl-1 text-[11px] text-muted-foreground/70 tabular-nums">

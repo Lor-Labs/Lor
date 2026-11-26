@@ -447,14 +447,18 @@ export type AgentSessionStartedPayload = {
 }
 
 export type AgentMessagedPayload = {
+  // The agent that started the run, and the first agent it named (none
+  // when it posted to the room).
   fromAgentId: string
-  toAgentId: string
+  toAgentId?: string
   // The agent_message the line was posted for, to open the agents' chat at.
   agentMessageId: string
   // Everyone in the run of messages the line stands for, and who wrote:
   // one line covers a back-and-forth until something else is said.
   agentIds?: string[]
   senderIds?: string[]
+  // The run has a post to the whole room (naming nobody, or everyone).
+  room?: boolean
 }
 
 export type ChannelEventPayload =

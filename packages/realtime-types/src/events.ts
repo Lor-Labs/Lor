@@ -314,7 +314,9 @@ export type RealtimeMessageType =
 export type AgentChatMessage = {
   id: string
   fromAgentId: string
-  toAgentId: string
+  // The agents it names; none and not `toEveryone` is a post to the room.
+  toAgentIds: string[]
+  toEveryone: boolean
   content: string
   createdAt: string
 }
@@ -347,10 +349,11 @@ export type RealtimeChannelEventPayload =
   | { channelName: string | null }
   | {
       fromAgentId: string
-      toAgentId: string
+      toAgentId?: string
       agentMessageId: string
       agentIds?: string[]
       senderIds?: string[]
+      room?: boolean
     }
   | { sessionId: string; title: string; repoFullName: string | null }
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }

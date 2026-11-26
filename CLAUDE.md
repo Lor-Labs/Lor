@@ -297,7 +297,8 @@ people picked, not everyone. A chat's header and details panel are built
 (`apps/web/src/components/sidebar/right-panel/chat-details-panel.tsx`,
 people routes under `apps/api/src/routes/v1/chats`), and the sidebar's
 search finds chats you are not in, which you join from the chat. Agents in a
-chat message each other with `message_agent` (decision 39): saved in
+chat talk in its agents' room with `message_agent` (decisions 39 and 44: name
+agents to wake them, name nobody and Jev picks, or everyone): saved in
 `agent_message`, shown read-only in the agents' chat
 (`apps/web/src/components/chat/agents-chat-view.tsx`), one quiet line in the
 feed. Not built yet: Loops stored on the agent (the order is "What is left" in that doc's §9). The mock of the chat list is
