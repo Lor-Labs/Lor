@@ -1046,17 +1046,43 @@ function AgentMessagedLine({ message }: { message: Message }) {
     fromAgentId?: string
     toAgentId?: string
     agentMessageId?: string
+    agentIds?: string[]
+    senderIds?: string[]
   } | null
-  const from = agents.get(payload?.fromAgentId ?? "")
-  const to = agents.get(payload?.toAgentId ?? "")
-  // An agent since deleted: the line keeps the names it was written with.
-  if (!from || !to || !workspaceSlug) {
+  const ids = payload?.agentIds ?? [
+    payload?.fromAgentId ?? "",
+    payload?.toAgentId ?? "",
+  ]
+  const senderIds = payload?.senderIds ?? [payload?.fromAgentId ?? ""]
+  const involved = ids.flatMap((id) => agents.get(id) ?? [])
+  // An agent since deleted: the line keeps the words it was written with.
+  if (involved.length < 2 || !workspaceSlug) {
     return (
       <div className="flex justify-center py-1 text-[13px] text-muted-foreground">
         {message.content}
       </div>
     )
   }
+  const face = (agent: (typeof involved)[number]) => (
+    <AgentCreature
+      key={agent.id}
+      creature={agentCreature(agent)}
+      size={16}
+      still
+    />
+  )
+  const senders = involved.filter((agent) => senderIds.includes(agent.id))
+  const others = involved.filter((agent) => !senderIds.includes(agent.id))
+  // Faces sit by their names: "Quill messaged Inky and Rusty", or past one
+  // writer, "Quill, Inky and Rusty talked".
+  const names = (list: typeof involved) =>
+    list.map((agent, index) => (
+      <span key={agent.id} className="flex items-center gap-1">
+        {index > 0 && <span>{index === list.length - 1 ? " and" : ","}</span>}
+        {face(agent)}
+        {agent.name}
+      </span>
+    ))
   return (
     <div className="flex justify-center py-1">
       <button
@@ -1069,12 +1095,20 @@ function AgentMessagedLine({ message }: { message: Message }) {
             search: { agents: payload?.agentMessageId ?? "all" },
           })
         }
-        className="flex h-7 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-[13px] text-muted-foreground outline-none transition-[background-color,color,transform] duration-150 ease-out hover:bg-foreground/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100"
+        className="flex h-7 max-w-full cursor-pointer items-center gap-1.5 truncate rounded-full px-2.5 text-[13px] text-muted-foreground outline-none transition-[background-color,color,transform] duration-150 ease-out hover:bg-foreground/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100"
       >
-        <AgentCreature creature={agentCreature(from)} size={16} still />
-        {from.name} messaged
-        <AgentCreature creature={agentCreature(to)} size={16} still />
-        {to.name}
+        {senders.length === 1 && others.length > 0 ? (
+          <>
+            {names(senders)}
+            <span>messaged</span>
+            {names(others)}
+          </>
+        ) : (
+          <>
+            {names(involved)}
+            <span>talked</span>
+          </>
+        )}
         <span className="pl-1 text-[11px] text-muted-foreground/70 tabular-nums">
           {new Date(message.createdAt).toLocaleTimeString(undefined, {
             hour: "numeric",

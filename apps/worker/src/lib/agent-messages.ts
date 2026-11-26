@@ -1,5 +1,6 @@
-import { and, asc, db, desc, eq, isNull, ne, schema } from "@repo/db"
+import { and, asc, db, desc, eq, isNull, ne, schema, sql } from "@repo/db"
 import { ownConversation } from "@repo/db/queries/agent-conversations"
+import type { AgentMessagedPayload } from "@repo/db/schema"
 import {
   addInboxNote,
   agentMessageInboxNote,
@@ -23,6 +24,8 @@ import { type LorMessageDeps, postLorMessage } from "@/lib/lor-messages"
 // There are no caps and no rules about who may message whom: prompting, and
 // what bounds any turn (spend, a person stopping it). Nothing here is posted
 // to a chat that lives in Slack or Discord.
+
+const LIST = new Intl.ListFormat("en", { type: "conjunction" })
 
 type Deps = LorMessageDeps & {
   emitter: Emitter<ServerToClientEvents>
@@ -155,38 +158,100 @@ export function agentMessenger(
       },
     })
 
-    // One line in the feed for a back-and-forth: a new one only once
-    // something else was said in the chat since the last.
-    const [newest] = await db
-      .select({ eventType: schema.message.eventType })
-      .from(schema.message)
-      .where(
-        and(
-          eq(schema.message.channelId, from.channelId),
-          isNull(schema.message.threadRootId),
-          ne(schema.message.type, "loop_fire")
+    // One line in the feed for a run of messages between the chat's
+    // agents, until something else is said there: a message that follows
+    // one updates the line ("Quill messaged Inky and Rusty"). Under a lock,
+    // so messages sent at once share a line.
+    await db
+      .transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`agent-line:${from.channelId}`}, 0))`
         )
-      )
-      .orderBy(desc(schema.message.createdAt))
-      .limit(1)
-    if (newest?.eventType !== "agent_messaged") {
-      await postLorMessage(deps, {
-        channelId: from.channelId,
-        content: `${me.name} messaged ${to.name}`,
-        type: "event",
-        eventType: "agent_messaged",
-        eventPayload: {
-          fromAgentId: from.agentId,
-          toAgentId: to.id,
-          agentMessageId: saved.id,
-        },
-        agentId: from.agentId,
-        // A quiet line: no unread mark and no notification.
-        silent: true,
-      }).catch((err) =>
+        const [newest] = await tx
+          .select({
+            id: schema.message.id,
+            eventType: schema.message.eventType,
+            eventPayload: schema.message.eventPayload,
+          })
+          .from(schema.message)
+          .where(
+            and(
+              eq(schema.message.channelId, from.channelId),
+              isNull(schema.message.threadRootId),
+              ne(schema.message.type, "loop_fire")
+            )
+          )
+          .orderBy(desc(schema.message.createdAt))
+          .limit(1)
+        const line =
+          newest?.eventType === "agent_messaged"
+            ? (newest.eventPayload as AgentMessagedPayload | null)
+            : null
+        if (!newest || !line) {
+          await postLorMessage(deps, {
+            channelId: from.channelId,
+            content: `${me.name} messaged ${to.name}`,
+            type: "event",
+            eventType: "agent_messaged",
+            eventPayload: {
+              fromAgentId: from.agentId,
+              toAgentId: to.id,
+              agentMessageId: saved.id,
+              agentIds: [from.agentId, to.id],
+              senderIds: [from.agentId],
+            },
+            agentId: from.agentId,
+            // A quiet line: no unread mark and no notification.
+            silent: true,
+          })
+          return
+        }
+        const agentIds = [
+          ...new Set([
+            ...(line.agentIds ?? [line.fromAgentId, line.toAgentId]),
+            from.agentId,
+            to.id,
+          ]),
+        ]
+        // An answer to the agent that started the run does not make its
+        // writer a sender: "Quill messaged Inky and Rusty" stays true until
+        // two of the others message each other.
+        const senderIds = [
+          ...new Set([
+            ...(line.senderIds ?? [line.fromAgentId]),
+            ...(to.id === line.fromAgentId ? [] : [from.agentId]),
+          ]),
+        ]
+        if (
+          agentIds.length === (line.agentIds?.length ?? 2) &&
+          senderIds.length === (line.senderIds?.length ?? 1)
+        ) {
+          return
+        }
+        const payload: AgentMessagedPayload = { ...line, agentIds, senderIds }
+        const names = new Map(here.map((row) => [row.id, row.name]))
+        const named = (ids: string[]) =>
+          LIST.format(ids.map((id) => names.get(id) ?? "an agent"))
+        const content =
+          senderIds.length === 1
+            ? `${named(senderIds)} messaged ${named(agentIds.filter((id) => !senderIds.includes(id)))}`
+            : `${named(agentIds)} talked`
+        await tx
+          .update(schema.message)
+          .set({ eventPayload: payload, content })
+          .where(eq(schema.message.id, newest.id))
+        deps.emitter.to(channelRoom(from.channelId)).emit("message:updated", {
+          channelId: from.channelId,
+          messageId: newest.id,
+          content,
+          editedAt: new Date().toISOString(),
+          mentions: [],
+          eventPayload: payload,
+        })
+      })
+      .catch((err) =>
         logger.warn({ err, agentMessageId: saved.id }, "Messaged line failed")
       )
-    }
     return { ok: true }
   }
 }

@@ -451,6 +451,10 @@ export type AgentMessagedPayload = {
   toAgentId: string
   // The agent_message the line was posted for, to open the agents' chat at.
   agentMessageId: string
+  // Everyone in the run of messages the line stands for, and who wrote:
+  // one line covers a back-and-forth until something else is said.
+  agentIds?: string[]
+  senderIds?: string[]
 }
 
 export type ChannelEventPayload =

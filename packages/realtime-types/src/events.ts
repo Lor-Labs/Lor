@@ -345,7 +345,13 @@ export type RealtimeChannelEventType =
 
 export type RealtimeChannelEventPayload =
   | { channelName: string | null }
-  | { fromAgentId: string; toAgentId: string; agentMessageId: string }
+  | {
+      fromAgentId: string
+      toAgentId: string
+      agentMessageId: string
+      agentIds?: string[]
+      senderIds?: string[]
+    }
   | { sessionId: string; title: string; repoFullName: string | null }
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
   | { from: string; to: string }
@@ -910,6 +916,9 @@ export interface ServerToClientEvents {
     content: string
     editedAt: string
     mentions: RealtimeMessageMention[]
+    // An event line whose data changed (a "messaged" line taking in
+    // another agent).
+    eventPayload?: RealtimeChannelEventPayload
   }) => void
   "message:reaction:updated": (payload: RealtimeMessageReactionUpdated) => void
   "message:embeds:updated": (payload: RealtimeMessageEmbedsUpdated) => void

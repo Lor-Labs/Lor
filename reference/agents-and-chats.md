@@ -842,21 +842,28 @@ Agents messaging each other (decision 39, built 2026-11-26):
   has the context.
 - **In the chat's feed** one quiet centered line, "Quill messaged Inky"
   (`message.event_type = "agent_messaged"`, no unread mark, no
-  notification). A back-and-forth is one line: a new one is posted only
-  once something else was said in the chat since.
+  notification). A run of messages is one line until something else is
+  said in the chat: each later message updates it (under a per-chat lock,
+  so messages sent at once share it), "Quill messaged Inky and Rusty", or
+  "Quill, Inky and Rusty talked" once two of the others message each other.
+  Answers to the agent that started the run don't count as messaging.
 - **The agents' chat** (`apps/web/src/components/chat/agents-chat-view.tsx`,
   `?agents=` on the chat's route, `GET …/chats/{id}/agent-messages`) is
   shown in place of the chat: bubbles, the agents' faces in the header, a
   Read-only mark where the composer would be, and a way back. The line
-  opens it at that message, and "Between agents" in the chat's details
-  panel opens it any time. It follows live (`agent-message:created`).
+  opens it at that message. Under the agents in the chat's details panel,
+  a card (their faces, how many messages, the newest line and when) opens
+  it any time. It follows live (`agent-message:created`).
 - **Lor only:** nothing is posted to a chat's Discord thread.
 - **Checked live:** a person asked one agent for something only the other
   knew. It messaged the other, which answered within fifteen seconds; the
   first then answered the person in the chat, twenty-one seconds after it
   asked. One line in the feed, two bubbles in the agents' chat, and no
   further replies between them. The line and the panel row both opened the
-  view, and Back returned to the chat. Not run: three agents in a chat, an
+  view, and Back returned to the chat. With three agents (Jacob asked for
+  it): one agent messaged the two others at once and both answered within
+  twenty seconds; the line read "Quill messaged Rusty and Inky", and the
+  agents' chat says who each bubble is for ("Quill to Rusty"). Not run: an
   agent messaging another unprompted, the view updating live while open, a
   Discord-linked chat, the mobile app (it shows the line as plain text).
 - **Rollout:** `pnpm db:push` adds `agent_message` and two enum values

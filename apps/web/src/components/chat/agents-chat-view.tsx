@@ -198,9 +198,13 @@ export function AgentsChatView({
             const stretchEnds =
               !after ||
               new Date(after.createdAt).getTime() - at > STRETCH_GAP_MS
-            const first = stretch || before?.fromAgentId !== message.fromAgentId
-            const last =
-              stretchEnds || after?.fromAgentId !== message.fromAgentId
+            // A run is one agent writing to one other: with three in the
+            // chat, who a bubble is for matters as much as who wrote it.
+            const sameRun = (other: (typeof messages)[number] | undefined) =>
+              other?.fromAgentId === message.fromAgentId &&
+              other?.toAgentId === message.toAgentId
+            const first = stretch || !sameRun(before)
+            const last = stretchEnds || !sameRun(after)
             return (
               <div
                 key={message.id}
@@ -226,6 +230,12 @@ export function AgentsChatView({
                     {first && (
                       <div className="pb-1 pl-4 text-[12px] text-muted-foreground">
                         {nameOf(message.fromAgentId)}
+                        {agentIds.length > 2 && (
+                          <span className="text-muted-foreground/70">
+                            {" "}
+                            to {nameOf(message.toAgentId)}
+                          </span>
+                        )}
                       </div>
                     )}
                     <div className="text-pretty rounded-[22px] bg-foreground/[0.06] px-4 py-2.5 text-[14px] text-foreground/90 leading-relaxed">
