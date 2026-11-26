@@ -235,19 +235,29 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
   if (body.agentIds) {
     assertWorkspaceAuthority(c.var.authority, { channel: ["update"] })
   }
-  const resolvedMemberIds = isStandalonePrivate
-    ? [...new Set([currentUser.id, ...(memberIds ?? [])])]
-    : []
-  if (isStandalonePrivate && resolvedMemberIds.length > 0) {
+  // New chat names the people in it (reference/agents-and-chats.md,
+  // decision 35): an open chat then starts with them and its maker, not
+  // with everyone who can see it. Anyone else can still find it and join.
+  const picksPeople =
+    memberIds !== undefined && body.type === "text" && !body.parentId
+  const resolvedMemberIds =
+    isStandalonePrivate || picksPeople
+      ? [...new Set([currentUser.id, ...(memberIds ?? [])])]
+      : []
+  let people: { userId: string; name: string }[] = []
+  if (resolvedMemberIds.length > 0) {
     const workspaceMemberRows = await db
-      .select({ userId: schema.workspaceMember.userId })
+      .select({ userId: schema.workspaceMember.userId, name: schema.user.name })
       .from(schema.workspaceMember)
+      .innerJoin(schema.user, eq(schema.user.id, schema.workspaceMember.userId))
       .where(
         and(
           eq(schema.workspaceMember.workspaceId, workspace.id),
-          inArray(schema.workspaceMember.userId, resolvedMemberIds)
+          inArray(schema.workspaceMember.userId, resolvedMemberIds),
+          eq(schema.user.isBot, false)
         )
       )
+    people = workspaceMemberRows
     if (workspaceMemberRows.length !== resolvedMemberIds.length) {
       return c.json(
         {
@@ -272,6 +282,36 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
         )
 
   const { agentIds: wantedAgentIds, ...fields } = body
+  // A chat left unnamed is called by who is in it: its agents, then the
+  // people besides its maker.
+  if (!fields.name?.trim() && body.type === "text") {
+    const agentNames = wantedAgentIds?.length
+      ? await db
+          .select({ id: schema.agent.id, name: schema.agent.name })
+          .from(schema.agent)
+          .where(
+            and(
+              eq(schema.agent.workspaceId, workspace.id),
+              inArray(schema.agent.id, wantedAgentIds)
+            )
+          )
+          .then((rows) =>
+            wantedAgentIds.flatMap(
+              (id) => rows.find((row) => row.id === id)?.name ?? []
+            )
+          )
+      : []
+    const others = resolvedMemberIds
+      .filter((id) => id !== currentUser.id)
+      .flatMap((id) => people.find((row) => row.userId === id)?.name ?? [])
+      .map((name) => name.trim().split(/\s+/)[0] ?? name)
+    const names = [...agentNames, ...others]
+    fields.name = (
+      names.length > 0
+        ? new Intl.ListFormat("en", { type: "conjunction" }).format(names)
+        : "New chat"
+    ).slice(0, 100)
+  }
   const created = await db
     .transaction(async (tx) => {
       const position = await tx
@@ -290,7 +330,7 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
         })
         .returning()
         .then((rows) => rows[0])
-      if (inserted && isStandalonePrivate) {
+      if (inserted && resolvedMemberIds.length > 0) {
         await tx.insert(schema.channelMember).values(
           resolvedMemberIds.map((userId) => ({
             channelId: inserted.id,
@@ -321,8 +361,9 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
           })
           agentIds = agentId ? [agentId] : []
         }
-        // A chat made here starts with everyone who can see it.
-        await joinChatAudience([inserted.id], tx)
+        // With no people picked, a chat starts with everyone who can see
+        // it. A private one already holds the people it was made with.
+        if (!picksPeople) await joinChatAudience([inserted.id], tx)
       }
       return { ...inserted, agentIds }
     })

@@ -8,8 +8,8 @@ remaining work. Built so far: agents apart from channels (step 1), one
 memory per agent (step 2), and of step 3 the conversations backend, several
 agents in a chat posting as bot users, the Jev wake for messages that name
 nobody, the sidebar's chat list with its member records, listeners (several
-agents per connector event, custom webhooks on the agent's page) and the
-notification rules. Left in step 3: New chat, the chat's header and panel,
+agents per connector event, custom webhooks on the agent's page), the
+notification rules and New chat. Left in step 3: the chat's header and panel,
 finding and joining a chat, agents messaging each other, and Loops stored on
 the agent. Steps 4 and 5 are design only. Lint and type checks pass and each
 part was run live on a throwaway database, except where its section says
@@ -278,16 +278,17 @@ tools all stay.
 
 Each step ends in something the team uses. Steps 2 to 5 are not sized.
 
-**What is left** (the order agreed with Jacob on 2026-11-26):
+**What is left** (the order agreed with Jacob on 2026-11-26; New chat was
+first and is built, see "New chat" below):
 
-1. New chat: pick people and agents, name it, and it is in the list.
-2. The chat's header and right panel: who is in it, adding and removing
+1. The chat's header and right panel: who is in it, adding and removing
    people and agents, its settings. Replaces the channel settings dialog.
-3. Find and join a chat; then `channel-list.tsx` is deleted.
-4. Agents messaging each other (§8): the tool, the agents' chat, the
+2. Find and join a chat; then `channel-list.tsx` and the old create dialog
+   are deleted.
+3. Agents messaging each other (§8): the tool, the agents' chat, the
    "messaged" line and the read-only view, in Lor only.
-5. Loops stored on the agent.
-6. Slack and Discord as places (steps 4 and 5 below).
+4. Loops stored on the agent.
+5. Slack and Discord as places (steps 4 and 5 below).
 
 Beside these: the mobile app still lists channels; listeners an agent
 proposes for itself; `db:push` on the shared databases, then API, realtime,
@@ -744,6 +745,33 @@ The chat list (decisions 33, 35 and 36; sidebar built 2026-11-25):
   and drops the table. After it, `chat-members.ts` puts everyone who can see
   it in each text channel nobody is in; chats with people are left alone,
   so nobody is put back in one they left.
+
+New chat (decisions 31 and 35, built 2026-11-26):
+
+- **A start screen in place of a chat** (`/{workspace}/new`,
+  `apps/web/src/components/chat/new-chat-view.tsx`), reached from the plus
+  beside the sidebar's search, which used to open the New Channel and New
+  Category menu. It is the mock's: the chat's face fills in as agents and
+  people are picked, a name that may be left empty, and a first message.
+- **It starts with the people picked and its maker**, not everyone: the
+  create route (`POST …/channels`) takes `memberIds` for an open chat and
+  skips the fill that puts everyone in. The chat stays open, so anyone
+  else can find and join it once that is built. Left unnamed, the route
+  names it by who is in it (agents, then first names).
+- **The first message** is sent after the chat is made, through the same
+  socket send as the composer. A send that fails leaves the chat and says
+  so.
+- **Agents:** picking them takes channel:update, as before. Without it the
+  picker is not shown and the chat gets the workspace's first agent.
+- **Not built:** a private chat can no longer be made from the web app: the
+  old dialog that had the switch is unreachable, and New chat makes open
+  chats only (decision 35). Existing private chats are untouched. The
+  chat's own header and panel still say "channel" and list the whole
+  workspace.
+- **Checked live:** a chat with two agents and a first message (named after
+  them, the message sent, both in the list at once, an agent answered); a
+  named chat with one agent and two people (only those two and the maker
+  are members).
 
 Listeners and notifications (decisions 40 to 42, built 2026-11-26):
 

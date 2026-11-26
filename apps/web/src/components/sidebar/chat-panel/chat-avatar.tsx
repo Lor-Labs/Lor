@@ -1,4 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { AgentCreature } from "@/components/agent/agent-creature"
 import { agentCreature, type WorkspaceAgent } from "@/hooks/use-agents"
@@ -49,17 +50,20 @@ function PersonFace({ person, size }: { person: ChatPerson; size: number }) {
 
 // A chat's face: its agents, then the people in it besides you (you alone
 // when nobody else is). `total` counts everyone the chat holds besides you,
-// shown or not: past four, three faces and a count.
+// shown or not: past four, three faces and a count. `grow` is for New chat,
+// where faces arrive one at a time and the others make room.
 export function ChatAvatar({
   agents,
   people,
   total,
   size = 40,
+  grow,
 }: {
   agents: WorkspaceAgent[]
   people: ChatPerson[]
   total: number
   size?: number
+  grow?: boolean
 }) {
   const faces = [
     ...agents.map((agent) => ({ kind: "agent" as const, agent })),
@@ -73,7 +77,12 @@ export function ChatAvatar({
     const spot = spots[index] ?? { x: 0, y: 0, size: 0 }
     return {
       size: Math.round(spot.size * k),
-      style: { left: Math.round(spot.x * k), top: Math.round(spot.y * k) },
+      // A transform, so a face moving to make room costs no layout.
+      style: {
+        left: 0,
+        top: 0,
+        transform: `translate(${Math.round(spot.x * k)}px, ${Math.round(spot.y * k)}px)`,
+      },
     }
   }
   const more = at(3)
@@ -88,7 +97,11 @@ export function ChatAvatar({
         return (
           <span
             key={face.kind === "agent" ? face.agent.id : face.person.id}
-            className="absolute flex"
+            className={cn(
+              "absolute flex",
+              grow &&
+                "transition-[transform,opacity,scale] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:scale-75 starting:opacity-0 motion-reduce:transition-none"
+            )}
             style={spot.style}
           >
             {face.kind === "agent" ? (

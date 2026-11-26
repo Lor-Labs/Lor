@@ -1,8 +1,6 @@
 import {
   CheckListIcon,
-  FolderAddIcon,
   GridViewIcon,
-  HashtagIcon,
   HelpCircleIcon,
   Message01Icon,
   PlusSignIcon,
@@ -45,16 +43,13 @@ import {
 } from "@repo/ui/components/tooltip"
 import { features } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
-import { useNavigate, useParams } from "@tanstack/react-router"
+import { useMatch, useNavigate, useParams } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
 import { ChannelActivityProvider } from "@/components/sidebar/channel-panel/channel-activity"
-import {
-  CreateChannelProvider,
-  useCreateChannel,
-} from "@/components/sidebar/channel-panel/create-channel-context"
+import { CreateChannelProvider } from "@/components/sidebar/channel-panel/create-channel-context"
 import { NeedsYouGroup } from "@/components/sidebar/channel-panel/needs-you-list"
 import { VoicePresenceProvider } from "@/components/sidebar/channel-panel/voice-presence"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
@@ -111,7 +106,10 @@ export function WorkspaceSidebarContent() {
 function WorkspaceSidebarInner() {
   const { workspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()
-  const { openCreateChannel, openCreateCategory } = useCreateChannel()
+  const newChatActive = useMatch({
+    from: "/_authenticated/$workspaceSlug/new",
+    shouldThrow: false,
+  })
   const { target, tab, open: openSettings, close, setTab } = useSettings()
   const [inviteOpen, setInviteOpen] = useState(false)
   const { canInvite } = useInviteAccess(workspaceSlug)
@@ -176,7 +174,12 @@ function WorkspaceSidebarInner() {
         })
       : false
   const createButtonRef = useRef<HTMLSpanElement>(null)
-  const { isMobile, open: sidebarOpen, openMobile } = useSidebar()
+  const {
+    isMobile,
+    open: sidebarOpen,
+    openMobile,
+    setOpenMobile,
+  } = useSidebar()
   const channelsHint = useHint(
     "channels_intro",
     canCreate && (isMobile ? openMobile : sidebarOpen)
@@ -413,56 +416,35 @@ function WorkspaceSidebarInner() {
           <NewSessionButton />
           {canCreate && (
             <span ref={createButtonRef} className="flex">
-              <DropdownMenu
-                onOpenChange={(open) => {
-                  if (open) channelsHint.dismiss()
-                }}
-              >
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label="Create"
-                            className="size-8 rounded-md border-border bg-background text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground sm:size-8 data-popup-open:bg-foreground/[0.04] data-popup-open:text-foreground"
-                          />
-                        }
-                      />
-                    }
-                  >
-                    <HugeiconsIcon
-                      icon={PlusSignIcon}
-                      className="size-3.5 opacity-100"
-                      strokeWidth={1.75}
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="New chat"
+                      aria-current={newChatActive ? "page" : undefined}
+                      onClick={() => {
+                        channelsHint.dismiss()
+                        if (!workspaceSlug) return
+                        void navigate({
+                          to: "/$workspaceSlug/new",
+                          params: { workspaceSlug },
+                        })
+                        setOpenMobile(false)
+                      }}
+                      className="size-8 rounded-md border-border bg-background text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground aria-[current=page]:bg-foreground/[0.06] aria-[current=page]:text-foreground sm:size-8"
                     />
-                  </TooltipTrigger>
-                  <TooltipContent>Create</TooltipContent>
-                </Tooltip>
-                <DropdownMenuContent
-                  align="end"
-                  sideOffset={6}
-                  className="w-44"
+                  }
                 >
-                  <DropdownMenuItem onClick={() => openCreateChannel()}>
-                    <HugeiconsIcon
-                      icon={HashtagIcon}
-                      className="size-4 mr-2"
-                      strokeWidth={2}
-                    />
-                    New Channel
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={openCreateCategory}>
-                    <HugeiconsIcon
-                      icon={FolderAddIcon}
-                      className="size-4 mr-2"
-                    />
-                    New Category
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                  <HugeiconsIcon
+                    icon={PlusSignIcon}
+                    className="size-3.5 opacity-100"
+                    strokeWidth={1.75}
+                  />
+                </TooltipTrigger>
+                <TooltipContent>New chat</TooltipContent>
+              </Tooltip>
             </span>
           )}
           <HintPopover

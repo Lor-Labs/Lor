@@ -291,7 +291,9 @@ agents (`connector_trigger.agent_id`, each with a Jev `filter` and a
 (`apps/web/src/components/workspace/connector-events.tsx`), a custom
 webhook is made from a chat or from the agent's page
 (`channel-webhooks-tab.tsx`), there are no wake caps (decision 43), and
-notifications reach the people in a chat (`buildMessageFanout`). Not built yet: New chat, the chat's header and
+notifications reach the people in a chat (`buildMessageFanout`). New chat is built
+(`apps/web/src/components/chat/new-chat-view.tsx`): a chat starts with the
+people picked, not everyone. Not built yet: the chat's header and
 panel, finding and joining a chat, agents messaging each other, and Loops
 stored on the agent (the order is "What is left" in that doc's §9). The mock of the chat list is
 `/prototype/chats`; `/prototype/agents` is the earlier design.
