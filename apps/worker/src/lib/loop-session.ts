@@ -10,11 +10,7 @@ import {
 } from "@repo/db"
 import { ownConversation } from "@repo/db/queries/agent-conversations"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
-import {
-  agentAnchorChannelId,
-  isAgentInChannel,
-  pauseLoopsAgentLeft,
-} from "@repo/db/queries/agents"
+import { isAgentInChannel, pauseLoopsAgentLeft } from "@repo/db/queries/agents"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import type { Loop } from "@repo/db/schema"
 import type { RunLoopContext } from "@repo/lor"
@@ -82,27 +78,23 @@ type FireOutcome = "started" | "queued" | "skipped" | "failed"
 // conversation, through its inbox (reference/always-on-agents.md §3,
 // agents-and-chats.md decisions 15 and 27): the turn that reads it is the
 // fire's run and is about the chat the Loop reports in. A Loop with no chat
-// starts in the agent's first chat, as its check-in does, and is told it has
-// none. A Loop with no agent runs for nobody, and one whose agent left the
-// chat (or, with no chat, every chat) pauses. A fire of the same Loop still
-// unread or running skips this one.
+// is a scheduled wake and nothing more: its turn is about no chat, and an
+// agent in no chat at all runs it too. A Loop with no agent runs for
+// nobody, and one whose agent left its chat pauses. A fire of the same Loop
+// still unread or running skips this one.
 async function fireLoopToInbox(
   deps: LoopDeps & { agentInboxQueue: Queue<AgentQueueData> },
   loop: Loop,
   scheduledFor: Date
 ): Promise<FireOutcome> {
   if (!loop.agentId) return "skipped"
-  const turnChannelId = loop.channelId
-    ? (await isAgentInChannel(loop.agentId, loop.channelId))
-      ? loop.channelId
-      : null
-    : await agentAnchorChannelId(loop.agentId)
-  if (!turnChannelId) {
+  const loopChannelId = loop.channelId
+  if (loopChannelId && !(await isAgentInChannel(loop.agentId, loopChannelId))) {
     // The API pauses them when the agent is taken out; this covers one that
     // slipped past it, with the same line in the chat.
     for (const paused of await pauseLoopsAgentLeft(
       loop.agentId,
-      loop.channelId
+      loopChannelId
     )) {
       emitLoopUpdated(deps.emitter, paused)
       if (!paused.channelId) continue
@@ -173,7 +165,7 @@ async function fireLoopToInbox(
   })
   const conversationId = await addInboxNote({
     workspaceId: loop.workspaceId,
-    channelId: turnChannelId,
+    channelId: loopChannelId,
     conversationId: own.id,
     source: "loop",
     sourceId: loopFireSourceId(loop.id, scheduledFor),

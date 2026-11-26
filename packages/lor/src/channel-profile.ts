@@ -187,8 +187,10 @@ export function agentProfileSection(profile: AgentProfile): string {
 type ShownFact = { id: string; updatedAt: Date }
 
 // Postgres keeps microseconds and a JS Date milliseconds.
+// The date goes through the column's encoder: a bare Date in raw SQL is
+// not a value the driver can bind, and the write fails.
 const sameRevision = (at: Date) =>
-  sql`date_trunc('milliseconds', ${schema.agentFact.updatedAt}) = ${at}`
+  sql`date_trunc('milliseconds', ${schema.agentFact.updatedAt}) = ${sql.param(at, schema.agentFact.updatedAt)}`
 
 // The agent's facts with short ids for the memory pass, which may change
 // only these.

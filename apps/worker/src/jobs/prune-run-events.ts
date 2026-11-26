@@ -113,7 +113,8 @@ export async function sweepDeadRuns(
     id: string
     messageId: string | null
     workspaceId: string
-    channelId: string
+    // Null on an agent's turn about no chat, which has no placeholder.
+    channelId: string | null
     threadRootId: string | null
     triggerId: string | null
     loopId: string | null
@@ -163,12 +164,13 @@ export async function sweepDeadRuns(
     }
   }
   for (const run of dead) {
-    if (!run.settled || !run.messageId) continue
+    const channelId = run.channelId
+    if (!run.settled || !run.messageId || !channelId) continue
     const room = run.threadRootId
       ? threadRoom(run.threadRootId)
-      : channelRoom(run.channelId)
+      : channelRoom(channelId)
     emitter.to(room).emit("message:stream", {
-      channelId: run.channelId,
+      channelId,
       threadRootId: run.threadRootId,
       messageId: run.messageId,
       delta: DEAD_RUN_MESSAGE,
@@ -178,10 +180,10 @@ export async function sweepDeadRuns(
     })
     // Channel viewers only see threaded settles via message:thread:updated.
     if (run.threadRootId) {
-      await loadThreadSummary(run.channelId, run.threadRootId)
+      await loadThreadSummary(channelId, run.threadRootId)
         .then((summary) =>
           emitter
-            .to(channelRoom(run.channelId))
+            .to(channelRoom(channelId))
             .emit("message:thread:updated", summary)
         )
         .catch((err) =>
@@ -200,9 +202,12 @@ export async function sweepDeadRuns(
       { id: run.id, threadRootId: run.threadRootId },
       "failed",
       (plan) => {
-        emitter
-          .to(channelRoom(run.channelId))
-          .emit("plan:updated", { plan: toRealtimePlan(plan) })
+        // A plan's run is in its session's chat.
+        if (run.channelId) {
+          emitter
+            .to(channelRoom(run.channelId))
+            .emit("plan:updated", { plan: toRealtimePlan(plan) })
+        }
         notifyWorkspaceActivity(plan.workspaceId)
       }
     ).catch((err) =>

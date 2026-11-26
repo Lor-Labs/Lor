@@ -1,7 +1,7 @@
 # Agents and chats: agents apart from channels
 
 **Status:** Decided with Jacob from 2026-11-23 to 11-26 and built step by
-step from §9. This doc is the record: §3 lists every decision (1 to 47) with
+step from §9. This doc is the record: §3 lists every decision (1 to 50) with
 who made it and when, §9 says what each step built, how it was checked and
 what was not run, and "What is left" at the top of §9 is the order of the
 remaining work. Built so far: agents apart from channels (step 1), one
@@ -110,6 +110,9 @@ objected to and should confirm.
 | 45 | A Loop's chat is optional. With one, it reports there. With none it is the agent's own work across its chats and tools ("check all the chats you are in for a condition"), and each run posts where its result belongs, or nowhere. This settles decision 27 the way it was written | Jacob, 11-26 |
 | 46 | An agent makes and changes its own Loops with no approval: asking a person to press Create Loop is off by default. What it did is shown: a card where it was asked, a line in the Loop's chat when it has one, and who changed the Loop last on the Loop itself | Jacob, 11-26 |
 | 47 | A group chat has no @everyone and no @channel: those are Slack and Discord words. @chat pings everyone in the chat and @here those of them online. The older words stay plain text | Jacob, 11-26 |
+| 48 | A Loop is a scheduled wake of its agent and nothing more. One with no chat runs whether or not its agent is in any chat: an agent may only report to Slack or Discord, or only keep its memory. Its turn is about no chat | Jacob, 11-26 |
+| 49 | An agent sets up a Loop without being asked, when work it was given needs it back on a cadence until it is done ("a launch video every Wednesday until we reach 100 followers"). It gives the Loop an end condition and completes it when that is met | Jacob, 11-26 |
+| 50 | `create_loop` and `update_loop` are approval gate targets, off by default, so a workspace that wants a person to approve an agent's Loops can require it | Jacob, 11-26 |
 
 Considered and dropped:
 
@@ -316,10 +319,9 @@ Beside these: no private chat can be made from
 the web app (Jacob, 11-26: no switch for now); the mobile app still lists
 channels and is to be discussed (Jacob, 11-26); the API's error messages
 and what agents are told still say "channel" (the web app's own wording
-says "chat" since 11-26); no switch yet turns approval back on for an
-agent's own Loops (decision 46 says "off by default"; it could be an
-approval gate on `create_loop` and `update_loop`, which needs them added
-to the gates' tool catalog); listeners an agent
+says "chat" since 11-26); a turn about no chat shows nowhere while it runs
+and can't be stopped from the app (its run is in no chat's list); listeners
+an agent
 proposes for itself; `db:push` on the shared databases, then API, realtime,
 worker and web deployed together.
 
@@ -1124,19 +1126,13 @@ chat's agents changed.
 
 Decisions 45 and 46, on top of "Loops on the agent".
 
-- **`loop.channel_id` is nullable.** Null: the Loop has no chat. A fire
-  still needs a chat for its turn to start in (`agent_inbox.channel_id`,
-  `agent_run.channel_id`), so it starts in the first open chat the agent is
-  in (`agentAnchorChannelId`), as the check-in picks one, and the fire's
-  note tells the agent the Loop has no chat and to post with
-  `send_message`'s `channel` where a result belongs. An agent in no chat
-  can't run one: its Loops with no chat pause when it leaves its last chat,
-  and activate and resume refuse.
+- **`loop.channel_id` is nullable.** Null: the Loop has no chat, and its
+  fire's turn is about no chat (decision 48, below).
 - **`create_loop` and `update_loop`** (`agentOwnLoopTools`,
   `packages/lor/src/loops.ts`; `apps/worker/src/lib/agent-loops.ts`)
   replace the agent's `propose_loop`. `create_loop` makes a Loop that is
-  active at once, only in a turn a person asked in (a Loop fire or an event
-  can't schedule more). It takes the chat by name or id, among the chats
+  active at once, in any turn (decision 49, below; at first only in a turn
+  a person asked in). It takes the chat by name or id, among the chats
   the agent is in, or null, and a required IANA timezone: nobody activates
   it any more, so nobody's device timezone is pinned, and the agent is told
   to ask when it does not know it. `update_loop` changes one of the agent's
@@ -1182,15 +1178,72 @@ Decisions 45 and 46, on top of "Loops on the agent".
   it, with the card where it was asked and a "created the loop" line in
   the other chat. Type checks pass for db, lor, messaging, realtime, API,
   worker, web and mobile.
-- **Not run:** a scheduled fire of a Loop with no chat (only "Run now"),
-  and an agent leaving its last chat.
-- **Not built:** a switch that turns approval back on (see "Beside
-  these"), and the mobile app's view of any of this (it shows a Loop with
-  no chat only through a card).
+- **Not run:** a scheduled fire of a Loop with no chat (only "Run now").
+- **Not built:** the mobile app's view of any of this (it shows a Loop
+  with no chat only through a card).
 - **Rollout:** `pnpm db:push` drops the not-null on `loop.channel_id`, adds
   `changed_by_id` and `changed_at`, and adds the `loop_updated` event
   type. API, realtime, worker and web together: an older worker would bind
   `propose_loop` for agents again.
+
+### Loops as a scheduled wake (built 2026-11-26)
+
+Decisions 48 to 50, correcting the section above: a Loop with no chat had
+started its turn in the agent's first chat, could not run for an agent in
+no chat, and could only be made when a person asked.
+
+- **A turn can be about no chat.** `agent_run.channel_id`,
+  `agent_inbox.channel_id` and `agent_wake_up.channel_id` are nullable. A
+  fire of a Loop with no chat is an inbox item about no chat in the agent's
+  own conversation, and its run has no channel (`turnChannel` in
+  `apps/worker/src/lib/agent-inbox.ts` returns a place with no id). The
+  inbox text says "This turn is about no chat", and the runtime
+  (`respond`, which already took an optional channel) uses the workspace's
+  tool grants in place of a chat's.
+- **What such a turn can and can't do.** `send_message` posts only in a
+  chat it names with `channel`, and says so when the agent is in none. It
+  has memory (`remember`, `recall`, the memory pass), connector tools,
+  `wake_up`, and its Loop tools. It has no code sessions, no
+  `message_agent`, no change proposals and no file export: each of those
+  lives in a chat. Nothing shows it working, and it can't be stopped from
+  the app.
+- **An agent in no chat runs its Loops with no chat.** Leaving a chat
+  pauses only the Loops that report in that chat; activate and resume no
+  longer ask for the agent to be in one. `agentAnchorChannelId` is gone.
+- **An agent sets up a Loop in any turn** (decision 49). The asker
+  requirement is gone from `create_loop`; the Loop's creator is the person
+  who asked, else the person behind the turn (`setUpBy`: who set up the
+  Loop or event that woke it). The card goes in the chat the turn is about,
+  else in the Loop's own chat, else there is none and the Loop is on the
+  agent's page. The tool's description tells the agent to give such a Loop
+  an end condition and end it with `complete_loop`.
+- **Approval gates** (decision 50). `AGENT_LOOP_GATE_TOOLS` in
+  `packages/connectors/src/tools.ts` makes `create_loop` and `update_loop`
+  gate targets, listed under "Loops" in Settings → Approvals. They are in
+  no profile tool group: every agent has them. A gated call asks in the
+  chat with the usual card, which says which Loop ("Setting up the loop
+  “X” (Every Friday at 4:00 PM)"). In a turn about no chat there is nowhere
+  to ask, so any gated tool is refused there and the agent is told to ask
+  in a chat (`NO_CHAT_APPROVAL` in `packages/lor/src/index.ts`).
+- **Fixed on the way:** the memory pass failed whenever it edited,
+  archived or removed an existing fact (`sameRevision` in
+  `packages/lor/src/channel-profile.ts` bound a bare Date in raw SQL), and
+  the whole pass was lost with it. It had failed 22 times in a day of test
+  runs.
+- **Checked** live on a throwaway database: an agent in no chat ran a Loop
+  with no chat ("Run now"; the run has no channel and completed), saved a
+  fact, and set up a second Loop by itself, with an end condition, no chat
+  and no card; with the gate on, an agent asked for a Loop posted the
+  approval card and made the Loop once approved, and a change that was
+  rejected left the Loop as it was; a gated call in a turn about no chat
+  was refused with the message and no approval row; after the fix a memory
+  pass edited one fact and removed two. Type checks pass for db,
+  connectors, lor, realtime, API, worker, web and mobile.
+- **Not run:** a scheduled fire (only "Run now"), `wake_up` set in a turn
+  about no chat, `complete_loop` on a Loop the agent set up itself, and an
+  out-of-credits turn about no chat.
+- **Rollout:** `pnpm db:push` drops the not-null on the three `channel_id`
+  columns. API, realtime and worker together.
 
 ### Group mentions: @chat and @here (built 2026-11-26)
 

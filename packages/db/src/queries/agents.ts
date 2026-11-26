@@ -1,9 +1,8 @@
 import { agentIdentityFor } from "@repo/utils/bestiary"
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, sql } from "drizzle-orm"
 import { APP_USER_ID, LOR_USER_ID, MAX_CHANNEL_AGENTS } from "../constants"
 import { db } from "../index"
 import { type Agent, agent, channelAgent } from "../schemas/agents"
-import { channel } from "../schemas/channels"
 import { type Loop, loop } from "../schemas/loops"
 import { user } from "../schemas/users"
 
@@ -127,12 +126,12 @@ export async function isAgentInChannel(
 
 // An agent taken out of a chat stops running its Loops that report there:
 // they pause, saying why, and stay the agent's until a person hands them to
-// another agent or puts it back. `channelId` null: its Loops with no chat,
-// which pause once it is in no chat at all (a turn needs one to start in).
-// Returns the Loops paused, for the caller to emit.
+// another agent or puts it back. A Loop with no chat is untouched: it is a
+// scheduled wake of the agent, in a chat or in none. Returns the Loops
+// paused, for the caller to emit.
 export async function pauseLoopsAgentLeft(
   agentId: string,
-  channelId: string | null
+  channelId: string
 ): Promise<Loop[]> {
   return db
     .update(loop)
@@ -140,27 +139,11 @@ export async function pauseLoopsAgentLeft(
     .where(
       and(
         eq(loop.agentId, agentId),
-        channelId ? eq(loop.channelId, channelId) : isNull(loop.channelId),
+        eq(loop.channelId, channelId),
         eq(loop.status, "active")
       )
     )
     .returning()
-}
-
-// The chat a turn of the agent's starts in when its work has no chat of its
-// own (a Loop with none): the first open chat it was put in. Null when it
-// is in none.
-export async function agentAnchorChannelId(
-  agentId: string
-): Promise<string | null> {
-  const [row] = await db
-    .select({ id: channelAgent.channelId })
-    .from(channelAgent)
-    .innerJoin(channel, eq(channel.id, channelAgent.channelId))
-    .where(and(eq(channelAgent.agentId, agentId), isNull(channel.archivedAt)))
-    .orderBy(asc(channelAgent.createdAt), asc(channelAgent.channelId))
-    .limit(1)
-  return row?.id ?? null
 }
 
 // The channels an agent is in.

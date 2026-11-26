@@ -232,13 +232,14 @@ type ApprovalScope = {
 
 function approvalScope(
   run: {
-    channelId: string
+    channelId: string | null
     threadRootId: string | null
     scopeKey: string
   } | null,
   plan: Plan | null
 ): ApprovalScope | null {
-  if (run) {
+  // A run that asks for approval is always in a chat.
+  if (run?.channelId) {
     return {
       channelId: run.channelId,
       threadRootId: run.threadRootId,

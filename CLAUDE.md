@@ -308,7 +308,12 @@ Loop's panel hands it to another agent. A Loop's chat is optional
 (`loop.channel_id` null: the agent's own work across its chats), and an
 agent makes and changes its own Loops with no approval (`create_loop`,
 `update_loop`, `apps/worker/src/lib/agent-loops.ts`), shown by a card, a
-`loop_updated` line and `loop.changed_by_id` (decisions 45 and 46). A chat's
+`loop_updated` line and `loop.changed_by_id` (decisions 45 and 46). A Loop
+is a scheduled wake (decisions 48 to 50): one with no chat runs in a turn
+about no chat (`agent_run.channel_id` and `agent_inbox.channel_id` are
+nullable), for an agent in no chat too; an agent sets one up without being
+asked; and `create_loop` and `update_loop` are approval gate targets, off
+by default (`AGENT_LOOP_GATE_TOOLS`). A chat's
 group mentions are `@chat` and `@here`; `@everyone` and `@channel` are plain
 text (decision 47). Step 3 is built; what is left is
 "What is left" in that doc's §9. The mock of the chat list is

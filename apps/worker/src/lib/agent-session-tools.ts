@@ -594,7 +594,9 @@ export async function reportHelperRun(
     )
     .leftJoin(schema.message, eq(schema.message.id, schema.agentRun.messageId))
     .where(eq(schema.agentRun.id, runId))
-  if (!run?.messageId) return
+  // A helper session's run is in its session's chat.
+  const channelId = run?.channelId
+  if (!run?.messageId || !channelId) return
   const outcome: HelperOutcome | null =
     run.state === "failed"
       ? "failed"
@@ -608,7 +610,7 @@ export async function reportHelperRun(
   if (!outcome) return
   await reportHelperTurn(queue, {
     workspaceId: run.workspaceId,
-    channelId: run.channelId,
+    channelId,
     runId,
     session: {
       id: run.sessionId,

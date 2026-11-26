@@ -314,8 +314,9 @@ class SupersededRunError extends Error {}
 async function createTurnRun(args: {
   workspaceId: string
   conversation: AgentConversation
-  // The channel the turn is about and posts in by default.
-  channel: { id: string; name: string | null }
+  // The channel the turn is about and posts in by default; no id for a
+  // turn about no chat.
+  channel: { id: string | null; name: string | null }
   triggerMessageId: string | null
   batch: InboxBatch | null
   // The Loop whose fire this turn answers: its run in the Loop's history.
@@ -355,8 +356,12 @@ async function createTurnRun(args: {
           )
         : null,
       openBlock(agentId),
-      !context.system && request
-        ? requestBackdrop(args.channel, args.batch.threadRootId)
+      // A request is always about a chat.
+      !context.system && request && args.channel.id
+        ? requestBackdrop(
+            { id: args.channel.id, name: args.channel.name },
+            args.batch.threadRootId
+          )
         : null,
     ])
     opening = [
@@ -511,8 +516,22 @@ async function turnFunded(
 
 // A channel a turn of this agent can be about: a text channel, not
 // archived, that the agent is in. Null otherwise (it was taken out since
-// the item was queued).
-async function turnChannel(agentId: string, channelId: string) {
+// the item was queued). No channel id: the turn is about no chat (a Loop
+// with none, reference/agents-and-chats.md §9), which an agent in no chat
+// at all can run too.
+async function turnChannel(
+  agentId: string,
+  channelId: string | null,
+  workspaceId: string
+): Promise<{
+  id: string | null
+  name: string | null
+  workspaceId: string | null
+  archivedAt: Date | null
+} | null> {
+  if (!channelId) {
+    return { id: null, name: null, workspaceId, archivedAt: null }
+  }
   const [row] = await db
     .select({
       id: schema.channel.id,
@@ -566,7 +585,7 @@ export async function flushAgentInbox(
       .from(schema.agentRun)
       .where(eq(schema.agentRun.id, paused.runId))
     const channel = pausedRun
-      ? await turnChannel(agentId, pausedRun.channelId)
+      ? await turnChannel(agentId, pausedRun.channelId, workspaceId)
       : null
     // The agent left the channel the paused turn was about: it can't go on.
     if (!pausedRun || !channel) return "skipped"
@@ -578,7 +597,7 @@ export async function flushAgentInbox(
       funding: pausedRun.funding ?? null,
       requestUserId: pausedRun.harnessAccount
         ? pausedRun.harnessAccount.userId
-        : pausedRun.loopId || pausedRun.hasDeliveries
+        : pausedRun.loopId || pausedRun.hasDeliveries || !channelId
           ? null
           : await channelRequestUserId(
               channelId,
@@ -592,23 +611,26 @@ export async function flushAgentInbox(
           PX: PAUSED_CREDITS_NOTICE_MS,
         })) === "OK"
       if (first) {
-        await postLorMessage(deps, {
-          channelId,
-          content: PAUSED_OUT_OF_CREDITS_MESSAGE,
-          type: "agent_post",
-          agentId,
-        })
-          .then((posted) =>
-            postAgentToDiscord({
-              channelId,
-              messageId: posted.messageId,
-              content: PAUSED_OUT_OF_CREDITS_MESSAGE,
-              threadRootId: null,
-            })
-          )
-          .catch((err) =>
-            logger.error({ err, channelId }, "Agent notice failed")
-          )
+        // A turn about no chat has nowhere to say so.
+        if (channelId) {
+          await postLorMessage(deps, {
+            channelId,
+            content: PAUSED_OUT_OF_CREDITS_MESSAGE,
+            type: "agent_post",
+            agentId,
+          })
+            .then((posted) =>
+              postAgentToDiscord({
+                channelId,
+                messageId: posted.messageId,
+                content: PAUSED_OUT_OF_CREDITS_MESSAGE,
+                threadRootId: null,
+              })
+            )
+            .catch((err) =>
+              logger.error({ err, channelId }, "Agent notice failed")
+            )
+        }
         deps.emitter
           .to(workspaceRoom(workspaceId))
           .emit("billing:updated", { workspaceId, reason: "out_of_credits" })
@@ -651,7 +673,8 @@ export async function flushAgentInbox(
     )
   let batch = await loadInboxBatch(conversationId)
   if (!batch) return "empty"
-  const channel = await turnChannel(agentId, batch.channelId)
+  const batchChannelId = batch.channelId
+  const channel = await turnChannel(agentId, batchChannelId, workspaceId)
   if (!channel) {
     // What woke it is about a channel the agent is no longer in: nothing it
     // could say there. The items are read without a turn, and the rest of
@@ -662,7 +685,9 @@ export async function flushAgentInbox(
       .where(
         and(
           eq(schema.agentInbox.conversationId, conversationId),
-          eq(schema.agentInbox.channelId, batch.channelId),
+          batchChannelId
+            ? eq(schema.agentInbox.channelId, batchChannelId)
+            : isNull(schema.agentInbox.channelId),
           eq(schema.agentInbox.status, "pending")
         )
       )
@@ -671,7 +696,7 @@ export async function flushAgentInbox(
   }
   const channelId = channel.id
   const directUserId =
-    batch.loop || batch.deliveryIds.length
+    batch.loop || batch.deliveryIds.length || !channelId
       ? null
       : await channelRequestUserId(channelId, batch.triggerMessageId)
   const subscription = directUserId
@@ -681,7 +706,9 @@ export async function flushAgentInbox(
   if (!subscription && !(await checkCredits(workspaceId)).allowed) {
     const harnessByUser = new Map<string, Promise<string>>()
     batch = await loadInboxBatch(conversationId, async (messageId) => {
-      const userId = await channelRequestUserId(channelId, messageId)
+      const userId = channelId
+        ? await channelRequestUserId(channelId, messageId)
+        : null
       if (!userId) return false
       let harness = harnessByUser.get(userId)
       if (!harness) {
@@ -913,7 +940,11 @@ function agentProposeChange(
 // channel the turn is about and the other channels the agent is in. Null
 // when the conversation is gone or the agent is no longer in that channel
 // (it was taken out since the turn was queued).
-async function loadTurnPlace(conversationId: string, channelId: string) {
+async function loadTurnPlace(
+  conversationId: string,
+  // Null: a turn about no chat.
+  channelId: string | null
+) {
   const conversation = await loadConversation(conversationId)
   if (!conversation) return null
   const [[agent], channel] = await Promise.all([
@@ -921,7 +952,7 @@ async function loadTurnPlace(conversationId: string, channelId: string) {
       .select()
       .from(schema.agent)
       .where(eq(schema.agent.id, conversation.agentId)),
-    turnChannel(conversation.agentId, channelId),
+    turnChannel(conversation.agentId, channelId, conversation.workspaceId),
   ])
   if (!agent || !channel?.workspaceId) return null
   // Every other channel it is in, private ones too: what an agent knows is
@@ -936,7 +967,7 @@ async function loadTurnPlace(conversationId: string, channelId: string) {
     .where(
       and(
         eq(schema.channelAgent.agentId, agent.id),
-        ne(schema.channel.id, channelId),
+        channelId ? ne(schema.channel.id, channelId) : undefined,
         isNull(schema.channel.archivedAt)
       )
     )
@@ -994,7 +1025,8 @@ function agentHooks(
   deps: AgentDeps,
   execution: RunExecution,
   channel: {
-    id: string
+    // Null: a turn about no chat.
+    id: string | null
     name: string | null
     workspaceId: string
     conversation: AgentConversation
@@ -1031,16 +1063,21 @@ function agentHooks(
     otherChannels: channel.otherChannels,
     otherAgents: channel.otherAgents,
     mode,
-    sessions: agentSessionExecutors(deps, {
-      workspaceId: channel.workspaceId,
-      agentId: channel.agentId,
-      conversationId: conversation.id,
-      channelId: channel.id,
-      channelName: channel.name,
-      askerId: turn.askerId,
-      planUserId: turn.planUserId,
-      requestUserId: turn.requestUserId ?? null,
-    }),
+    // A code session lives in a chat: a turn about none can't start one.
+    ...(channel.id
+      ? {
+          sessions: agentSessionExecutors(deps, {
+            workspaceId: channel.workspaceId,
+            agentId: channel.agentId,
+            conversationId: conversation.id,
+            channelId: channel.id,
+            channelName: channel.name,
+            askerId: turn.askerId,
+            planUserId: turn.planUserId,
+            requestUserId: turn.requestUserId ?? null,
+          }),
+        }
+      : {}),
     completeLoop: agentCompleteLoop(deps, channel.agentId),
     loops: agentLoopExecutors(deps, {
       workspaceId: channel.workspaceId,
@@ -1048,6 +1085,7 @@ function agentHooks(
       agentName: channel.agentName,
       channelId: channel.id,
       askerId: turn.askerId,
+      setUpById: turn.planUserId,
       conversationId: conversation.id,
     }),
     wakeUps: agentWakeUpExecutors(deps, {
@@ -1059,7 +1097,8 @@ function agentHooks(
       askedById: turn.askerId,
     }),
     // Only with another agent in the chat this turn is about.
-    ...(channel.name !== null &&
+    ...(channel.id !== null &&
+    channel.name !== null &&
     channel.otherAgents.some((other) =>
       other.channels.includes(channel.name ?? "")
     )
@@ -1094,9 +1133,13 @@ function agentHooks(
               )
               .then((rows) => rows[0] ?? null)
           : undefined
+      const chats = [
+        ...(channel.name ? [channel.name] : []),
+        ...channel.otherChannels,
+      ].map((name) => `#${name}`)
       if (elsewhere === null) {
         return {
-          error: `You are not in a channel named #${wanted}. You can post in ${[channel.name, ...channel.otherChannels].map((name) => `#${name}`).join(", ")}.`,
+          error: `You are not in a channel named #${wanted}. ${chats.length > 0 ? `You can post in ${chats.join(", ")}.` : "You are in no chat, so there is nowhere to post."}`,
         }
       }
       if (elsewhere && startThread) {
@@ -1106,6 +1149,15 @@ function agentHooks(
         }
       }
       const targetId = elsewhere?.id ?? channel.id
+      // A turn about no chat (a Loop with none) posts only where it says.
+      if (!targetId) {
+        return {
+          error:
+            chats.length > 0
+              ? `This turn is about no chat. Name the chat to post in with \`channel\`: ${chats.join(", ")}.`
+              : "You are in no chat, so there is nowhere to post. Keep what you found with remember.",
+        }
+      }
       // The channel may be archived while the model works.
       const [open] = await db
         .select({ archivedAt: schema.channel.archivedAt })
@@ -1142,8 +1194,9 @@ function agentHooks(
         ) {
           await subscribeToThread(rootId, [root.authorId]).catch(() => {})
         }
+        // startThread is never with another channel, so this is the turn's.
         threadNote = await startDiscordThread({
-          channelId: channel.id,
+          channelId: targetId,
           threadRootId: rootId,
           name: startThread,
         }).then(
@@ -1262,7 +1315,7 @@ export async function runAgentTurnJob(
   const channelId = channel.id
   const userId = run?.triggerAuthorId ?? undefined
   const directUserId =
-    run?.loopId || run?.hasDeliveries
+    run?.loopId || run?.hasDeliveries || !channelId
       ? null
       : await channelRequestUserId(
           channelId,
@@ -1287,8 +1340,10 @@ export async function runAgentTurnJob(
     triggerMessageId: run?.triggerMessageId ?? null,
   }
   let sent = false
-  const notice = (content: string) =>
-    postLorMessage(deps, {
+  // A turn about no chat has nowhere to say it.
+  const notice = async (content: string) => {
+    if (!channelId) return
+    await postLorMessage(deps, {
       channelId,
       content,
       type: "agent_post",
@@ -1306,6 +1361,7 @@ export async function runAgentTurnJob(
         })
       )
       .catch((err) => logger.error({ err, runId }, "Agent notice failed"))
+  }
   // A Loop fire's turn counts toward the Loop's health: five failures in a
   // row pause it, with a line in the chat.
   const settleLoop = async (
@@ -1322,6 +1378,7 @@ export async function runAgentTurnJob(
   try {
     if (
       requestUserId &&
+      channelId &&
       !(await resolveChannelAccess(requestUserId, channelId)).ok
     )
       throw new Error(
@@ -1362,18 +1419,22 @@ export async function runAgentTurnJob(
     // Before the typing and working timers start, so a failed lookup can't
     // leave them running.
     turnPlace.planUserId = userId ?? (await setUpBy(runId))
-    const typing = addressed
-      ? showTyping(deps, channelId, turnPlace, {
-          id: channel.agentId,
-          name: channel.agentName,
-        })
-      : { pause: () => {}, stop: () => {} }
-    const stopWorking = showWorking(deps, channelId, channel.agentId)
+    const typing =
+      addressed && channelId
+        ? showTyping(deps, channelId, turnPlace, {
+            id: channel.agentId,
+            name: channel.agentName,
+          })
+        : { pause: () => {}, stop: () => {} }
+    // Working shows in a chat: a turn about none shows nowhere.
+    const stopWorking = channelId
+      ? showWorking(deps, channelId, channel.agentId)
+      : () => {}
     // The memory pass reuses this context, so its tools and prompt match
     // the turn's and it reads the turn's cache.
     const turnContext = {
       workspaceId,
-      channelId,
+      ...(channelId ? { channelId } : {}),
       conversation: [],
       runId,
       ...(run?.triggerMessageId
@@ -1383,12 +1444,17 @@ export async function runAgentTurnJob(
       autonomous: !requestUserId,
       aiSessionId: conversationId,
       turn: { model: channel.agentModel ?? AGENT_DEFAULT_MODEL },
-      proposeChange: agentProposeChange(
-        deps,
-        { id: channelId, workspaceId, agentId: channel.agentId },
-        userId ?? null,
-        conversationId
-      ),
+      // A proposal is a card in a chat.
+      ...(channelId
+        ? {
+            proposeChange: agentProposeChange(
+              deps,
+              { id: channelId, workspaceId, agentId: channel.agentId },
+              userId ?? null,
+              conversationId
+            ),
+          }
+        : {}),
     }
     const result = await respond(
       {
@@ -1425,7 +1491,9 @@ export async function runAgentTurnJob(
     // chat that shows the cards, and a decision resumes it.
     let parkedApprovalId: string | null = null
     let parkedMessageId: string | null = null
-    if (agent && agent.approvals.length > 0) {
+    // A turn about no chat never parks on approvals: the runtime refuses a
+    // gated tool there, since there is nowhere to ask.
+    if (agent && agent.approvals.length > 0 && channelId) {
       const [inbox] = await db
         .select({ id: schema.agentStep.id })
         .from(schema.agentStep)
@@ -1506,7 +1574,7 @@ export async function runAgentTurnJob(
       await settleLoop(stoppedByUser ? "stopped" : "complete")
     }
 
-    if (parkedApprovalId) {
+    if (parkedApprovalId && channelId) {
       deps.emitter.to(channelRoom(channelId)).emit("approval:created", {
         approvalId: parkedApprovalId,
         channelId,
@@ -1668,7 +1736,7 @@ export async function runAgentCompactJob(
     const result = await respond(
       {
         workspaceId,
-        channelId,
+        ...(channelId ? { channelId } : {}),
         conversation: [],
         runId,
         aiSessionId: conversationId,
@@ -1676,12 +1744,16 @@ export async function runAgentCompactJob(
         turn: {
           model: context.model ?? channel.agentModel ?? AGENT_DEFAULT_MODEL,
         },
-        proposeChange: agentProposeChange(
-          deps,
-          { id: channelId, workspaceId, agentId: channel.agentId },
-          null,
-          conversationId
-        ),
+        ...(channelId
+          ? {
+              proposeChange: agentProposeChange(
+                deps,
+                { id: channelId, workspaceId, agentId: channel.agentId },
+                null,
+                conversationId
+              ),
+            }
+          : {}),
         agent: agentHooks(
           deps,
           execution,

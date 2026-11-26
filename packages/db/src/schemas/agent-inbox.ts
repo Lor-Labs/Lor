@@ -61,9 +61,9 @@ export const agentInbox = pgTable(
       .references(() => agentConversation.id, { onDelete: "cascade" }),
     // The channel the item is about: where the message was written, or
     // where a Loop, an event or a session reports.
-    channelId: uuid("channel_id")
-      .notNull()
-      .references(() => channel.id, { onDelete: "cascade" }),
+    channelId: uuid("channel_id").references(() => channel.id, {
+      onDelete: "cascade",
+    }),
     source: agentInboxSourceEnum("source").notNull(),
     // The source's own id for the item (a message id): duplicates are dropped.
     sourceId: text("source_id").notNull(),

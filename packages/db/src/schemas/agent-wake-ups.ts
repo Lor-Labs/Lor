@@ -31,9 +31,10 @@ export const agentWakeUp = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
-    channelId: uuid("channel_id")
-      .notNull()
-      .references(() => channel.id, { onDelete: "cascade" }),
+    // The chat the turn that set it was about; null for a turn about none.
+    channelId: uuid("channel_id").references(() => channel.id, {
+      onDelete: "cascade",
+    }),
     // The conversation that set it, which it wakes.
     conversationId: uuid("conversation_id")
       .notNull()

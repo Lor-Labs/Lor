@@ -1,6 +1,6 @@
 import { and, asc, db, eq, isNull, schema } from "@repo/db"
 import { recordConversationPost } from "@repo/db/queries/agent-conversations"
-import { agentAnchorChannelId, isAgentInChannel } from "@repo/db/queries/agents"
+import { isAgentInChannel } from "@repo/db/queries/agents"
 import type { Loop } from "@repo/db/schema"
 import type { AgentLoopExecutors } from "@repo/lor/channel-agent"
 import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
@@ -12,9 +12,11 @@ import { createLoopCard, type LorLoopDeps } from "@/lib/lor-loop"
 import { postLorMessage } from "@/lib/lor-messages"
 
 // An agent's own Loops (reference/agents-and-chats.md §9, Jacob
-// 2026-11-26): it makes and changes them with no approval, and what it did
-// is shown: a card where it was asked, a line in the Loop's chat, and who
-// changed the Loop last on the Loop itself.
+// 2026-11-26): a Loop is a scheduled wake, and the agent makes and changes
+// its own with no approval unless the workspace gates the tools, whether a
+// person asked or it sees the work needs one. What it did is shown: a card
+// in the chat the turn is about (or the Loop's chat), a line in the Loop's
+// chat, and who changed the Loop last on the Loop itself.
 
 type Chat = { id: string; name: string | null }
 
@@ -88,23 +90,19 @@ export function agentLoopExecutors(
     workspaceId: string
     agentId: string
     agentName: string
-    // The chat the turn is about: where a new Loop's card is posted.
-    channelId: string
+    // The chat the turn is about: where a new Loop's card is posted. Null
+    // for a turn about no chat, which posts no card.
+    channelId: string | null
     // The person who asked in this turn, when one did.
     askerId: string | null
+    // The person behind a turn nobody asked in (who set up the Loop or the
+    // event that woke it): a Loop made there is on their account.
+    setUpById: string | null
     conversationId: string
   }
 ): AgentLoopExecutors {
   return {
     create: async (input) => {
-      // A Loop fire or an event must not schedule more Loops.
-      if (!turn.askerId) {
-        return {
-          ok: false,
-          error:
-            "Nobody asked for this in the chat just now. Set up a Loop only when a person asks for one.",
-        }
-      }
       const chats = await agentChats(turn.agentId)
       const chat = input.chat === null ? null : findChat(chats, input.chat)
       if (typeof chat === "string") return { ok: false, error: chat }
@@ -112,50 +110,82 @@ export function agentLoopExecutors(
       if (!nextRunAt) {
         return { ok: false, error: "That schedule never runs again" }
       }
+      const creatorId = turn.askerId ?? turn.setUpById
+      // The card is the trace: in the chat the turn is about, else in the
+      // Loop's own chat. With neither there is no card, and the Loop shows
+      // on the agent's page.
+      const cardChatId = turn.channelId ?? chat?.id ?? null
       try {
-        const made = await createLoopCard(deps, {
-          workspaceId: turn.workspaceId,
-          channelId: turn.channelId,
-          reportsIn: chat?.id ?? null,
-          active: { nextRunAt },
-          agentId: turn.agentId,
-          threadRootId: null,
-          creatorId: turn.askerId,
-          name: input.name,
-          instructions: input.instructions,
-          schedule: input.schedule,
-          timezone: input.timezone,
-          endCondition: input.endCondition,
-          endAt: input.endAt,
-        })
-        const [loop] = await db
-          .select({ cardMessageId: schema.loop.cardMessageId })
-          .from(schema.loop)
-          .where(eq(schema.loop.id, made.loopId))
-        // The card belongs to the request that made it.
-        if (loop?.cardMessageId) {
-          await recordConversationPost(
-            loop.cardMessageId,
-            turn.conversationId
-          ).catch((err) =>
-            logger.warn({ err, loopId: made.loopId }, "Loop card link failed")
-          )
+        let loopId: string
+        if (cardChatId) {
+          const made = await createLoopCard(deps, {
+            workspaceId: turn.workspaceId,
+            channelId: cardChatId,
+            reportsIn: chat?.id ?? null,
+            active: { nextRunAt },
+            agentId: turn.agentId,
+            threadRootId: null,
+            creatorId,
+            name: input.name,
+            instructions: input.instructions,
+            schedule: input.schedule,
+            timezone: input.timezone,
+            endCondition: input.endCondition,
+            endAt: input.endAt,
+          })
+          loopId = made.loopId
+          const [loop] = await db
+            .select({ cardMessageId: schema.loop.cardMessageId })
+            .from(schema.loop)
+            .where(eq(schema.loop.id, loopId))
+          // The card belongs to the request that made it.
+          if (loop?.cardMessageId) {
+            await recordConversationPost(
+              loop.cardMessageId,
+              turn.conversationId
+            ).catch((err) =>
+              logger.warn({ err, loopId }, "Loop card link failed")
+            )
+          }
+        } else {
+          const [loop] = await db
+            .insert(schema.loop)
+            .values({
+              workspaceId: turn.workspaceId,
+              channelId: null,
+              agentId: turn.agentId,
+              creatorId,
+              name: input.name,
+              instructions: input.instructions,
+              schedule: input.schedule,
+              timezone: input.timezone,
+              endCondition: input.endCondition,
+              endAt: input.endAt,
+              status: "active",
+              nextRunAt,
+              changedById: turn.agentId,
+              changedAt: new Date(),
+            })
+            .returning()
+          if (!loop) throw new Error("Loop insert returned no row")
+          loopId = loop.id
+          emitLoopUpdated(deps.emitter, loop)
         }
-        // The card says so where it was asked for; a Loop that reports in
-        // another chat is announced there too.
-        if (chat && chat.id !== turn.channelId) {
+        // A Loop that reports in a chat other than the card's is announced
+        // there too.
+        if (chat && chat.id !== cardChatId) {
           await postLoopLine(deps, {
             channelId: chat.id,
             agentId: turn.agentId,
             agentName: turn.agentName,
-            loop: { id: made.loopId, name: input.name },
+            loop: { id: loopId, name: input.name },
             event: { eventType: "loop_created" },
           })
         }
         return {
           ok: true,
-          loopId: made.loopId,
-          note: `It is running, and its card is in the chat. ${chat ? `It reports in ${chat.name ?? "that chat"}.` : "It has no chat: each run posts where its result belongs, or nowhere."}`,
+          loopId,
+          note: `It is running${cardChatId ? ", and its card is in the chat" : ". It has no card: people see it on your page"}. ${chat ? `It reports in ${chat.name ?? "that chat"}.` : "It has no chat: each run posts where its result belongs, or nowhere."}${turn.askerId ? "" : " Nobody asked for it just now: when people should know, tell them."}`,
         }
       } catch (err) {
         logger.error({ err, agentId: turn.agentId }, "Agent loop create failed")
@@ -254,12 +284,6 @@ export function agentLoopExecutors(
             ok: false,
             error:
               "You are no longer in the chat this Loop reports in. Give it another chat, or none, with `chat`.",
-          }
-        }
-        if (!channelId && !(await agentAnchorChannelId(turn.agentId))) {
-          return {
-            ok: false,
-            error: "You are in no chat, so this Loop has nowhere to work.",
           }
         }
         values.status = "active"

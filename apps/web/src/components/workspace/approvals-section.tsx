@@ -3,6 +3,7 @@ import {
   ArrowDown01Icon,
   CloudServerIcon,
   File02Icon,
+  Infinity01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
@@ -109,11 +110,13 @@ function ServiceIcon({ service }: { service: Service }) {
     return <Logo className={className} />
   }
   const icon =
-    service.kind === "builtin"
-      ? File02Icon
-      : service.kind === "custom_tool"
-        ? ApiIcon
-        : CloudServerIcon
+    service.key === "builtin:loops"
+      ? Infinity01Icon
+      : service.kind === "builtin"
+        ? File02Icon
+        : service.kind === "custom_tool"
+          ? ApiIcon
+          : CloudServerIcon
   return <HugeiconsIcon icon={icon} className={className} strokeWidth={2} />
 }
 

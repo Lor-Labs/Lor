@@ -10,7 +10,6 @@ import {
   sql,
 } from "@repo/db"
 import {
-  agentAnchorChannelId,
   agentChannelIds,
   isAgentInChannel,
   pauseLoopsAgentLeft,
@@ -100,11 +99,9 @@ export async function loopAccess(
 export async function loopAgentProblem(
   loop: Pick<Loop, "agentId" | "channelId">
 ): Promise<string | null> {
+  // No chat: a scheduled wake of its agent, wherever that agent is.
   if (!loop.channelId) {
-    if (!loop.agentId) return "No agent runs this Loop yet. Pick one first."
-    return (await agentAnchorChannelId(loop.agentId))
-      ? null
-      : "Its agent is in no chat, so it has nowhere to work. Add the agent to a chat first."
+    return loop.agentId ? null : "No agent runs this Loop yet. Pick one first."
   }
   const [channel] = await db
     .select({ type: schema.channel.type })
@@ -131,17 +128,12 @@ export async function loopAgentProblem(
 }
 
 // An agent taken out of a chat: its Loops that report there pause, each
-// with a line in the chat saying why. Once it is in no chat at all, its
-// Loops with no chat pause too.
+// with a line in the chat saying why. Its Loops with no chat go on.
 export async function pauseLoopsOfRemovedAgent(
   agentId: string,
   channelId: string
 ): Promise<void> {
-  const left = await pauseLoopsAgentLeft(agentId, channelId)
-  if (!(await agentAnchorChannelId(agentId))) {
-    left.push(...(await pauseLoopsAgentLeft(agentId, null)))
-  }
-  for (const paused of left) {
+  for (const paused of await pauseLoopsAgentLeft(agentId, channelId)) {
     await stopInFlightRuns(paused.id)
     await emitLoopUpdated(paused).catch((err) =>
       logger.error({ err, loopId: paused.id }, "Loop pause emit failed")

@@ -676,3 +676,10 @@ apps/realtime `services/lor.ts`, card rendering in web
   changed. `loop:updated` goes to the Loop's chat and its card's chat (for
   one with no chat, the chats its agent is in) and carries
   `cardChannelId`; a chat's list also holds the Loops whose card is there.
+- 2026-11-26 — Loops as a scheduled wake (`agents-and-chats.md`, decisions
+  48 to 50). A fire of a Loop with no chat starts a turn about no chat
+  (`agent_run.channel_id` and `agent_inbox.channel_id` nullable), so an
+  agent in no chat runs it too, and leaving a chat pauses only the Loops
+  that report there. An agent's `create_loop` works in any turn, asked or
+  not. `create_loop` and `update_loop` are approval gate targets, off by
+  default; a gated tool is refused in a turn about no chat.

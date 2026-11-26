@@ -72,9 +72,9 @@ export const agentRun = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
-    channelId: uuid("channel_id")
-      .notNull()
-      .references(() => channel.id, { onDelete: "cascade" }),
+    channelId: uuid("channel_id").references(() => channel.id, {
+      onDelete: "cascade",
+    }),
     // The placeholder message the run streams into — also the client's handle
     // for replay (clients know the message id, not the run id, on load). Null
     // on an Act run until its session exists, and on old headless Act runs.

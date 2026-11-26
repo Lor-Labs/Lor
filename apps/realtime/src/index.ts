@@ -922,7 +922,12 @@ io.on("connection", (socket) => {
           )
           .limit(1)
         if (existingRun) {
-          if (existingRun.state === "queued" && existingRun.messageId) {
+          // A run a message started is in that message's chat.
+          if (
+            existingRun.state === "queued" &&
+            existingRun.messageId &&
+            existingRun.channelId
+          ) {
             await lorRespondQueue.add(
               "respond",
               {

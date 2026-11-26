@@ -196,6 +196,7 @@ import {
   startLinearIssues,
 } from "./linear"
 import { logger } from "./logger"
+import { describeLoopSchedule } from "./loop-schedule"
 import {
   agentOwnLoopTools,
   type ProposeLoopExecutor,
@@ -348,6 +349,10 @@ import { type RunVoiceContext, voicePromptSection, voiceTools } from "./voice"
 import { webTools } from "./web"
 import { fitTurnForWriteBack } from "./writeback-input"
 
+// What a gated tool answers in an agent's turn about no chat.
+const NO_CHAT_APPROVAL =
+  "This needs a person's approval under the team's rules, and this turn is about no chat, so there is nowhere to ask for it. If it matters, say what you want to do in a chat with send_message (name the chat with `channel`), and do it in the turn where someone answers."
+
 // Standalone tools are not filtered like connector tools, so one missing from
 // STANDALONE_TOOLS would bind with no approval target. Fail at boot instead.
 for (const name of Object.keys(webTools)) {
@@ -443,7 +448,7 @@ const CODE_PROMPT_LINE = `- The team's code: clone_repo copies a connected GitHu
 
 const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a loop — a recurring run of you on a cron schedule, with standing instructions and an optional plain-language end condition. Each run is a turn in the loop's own session, which the team follows. It creates a draft card here; a teammate activates it from the card, so tell them to press Create Loop there. Only for genuinely recurring work — never for one-off requests you can handle now.`
 // The channel agent's Loops wake it in the chat instead of a session.
-const AGENT_LOOPS_PROMPT_LINE = `- Loops: create_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a Loop of your own: a cron schedule that wakes you with standing instructions, and an optional plain-language end condition. It starts at once, with no approval, and a card for it appears where you were asked. A Loop reports in one chat, or in none when the work is not about one chat. Only when a person asks for genuinely recurring work: never for one-off asks. update_loop changes one of yours (its instructions, schedule, chat, or whether it runs), and people see a line saying what you changed.`
+const AGENT_LOOPS_PROMPT_LINE = `- Loops: a Loop is a scheduled wake of your own: a cron schedule with standing instructions, and an optional plain-language end condition. create_loop sets one up when a person asks for recurring work ("check X every morning", "post a Friday digest"), or when work you were given needs you back on a cadence until it is done ("a launch video every Wednesday until we reach 100 followers"): give that kind an end condition, and complete_loop ends it once the condition is met. It starts at once; the team can require approval for it. A Loop reports in one chat, or in none when the work is not about one chat. Never for one-off work: wake_up brings you back once. update_loop changes one of yours (its instructions, schedule, chat, or whether it runs), and people see a line saying what you changed.`
 
 // Pi's sandbox tools, by their public names; the Sandbox tool group in agent
 // profiles turns them (and share_file) on or off.
@@ -1809,6 +1814,44 @@ export function toolLabel(toolName: string, input: unknown): string {
       return "Updating the plan"
     case "propose_loop":
       return "Proposing a loop"
+    // Shown on the approval card when a workspace gates an agent's own
+    // Loops, so it says which Loop and how often.
+    case "create_loop": {
+      const name = field("name")
+      const schedule = field("schedule")
+      const chat = field("chat")
+      const when = schedule
+        ? describeLoopSchedule(schedule, field("timezone") ?? null)
+        : null
+      return `Setting up ${name ? `the loop “${name}”` : "a loop"}${when ? ` (${when})` : ""}${chat ? ` in ${chat}` : ", with no chat"}`
+    }
+    case "update_loop": {
+      const changed = [
+        "name",
+        "instructions",
+        "schedule",
+        "timezone",
+        "chat",
+        "endCondition",
+        "endAfter",
+        "running",
+      ].filter(
+        (key) =>
+          input !== null &&
+          typeof input === "object" &&
+          (input as Record<string, unknown>)[key] !== undefined
+      )
+      const running =
+        input !== null && typeof input === "object"
+          ? (input as Record<string, unknown>).running
+          : undefined
+      if (changed.length === 1 && typeof running === "boolean") {
+        return running
+          ? "Resuming one of its loops"
+          : "Pausing one of its loops"
+      }
+      return `Changing one of its loops${changed.length > 0 ? ` (${changed.join(", ")})` : ""}`
+    }
     case "suggest_session_setup":
       return "Suggesting a session setup"
     case "complete_plan":
@@ -3447,9 +3490,9 @@ async function respondImpl(
     // The channel's agent runs on its own loop, with no sandbox
     // (reference/always-on-agents.md §4).
     if (ctx.agent) {
-      if (!run || !ctx.channelId) {
-        throw new Error("A channel agent turn needs a run and a channel")
-      }
+      // No channel: a turn about no chat (a Loop with none,
+      // reference/agents-and-chats.md §9).
+      if (!run) throw new Error("An agent turn needs a run")
       // The harness takes a bare BYOK model id; usage and the ledger need
       // the provider-qualified one to price the own-key fee.
       const harnessModel =
@@ -3480,23 +3523,38 @@ async function respondImpl(
         (native ? nativeLanguageModel(native) : undefined)
       const agentUsage = subscription ? undefined : onUsage
       try {
-        const agentTools = guardTools(
-          withTouchHints(tools, {
-            workspaceId: ctx.workspaceId,
-            privateContainerChannelId: runScope.privateContainerChannelId,
-            threadRootId: null,
-          }),
-          { store: run.toolResults }
-        ).tools
+        const agentTools: ToolSet = {
+          ...guardTools(
+            withTouchHints(tools, {
+              workspaceId: ctx.workspaceId,
+              privateContainerChannelId: runScope.privateContainerChannelId,
+              threadRootId: null,
+            }),
+            { store: run.toolResults }
+          ).tools,
+        }
+        // An approval is asked for in the chat the turn is about. A turn
+        // about no chat (a Loop with none) has nowhere to ask, so a gated
+        // tool is refused there and the agent is told to ask in a chat.
         const agentApproval: Record<string, ToolApprovalStatus> = {}
+        const gate = (name: string) => {
+          if (ctx.channelId) {
+            agentApproval[name] = "user-approval"
+            return
+          }
+          const gated = agentTools[name]
+          if (!gated) return
+          agentTools[name] = {
+            ...gated,
+            execute: async () => ({ ok: false, error: NO_CHAT_APPROVAL }),
+          } as typeof gated
+        }
         for (const name of Object.keys(agentTools)) {
           const target = toolTargets.targetFor(name)
-          if (target !== null && approvalGates.has(target)) {
-            agentApproval[name] = "user-approval"
-          }
+          if (target !== null && approvalGates.has(target)) gate(name)
         }
         if (Object.hasOwn(agentTools, "request_approval")) {
-          agentApproval.request_approval = "user-approval"
+          gate("request_approval")
         }
         if (ctx.agent.mode === "memory") {
           const ledger = usageLedger({
@@ -3513,7 +3571,7 @@ async function respondImpl(
             workspaceId: ctx.workspaceId,
             conversationId: ctx.agent.conversation.id,
             agentId: ctx.agent.agentId,
-            channelId: ctx.channelId,
+            channelId: ctx.channelId ?? null,
             turnRunId: run.runId,
             askedById: ctx.userId ?? null,
             model: agentModel,
@@ -3581,7 +3639,9 @@ async function respondImpl(
             // conversation reads those of every channel it is in.
             loadAgentProfile(
               ctx.agent.agentId,
-              ctx.agent.conversation.kind === "request" ? ctx.channelId : null
+              ctx.agent.conversation.kind === "request"
+                ? (ctx.channelId ?? null)
+                : null
             ),
             loadAgentLog(ctx.agent.agentId),
             journalSection(ctx.agent.agentId),

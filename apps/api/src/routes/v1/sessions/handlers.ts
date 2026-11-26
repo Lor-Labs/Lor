@@ -510,9 +510,9 @@ export const updateAgentSession: AppRouteHandler<
         )
       )
     for (const run of activeRuns) {
-      if (!run.messageId) continue
+      if (!run.messageId || !run.channelId) continue
       await requestRunStop(
-        { ...run, messageId: run.messageId },
+        { ...run, messageId: run.messageId, channelId: run.channelId },
         currentUser.id
       ).catch((err) =>
         logger.warn({ err, runId: run.id }, "Archive run stop failed")

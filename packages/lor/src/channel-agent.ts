@@ -85,8 +85,9 @@ export type CompleteAgentLoop = (input: {
   closingNote: string
 }) => Promise<{ ok: true } | { ok: false; error: string }>
 
-// An agent makes and changes its own Loops with no approval
-// (reference/agents-and-chats.md §9, Jacob 2026-11-26). The worker does the
+// An agent makes and changes its own Loops, asked or not, with no approval
+// unless the workspace gates the tools (reference/agents-and-chats.md §9,
+// Jacob 2026-11-26). The worker does the
 // work and leaves the trace: a card where it was asked, a line in the
 // Loop's chat, and who changed it last on the Loop. Each returns what the
 // model reads.
@@ -447,7 +448,7 @@ ${teammates.length > 0 ? `- Other agents work for this team too, each with a mem
 - For a back-and-forth that would crowd the chat (debugging, planning, anything long), answer with send_message's startThread: it starts a thread on the message you're answering. Keep quick answers in the chat.
 - In a thread you're part of (one under your message, or one you started or posted in), every message wakes you. Answer when you're addressed or have something useful to add; otherwise end the turn without sending.
 - You have no computer of your own yet: you can't run code, use a shell or make files yourself. Work on code goes to code sessions: start_session hands a task to a coding agent on one repository, and you are woken with its report when its turn ends. Tell people in the chat what you started and, when it reports, what came of it. People review the branch and open pull requests; you and the sessions never do.
-- A Loop is a schedule of your own: when one fires you are woken${own ? "" : " in your own conversation"} with its standing instructions, and you do its work then. create_loop sets one up when a person asks for recurring work, and update_loop changes one of yours; both take effect at once, and people see what you did.
+- A Loop is a schedule of your own: when one fires you are woken${own ? "" : " in your own conversation"} with its standing instructions, and you do its work then. create_loop sets one up when a person asks for recurring work or when your own work needs you back on a cadence until it is done, and update_loop changes one of yours; both take effect at once unless the team requires approval, and people see what you did.
 - In the chat, never narrate what woke you: no "my Loop ran", "a scheduled check", "an event came in" or "my inbox". Say what you noticed and what it means, the way a teammate who was keeping an eye on things would.
 - When you are done, end the turn. Any closing note to yourself is one short line.
 - Your conversation is kept across turns, and summarized when it grows long. read_agent_history reads your earlier turns word for word, in this conversation and your others, and read_thread reads a chat. Use them before guessing at something you no longer see.
@@ -463,8 +464,9 @@ ${teammates.length > 0 ? `- Other agents work for this team too, each with a mem
 export async function addInboxNote(
   input: {
     workspaceId: string
-    // The channel the item is about, where the turn posts by default.
-    channelId: string
+    // The channel the item is about, where the turn posts by default. Null:
+    // about no chat (a Loop with none), which needs `conversationId`.
+    channelId: string | null
     conversationId?: string | null
     source: "session" | "trigger" | "loop" | "wake_up" | "check_in" | "agent"
     sourceId: string
@@ -477,6 +479,7 @@ export async function addInboxNote(
 ): Promise<string | null> {
   let conversationId = input.conversationId ?? null
   if (!conversationId) {
+    if (!input.channelId) return null
     const agentId = await channelAgentId(input.channelId)
     if (!agentId) return null
     conversationId = (
@@ -560,7 +563,7 @@ export function loopInboxNote(input: {
     `The Loop "${sanitizeInlineLabel(input.name)}" fired (${input.scheduleDescription}; Loop ${input.loopId}). Do its work now. Nobody asked just now and nobody may be watching: don't ask questions, and when the instructions don't cover the situation, make the conservative call.`,
     input.hasChat
       ? null
-      : "This Loop has no chat of its own: it is your work across the chats you are in and your tools. The turn names a chat only because every turn has one. Post with send_message's `channel` in the chat a result belongs to, and nowhere when nothing needs saying.",
+      : "This Loop has no chat: it is a scheduled wake for your own work, across the chats you are in, your tools and your memory. Post with send_message's `channel` in the chat a result belongs to, and nowhere when nothing needs saying. What you learn or do goes in your memory with remember.",
     `Its standing instructions${input.setUpBy ? `, set up for ${sanitizeInlineLabel(input.setUpBy)}` : ""}:\n${input.instructions.trim() || "(none: use your judgment about what this run needs)"}`,
     endCondition
       ? `It runs until: ${endCondition}\nCheck that first. If it is met (verify with your tools, don't assume), call complete_loop with this Loop's id instead of doing the work again.`
@@ -721,8 +724,8 @@ export type InboxBatch = {
   // The human thread the turn answers in; null for the chat.
   threadRootId: string | null
   // The channel the turn is about, where it posts by default: the channel of
-  // what woke it.
-  channelId: string
+  // what woke it. Null: what woke it is about no chat (a Loop with none).
+  channelId: string | null
 }
 
 // Everything pending for the conversation, as the text of one wake line.
@@ -751,7 +754,8 @@ export async function loadInboxBatch(
       threadRootId: schema.message.threadRootId,
     })
     .from(schema.agentInbox)
-    .innerJoin(
+    // An item can be about no chat (a Loop with none).
+    .leftJoin(
       schema.channel,
       eq(schema.agentInbox.channelId, schema.channel.id)
     )
@@ -867,7 +871,7 @@ export async function loadInboxBatch(
   // The own conversation reads every channel the agent is in, so what waited
   // is listed channel by channel.
   const own = conversation.kind === "own"
-  const byChannel = new Map<string, typeof unread>()
+  const byChannel = new Map<string | null, typeof unread>()
   for (const row of unread) {
     byChannel.set(row.channelId, [...(byChannel.get(row.channelId) ?? []), row])
   }
@@ -875,7 +879,7 @@ export async function loadInboxBatch(
     ? [...byChannel.values()]
         .map(
           (group) =>
-            `In ${hash(group[0]?.channelName ?? null)}:\n${group.map(line).join("\n")}`
+            `${group[0]?.channelId ? `In ${hash(group[0].channelName)}` : "About no chat"}:\n${group.map(line).join("\n")}`
         )
         .join("\n\n")
     : unread.map(line).join("\n")
@@ -891,7 +895,9 @@ export async function loadInboxBatch(
       ? `What woke you, in the thread on message ${place}. Your send_message posts go to that thread this turn; read_thread reads all of it:\n${woke.map(line).join("\n")}`
       : `What woke you:\n${woke.map(line).join("\n")}`,
     own
-      ? `This turn is about ${hash(wake.channelName)}: send_message posts there unless you name another channel.`
+      ? wake.channelId
+        ? `This turn is about ${hash(wake.channelName)}: send_message posts there unless you name another channel.`
+        : "This turn is about no chat: send_message posts only in a chat you name with `channel`."
       : null,
   ].filter((section): section is string => section !== null)
 

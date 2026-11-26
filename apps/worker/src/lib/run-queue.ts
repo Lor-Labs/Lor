@@ -64,7 +64,9 @@ async function runDrain(args: {
     .from(schema.agentRun)
     .where(eq(schema.agentRun.id, args.runId))
     .then((r) => r[0])
-  if (!run) return
+  // Only a session's run has a queue, and it is always in a chat.
+  const channelId = run?.channelId
+  if (!run || !channelId) return
 
   // Steered rows an ended run never injected are queued work, never dropped.
   // Scope-wide over terminal runs so a crashed run's leftovers get swept by
@@ -114,10 +116,10 @@ async function runDrain(args: {
     )
   if (rows.length === 0) return
 
-  const threadRootId = run.scopeKey === run.channelId ? null : run.scopeKey
+  const threadRootId = run.scopeKey === channelId ? null : run.scopeKey
   const scopeRoom = threadRootId
     ? threadRoom(threadRootId)
-    : channelRoom(run.channelId)
+    : channelRoom(channelId)
   // Clients drop drained/rejected messages from the queued pill.
   const emitQueueUpdate = (
     messageIds: string[],
@@ -125,7 +127,7 @@ async function runDrain(args: {
   ) => {
     for (const messageId of messageIds) {
       args.emitter.to(scopeRoom).emit("run:queue:updated", {
-        channelId: run.channelId,
+        channelId: channelId,
         threadRootId,
         messageId,
         state,
@@ -182,7 +184,7 @@ async function runDrain(args: {
       finished.push(row)
       continue
     }
-    if (memberIds.has(row.senderId) && row.messageChannelId === run.channelId) {
+    if (memberIds.has(row.senderId) && row.messageChannelId === channelId) {
       winner = row
       break
     }
@@ -224,7 +226,7 @@ async function runDrain(args: {
     { emitter: args.emitter, respondQueue: args.respondQueue },
     {
       workspaceId: run.workspaceId,
-      channelId: run.channelId,
+      channelId: channelId,
       threadRootId,
       scopeKey: run.scopeKey,
       triggerMessageId: winner.messageId,

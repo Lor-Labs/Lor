@@ -26,7 +26,9 @@ const COMPACT_WAKE_UP_MARGIN_MS = 15 * 60_000
 
 type Deps = { emitter: Emitter<ServerToClientEvents> }
 
-function emitUpdated(deps: Deps, channelId: string) {
+// The chat's Follow-ups list; one set in a turn about no chat is in none.
+function emitUpdated(deps: Deps, channelId: string | null) {
+  if (!channelId) return
   deps.emitter
     .to(channelRoom(channelId))
     .emit("agent:wake-ups:updated", { channelId })
@@ -68,7 +70,7 @@ export function agentWakeUpExecutors(
     agentId: string
     // The conversation that sets the wake-up, which it wakes.
     conversationId: string
-    channelId: string
+    channelId: string | null
     runId: string
     askedById: string | null
   }
@@ -167,7 +169,7 @@ export async function sweepDueWakeUps(
     .limit(SWEEP_BATCH)
   if (due.length === 0) return
 
-  const channels = new Set<string>()
+  const channels = new Set<string | null>()
   const conversations = new Set<string>()
   const delivered: string[] = []
   for (const wakeUp of due) {

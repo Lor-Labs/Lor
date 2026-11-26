@@ -1,4 +1,6 @@
 import {
+  AGENT_LOOP_GATE_GROUP,
+  AGENT_LOOP_GATE_TOOLS,
   approvalTargetKey,
   BUILTIN_GROUPS,
   CONNECTOR_TOOLS,
@@ -71,6 +73,16 @@ export async function workspaceApprovalTargets(
         connected: true,
       })
     ),
+    // Agents make and change their own Loops with no approval unless a
+    // workspace gates these.
+    ...AGENT_LOOP_GATE_TOOLS.map((tool) => ({
+      ...tool,
+      key: approvalTargetKey({ kind: "builtinTool", toolName: tool.name }),
+      group: "builtin" as const,
+      groupKey: `builtin:${AGENT_LOOP_GATE_GROUP.key}`,
+      groupLabel: AGENT_LOOP_GATE_GROUP.label,
+      connected: true,
+    })),
     ...Object.values(CONNECTORS).flatMap((connector) =>
       CONNECTOR_TOOLS[connector.id].map((tool) => ({
         ...tool,

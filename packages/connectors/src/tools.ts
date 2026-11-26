@@ -557,6 +557,31 @@ type BuiltinTool = {
   provider: IntegrationProvider | null
 }
 
+// An agent's own Loop tools (reference/agents-and-chats.md, decision 46):
+// every agent has them and they need no approval, unless the workspace puts
+// them behind an approval gate. They are in no profile tool group, so they
+// are listed here only as gate targets.
+export const AGENT_LOOP_GATE_GROUP = {
+  key: "loops",
+  label: "Loops",
+} as const
+
+export const AGENT_LOOP_GATE_TOOLS = [
+  {
+    name: "create_loop",
+    label: "Set up a Loop",
+    description:
+      "An agent sets up a Loop of its own: work it does on a schedule.",
+    readOnlyHint: false,
+  },
+  {
+    name: "update_loop",
+    label: "Change a Loop",
+    description: "An agent changes, pauses or resumes one of its own Loops.",
+    readOnlyHint: false,
+  },
+] as const
+
 const BUILTIN_TOOLS_BY_NAME: ReadonlyMap<string, BuiltinTool> = new Map<
   string,
   BuiltinTool
@@ -570,6 +595,10 @@ const BUILTIN_TOOLS_BY_NAME: ReadonlyMap<string, BuiltinTool> = new Map<
   ...STANDALONE_TOOLS.filter((tool) => tool.group !== "sandbox").map(
     (tool): [string, BuiltinTool] => [tool.name, { ...tool, provider: null }]
   ),
+  ...AGENT_LOOP_GATE_TOOLS.map((tool): [string, BuiltinTool] => [
+    tool.name,
+    { ...tool, provider: null },
+  ]),
 ])
 
 // Every connector catalog tool name: profile selection filters these, and
