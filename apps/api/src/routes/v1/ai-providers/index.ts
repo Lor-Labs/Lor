@@ -12,6 +12,7 @@ import {
 import {
   AZURE_MODELS,
   parseInferenceCredential,
+  reusesSavedSecret,
   verifyInferenceCredential,
 } from "@repo/lor/inference-providers"
 import { KEY_PROVIDERS } from "@repo/utils/inference"
@@ -127,12 +128,17 @@ const putAiProvider = createRoute({
   },
   responses: {
     200: jsonContent({
-      schema: result,
+      // What the provider check couldn't confirm, though the settings saved.
+      schema: result.extend({ notice: z.string().nullable() }),
       description: "Settings verified and saved",
     }),
     400: jsonContent({
       schema: z.object({ message: z.string() }),
       description: "The settings are invalid or the provider rejected them",
+    }),
+    409: jsonContent({
+      schema: z.object({ message: z.string() }),
+      description: "The saved provider changed while it was being edited",
     }),
   },
 })
@@ -173,21 +179,42 @@ const putHandler: AppRouteHandler<typeof putAiProvider> = async (c) => {
   const workspaceId = c.var.workspace.id
   await assertWorkspaceActive(workspaceId)
   const input = c.req.valid("json")
+  c.header("Cache-Control", "no-store")
   const saved = await currentWorkspaceInferenceCredential(
     workspaceId,
     input.provider
-  ).catch(() => null)
-  const parsed = parseInferenceCredential(input, saved)
-  c.header("Cache-Control", "no-store")
+  )
+  const reuses = Boolean(saved) && reusesSavedSecret(input)
+  if (reuses && !saved?.credential)
+    return c.json(
+      {
+        message:
+          "The saved credentials can't be read anymore. Enter the secret again to replace them.",
+      },
+      400
+    )
+  const parsed = parseInferenceCredential(input, saved?.credential ?? null)
   if ("error" in parsed) return c.json({ message: parsed.error }, 400)
-  const rejected = await verifyInferenceCredential(parsed.credential)
-  if (rejected) return c.json({ message: rejected }, 400)
-  await saveWorkspaceInferenceKey({
+  const verified = await verifyInferenceCredential(parsed.credential)
+  if ("error" in verified) return c.json({ message: verified.error }, 400)
+  const written = await saveWorkspaceInferenceKey({
     workspaceId,
     credential: parsed.credential,
     createdById: c.var.user.id,
+    ...(reuses && saved ? { replacesKeyId: saved.keyId } : {}),
   })
-  return c.json(await providersOf(workspaceId), 200)
+  if (!written)
+    return c.json(
+      {
+        message:
+          "Someone changed or removed this provider while you were editing. Reopen it and try again.",
+      },
+      409
+    )
+  return c.json(
+    { ...(await providersOf(workspaceId)), notice: verified.notice },
+    200
+  )
 }
 
 // Stays available after the beta expires, so a team can always revoke.

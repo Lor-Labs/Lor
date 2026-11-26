@@ -320,7 +320,10 @@ export function WorkspaceSettingsDialog({
                   ) : section === "billing" && canManageBilling ? (
                     <BillingSection workspaceSlug={workspace.slug} />
                   ) : section === "ai-providers" && canManageBilling ? (
-                    <AiProvidersSection workspaceSlug={workspace.slug} />
+                    <AiProvidersSection
+                      key={workspace.slug}
+                      workspaceSlug={workspace.slug}
+                    />
                   ) : (
                     <AgentProfilesSection
                       workspaceSlug={workspace.slug}

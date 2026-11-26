@@ -115,27 +115,39 @@ export async function loadWorkspaceInferenceKey(
 }
 
 // The saved credential, so an edit can keep secrets the form left blank.
+// credential is null when the saved row can't be decrypted (e.g. a rotated
+// encryption key): it exists but its secrets can't be reused.
 export async function currentWorkspaceInferenceCredential(
   workspaceId: string,
   provider: KeyProvider
 ) {
   const row = await db
-    .select({ encryptedKey: schema.workspaceInferenceKey.encryptedKey })
+    .select({
+      keyId: schema.workspaceInferenceKey.keyId,
+      encryptedKey: schema.workspaceInferenceKey.encryptedKey,
+    })
     .from(schema.workspaceInferenceKey)
     .where(keyOf(workspaceId, provider))
     .then((rows) => rows[0])
-  return row
-    ? decodeCredential(
-        provider,
-        decryptSecret(row.encryptedKey, encryptionKey())
-      )
-    : null
+  if (!row) return null
+  let credential: InferenceCredential | null = null
+  try {
+    credential = decodeCredential(
+      provider,
+      decryptSecret(row.encryptedKey, encryptionKey())
+    )
+  } catch {}
+  return { keyId: row.keyId, credential }
 }
 
+// With replacesKeyId (an edit that reuses the saved secrets), writes only if
+// that key is still the saved one, so a concurrent replacement isn't
+// overwritten. Returns false when it wasn't.
 export async function saveWorkspaceInferenceKey(input: {
   workspaceId: string
   credential: InferenceCredential
   createdById: string
+  replacesKeyId?: string
 }) {
   const values = {
     keyId: randomUUID(),
@@ -147,6 +159,19 @@ export async function saveWorkspaceInferenceKey(input: {
     config: inferenceKeyConfig(input.credential),
     createdById: input.createdById,
     createdAt: new Date(),
+  }
+  if (input.replacesKeyId) {
+    const updated = await db
+      .update(schema.workspaceInferenceKey)
+      .set(values)
+      .where(
+        and(
+          keyOf(input.workspaceId, input.credential.provider),
+          eq(schema.workspaceInferenceKey.keyId, input.replacesKeyId)
+        )
+      )
+      .returning({ keyId: schema.workspaceInferenceKey.keyId })
+    return updated.length > 0
   }
   await db
     .insert(schema.workspaceInferenceKey)
@@ -162,6 +187,7 @@ export async function saveWorkspaceInferenceKey(input: {
       ],
       set: values,
     })
+  return true
 }
 
 // Masked providers for AI provider settings and the composer's key-paid

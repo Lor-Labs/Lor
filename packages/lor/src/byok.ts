@@ -124,10 +124,17 @@ export const azureBaseUrl = (endpoint: string) => `${endpoint}/openai/v1`
 // are deleted when a new one is written, and the dir on exit.
 let vertexDir: Promise<string> | null = null
 function vertexKeyDir() {
-  vertexDir ??= mkdtemp(join(tmpdir(), "lor-vertex-")).then((dir) => {
-    process.once("exit", () => rmSync(dir, { recursive: true, force: true }))
-    return dir
-  })
+  vertexDir ??= mkdtemp(join(tmpdir(), "lor-vertex-")).then(
+    (dir) => {
+      process.once("exit", () => rmSync(dir, { recursive: true, force: true }))
+      return dir
+    },
+    (err: unknown) => {
+      // Not cached, so the next run tries again.
+      vertexDir = null
+      throw err
+    }
+  )
   return vertexDir
 }
 
@@ -198,16 +205,24 @@ async function piAuth(
         ),
       }
     case "amazon-bedrock":
-      return credential.auth.method === "api_key"
-        ? {
-            AWS_REGION: credential.region,
-            AWS_BEARER_TOKEN_BEDROCK: credential.auth.apiKey,
-          }
-        : {
-            AWS_REGION: credential.region,
-            AWS_ACCESS_KEY_ID: credential.auth.accessKeyId,
-            AWS_SECRET_ACCESS_KEY: credential.auth.secretAccessKey,
-          }
+      if (credential.auth.method === "api_key")
+        return {
+          AWS_REGION: credential.region,
+          AWS_BEARER_TOKEN_BEDROCK: credential.auth.apiKey,
+        }
+      // Pi reads a value the scoped env leaves unset from the worker's own
+      // env: its bearer token would replace the workspace's IAM keys, and its
+      // session token would be signed in with them.
+      for (const name of ["AWS_BEARER_TOKEN_BEDROCK", "AWS_SESSION_TOKEN"])
+        if (process.env[name])
+          throw new Error(
+            `${name} is set on this worker, so a workspace's Bedrock IAM keys can't be used safely. Unset it.`
+          )
+      return {
+        AWS_REGION: credential.region,
+        AWS_ACCESS_KEY_ID: credential.auth.accessKeyId,
+        AWS_SECRET_ACCESS_KEY: credential.auth.secretAccessKey,
+      }
   }
 }
 
@@ -293,6 +308,9 @@ export function nativeLanguageModel(
           ? { region: credential.region, apiKey: auth.apiKey }
           : {
               region: credential.region,
+              // Empty, not unset: unset falls back to the worker's own
+              // AWS_BEARER_TOKEN_BEDROCK, which would win over SigV4.
+              apiKey: "",
               // Not the access key fields: those fall back to the worker's
               // own AWS_* env (a session token) when unset.
               credentialProvider: async () => ({

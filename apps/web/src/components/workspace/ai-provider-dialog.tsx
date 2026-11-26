@@ -107,8 +107,9 @@ export function AiProviderDialog({
       }
       return res.json()
     },
-    onSuccess: (next) => {
-      toast.success(saved ? `${name} updated` : `${name} connected`)
+    onSuccess: ({ notice, ...next }) => {
+      if (notice) toast.warning(notice)
+      else toast.success(saved ? `${name} updated` : `${name} connected`)
       onSaved(next)
     },
   })
@@ -587,14 +588,14 @@ function VertexForm({ saved, onSubmit }: FormProps<"google-vertex">) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [keyText, setKeyText] = useState("")
   const [project, setProject] = useState(saved?.project ?? "")
+  // Typed by the person: a new key's project no longer replaces it.
+  const [projectTyped, setProjectTyped] = useState(false)
   const [location, setLocation] = useState(saved?.location ?? "global")
   const parsed = keyText.trim() ? readServiceAccount(keyText) : null
   const loadKey = (text: string) => {
     setKeyText(text)
     const account = readServiceAccount(text)
-    // A new key's project fills the field unless someone typed one.
-    if (account?.projectId && (!project || project === saved?.project))
-      setProject(account.projectId)
+    if (account?.projectId && !projectTyped) setProject(account.projectId)
   }
 
   return (
@@ -684,7 +685,10 @@ function VertexForm({ saved, onSubmit }: FormProps<"google-vertex">) {
             spellCheck={false}
             placeholder="my-project"
             value={project}
-            onChange={(event) => setProject(event.target.value)}
+            onChange={(event) => {
+              setProject(event.target.value)
+              setProjectTyped(true)
+            }}
           />
         </Field>
         <Field

@@ -42,6 +42,23 @@ export type InferenceCredentialInput =
 
 type Parsed = { credential: InferenceCredential } | { error: string }
 
+// An edit that left its secret blank, so it keeps the saved one.
+export function reusesSavedSecret(input: InferenceCredentialInput) {
+  switch (input.provider) {
+    case "anthropic":
+    case "openai":
+      return false
+    case "azure":
+      return !input.apiKey?.trim()
+    case "google-vertex":
+      return !input.serviceAccountKey?.trim()
+    case "amazon-bedrock":
+      return input.authMethod === "api_key"
+        ? !input.apiKey?.trim()
+        : !input.secretAccessKey?.trim()
+  }
+}
+
 // Models an Azure deployment can serve, for the settings deployment picker.
 export const AZURE_MODELS = getBuiltinModels("azure")
   .map((model) => ({ id: model.id, name: model.name }))
@@ -299,12 +316,14 @@ async function googleAccessToken(clientEmail: string, privateKey: string) {
 }
 
 // Saving checks the credential with the provider using free calls (listing
-// models, counting tokens), so a bad key, endpoint, region or project fails
-// here instead of on a run. Returns the provider's error, or null.
+// models, counting tokens, requests the provider rejects before running), so
+// a bad key, endpoint, deployment, region or project fails here instead of on
+// a run. A notice saves anyway but says what couldn't be confirmed.
 export async function verifyInferenceCredential(
   credential: InferenceCredential
-): Promise<string | null> {
+): Promise<{ error: string } | { notice: string | null }> {
   const name = KEY_PROVIDER_NAMES[credential.provider]
+  const ok = { notice: null }
   switch (credential.provider) {
     case "anthropic":
     case "openai": {
@@ -323,47 +342,98 @@ export async function verifyInferenceCredential(
           signal: AbortSignal.timeout(TIMEOUT_MS),
         }
       ).catch(() => null)
-      if (!res) return `Couldn't reach ${name}. Try again.`
-      return res.ok ? null : providerError(res, name)
+      if (!res) return { error: `Couldn't reach ${name}. Try again.` }
+      return res.ok ? ok : { error: await providerError(res, name) }
     }
     case "azure": {
-      const res = await fetch(`${azureBaseUrl(credential.endpoint)}/models`, {
+      const base = azureBaseUrl(credential.endpoint)
+      const res = await fetch(`${base}/models`, {
         headers: { "api-key": credential.apiKey },
         signal: AbortSignal.timeout(TIMEOUT_MS),
       }).catch(() => null)
       if (!res)
-        return "Couldn't reach this Azure endpoint. Check the resource name."
+        return {
+          error: "Couldn't reach this Azure endpoint. Check the resource name.",
+        }
       if (res.status === 404)
-        return "Azure didn't find an OpenAI resource at this endpoint."
-      return res.ok ? null : providerError(res, name)
+        return {
+          error: "Azure didn't find an OpenAI resource at this endpoint.",
+        }
+      if (!res.ok) return { error: await providerError(res, name) }
+      // An API key can't list deployments. A request with max_output_tokens
+      // below the minimum is refused before it runs, but a missing
+      // deployment answers DeploymentNotFound first.
+      const missing = await Promise.all(
+        credential.deployments.map(async ({ deployment }) => {
+          const probe = await fetch(`${base}/responses`, {
+            method: "POST",
+            headers: {
+              "api-key": credential.apiKey,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              model: deployment,
+              input: "ping",
+              max_output_tokens: 1,
+            }),
+            signal: AbortSignal.timeout(TIMEOUT_MS),
+          }).catch(() => null)
+          if (probe?.status !== 404) return null
+          const body: { error?: { code?: unknown } } | null = await probe
+            .json()
+            .catch(() => null)
+          return body?.error?.code === "DeploymentNotFound" ? deployment : null
+        })
+      )
+      const unknown = missing.filter((item) => item !== null)
+      return unknown.length > 0
+        ? {
+            error: `This Azure resource has no deployment named ${unknown.join(", ")}.`,
+          }
+        : ok
     }
     case "google-vertex": {
       const minted = await googleAccessToken(
         credential.clientEmail,
         credential.privateKey
       )
-      if ("error" in minted) return minted.error ?? null
+      if ("error" in minted)
+        return { error: minted.error ?? "Google Cloud rejected the key." }
       const host =
         credential.location === "global"
           ? "aiplatform.googleapis.com"
           : `${credential.location}-aiplatform.googleapis.com`
-      // countTokens is free and needs the same Vertex AI access as a run.
-      const res = await fetch(
-        `https://${host}/v1/projects/${credential.project}/locations/${credential.location}/publishers/google/models/gemini-2.5-flash:countTokens`,
-        {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${minted.token}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: "ping" }] }],
-          }),
-          signal: AbortSignal.timeout(TIMEOUT_MS),
-        }
-      ).catch(() => null)
-      if (!res) return "Couldn't reach Vertex AI in this region. Try again."
-      return res.ok ? null : providerError(res, name)
+      // countTokens is free and needs the same Vertex AI access as a run. A
+      // model the region doesn't serve answers 404, so the next one is tried.
+      const models = getBuiltinModels("google-vertex").map((model) => model.id)
+      for (const model of [
+        "gemini-2.5-flash",
+        ...models.filter((id) => id !== "gemini-2.5-flash"),
+      ]) {
+        const res = await fetch(
+          `https://${host}/v1/projects/${credential.project}/locations/${credential.location}/publishers/google/models/${model}:countTokens`,
+          {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${minted.token}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: "ping" }] }],
+            }),
+            signal: AbortSignal.timeout(TIMEOUT_MS),
+          }
+        ).catch(() => null)
+        if (!res)
+          return {
+            error: "Couldn't reach Vertex AI in this region. Try again.",
+          }
+        if (res.ok) return ok
+        if (res.status !== 404) return { error: await providerError(res, name) }
+      }
+      return {
+        error: `Vertex AI in ${credential.location} serves none of the Gemini models Lor runs. Try global or us-central1.`,
+      }
     }
     case "amazon-bedrock": {
       const auth = credential.auth
@@ -387,15 +457,21 @@ export async function verifyInferenceCredential(
         await client.send(
           new ListFoundationModelsCommand({ byOutputModality: "TEXT" })
         )
-        return null
+        return ok
       } catch (err) {
-        // Signed in but not allowed to list models: a policy scoped to
-        // invoking models only. Runs can still work.
+        // Signed in, but a policy scoped to invoking models can't list them:
+        // saved, without claiming model access was checked.
         if (err instanceof Error && err.name === "AccessDeniedException")
-          return null
-        return err instanceof Error && err.message
-          ? `${name}: ${err.message}`
-          : `${name} rejected these credentials.`
+          return {
+            notice:
+              "Saved. AWS accepted these credentials but didn't allow listing models, so access to each model isn't confirmed. A model this key can't call fails when it runs.",
+          }
+        return {
+          error:
+            err instanceof Error && err.message
+              ? `${name}: ${err.message}`
+              : `${name} rejected these credentials.`,
+        }
       } finally {
         client.destroy()
       }

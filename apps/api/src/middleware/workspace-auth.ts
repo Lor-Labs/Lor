@@ -108,6 +108,7 @@ const CLEANUP_ROUTES = [
     "DELETE",
     "/workspaces/:workspaceSlug/ai-accounts/accounts/:provider/:accountId",
   ],
+  ["DELETE", "/workspaces/:workspaceSlug/ai-providers/:provider"],
 ] as const
 const PROJECT_MEMBER_ROUTE =
   "/workspaces/:workspaceSlug/projects/:projectId/members/:userId"

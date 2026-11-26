@@ -55,6 +55,13 @@ export function AiProvidersSection({
     client.setQueryData(queryKey, next)
     void client.invalidateQueries({ queryKey: ["agent-models"] })
   }
+  // Removals can overlap across rows, so each refetches instead of applying
+  // its own (possibly older) snapshot.
+  const onRemoved = () =>
+    Promise.all([
+      client.invalidateQueries({ queryKey }),
+      client.invalidateQueries({ queryKey: ["agent-models"] }),
+    ])
   const openDialog = (provider: KeyProvider) => {
     setShown(provider)
     setFormKey((key) => key + 1)
@@ -119,7 +126,7 @@ export function AiProvidersSection({
                   workspaceSlug={workspaceSlug}
                   locked={data.locked}
                   onEdit={() => openDialog(provider)}
-                  onChange={onChange}
+                  onRemoved={onRemoved}
                 />
               ) : null
             })}
@@ -216,13 +223,13 @@ function ConnectedRow({
   workspaceSlug,
   locked,
   onEdit,
-  onChange,
+  onRemoved,
 }: {
   saved: SavedAiProvider
   workspaceSlug: string
   locked: boolean
   onEdit: () => void
-  onChange: (next: AiProvidersData) => void
+  onRemoved: () => Promise<unknown>
 }) {
   const name = KEY_PROVIDER_NAMES[saved.provider]
   const remove = async () => {
@@ -233,7 +240,7 @@ function ConnectedRow({
       toast.error(`Couldn't remove ${name}`)
       throw new Error("Remove failed")
     }
-    onChange(await res.json())
+    await onRemoved()
     toast.success(`${name} removed`)
   }
   return (
