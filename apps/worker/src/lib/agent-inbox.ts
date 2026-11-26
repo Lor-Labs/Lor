@@ -1092,6 +1092,7 @@ function agentHooks(
       askerId: turn.askerId,
       setUpById: turn.planUserId,
       conversationId: conversation.id,
+      place: turn,
     }),
     wakeUps: agentWakeUpExecutors(deps, {
       workspaceId: channel.workspaceId,

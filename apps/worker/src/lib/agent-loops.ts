@@ -3,6 +3,10 @@ import { recordConversationPost } from "@repo/db/queries/agent-conversations"
 import { isAgentInChannel } from "@repo/db/queries/agents"
 import type { Loop } from "@repo/db/schema"
 import type { AgentLoopExecutors } from "@repo/lor/channel-agent"
+import {
+  postLoopCardToDiscord,
+  postLoopLineToDiscord,
+} from "@repo/lor/discord-loops"
 import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
 import { channelEventContent } from "@repo/messaging"
 import type { LoopChange } from "@repo/realtime-types/loops"
@@ -63,14 +67,32 @@ async function postLoopLine(
   }
 ) {
   const { loop, event } = input
+  const content = channelEventContent({
+    ...event,
+    actorName: input.agentName,
+    loopName: loop.name,
+  })
+  // In a Discord place the line shows there too (a new Loop shows its card).
+  if (event.eventType === "loop_updated") {
+    void postLoopLineToDiscord({
+      loopId: loop.id,
+      channelId: input.channelId,
+      text: content,
+    }).catch((err) =>
+      logger.warn({ err, loopId: loop.id }, "Discord loop line failed")
+    )
+  } else {
+    void postLoopCardToDiscord({
+      loopId: loop.id,
+      channelId: input.channelId,
+    }).catch((err) =>
+      logger.warn({ err, loopId: loop.id }, "Discord loop card failed")
+    )
+  }
   await postLorMessage(deps, {
     channelId: input.channelId,
     agentId: input.agentId,
-    content: channelEventContent({
-      ...event,
-      actorName: input.agentName,
-      loopName: loop.name,
-    }),
+    content,
     type: "event",
     eventType: event.eventType,
     eventPayload: {
@@ -99,6 +121,9 @@ export function agentLoopExecutors(
     // event that woke it): a Loop made there is on their account.
     setUpById: string | null
     conversationId: string
+    // Where the turn answers: a Loop's card in a Discord place goes in the
+    // request's thread.
+    place?: { threadRootId: string | null }
   }
 ): AgentLoopExecutors {
   return {
@@ -134,6 +159,14 @@ export function agentLoopExecutors(
             endAt: input.endAt,
           })
           loopId = made.loopId
+          // People in a Discord place see its card there too.
+          void postLoopCardToDiscord({
+            loopId,
+            channelId: cardChatId,
+            threadRootId: turn.place?.threadRootId ?? null,
+          }).catch((err) =>
+            logger.warn({ err, loopId }, "Discord loop card failed")
+          )
           const [loop] = await db
             .select({ cardMessageId: schema.loop.cardMessageId })
             .from(schema.loop)

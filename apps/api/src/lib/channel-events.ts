@@ -7,6 +7,10 @@ import type {
   MemberAddedPayload,
   MemberRemovedPayload,
 } from "@repo/db/schema"
+import {
+  postLoopCardToDiscord,
+  postLoopLineToDiscord,
+} from "@repo/lor/discord-loops"
 import { channelEventContent } from "@repo/messaging"
 import {
   type ServerToClientEvents,
@@ -123,6 +127,32 @@ export async function postLoopChannelEvent(input: {
         reason: input.reason,
       },
     })
+    // A Loop that reports in a Discord place says so there too: a new one
+    // with its card, a paused or completed one with a line.
+    if (input.eventType === "loop_created") {
+      await postLoopCardToDiscord({ loopId: input.loop.id, channelId })
+    } else {
+      const [actor] = await db
+        .select({ name: schema.user.name })
+        .from(schema.user)
+        .where(eq(schema.user.id, input.actorId))
+      await postLoopLineToDiscord({
+        loopId: input.loop.id,
+        channelId,
+        text:
+          input.eventType === "loop_paused"
+            ? channelEventContent({
+                eventType: "loop_paused",
+                loopName: input.loop.name,
+                reason: input.reason ?? "failures",
+              })
+            : channelEventContent({
+                eventType: "loop_completed",
+                actorName: actor?.name ?? "Someone",
+                loopName: input.loop.name,
+              }),
+      })
+    }
   } catch (err) {
     logger.error(
       { err, loopId: input.loop.id, eventType: input.eventType },

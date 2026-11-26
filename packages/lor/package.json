@@ -16,6 +16,7 @@
     "./discord-sessions": "./src/discord-sessions.ts",
     "./discord-ui": "./src/discord-ui.ts",
     "./agent-files": "./src/agent-files.ts",
+    "./discord-loops": "./src/discord-loops.ts",
     "./ai-observability": "./src/ai-observability.ts",
     "./artifacts": "./src/artifacts/service.ts",
     "./attachments": "./src/attachments/index.ts",

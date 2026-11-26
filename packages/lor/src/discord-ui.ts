@@ -234,3 +234,35 @@ export function decidedApprovalCard(input: {
     ),
   ]
 }
+
+// A Loop an agent set up, as it shows in a Discord place: what it does,
+// when, where it reports, and a link to it in Lor.
+export function loopCard(view: {
+  name: string
+  when: string
+  reportsIn: string | null
+  nextRun: string | null
+  accent: number
+  face: string | null
+  lorUrl: string
+}): Component[] {
+  return [
+    container(view.accent, [
+      ...section(
+        [
+          "-# Loop",
+          `### ${plain(view.name)}`,
+          [
+            plain(view.when),
+            view.reportsIn ? `reports in ${plain(view.reportsIn)}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        ],
+        view.face
+      ),
+      ...(view.nextRun ? [text(`-# Next run ${view.nextRun}`)] : []),
+      ...buttons([{ label: "Open in Lor", url: view.lorUrl }]),
+    ]),
+  ]
+}
