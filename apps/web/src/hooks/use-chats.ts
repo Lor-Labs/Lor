@@ -219,3 +219,30 @@ export function useUpdateChat(workspaceSlug: string | undefined) {
     },
   })
 }
+
+// Where an agent's Loop can report (decision 51): the chats, and the Discord
+// channels agents are in, each with its agents.
+export type LoopSpot = {
+  id: string
+  name: string | null
+  agentIds: string[]
+  discord: boolean
+}
+
+export function loopSpots(
+  chats: Array<{ id: string; name: string | null; agentIds: string[] }>,
+  places: Chat[] | undefined
+): LoopSpot[] {
+  return [
+    ...chats.map((chat) => ({ ...chat, discord: false })),
+    ...(places ?? []).map((place) => ({
+      id: place.id,
+      name: place.name,
+      agentIds: place.agentIds,
+      discord: true,
+    })),
+  ]
+}
+
+export const spotName = (spot: LoopSpot) =>
+  spot.discord ? `#${spot.name ?? "channel"} in Discord` : (spot.name ?? "Chat")

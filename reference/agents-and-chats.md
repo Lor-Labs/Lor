@@ -317,7 +317,10 @@ other and Loops on the agent were first and are built, see below):
    agents attaching files to what they post (send_message's `files`,
    `packages/lor/src/agent-files.ts`: a file a session shared or someone
    posted), uploaded to Discord up to the server's limit and linked past it.
-   Next: a Loop's "Reports in" listing places, then Slack.
+   A Loop's "Reports in" lists the Discord channels its agent is in beside
+   its chats (`loopSpots` in `apps/web/src/hooks/use-chats.ts`), and the
+   agent's Loops tab groups them as "#name in Discord"; checked live, a Run
+   now in a place posted there. Next: Slack.
 Archiving a chat for everyone, and undoing it, are built (decision 52):
 `POST /chats/{id}/archive` and `/unarchive` (`apps/api/src/lib/chat-archive.ts`),
 the Archive section in the chat's settings, Undo in the toast, Unarchive on

@@ -6,6 +6,7 @@ import {
   CheckmarkCircle02Icon,
   Clock01Icon,
   Delete02Icon,
+  DiscordIcon,
   Loading03Icon,
   MoreHorizontalIcon,
   PauseIcon,
@@ -91,6 +92,12 @@ import {
   useLoop,
   useLoopRuns,
 } from "@/hooks/use-channel-loops"
+import {
+  type LoopSpot,
+  loopSpots,
+  spotName,
+  usePlaceChats,
+} from "@/hooks/use-chats"
 import { useMessageIdNavigation } from "@/hooks/use-message-search-navigation"
 import { apiClient } from "@/lib/api-client"
 import { LOOP_PAUSED_REASON_LABEL, LOOP_STATUS_META } from "@/lib/loop-ui"
@@ -194,22 +201,27 @@ function RunBy({
   const agents = useAgents(workspaceSlug)
   const { data: list } = useQuery(workspaceChannelsQueryOptions(workspaceSlug))
   const place = useSetLoopPlace(loop)
-  if (!list) return null
-  const chats = openTextChannels(list)
+  // Discord channels agents are in can be reported in too (decision 51).
+  const { data: placeChats, isPending: placesPending } = usePlaceChats(
+    workspaceSlug,
+    true
+  )
+  if (!list || placesPending) return null
+  const chats = loopSpots(openTextChannels(list), placeChats)
   const chat = chats.find((item) => item.id === loop.channelId) ?? null
   // In a channel that is not a text chat: it runs in a session, by no agent.
   if (loop.channelId && !chat) return null
   const owner = agents.find((agent) => agent.id === loop.agentId) ?? null
   // Who could run it: the agents in its chat, or any agent when it has none.
   const candidates = chat
-    ? agents.filter((agent) => agent.channelIds.includes(chat.id))
+    ? agents.filter((agent) => chat.agentIds.includes(agent.id))
     : agents
   if (!owner && candidates.length === 0) return null
   const gone = owner !== null && chat !== null && !candidates.includes(owner)
   const editable = loop.status !== "completed"
   // It can report in any chat its agent is in.
   const ownerChats = owner
-    ? chats.filter((item) => owner.channelIds.includes(item.id))
+    ? chats.filter((item) => item.agentIds.includes(owner.id))
     : chats
   const who = owner?.name ?? "The agent"
   return (
@@ -261,7 +273,9 @@ function RunBy({
               items={[
                 ...ownerChats.map((item) => ({
                   value: item.id,
-                  label: item.name ?? "Chat",
+                  label: item.discord
+                    ? `#${item.name ?? "channel"}`
+                    : (item.name ?? "Chat"),
                 })),
                 { value: NO_CHAT, label: "No chat" },
               ]}
@@ -278,29 +292,49 @@ function RunBy({
               <SelectContent>
                 {ownerChats.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
-                    {item.name ?? "Chat"}
+                    <SpotLabel spot={item} />
                   </SelectItem>
                 ))}
                 {/* A chat its agent has left stays shown until it is moved. */}
                 {chat && !ownerChats.includes(chat) && (
-                  <SelectItem value={chat.id}>{chat.name ?? "Chat"}</SelectItem>
+                  <SelectItem value={chat.id}>
+                    <SpotLabel spot={chat} />
+                  </SelectItem>
                 )}
                 <SelectItem value={NO_CHAT}>No chat</SelectItem>
               </SelectContent>
             </Select>
+          ) : chat ? (
+            <SpotLabel spot={chat} />
           ) : (
-            (chat?.name ?? "No chat")
+            "No chat"
           )}
         </DetailRow>
       </div>
       <p className="px-1 text-muted-foreground text-xs leading-snug">
         {gone
-          ? `${who} is no longer in ${chat?.name ?? "this chat"}. Pick another agent, or another chat.`
+          ? `${who} is no longer in ${chat ? spotName(chat) : "this chat"}. Pick another agent, or another chat.`
           : chat
-            ? `${who} posts each run's result in ${chat.name ?? "this chat"}.`
+            ? `${who} posts each run's result in ${spotName(chat)}.`
             : `With no chat, ${who} posts a result in the chat it belongs to, or nowhere.`}
       </p>
     </div>
+  )
+}
+
+// A chat's name, or a Discord channel's with Discord's mark.
+function SpotLabel({ spot }: { spot: LoopSpot }) {
+  return spot.discord ? (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <HugeiconsIcon
+        icon={DiscordIcon}
+        className="size-3.5 shrink-0 text-muted-foreground"
+        strokeWidth={2}
+      />
+      <span className="truncate">#{spot.name ?? "channel"}</span>
+    </span>
+  ) : (
+    <span className="truncate">{spot.name ?? "Chat"}</span>
   )
 }
 

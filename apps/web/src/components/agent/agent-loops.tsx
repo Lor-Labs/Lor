@@ -11,6 +11,7 @@ import {
 } from "@/components/workspace/settings-group"
 import type { WorkspaceAgent } from "@/hooks/use-agents"
 import { type ChannelLoop, useAgentLoops } from "@/hooks/use-channel-loops"
+import { loopSpots, spotName, usePlaceChats } from "@/hooks/use-chats"
 import {
   openTextChannels,
   workspaceChannelsQueryOptions,
@@ -47,13 +48,14 @@ export function AgentLoops({
   const { channelId: openChannelId } = useParams({ strict: false })
   const { data: list } = useQuery(workspaceChannelsQueryOptions(workspaceSlug))
   const { data: loops } = useAgentLoops(workspaceSlug, agent.id)
+  const { data: placeChats } = usePlaceChats(workspaceSlug, true)
 
   if (!list || !loops) {
     return <p className="px-4 text-muted-foreground text-sm">Loading…</p>
   }
   // In the order of the chat list; a chat that is put away comes after
   // them, and the loops with no chat last.
-  const chats = openTextChannels(list)
+  const chats = loopSpots(openTextChannels(list), placeChats)
   const place = (channelId: string | null) =>
     channelId === null
       ? chats.length + 2
@@ -65,8 +67,10 @@ export function AgentLoops({
       title:
         channelId === null
           ? "No chat"
-          : (chats.find((chat) => chat.id === channelId)?.name ??
-            "A chat that was put away"),
+          : ((() => {
+              const spot = chats.find((chat) => chat.id === channelId)
+              return spot ? spotName(spot) : null
+            })() ?? "A chat that was put away"),
       loops: sortLoops(loops.filter((loop) => loop.channelId === channelId)),
     }))
   if (groups.length === 0) {

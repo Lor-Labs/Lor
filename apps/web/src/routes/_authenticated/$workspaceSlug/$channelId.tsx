@@ -787,13 +787,14 @@ function ChannelView() {
           )
         ) : discord?.link ? (
           <div className="px-4 pt-1 pb-5">
-            <div className="flex items-center gap-3 rounded-xl border bg-muted/40 px-4 py-3 text-sm">
+            {/* Wraps the link under the text when the chat is narrow. */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border bg-muted/40 px-4 py-3 text-sm">
               <HugeiconsIcon
                 icon={DiscordIcon}
                 className="size-5 shrink-0 text-[#5865F2]"
                 strokeWidth={2}
               />
-              <span className="min-w-0 flex-1 text-muted-foreground">
+              <span className="min-w-[10rem] flex-1 text-muted-foreground">
                 This chat lives in Discord, in #
                 {discord.link.channelName ?? "channel"}
                 {discord.link.guildName ? ` on ${discord.link.guildName}` : ""}.
@@ -803,7 +804,7 @@ function ChannelView() {
                 href={discord.link.url}
                 target="_blank"
                 rel="noreferrer"
-                className="shrink-0 font-medium text-primary underline-offset-2 hover:underline"
+                className="shrink-0 whitespace-nowrap font-medium text-primary underline-offset-2 hover:underline"
               >
                 Open in Discord
               </a>
