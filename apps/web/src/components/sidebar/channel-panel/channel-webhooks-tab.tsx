@@ -46,7 +46,12 @@ import {
   TriggerEffects,
   type TriggerEffectsValue,
 } from "@/components/workspace/trigger-effects"
+import { channelAgentOf, useAgentsById } from "@/hooks/use-agents"
 import { apiClient } from "@/lib/api-client"
+import {
+  openTextChannels,
+  workspaceChannelsQueryOptions,
+} from "@/lib/workspace-channels-query"
 
 const AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024
@@ -233,14 +238,19 @@ function AvatarPicker({
 }
 
 // What a webhook does with a delivery, for its list row.
-function effectsSummary(hook: {
-  post: boolean
-  actInstructions: string | null
-  actWindowSeconds: number
-}) {
+function effectsSummary(
+  hook: {
+    post: boolean
+    actInstructions: string | null
+    actWindowSeconds: number
+  },
+  agentName: string | null | undefined
+) {
   const parts = [
     hook.post ? "Posts" : null,
-    hook.actInstructions !== null ? "Wakes Lor" : null,
+    hook.actInstructions !== null && agentName !== null
+      ? `Wakes ${agentName ?? "the agent"}`
+      : null,
   ].filter(Boolean)
   return parts.length > 0 ? parts.join(" · ") : "Does nothing yet"
 }
@@ -362,6 +372,8 @@ export function ChannelWebhooksTab({
       name?: string
       avatarUrl?: string
       post?: boolean
+      notify?: boolean
+      filter?: string | null
       actInstructions?: string | null
       actSessionMode?: TriggerEffectsValue["actSessionMode"]
       actCode?: TriggerEffectsValue["actCode"]
@@ -377,6 +389,8 @@ export function ChannelWebhooksTab({
           name: input.name,
           avatarUrl: input.avatarUrl,
           post: input.post,
+          notify: input.notify,
+          filter: input.filter,
           actInstructions: input.actInstructions,
           actSessionMode: input.actSessionMode,
           actCode: input.actCode,
@@ -430,6 +444,19 @@ export function ChannelWebhooksTab({
     setCopiedId(id)
     setTimeout(() => setCopiedId(null), 1500)
   }
+
+  // The chat's first agent hears its webhooks; with none there is nobody to
+  // wake. Unset while the chats load.
+  const agents = useAgentsById(workspaceSlug)
+  const { data: chatList } = useQuery(
+    workspaceChannelsQueryOptions(workspaceSlug)
+  )
+  const chat = chatList
+    ? openTextChannels(chatList).find((item) => item.id === channelId)
+    : undefined
+  const agentName = chat
+    ? (channelAgentOf(chat, agents)?.name ?? null)
+    : undefined
 
   const webhooks = data?.webhooks ?? []
   const open = webhooks.find((hook) => hook.id === openId) ?? null
@@ -565,25 +592,29 @@ export function ChannelWebhooksTab({
         </div>
 
         <SettingsSection title="When data arrives">
-          <TriggerEffects
-            idPrefix={`webhook-${open.id}`}
-            channelLabel={channelName}
-            codeScope={{ workspaceSlug, channelId }}
-            disabled={updateMutation.isPending}
-            value={{
-              post: open.post,
-              actInstructions: open.actInstructions,
-              actSessionMode: open.actSessionMode,
-              actCode: open.actCode,
-              actWindowSeconds: open.actWindowSeconds,
-              hourlyRunCap: open.hourlyRunCap,
-              dailyRunCap: open.dailyRunCap,
-              lastAct: open.lastAct,
-            }}
-            onPatch={(patch) =>
-              updateMutation.mutate({ webhookId: open.id, ...patch })
-            }
-          />
+          <SettingsCard className="space-y-0">
+            <TriggerEffects
+              idPrefix={`webhook-${open.id}`}
+              channelLabel={channelName}
+              agentName={agentName}
+              disabled={updateMutation.isPending}
+              value={{
+                post: open.post,
+                notify: open.notify,
+                filter: open.filter,
+                actInstructions: open.actInstructions,
+                actSessionMode: open.actSessionMode,
+                actCode: open.actCode,
+                actWindowSeconds: open.actWindowSeconds,
+                hourlyRunCap: open.hourlyRunCap,
+                dailyRunCap: open.dailyRunCap,
+                lastAct: open.lastAct,
+              }}
+              onPatch={(patch) =>
+                updateMutation.mutate({ webhookId: open.id, ...patch })
+              }
+            />
+          </SettingsCard>
         </SettingsSection>
         {deleteDialog}
       </div>
@@ -646,7 +677,7 @@ export function ChannelWebhooksTab({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm">{hook.name}</span>
                     <span className="block truncate text-xs text-muted-foreground">
-                      {effectsSummary(hook)}
+                      {effectsSummary(hook, agentName)}
                     </span>
                   </span>
                 </button>

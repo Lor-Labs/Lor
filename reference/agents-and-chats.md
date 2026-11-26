@@ -99,6 +99,9 @@ objected to and should confirm.
 | 37 | Each agent gets a bot user of its own in place of all agents posting as the one Lor user. It is the next thing built, before the chat list | Jacob, 11-25 |
 | 38 | A chat message that names no agent is judged at once (Jev, LOR-171): an agent it reads as meant for, from what was said before, its role, what it is working on and who wrote it, is woken now and not at its check-in. The agent may still stay quiet. A mention or a reply wakes as before | Jacob, 11-25 |
 | 39 | Agents messaging each other get no rules about who may message whom. They are prompted to write to another agent only when the work needs it and not to answer for the sake of answering, and the same wake rule applies to them: named wakes, otherwise decision 38 decides | Jacob, 11-25 |
+| 40 | An incoming event is heard by an agent, not kept on a channel: it is stored for the workspace (`source`, visible to everyone for now), delivered to the agent that listens for it, and the agent says what matters in a chat. A listener is one event with the agent that hears it, the chat that agent reports in, an optional plain-language filter checked by Jev, and an optional post of the raw event into that chat. For built-in connectors it is set up on the connector's page, with the fitting agent suggested by a model; an activity list is there but out of the way. Listeners defined by agents themselves, new sources and filters as code come later | Jacob, 11-26 |
+| 41 | Notifications: a chat's message notifies the people in it; a posted event pings people only when its listener says so; what an agent says to a Lor chat pings like anyone's message; a thread's reply is unread only for the people who follow it; a chat that lives in Slack or Discord shows unread in Lor and leaves the ping to that app | Jacob, 11-26 |
+| 42 | Several agents can listen to one event, each once and each with its own chat, filter and instructions. The connector's page shows events as a plain list, one line an event with who hears it; opening an event shows its listeners as chips and one flat form for the picked one | Jacob, 11-26 |
 
 Considered and dropped:
 
@@ -702,9 +705,8 @@ The chat list (decisions 33, 35 and 36; sidebar built 2026-11-25):
   right click pins, hides, mutes, edits or deletes. Other people's messages
   move a chat up from the unread notification; the person's own send
   refetches. The default width went from 240 to 296.
-- **Not changed yet:** unread counts and notifications still go to everyone
-  who can see a chat, not only the people in it. It makes no difference
-  until New chat can pick a subset. The mobile app still lists channels.
+- **Notifications** follow the people in a chat since 2026-11-26 (see
+  "Listeners and notifications" below). The mobile app still lists channels.
   Categories, projects and voice channels are no longer in the web sidebar
   (voice is behind its launch flag); `channel-list.tsx` is unused and goes
   when New chat replaces the create dialog it still shares code with.
@@ -723,6 +725,75 @@ The chat list (decisions 33, 35 and 36; sidebar built 2026-11-25):
   and drops the table. After it, `chat-members.ts` puts everyone who can see
   it in each text channel nobody is in; chats with people are left alone,
   so nobody is put back in one they left.
+
+Listeners and notifications (decisions 40 to 42, built 2026-11-26):
+
+- **A listener is today's trigger with an owner.** `connector_trigger` gains
+  `agent_id` (who hears the event; null means the chat's first agent, as
+  before), `filter` and `notify`. `channel_id` stays and now means the chat
+  the agent reports in, which the agent has to be in.
+- **Several agents per event** (decision 42). The table is unique per
+  connection, event and agent, so an event has a list of listeners, each
+  with its own chat, filter, instructions and limits. A row with no agent
+  is distinct to Postgres; the API keeps an agent to one listener per event,
+  counting an earlier row with no agent as its chat's first agent.
+- **Delivery** (`dispatchConnectorEvent`) goes to every listener of the
+  event. Each filter is asked on its own
+  (`packages/lor/src/listener-filter.ts`, Jev, fails open): an event it
+  turns away is logged as "filtered" for that listener only. Listeners that
+  post into the same chat share one message, quiet unless one of them has
+  `notify` on. Then the event goes into each listening agent's own
+  conversation, waking it when the listener has instructions.
+  `trigger_delivery.outcome` records what became of each.
+- **The API** (`apps/api/src/routes/v1/integrations`): an integration's
+  `events[].listeners[]`, `POST …/listeners` (a new one wakes its agent and
+  posts nothing), `PATCH` and `DELETE …/listeners/{id}` (a patch changes
+  only the fields sent), `GET …/listeners/{id}/activity` and
+  `GET …/suggestions`. A change proposal's `set_trigger` sets the event's
+  first listener.
+- **On the connector's page**
+  (`apps/web/src/components/workspace/connector-events.tsx`) events are one
+  list, a line each: the faces and names of the agents that hear it, or
+  for an event nobody listens to, one press to add the agent a model
+  suggests (`listener-suggest.ts`, the small model in one call; Jev was
+  tried and suggested almost nobody) and a menu for anyone else. "Add all
+  suggested" takes every suggestion at once. One event opens at a time:
+  its listeners as chips, a plus to add another agent, and the picked
+  listener's form. Changes save as they are made and show at once.
+- **The form** (`trigger-effects.tsx`, shared with a chat's Webhooks tab)
+  is one flat list: the chat it reports in, "Only when" (the filter), "Wake
+  {agent}" with instructions, "Post it in {chat}" with "Notify people".
+  The code target and wake limits are no longer shown: agents start code
+  sessions themselves, and the saved caps stay as a backstop (past one, an
+  event waits for the agent's next check-in). Hovering a listener's chip
+  puts an X over its face that removes it, with Undo in the toast; a clock
+  at the end of the chips opens the last 30 deliveries.
+- **On the agent's page** "Listens to" lists its connector events. Custom
+  webhooks are still created from a chat's Webhooks tab.
+- **Notifications** (`buildMessageFanout`, `read-states.ts`). A chat's own
+  message reaches the people in it (`channel_member`), not everyone who can
+  see it; a chat nobody is in yet still reaches everyone. A direct mention
+  reaches anyone who can see the chat and puts them in it, and so does
+  writing in it. A thread's reply is unread only for its followers, live
+  and on reload. A chat linked to Discord sets `notify` off on every
+  payload, so no browser or push notification is sent; a direct mention
+  still pushes.
+- **Checked live:** an event the filter should turn away scored 0.01 and was
+  logged as filtered; one that passed was posted quietly and woke the
+  listening agent, which answered in six seconds; one event with two
+  listeners in two chats was turned away by one's filter and still reached
+  the other, and a second event reached both, each agent answering in its
+  own chat; suggestions for a CRM connector picked the go-to-market agent
+  and for GitHub the engineering one; a suggestion turned on in one press
+  and five at once with "Add all suggested"; a second agent added to an
+  event from the page; a mention put a person in a chat, and so did writing
+  in one. Not run: a real connector's webhook, the notify switch's effect
+  on a push, threads, a Discord-linked chat.
+- **Not built:** creating a custom webhook from the agent's page; listeners
+  an agent proposes for itself beyond the existing change proposal.
+- **Rollout:** `pnpm db:push` adds the columns and swaps the unique index.
+  Existing triggers keep their chat and are heard by its first agent; their
+  posts stop pinging until "Notify people" is turned on.
 
 ### Step 4: places and tools
 

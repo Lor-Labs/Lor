@@ -27,13 +27,18 @@ import {
   connectLinearResponseSchema,
   connectNotionRequestSchema,
   connectNotionResponseSchema,
+  createListenerRequestSchema,
+  createListenerResponseSchema,
   disconnectResponseSchema,
+  integrationOkResponseSchema,
   integrationsWorkspaceParamsSchema,
+  listenerActivityResponseSchema,
+  listenerParamsSchema,
+  listenerSuggestionsResponseSchema,
   listIntegrationsResponseSchema,
   startGithubConnectResponseSchema,
-  updateIntegrationRequestSchema,
-  updateIntegrationResponseSchema,
   updateIntegrationToolsRequestSchema,
+  updateListenerRequestSchema,
 } from "@/routes/v1/integrations/schema"
 
 export const listIntegrations = createRoute({
@@ -255,23 +260,52 @@ export const connectNotion = createRoute({
   },
 })
 
-export const updateIntegration = createRoute({
-  path: "/workspaces/{workspaceSlug}/integrations/{connectionId}",
-  method: "patch",
-  summary: "Update an integration's settings",
-  description: "Sets or clears the channel that receives provider activity.",
+export const createListener = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/{connectionId}/listeners",
+  method: "post",
+  summary: "Add a listener to a connector event",
+  description:
+    "An agent starts listening to one of the connector's events and reports in a chat it is in. Several agents can listen to the same event, each once.",
   tags: ["Integrations"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
     params: connectionIdParamsSchema,
     body: jsonContent({
-      schema: updateIntegrationRequestSchema,
-      description: "The notification channel (null to disable)",
+      schema: createListenerRequestSchema,
+      description: "The event, the agent and the chat it reports in",
     }),
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: updateIntegrationResponseSchema,
+      schema: createListenerResponseSchema,
+      description: "Added",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const updateListener = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/{connectionId}/listeners/{listenerId}",
+  method: "patch",
+  summary: "Update a listener",
+  description: "Changes the fields sent; the rest stay as saved.",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: listenerParamsSchema,
+    body: jsonContent({
+      schema: updateListenerRequestSchema,
+      description: "The fields to change",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: integrationOkResponseSchema,
       description: "Updated",
     }),
     [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
@@ -279,6 +313,67 @@ export const updateIntegration = createRoute({
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const deleteListener = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/{connectionId}/listeners/{listenerId}",
+  method: "delete",
+  summary: "Remove a listener",
+  description: "The agent stops listening to the event.",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: listenerParamsSchema },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: integrationOkResponseSchema,
+      description: "Removed",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const listenerSuggestions = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/{connectionId}/suggestions",
+  method: "get",
+  summary: "Suggest which agent listens to each event",
+  description:
+    "For the connector's events nobody listens to yet: the agent whose role fits each one, and the chat it would report in. Suggestions only; nothing is saved.",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: connectionIdParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listenerSuggestionsResponseSchema,
+      description: "The suggestions",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export const listenerActivity = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/{connectionId}/listeners/{listenerId}/activity",
+  method: "get",
+  summary: "A listener's recent activity",
+  description:
+    "What arrived for one listener and what became of each: woke the agent, waited, or was turned away by the filter.",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: listenerParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listenerActivityResponseSchema,
+      description: "The deliveries",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
   },
 })
 
@@ -310,7 +405,11 @@ export type ConnectAttioRoute = typeof connectAttio
 export type ConnectNotionRoute = typeof connectNotion
 export type ConnectDatadogRoute = typeof connectDatadog
 export type ConnectCloudwatchRoute = typeof connectCloudwatch
-export type UpdateIntegrationRoute = typeof updateIntegration
+export type CreateListenerRoute = typeof createListener
+export type UpdateListenerRoute = typeof updateListener
+export type DeleteListenerRoute = typeof deleteListener
+export type ListenerSuggestionsRoute = typeof listenerSuggestions
+export type ListenerActivityRoute = typeof listenerActivity
 export type DisconnectIntegrationRoute = typeof disconnectIntegration
 
 export const updateIntegrationTools = createRoute({
@@ -328,7 +427,7 @@ export const updateIntegrationTools = createRoute({
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: updateIntegrationResponseSchema,
+      schema: integrationOkResponseSchema,
       description: "Tools updated",
     }),
     [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,

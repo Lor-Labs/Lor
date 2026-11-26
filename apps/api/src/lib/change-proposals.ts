@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { isWorkspaceRole } from "@repo/auth/permissions"
 import { isConnectorEvent } from "@repo/connectors"
-import { and, db, eq, isUniqueViolation, max, schema, sql } from "@repo/db"
+import { and, asc, db, eq, isUniqueViolation, max, schema, sql } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import { joinChatAudience } from "@repo/db/queries/chat-members"
 import type {
@@ -249,8 +249,13 @@ async function applyOperation(
       }
       // Rerouting needs the approver's access to the trigger's current
       // channel too, so a private channel's events can't be moved out.
+      // Several agents can listen to one event; a proposal sets the one it
+      // was written against, the event's first.
       const current = await ctx.tx
-        .select({ channelId: schema.connectorTrigger.channelId })
+        .select({
+          id: schema.connectorTrigger.id,
+          channelId: schema.connectorTrigger.channelId,
+        })
         .from(schema.connectorTrigger)
         .where(
           and(
@@ -258,6 +263,7 @@ async function applyOperation(
             eq(schema.connectorTrigger.event, spec.event)
           )
         )
+        .orderBy(asc(schema.connectorTrigger.createdAt))
         .limit(1)
         .then((rows) => rows[0])
       if (
@@ -267,26 +273,27 @@ async function applyOperation(
         fail(position, "Trigger not found")
       }
       const channelId = await resolveChannelRef(ctx, spec.channel, position)
-      await ctx.tx
-        .insert(schema.connectorTrigger)
-        .values({
+      if (current) {
+        await ctx.tx
+          .update(schema.connectorTrigger)
+          .set({
+            channelId,
+            post: spec.post,
+            actInstructions: spec.actInstructions,
+            // Moved to another chat, it is heard by that chat's first agent:
+            // its old one may not be there.
+            ...(current.channelId !== channelId ? { agentId: null } : {}),
+          })
+          .where(eq(schema.connectorTrigger.id, current.id))
+      } else {
+        await ctx.tx.insert(schema.connectorTrigger).values({
           connectionId: connection.id,
           event: spec.event,
           channelId,
           post: spec.post,
           actInstructions: spec.actInstructions,
         })
-        .onConflictDoUpdate({
-          target: [
-            schema.connectorTrigger.connectionId,
-            schema.connectorTrigger.event,
-          ],
-          set: {
-            channelId,
-            post: spec.post,
-            actInstructions: spec.actInstructions,
-          },
-        })
+      }
       return { resourceId: connection.id }
     }
 

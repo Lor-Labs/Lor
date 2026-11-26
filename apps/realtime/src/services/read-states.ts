@@ -30,6 +30,8 @@ import { assertUserCanAccessChannel } from "@/services/channel-access"
 function countsAsUnread(userId: string) {
   return and(
     notInArray(schema.message.type, ["voice_session", "agent_session"]),
+    // A thread's replies are unread only for the people who follow it.
+    sql`(${schema.message.threadRootId} is null or exists (select 1 from thread_subscription ts where ts.thread_root_id = ${schema.message.threadRootId} and ts.user_id = ${userId}::uuid))`,
     ne(schema.message.authorId, LOR_USER_ID),
     visibleToSessionChatFilter(userId, schema.message.threadRootId),
     sql`not exists (select 1 from agent_session s where s.thread_root_id = ${schema.message.threadRootId})`,
@@ -246,7 +248,22 @@ export async function getUnreadStatesForUser(
         listAccessibleChannelIds(userId, m.workspaceId)
       )
     )
-    workspaceChannelIds = accessibleSets.flatMap((set) => [...set])
+    const accessible = accessibleSets.flatMap((set) => [...set])
+    // A chat counts for the people in it (decision 35): unread follows the
+    // chat list. A chat nobody is in yet counts for everyone who can see it.
+    workspaceChannelIds =
+      accessible.length > 0
+        ? await db
+            .select({ id: schema.channel.id })
+            .from(schema.channel)
+            .where(
+              and(
+                inArray(schema.channel.id, accessible),
+                sql`(${schema.channel.type} <> 'text' or exists (select 1 from channel_member m where m.channel_id = ${schema.channel.id} and m.user_id = ${userId}::uuid) or not exists (select 1 from channel_member m where m.channel_id = ${schema.channel.id}))`
+              )
+            )
+            .then((rows) => rows.map((row) => row.id))
+        : []
   }
 
   const channelIds = [

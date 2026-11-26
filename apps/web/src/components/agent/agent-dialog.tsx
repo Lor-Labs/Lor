@@ -29,6 +29,7 @@ import {
   agentDraftOf,
 } from "@/components/agent/agent-fields"
 import { AgentJournal } from "@/components/agent/agent-journal"
+import { AgentListeners } from "@/components/agent/agent-listeners"
 import { AgentLoops } from "@/components/agent/agent-loops"
 import { AgentRuns } from "@/components/agent/agent-runs"
 import { AgentFactsList } from "@/components/sidebar/channel-panel/agent-facts-list"
@@ -292,9 +293,10 @@ function AgentDialog({
         ) : shownTab === "loops" ? (
           <PaneBody
             title="Loops"
-            description={`What ${agent.name} does on a schedule. A loop runs in the channel it was set up in.`}
+            description={`What ${agent.name} does on a schedule, and the events it listens to. A loop runs in the chat it was set up in.`}
           >
             <AgentLoops workspaceSlug={workspaceSlug} agent={agent} />
+            <AgentListeners workspaceSlug={workspaceSlug} agent={agent} />
           </PaneBody>
         ) : (
           <PaneBody

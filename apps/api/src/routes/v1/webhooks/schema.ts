@@ -41,6 +41,10 @@ export const channelWebhookSchema = z.object({
   createdAt: z.string(),
   createdByName: z.string().nullable(),
   post: z.boolean(),
+  // Whether a posted event pings the people in the chat.
+  notify: z.boolean(),
+  // A plain-language condition checked before the agent is woken.
+  filter: z.string().nullable(),
   actInstructions: z.string().nullable(),
   actSessionMode: actSessionModeSchema,
   actCode: actCodeSchema,
@@ -72,6 +76,9 @@ export const updateChannelWebhookRequestSchema = z
     name: z.string().trim().min(1).max(80).optional(),
     avatarUrl: z.string().url().max(2048).nullable().optional(),
     post: z.boolean().optional(),
+    notify: z.boolean().optional(),
+    // Null or empty clears it.
+    filter: z.string().trim().max(500).nullable().optional(),
     // The Act effect's instructions for Lor; null = Act off.
     actInstructions: z.string().trim().max(4000).nullable().optional(),
     actSessionMode: actSessionModeSchema.optional(),

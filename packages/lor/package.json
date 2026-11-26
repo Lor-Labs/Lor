@@ -38,6 +38,8 @@
     "./harness-accounts": "./src/harness-accounts.ts",
     "./harness-store": "./src/harness-store.ts",
     "./inbox-address": "./src/inbox-address.ts",
+    "./listener-filter": "./src/listener-filter.ts",
+    "./listener-suggest": "./src/listener-suggest.ts",
     "./loop-schedule": "./src/loop-schedule.ts",
     "./loops": "./src/loops.ts",
     "./mcp-guarded-fetch": "./src/mcp-guarded-fetch.ts",

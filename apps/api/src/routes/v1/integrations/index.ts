@@ -22,7 +22,11 @@ const integrationsRouter = createRouter()
   .openapi(routes.connectDatadog, handlers.connectDatadog)
   .openapi(routes.connectCloudwatch, handlers.connectCloudwatch)
   .openapi(routes.updateIntegrationTools, handlers.updateIntegrationTools)
-  .openapi(routes.updateIntegration, handlers.updateIntegration)
+  .openapi(routes.createListener, handlers.createListener)
+  .openapi(routes.updateListener, handlers.updateListener)
+  .openapi(routes.deleteListener, handlers.deleteListener)
+  .openapi(routes.listenerSuggestions, handlers.listenerSuggestions)
+  .openapi(routes.listenerActivity, handlers.listenerActivity)
   .openapi(routes.disconnectIntegration, handlers.disconnectIntegration)
 
 export default integrationsRouter

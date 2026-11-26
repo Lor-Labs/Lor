@@ -275,7 +275,7 @@ export function WorkspaceSettingsDialog({
               </div>
               {/* Vertical padding sits inside the scroll area so sticky
                   footers (SettingsFooter) pin flush to its bottom edge. */}
-              <div className="min-h-0 flex-1 overflow-y-auto px-6">
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 [scrollbar-gutter:stable]">
                 <div className="mx-auto max-w-2xl py-6">
                   {section === "general" ? (
                     // key on identity so the form resets if the workspace

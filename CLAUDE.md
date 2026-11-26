@@ -284,7 +284,12 @@ is its own `channel_member` rows, each with that person's pin and hide
 (`packages/db/src/queries/chat-members.ts`, `apps/api/src/routes/v1/chats`,
 `apps/web/src/components/sidebar/chat-panel`); `db:push` moves an earlier
 `chat_member` table over (`chat-member-table.ts`) and, after the push, fills
-chats nobody is in (`chat-members.ts`). Not built yet: New chat, the chat's header and
+chats nobody is in (`chat-members.ts`). Listeners are built (decisions 40
+to 42): an incoming connector event or webhook is heard by one or several
+agents (`connector_trigger.agent_id`, each with a Jev `filter` and a
+`notify` switch), set up on the connector's page with a suggested agent
+(`apps/web/src/components/workspace/connector-events.tsx`), and
+notifications reach the people in a chat (`buildMessageFanout`). Not built yet: New chat, the chat's header and
 panel, finding and joining a chat, and Loops stored on the agent. The mock of the chat list is
 `/prototype/chats`; `/prototype/agents` is the earlier design.
 

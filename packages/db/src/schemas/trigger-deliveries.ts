@@ -39,6 +39,9 @@ export const triggerDelivery = pgTable(
     actDroppedAt: timestamp("act_dropped_at"),
     // Which effects this delivery actually kicked off.
     posted: boolean("posted").notNull().default(false),
+    // What became of it, for the listener's activity list: "wake", "wait",
+    // "filtered" (the listener's filter said no), a cap, "off" or "error".
+    outcome: text("outcome"),
     // The triggered agent run. Many deliveries share one run when batched.
     runId: uuid("run_id"),
   },

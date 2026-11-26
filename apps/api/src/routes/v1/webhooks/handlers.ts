@@ -45,6 +45,8 @@ type WebhookRow = {
   createdAt: Date
   channelId: string
   post: boolean
+  notify: boolean
+  filter: string | null
   actInstructions: string | null
   actSessionMode: ActSessionMode
   actRepoFullName: string | null
@@ -75,6 +77,8 @@ function toResponse(
     createdAt: row.createdAt.toISOString(),
     createdByName,
     post: row.post,
+    notify: row.notify,
+    filter: row.filter,
     actInstructions: row.actInstructions,
     actSessionMode: row.actSessionMode,
     actCode: actCodeOf(row),
@@ -93,6 +97,8 @@ const webhookSelection = {
   createdAt: integrationConnection.createdAt,
   channelId: connectorTrigger.channelId,
   post: connectorTrigger.post,
+  notify: connectorTrigger.notify,
+  filter: connectorTrigger.filter,
   actInstructions: connectorTrigger.actInstructions,
   actSessionMode: connectorTrigger.actSessionMode,
   actRepoFullName: connectorTrigger.actRepoFullName,
@@ -380,6 +386,8 @@ export const createChannelWebhook: AppRouteHandler<
           createdAt: result.connection.createdAt,
           channelId: result.trigger.channelId,
           post: result.trigger.post,
+          notify: result.trigger.notify,
+          filter: result.trigger.filter,
           actInstructions: result.trigger.actInstructions,
           actSessionMode: result.trigger.actSessionMode,
           actRepoFullName: result.trigger.actRepoFullName,
@@ -406,6 +414,8 @@ export const updateChannelWebhook: AppRouteHandler<
     name,
     avatarUrl,
     post,
+    notify,
+    filter,
     actInstructions,
     actSessionMode,
     actCode,
@@ -482,6 +492,8 @@ export const updateChannelWebhook: AppRouteHandler<
     }
     if (
       post !== undefined ||
+      notify !== undefined ||
+      filter !== undefined ||
       actInstructions !== undefined ||
       target ||
       actWindowSeconds !== undefined ||
@@ -493,6 +505,8 @@ export const updateChannelWebhook: AppRouteHandler<
         .set({
           configuredById: c.var.user.id,
           ...(post !== undefined ? { post } : {}),
+          ...(notify !== undefined ? { notify } : {}),
+          ...(filter !== undefined ? { filter: filter?.trim() || null } : {}),
           ...(actInstructions !== undefined ? { actInstructions } : {}),
           ...(actSessionMode !== undefined ? { actSessionMode } : {}),
           ...(target?.ok ? target.columns : {}),

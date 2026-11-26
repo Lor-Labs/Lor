@@ -53,6 +53,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router"
 import { type Ref, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
+import { ConnectorEvents } from "@/components/workspace/connector-events"
 import {
   ConnectorToolPreview,
   ConnectorToolSettings,
@@ -64,10 +65,6 @@ import {
   SettingsGroup,
   SettingsSection,
 } from "@/components/workspace/settings-group"
-import {
-  TriggerEffects,
-  type TriggerEffectsValue,
-} from "@/components/workspace/trigger-effects"
 import { apiClient } from "@/lib/api-client"
 import type {
   ConnectCloudwatchRequest,
@@ -86,19 +83,6 @@ const REPO_DISPLAY_LIMIT = 8
 
 // The browser callback may still be saving the connection on switch-back.
 const CONNECT_RECHECK_MS = 5000
-
-const NOTIFY_OFF = "__off__"
-
-type TriggerConfig = {
-  channelId: string | null
-  post: boolean
-  actInstructions: string | null
-  actSessionMode: TriggerEffectsValue["actSessionMode"]
-  actCode: TriggerEffectsValue["actCode"]
-  actWindowSeconds: number
-  hourlyRunCap: number
-  dailyRunCap: number
-}
 
 // Why this viewer can't connect the connector right now, or null when they can.
 function connectBlocker(p: IntegrationStatus): string | null {
@@ -466,7 +450,7 @@ function ConnectorList({
               {group.providers.length}
             </span>
           </h3>
-          <div className="grid gap-x-4 gap-y-1 @xl:grid-cols-2">
+          <div className="grid grid-cols-1 gap-x-4 gap-y-1 @xl:grid-cols-2">
             {group.providers.map((p) => (
               <ConnectorRow
                 key={p.id}
@@ -511,14 +495,12 @@ function ConnectorRow({
   onConnect: () => void
 }) {
   const blocker = connectBlocker(p)
-  const activeEvents = p.events.filter((ev) => ev.channelId).length
+  const activeEvents = p.events.filter((ev) => ev.listeners.length > 0).length
   const subtitle = p.connected
     ? [
         p.accountLogin ?? "Connected",
         ...(activeEvents > 0
-          ? [
-              `${activeEvents} ${activeEvents === 1 ? "event" : "events"} active`,
-            ]
+          ? [`${activeEvents} ${activeEvents === 1 ? "event" : "events"} on`]
           : []),
       ].join(" · ")
     : p.description
@@ -659,18 +641,16 @@ function ConnectorDetail({
 
       {p.events.length > 0 &&
         (p.connected && p.connectionId ? (
-          <EventRoutes
+          <ConnectorEvents
             workspaceSlug={workspaceSlug}
-            connectorId={p.id}
+            provider={p}
             connectionId={p.connectionId}
-            events={p.events}
-            canManage={p.canManage}
           />
         ) : (
           <SettingsSection
             title="Events"
             count={p.events.length}
-            caption={`Connect ${p.name} to send these events to a channel.`}
+            caption={`Connect ${p.name} and your agents can hear about these.`}
           >
             <SettingsGroup>
               {p.events.map((ev) => (
@@ -684,173 +664,6 @@ function ConnectorDetail({
 
       {p.connected && <Repositories provider={p} />}
     </div>
-  )
-}
-
-function EventRoutes({
-  workspaceSlug,
-  connectorId,
-  connectionId,
-  events,
-  canManage,
-}: {
-  workspaceSlug: string
-  connectorId: ConnectorKey
-  connectionId: string
-  events: IntegrationStatus["events"]
-  canManage: boolean
-}) {
-  const queryClient = useQueryClient()
-  // In-flight saves per event key: concurrent saves to different events each
-  // keep their own controls locked until their refetch lands.
-  const [pendingEvents, setPendingEvents] = useState<Record<string, number>>({})
-  const trackPending = (event: string, delta: 1 | -1) =>
-    setPendingEvents((prev) => {
-      const next = { ...prev }
-      const count = (prev[event] ?? 0) + delta
-      if (count > 0) next[event] = count
-      else delete next[event]
-      return next
-    })
-
-  const { data: channelsData } = useQuery({
-    queryKey: ["channels", workspaceSlug],
-    queryFn: async () => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels.$get(
-        { param: { workspaceSlug } }
-      )
-      if (!res.ok) throw new Error("Failed to load channels")
-      return res.json()
-    },
-  })
-  const textChannels = [
-    ...(channelsData?.uncategorized ?? []),
-    ...(channelsData?.categories ?? []).flatMap((cat) => cat.channels),
-  ].filter((ch) => ch.type === "text")
-  const notifyChannelItems = [
-    { value: NOTIFY_OFF, label: "Off" },
-    ...textChannels.map((ch) => ({ value: ch.id, label: `#${ch.name}` })),
-  ]
-
-  const updateTrigger = useMutation({
-    mutationFn: async (input: TriggerConfig & { event: string }) => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].integrations[
-        ":connectionId"
-      ].$patch({
-        param: { workspaceSlug, connectionId },
-        json: input,
-      })
-      if (!res.ok) {
-        // A refused repo or session mode says why.
-        const body = (await res.json().catch(() => null)) as {
-          message?: string
-        } | null
-        throw new Error(body?.message ?? "Failed to update event")
-      }
-    },
-    onMutate: (input) => trackPending(input.event, 1),
-    // Awaited so the event stays locked until the refetch lands — `send`
-    // composes the full trigger config from cached row data, so editing again
-    // before the refetch would overwrite the previous change with stale
-    // sibling fields.
-    onSuccess: async () => {
-      const queryKey = ["integrations", workspaceSlug]
-      await queryClient.invalidateQueries({ queryKey })
-      // Another event's save cancels this refetch for its own, which also
-      // carries this change: wait for that one.
-      if (queryClient.isFetching({ queryKey }) > 0) {
-        await queryClient.refetchQueries({ queryKey }, { cancelRefetch: false })
-      }
-    },
-    onError: (err) => toast.error(err.message),
-    onSettled: (_data, _err, input) => trackPending(input.event, -1),
-  })
-  const activeEvents = events.filter((ev) => ev.channelId).length
-
-  return (
-    <SettingsSection
-      title="Events"
-      count={events.length}
-      action={
-        activeEvents > 0 && (
-          <span className="text-xs text-muted-foreground">
-            {activeEvents} active
-          </span>
-        )
-      }
-    >
-      <SettingsGroup>
-        {events.map((ev) => {
-          const busy = ev.key in pendingEvents
-          // Each change re-sends the full trigger config so one PATCH shape
-          // covers channel moves and effect toggles alike.
-          const send = (patch: Partial<TriggerConfig>) => {
-            updateTrigger.mutate({
-              event: ev.key,
-              channelId: ev.channelId,
-              post: ev.post,
-              actInstructions: ev.actInstructions,
-              actSessionMode: ev.actSessionMode,
-              actCode: ev.actCode,
-              actWindowSeconds: ev.actWindowSeconds,
-              hourlyRunCap: ev.hourlyRunCap,
-              dailyRunCap: ev.dailyRunCap,
-              ...patch,
-            })
-          }
-          return (
-            <div key={ev.key} className="space-y-3 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="min-w-0 truncate text-sm">{ev.label}</span>
-                <Select
-                  items={notifyChannelItems}
-                  value={ev.channelId ?? NOTIFY_OFF}
-                  disabled={busy || !canManage}
-                  onValueChange={(value) => {
-                    send({ channelId: value === NOTIFY_OFF ? null : value })
-                  }}
-                >
-                  <SelectTrigger className="w-44 shrink-0" size="sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NOTIFY_OFF}>Off</SelectItem>
-                    {textChannels.map((ch) => (
-                      <SelectItem key={ch.id} value={ch.id}>
-                        #{ch.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {ev.channelId && (
-                <div className="rounded-lg bg-background">
-                  <TriggerEffects
-                    idPrefix={`${connectorId}-${ev.key}`}
-                    channelLabel={
-                      textChannels.find((ch) => ch.id === ev.channelId)?.name
-                    }
-                    disabled={busy || !canManage}
-                    codeScope={{ workspaceSlug, channelId: ev.channelId }}
-                    value={{
-                      post: ev.post,
-                      actInstructions: ev.actInstructions,
-                      actSessionMode: ev.actSessionMode,
-                      actCode: ev.actCode,
-                      actWindowSeconds: ev.actWindowSeconds,
-                      hourlyRunCap: ev.hourlyRunCap,
-                      dailyRunCap: ev.dailyRunCap,
-                      lastAct: ev.lastAct,
-                    }}
-                    onPatch={(patch) => send(patch)}
-                  />
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </SettingsGroup>
-    </SettingsSection>
   )
 }
 

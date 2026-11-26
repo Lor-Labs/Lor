@@ -1,6 +1,7 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { db } from "../index"
 import { channel, channelMember } from "../schemas/channels"
+import { channelDiscordLink } from "../schemas/discord"
 import { project } from "../schemas/projects"
 import { workspaceMember } from "../schemas/workspace-members"
 import { workspace } from "../schemas/workspaces"
@@ -396,4 +397,55 @@ export async function resolveLorRunScope(
       : null,
     privateContainerChannelId: isPrivate ? container.id : null,
   }
+}
+
+// The people in a chat, whose list it is in and whom its messages reach
+// (reference/agents-and-chats.md, decision 35): the chat's own
+// channel_member rows. Null when the channel is not a chat (a DM, a voice
+// channel) or nobody is in it yet: then everyone who can see it is reached,
+// as before chats had a list of their people.
+export async function listChatMemberUserIds(
+  channelId: string,
+  executor: ReadExecutor = db
+): Promise<string[] | null> {
+  const [row] = await executor
+    .select({ type: channel.type, workspaceId: channel.workspaceId })
+    .from(channel)
+    .where(eq(channel.id, channelId))
+    .limit(1)
+  if (row?.type !== "text" || !row.workspaceId) return null
+  const members = await listChannelMemberUserIds(channelId, executor)
+  return members.length > 0 ? members : null
+}
+
+// Writing in a chat, or being mentioned in it, puts a person in it. Bots
+// are never members. Callers pass only people who can see the chat.
+export async function joinChat(
+  channelId: string,
+  userIds: string[],
+  executor: Pick<typeof db, "execute"> = db
+) {
+  if (userIds.length === 0) return
+  await executor.execute(sql`
+    insert into channel_member (channel_id, user_id)
+    select ${channelId}::uuid, u.id from "user" u
+    where not u.is_bot and u.id in (${sql.join(
+      userIds.map((id) => sql`${id}::uuid`),
+      sql`, `
+    )})
+    on conflict do nothing`)
+}
+
+// A chat that lives in the team's own chat app (a linked Discord channel):
+// that app pings its people, so Lor shows unread and sends no notification.
+export async function chatLivesOutside(
+  channelId: string,
+  executor: ReadExecutor = db
+): Promise<boolean> {
+  const [link] = await executor
+    .select({ channelId: channelDiscordLink.channelId })
+    .from(channelDiscordLink)
+    .where(eq(channelDiscordLink.channelId, channelId))
+    .limit(1)
+  return Boolean(link)
 }
