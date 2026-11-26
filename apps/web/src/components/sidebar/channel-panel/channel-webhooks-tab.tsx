@@ -41,7 +41,7 @@ import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import {
   SettingsBackButton,
   SettingsCard,
@@ -352,34 +352,25 @@ export function ChannelWebhooksTab({
   )
 }
 
-// The webhooks an agent hears, on its own page. While one is open it takes
-// the pane, so `onOpenChange` lets the page put its other sections away.
+// The webhooks an agent hears, on its own page.
 export function AgentWebhooks({
   workspaceSlug,
   agent,
-  onOpenChange,
 }: {
   workspaceSlug: string
   agent: WorkspaceAgent
-  onOpenChange: (open: boolean) => void
 }) {
   return (
-    <Webhooks
-      workspaceSlug={workspaceSlug}
-      scope={{ kind: "agent", agent }}
-      onOpenChange={onOpenChange}
-    />
+    <Webhooks workspaceSlug={workspaceSlug} scope={{ kind: "agent", agent }} />
   )
 }
 
 function Webhooks({
   workspaceSlug,
   scope,
-  onOpenChange,
 }: {
   workspaceSlug: string
   scope: WebhookScope
-  onOpenChange?: (open: boolean) => void
 }) {
   const queryClient = useQueryClient()
   const [openId, setOpenId] = useState<string | null>(null)
@@ -526,10 +517,6 @@ function Webhooks({
 
   const webhooks = data?.webhooks ?? []
   const open = webhooks.find((hook) => hook.id === openId) ?? null
-  const isOpen = open !== null
-  useEffect(() => {
-    onOpenChange?.(isOpen)
-  }, [isOpen, onOpenChange])
 
   // On an agent's page the section is left out for someone who can't manage
   // webhooks.
@@ -601,10 +588,7 @@ function Webhooks({
     const chosen = forAgent ? open.channelId : open.agentId
     return (
       <div className="space-y-6">
-        <SettingsBackButton
-          label={forAgent ? "Loops" : "Webhooks"}
-          onClick={() => setOpenId(null)}
-        />
+        <SettingsBackButton label="Webhooks" onClick={() => setOpenId(null)} />
         <div className="flex items-center gap-3">
           <AvatarPicker
             src={open.avatarUrl}
@@ -771,9 +755,10 @@ function Webhooks({
     <SettingsSection
       title="Webhooks"
       count={webhooks.length || undefined}
+      // On an agent's page the tab's own heading says it.
       description={
         forAgent
-          ? `A URL other apps and services send data to. ${forAgent.name} hears what arrives.`
+          ? undefined
           : `Let other apps and services post data into ${target}.`
       }
       action={
@@ -806,13 +791,6 @@ function Webhooks({
       {isPending ? (
         <SettingsCard className="flex justify-center">
           <Spinner className="size-4 text-muted-foreground" />
-        </SettingsCard>
-      ) : webhooks.length === 0 && forAgent ? (
-        // Beside the agent's loops and events, an empty list is one line.
-        <SettingsCard>
-          <p className="text-muted-foreground text-sm">
-            No webhooks yet. Create one to get a URL other services can send to.
-          </p>
         </SettingsCard>
       ) : webhooks.length === 0 ? (
         <SettingsCard className="py-8 text-center">

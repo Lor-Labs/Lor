@@ -1,12 +1,16 @@
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { useCallback } from "react"
 
+// Who the agent is (profile, memory, model), then what wakes it: a mention
+// in a chat, a loop's schedule, a connector's event, a webhook.
 export type AgentDialogTab =
   | "profile"
   | "memory"
-  | "channels"
+  | "model"
+  | "chats"
   | "loops"
-  | "runs"
+  | "events"
+  | "webhooks"
 
 // The agent dialog is URL-driven like the settings dialogs, so anything can
 // open it and a link to an agent's settings works: ?agent=<id|new>&agentTab=.

@@ -1,8 +1,10 @@
 import {
+  AiChipIcon,
   Brain02Icon,
-  HashtagIcon,
+  BubbleChatIcon,
   Infinity01Icon,
   UserCircleIcon,
+  WebhookIcon,
   ZapIcon,
 } from "@hugeicons/core-free-icons"
 import { authClient } from "@repo/auth/client"
@@ -66,13 +68,19 @@ import {
   workspaceChannelsQueryOptions,
 } from "@/lib/workspace-channels-query"
 
-const TABS: PaneTab<AgentDialogTab>[] = [
-  { id: "profile", label: "Profile", icon: UserCircleIcon },
-  { id: "memory", label: "Memory", icon: Brain02Icon },
-  { id: "channels", label: "Channels", icon: HashtagIcon },
-  { id: "loops", label: "Loops", icon: Infinity01Icon },
-  { id: "runs", label: "Runs", icon: ZapIcon },
-]
+// Two groups: what the agent is, and the four things that wake it.
+function tabsFor(name: string): PaneTab<AgentDialogTab>[] {
+  const group = `Wakes ${name}`
+  return [
+    { id: "profile", label: "Profile", icon: UserCircleIcon },
+    { id: "memory", label: "Memory", icon: Brain02Icon },
+    { id: "model", label: "Model", icon: AiChipIcon },
+    { id: "chats", label: "Chats", icon: BubbleChatIcon, group },
+    { id: "loops", label: "Loops", icon: Infinity01Icon, group },
+    { id: "events", label: "Events", icon: ZapIcon, group },
+    { id: "webhooks", label: "Webhooks", icon: WebhookIcon, group },
+  ]
+}
 
 const STATE_TEXT: Record<CreatureState, string> = {
   asleep: "Resting",
@@ -166,7 +174,6 @@ function AgentDialog({
   const { tab, setTab } = useAgentDialog()
   const { data: session } = authClient.useSession()
   const canManage = useCanManageChannels(workspaceSlug)
-  const [webhookOpen, setWebhookOpen] = useState(false)
   // Without channel:update, the person who made it may still name it.
   const canEditIdentity = canManage || agent.createdById === session?.user.id
   const state = useAgentState(workspaceId, agent)
@@ -188,7 +195,8 @@ function AgentDialog({
     onError: (error) => toast.error(error.message),
   })
 
-  const shownTab = TABS.some((item) => item.id === tab) ? tab : "profile"
+  const tabs = tabsFor(agent.name)
+  const shownTab = tabs.some((item) => item.id === tab) ? tab : "profile"
 
   return (
     <>
@@ -196,7 +204,7 @@ function AgentDialog({
         open={open}
         onOpenChange={onOpenChange}
         title={`${agent.name}'s settings`}
-        description="This agent's profile, memory, channels, loops and how it runs."
+        description="This agent's profile, memory and model, and what wakes it: chats, loops, events and webhooks."
         identity={
           <Identity
             draft={draft}
@@ -208,7 +216,7 @@ function AgentDialog({
             }
           />
         }
-        tabs={TABS}
+        tabs={tabs}
         tab={shownTab}
         onTabChange={setTab}
         aside={
@@ -281,9 +289,20 @@ function AgentDialog({
               agentName={agent.name}
             />
           </PaneBody>
-        ) : shownTab === "channels" ? (
+        ) : shownTab === "model" ? (
           <PaneBody
-            title="Channels"
+            title="Model"
+            description={`What ${agent.name} runs on, and who pays for it.`}
+          >
+            <AgentRuns
+              workspaceSlug={workspaceSlug}
+              agent={agent}
+              canManage={canManage}
+            />
+          </PaneBody>
+        ) : shownTab === "chats" ? (
+          <PaneBody
+            title="Chats"
             description={`Where ${agent.name} reads along. A mention or a reply wakes it at once; it catches up on the rest at its check-in.`}
           >
             <AgentChannels
@@ -295,31 +314,23 @@ function AgentDialog({
         ) : shownTab === "loops" ? (
           <PaneBody
             title="Loops"
-            description={`What ${agent.name} does on a schedule, and the events and webhooks it listens to. A loop runs in the chat it was set up in.`}
+            description={`What ${agent.name} does on a schedule. A loop runs in the chat it was set up in.`}
           >
-            {/* An open webhook takes the pane. */}
-            {!webhookOpen && (
-              <>
-                <AgentLoops workspaceSlug={workspaceSlug} agent={agent} />
-                <AgentListeners workspaceSlug={workspaceSlug} agent={agent} />
-              </>
-            )}
-            <AgentWebhooks
-              workspaceSlug={workspaceSlug}
-              agent={agent}
-              onOpenChange={setWebhookOpen}
-            />
+            <AgentLoops workspaceSlug={workspaceSlug} agent={agent} />
+          </PaneBody>
+        ) : shownTab === "events" ? (
+          <PaneBody
+            title="Events"
+            description={`What ${agent.name} hears from the tools you've connected, like a merged pull request or a finished call.`}
+          >
+            <AgentListeners workspaceSlug={workspaceSlug} agent={agent} />
           </PaneBody>
         ) : (
           <PaneBody
-            title="Runs"
-            description={`What ${agent.name} runs on, and who pays for it.`}
+            title="Webhooks"
+            description={`A URL any app or service can send data to. ${agent.name} hears what arrives.`}
           >
-            <AgentRuns
-              workspaceSlug={workspaceSlug}
-              agent={agent}
-              canManage={canManage}
-            />
+            <AgentWebhooks workspaceSlug={workspaceSlug} agent={agent} />
           </PaneBody>
         )}
       </PaneDialog>
@@ -384,7 +395,7 @@ function AgentChannels({
       await refreshAgents(queryClient, workspaceSlug)
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Couldn't change the channel"
+        error instanceof Error ? error.message : "Couldn't change the chat"
       )
       throw error
     } finally {
@@ -398,7 +409,7 @@ function AgentChannels({
   if (channels.length === 0) {
     return (
       <p className="rounded-xl bg-muted px-4 py-3 text-muted-foreground text-sm dark:bg-muted/60">
-        No channels yet.
+        No chats yet.
       </p>
     )
   }
@@ -416,7 +427,7 @@ function AgentChannels({
       <SettingsSection title={`${agent.name} is in`} count={inChannels.length}>
         {inChannels.length === 0 ? (
           <p className="rounded-xl bg-muted px-4 py-3 text-muted-foreground text-sm dark:bg-muted/60">
-            No channel yet. {agent.name} answers nowhere until it is in one.
+            No chat yet. {agent.name} answers nowhere until it is in one.
           </p>
         ) : (
           <SettingsGroup>
@@ -586,7 +597,7 @@ function NewAgentDialog({
     onSuccess: async (made) => {
       await refreshAgents(queryClient, workspaceSlug)
       // Next: put it somewhere.
-      dialog.open(made.id, "channels")
+      dialog.open(made.id, "chats")
     },
     onError: (error) => toast.error(error.message),
   })

@@ -787,8 +787,12 @@ Listeners and notifications (decisions 40 to 42, built 2026-11-26):
   (decision 43). Hovering a listener's chip
   puts an X over its face that removes it, with Undo in the toast; a clock
   at the end of the chips opens the last 30 deliveries.
-- **On the agent's page** "Listens to" lists its connector events, and
-  "Webhooks" lists the custom webhooks it hears, with New webhook.
+- **On the agent's page** the sidebar is two groups (Jacob, 11-26): what
+  the agent is (Profile, Memory, Model) and, under "Wakes {agent}", the
+  four things that wake it: Chats (a mention), Loops (a schedule), Events
+  (its connector listeners, each opening its connector) and Webhooks (the
+  custom webhooks it hears, with New webhook). "Channels" became Chats and
+  "Runs" became Model; the tab ids in `?agentTab=` changed with them.
 - **A custom webhook is a listener too** (built 2026-11-26). It is one
   `webhook` connection with its trigger, which carries the agent that hears
   it and the chat that agent reports in. Made from the agent's page
@@ -826,8 +830,9 @@ Listeners and notifications (decisions 40 to 42, built 2026-11-26):
   seconds all woke the agent after the caps were removed. Not run: a real
   connector's webhook, the notify switch's effect on a push, threads, a
   Discord-linked chat.
-- **Not built:** several agents on one custom webhook; listeners an agent
-  proposes for itself beyond the existing change proposal.
+- **Not built:** listeners an agent proposes for itself beyond the existing
+  change proposal. A custom webhook keeps one agent on purpose (Jacob,
+  11-26): to reach another agent, make that agent a webhook of its own.
 - **Rollout:** `pnpm db:push` adds the columns, swaps the unique index and
   drops `hourly_run_cap` and `daily_run_cap`.
   Existing triggers keep their chat and are heard by its first agent; their

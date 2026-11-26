@@ -6,12 +6,15 @@ import {
   DialogTitle,
 } from "@repo/ui/components/dialog"
 import { cn } from "@repo/ui/lib/utils"
-import { type ReactNode, useRef } from "react"
+import { Fragment, type ReactNode, useRef } from "react"
 
 export type PaneTab<T extends string> = {
   id: T
   label: string
   icon: IconSvgElement
+  // A small heading over the first section that names it: sections that
+  // share a group sit under one heading.
+  group?: string
 }
 
 // A settings dialog with its sections down the left and one section on the
@@ -61,27 +64,33 @@ export function PaneDialog<T extends string>({
               // Room for a focus ring inside the strip that scrolls sideways.
               className="flex gap-0.5 max-sm:-m-1 max-sm:overflow-x-auto max-sm:p-1 sm:flex-col"
             >
-              {tabs.map((item) => (
-                <button
-                  key={item.id}
-                  ref={tab === item.id ? current : undefined}
-                  type="button"
-                  onClick={() => onTabChange(item.id)}
-                  aria-current={tab === item.id ? "page" : undefined}
-                  className={cn(
-                    "flex h-8 shrink-0 cursor-pointer items-center gap-2 rounded-md px-2 text-sm outline-none transition-[background-color,color,transform] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98]",
-                    tab === item.id
-                      ? "bg-accent font-medium text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+              {tabs.map((item, index) => (
+                <Fragment key={item.id}>
+                  {item.group && item.group !== tabs[index - 1]?.group && (
+                    <p className="truncate px-2 pt-4 pb-1 font-medium text-muted-foreground/70 text-xs max-sm:hidden">
+                      {item.group}
+                    </p>
                   )}
-                >
-                  <HugeiconsIcon
-                    icon={item.icon}
-                    className="size-4 shrink-0"
-                    strokeWidth={2}
-                  />
-                  {item.label}
-                </button>
+                  <button
+                    ref={tab === item.id ? current : undefined}
+                    type="button"
+                    onClick={() => onTabChange(item.id)}
+                    aria-current={tab === item.id ? "page" : undefined}
+                    className={cn(
+                      "flex h-8 shrink-0 cursor-pointer items-center gap-2 rounded-md px-2 text-sm outline-none transition-[background-color,color,transform] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98]",
+                      tab === item.id
+                        ? "bg-accent font-medium text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                    )}
+                  >
+                    <HugeiconsIcon
+                      icon={item.icon}
+                      className="size-4 shrink-0"
+                      strokeWidth={2}
+                    />
+                    {item.label}
+                  </button>
+                </Fragment>
               ))}
             </nav>
             {aside && <div className="mt-auto max-sm:hidden">{aside}</div>}
