@@ -30,11 +30,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@repo/ui/components/select"
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   SettingsBackButton,
   SettingsCard,
@@ -44,9 +51,10 @@ import {
 } from "@/components/workspace/settings-group"
 import {
   TriggerEffects,
-  type TriggerEffectsValue,
+  type TriggerEffectsPatch,
+  TriggerRow,
 } from "@/components/workspace/trigger-effects"
-import { channelAgentOf, useAgentsById } from "@/hooks/use-agents"
+import { useAgentsById, type WorkspaceAgent } from "@/hooks/use-agents"
 import { apiClient } from "@/lib/api-client"
 import {
   openTextChannels,
@@ -237,13 +245,9 @@ function AvatarPicker({
   )
 }
 
-// What a webhook does with a delivery, for its list row.
+// What a webhook does with a delivery, for its row in a chat's list.
 function effectsSummary(
-  hook: {
-    post: boolean
-    actInstructions: string | null
-    actWindowSeconds: number
-  },
+  hook: { post: boolean; actInstructions: string | null },
   agentName: string | null | undefined
 ) {
   const parts = [
@@ -316,6 +320,21 @@ function HowToSend() {
   )
 }
 
+// A custom webhook is a listener (reference/agents-and-chats.md, decision
+// 40): an agent hears what arrives and reports in a chat. The same list and
+// editor serve both places it is made from, a chat's settings and an agent's
+// page; each webhook carries its own chat and agent.
+type WebhookScope =
+  | { kind: "chat"; channelId: string; channelName: string | null }
+  | { kind: "agent"; agent: WorkspaceAgent }
+
+type WebhookPatch = TriggerEffectsPatch & {
+  name?: string
+  avatarUrl?: string
+  channelId?: string
+  agentId?: string
+}
+
 export function ChannelWebhooksTab({
   workspaceSlug,
   channelId,
@@ -325,6 +344,43 @@ export function ChannelWebhooksTab({
   channelId: string
   channelName: string | null
 }) {
+  return (
+    <Webhooks
+      workspaceSlug={workspaceSlug}
+      scope={{ kind: "chat", channelId, channelName }}
+    />
+  )
+}
+
+// The webhooks an agent hears, on its own page. While one is open it takes
+// the pane, so `onOpenChange` lets the page put its other sections away.
+export function AgentWebhooks({
+  workspaceSlug,
+  agent,
+  onOpenChange,
+}: {
+  workspaceSlug: string
+  agent: WorkspaceAgent
+  onOpenChange: (open: boolean) => void
+}) {
+  return (
+    <Webhooks
+      workspaceSlug={workspaceSlug}
+      scope={{ kind: "agent", agent }}
+      onOpenChange={onOpenChange}
+    />
+  )
+}
+
+function Webhooks({
+  workspaceSlug,
+  scope,
+  onOpenChange,
+}: {
+  workspaceSlug: string
+  scope: WebhookScope
+  onOpenChange?: (open: boolean) => void
+}) {
   const queryClient = useQueryClient()
   const [openId, setOpenId] = useState<string | null>(null)
   const [draftName, setDraftName] = useState("")
@@ -332,34 +388,70 @@ export function ChannelWebhooksTab({
   const [avatarSavingId, setAvatarSavingId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string
+    channelId: string
     name: string
   } | null>(null)
 
-  const queryKey = ["channel-webhooks", workspaceSlug, channelId]
-  const { data, isPending } = useQuery({
-    queryKey,
+  const forAgent = scope.kind === "agent" ? scope.agent : null
+  const scopeId = scope.kind === "agent" ? scope.agent.id : scope.channelId
+  const { data, isPending, isError } = useQuery({
+    queryKey: [
+      forAgent ? "agent-webhooks" : "channel-webhooks",
+      workspaceSlug,
+      scopeId,
+    ],
     queryFn: async () => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].webhooks.$get({ param: { workspaceSlug, channelId } })
+      const res = forAgent
+        ? await apiClient.v1.workspaces[":workspaceSlug"].agents[
+            ":agentId"
+          ].webhooks.$get({ param: { workspaceSlug, agentId: scopeId } })
+        : await apiClient.v1.workspaces[":workspaceSlug"].channels[
+            ":channelId"
+          ].webhooks.$get({ param: { workspaceSlug, channelId: scopeId } })
       if (!res.ok) throw new Error("Failed to load webhooks")
       return res.json()
     },
+    // Someone who can't manage webhooks gets a refusal, not a list.
+    retry: false,
   })
+  // A webhook shows in its chat's list and its agent's: refresh both.
+  const refresh = () => {
+    void queryClient.invalidateQueries({
+      queryKey: ["channel-webhooks", workspaceSlug],
+    })
+    void queryClient.invalidateQueries({
+      queryKey: ["agent-webhooks", workspaceSlug],
+    })
+  }
+
+  const agents = useAgentsById(workspaceSlug)
+  const { data: chatList } = useQuery(
+    workspaceChannelsQueryOptions(workspaceSlug)
+  )
+  const chats = chatList ? openTextChannels(chatList) : []
+  const chatOf = (id: string) => chats.find((item) => item.id === id)
+  // An agent reports in a chat it is in: a new webhook starts in its first.
+  const agentChats = forAgent
+    ? chats.filter((item) => item.agentIds.includes(forAgent.id))
+    : []
+  const newIn = scope.kind === "agent" ? agentChats[0]?.id : scope.channelId
 
   const createMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (channelId: string) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
         ":channelId"
       ].webhooks.$post({
         param: { workspaceSlug, channelId },
-        json: { name: DEFAULT_WEBHOOK_NAME },
+        json: {
+          name: DEFAULT_WEBHOOK_NAME,
+          ...(forAgent ? { agentId: forAgent.id } : {}),
+        },
       })
       if (!res.ok) throw new Error("Failed to create webhook")
       return res.json()
     },
     onSuccess: ({ webhook }) => {
-      queryClient.invalidateQueries({ queryKey })
+      refresh()
       setOpenId(webhook.id)
       setDraftName(webhook.name)
     },
@@ -369,34 +461,21 @@ export function ChannelWebhooksTab({
   const updateMutation = useMutation({
     mutationFn: async (input: {
       webhookId: string
-      name?: string
-      avatarUrl?: string
-      post?: boolean
-      notify?: boolean
-      filter?: string | null
-      actInstructions?: string | null
-      actSessionMode?: TriggerEffectsValue["actSessionMode"]
-      actCode?: TriggerEffectsValue["actCode"]
-      actWindowSeconds?: number
+      // The chat it is in now: a move names the new one in the patch.
+      channelId: string
+      patch: WebhookPatch
     }) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
         ":channelId"
       ].webhooks[":webhookId"].$patch({
-        param: { workspaceSlug, channelId, webhookId: input.webhookId },
-        json: {
-          name: input.name,
-          avatarUrl: input.avatarUrl,
-          post: input.post,
-          notify: input.notify,
-          filter: input.filter,
-          actInstructions: input.actInstructions,
-          actSessionMode: input.actSessionMode,
-          actCode: input.actCode,
-          actWindowSeconds: input.actWindowSeconds,
+        param: {
+          workspaceSlug,
+          channelId: input.channelId,
+          webhookId: input.webhookId,
         },
+        json: input.patch,
       })
       if (!res.ok) {
-        // A refused repo or session mode says why.
         const body = (await res.json().catch(() => null)) as {
           message?: string
         } | null
@@ -404,23 +483,27 @@ export function ChannelWebhooksTab({
       }
       return res.json()
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onSuccess: refresh,
     onError: (err) => toast.error(err.message),
   })
 
   const deleteMutation = useMutation({
-    mutationFn: async (webhookId: string) => {
+    mutationFn: async (input: { id: string; channelId: string }) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
         ":channelId"
       ].webhooks[":webhookId"].$delete({
-        param: { workspaceSlug, channelId, webhookId },
+        param: {
+          workspaceSlug,
+          channelId: input.channelId,
+          webhookId: input.id,
+        },
       })
       if (!res.ok) throw new Error("Failed to delete webhook")
     },
-    onSuccess: (_, webhookId) => {
+    onSuccess: (_, input) => {
       setDeleteTarget(null)
-      if (openId === webhookId) setOpenId(null)
-      queryClient.invalidateQueries({ queryKey })
+      if (openId === input.id) setOpenId(null)
+      refresh()
     },
     onError: () => toast.error("Failed to delete webhook"),
   })
@@ -441,22 +524,16 @@ export function ChannelWebhooksTab({
     setTimeout(() => setCopiedId(null), 1500)
   }
 
-  // The chat's first agent hears its webhooks; with none there is nobody to
-  // wake. Unset while the chats load.
-  const agents = useAgentsById(workspaceSlug)
-  const { data: chatList } = useQuery(
-    workspaceChannelsQueryOptions(workspaceSlug)
-  )
-  const chat = chatList
-    ? openTextChannels(chatList).find((item) => item.id === channelId)
-    : undefined
-  const agentName = chat
-    ? (channelAgentOf(chat, agents)?.name ?? null)
-    : undefined
-
   const webhooks = data?.webhooks ?? []
   const open = webhooks.find((hook) => hook.id === openId) ?? null
-  const target = channelName ? `#${channelName}` : "this channel"
+  const isOpen = open !== null
+  useEffect(() => {
+    onOpenChange?.(isOpen)
+  }, [isOpen, onOpenChange])
+
+  // On an agent's page the section is left out for someone who can't manage
+  // webhooks.
+  if (forAgent && isError) return null
 
   const deleteDialog = (
     <AlertDialog
@@ -483,7 +560,7 @@ export function ChannelWebhooksTab({
             variant="destructive"
             loading={deleteMutation.isPending}
             onClick={() => {
-              if (deleteTarget) deleteMutation.mutate(deleteTarget.id)
+              if (deleteTarget) deleteMutation.mutate(deleteTarget)
             }}
           >
             Delete Webhook
@@ -494,14 +571,40 @@ export function ChannelWebhooksTab({
   )
 
   if (open) {
+    const chat = chatOf(open.channelId)
+    // Unset while the chats load; null when its chat has no agent.
+    const agentName = chatList
+      ? (agents.get(open.agentId ?? "")?.name ?? null)
+      : undefined
+    const patch = (next: WebhookPatch) =>
+      updateMutation.mutate({
+        webhookId: open.id,
+        channelId: open.channelId,
+        patch: next,
+      })
     const saveName = () => {
       const name = draftName.trim()
       if (!name || name === open.name) return
-      updateMutation.mutate({ webhookId: open.id, name })
+      patch({ name })
     }
+    // On an agent's page, the chat it reports in; in a chat with several
+    // agents, which of them hears it.
+    const choices = forAgent
+      ? agentChats.map((item) => ({
+          value: item.id,
+          label: item.name ?? "Chat",
+        }))
+      : (chat?.agentIds ?? []).flatMap((id) => {
+          const agent = agents.get(id)
+          return agent ? [{ value: id, label: agent.name }] : []
+        })
+    const chosen = forAgent ? open.channelId : open.agentId
     return (
       <div className="space-y-6">
-        <SettingsBackButton label="Webhooks" onClick={() => setOpenId(null)} />
+        <SettingsBackButton
+          label={forAgent ? "Loops" : "Webhooks"}
+          onClick={() => setOpenId(null)}
+        />
         <div className="flex items-center gap-3">
           <AvatarPicker
             src={open.avatarUrl}
@@ -509,9 +612,16 @@ export function ChannelWebhooksTab({
             onFile={async (file) => {
               setAvatarSavingId(open.id)
               try {
-                const avatarUrl = await uploadWebhookAvatar(channelId, file)
+                const avatarUrl = await uploadWebhookAvatar(
+                  open.channelId,
+                  file
+                )
                 updateMutation.mutate(
-                  { webhookId: open.id, avatarUrl },
+                  {
+                    webhookId: open.id,
+                    channelId: open.channelId,
+                    patch: { avatarUrl },
+                  },
                   { onSettled: () => setAvatarSavingId(null) }
                 )
               } catch {
@@ -571,7 +681,11 @@ export function ChannelWebhooksTab({
                   <DropdownMenuItem
                     variant="destructive"
                     onClick={() =>
-                      setDeleteTarget({ id: open.id, name: open.name })
+                      setDeleteTarget({
+                        id: open.id,
+                        channelId: open.channelId,
+                        name: open.name,
+                      })
                     }
                   >
                     <HugeiconsIcon icon={Delete02Icon} size={14} />
@@ -591,7 +705,7 @@ export function ChannelWebhooksTab({
           <SettingsCard className="space-y-0">
             <TriggerEffects
               idPrefix={`webhook-${open.id}`}
-              channelLabel={channelName}
+              channelLabel={chat?.name}
               agentName={agentName}
               disabled={updateMutation.isPending}
               value={{
@@ -604,102 +718,160 @@ export function ChannelWebhooksTab({
                 actWindowSeconds: open.actWindowSeconds,
                 lastAct: open.lastAct,
               }}
-              onPatch={(patch) =>
-                updateMutation.mutate({ webhookId: open.id, ...patch })
+              lead={
+                choices.length > 1 && (
+                  <TriggerRow
+                    id={`webhook-${open.id}-to`}
+                    label={forAgent ? "Reports in" : "Heard by"}
+                  >
+                    <Select
+                      items={choices}
+                      value={chosen}
+                      disabled={updateMutation.isPending}
+                      onValueChange={(value) => {
+                        if (!value || value === chosen) return
+                        patch(
+                          forAgent ? { channelId: value } : { agentId: value }
+                        )
+                      }}
+                    >
+                      <SelectTrigger
+                        id={`webhook-${open.id}-to`}
+                        size="sm"
+                        className="w-44"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {choices.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TriggerRow>
+                )
               }
+              onPatch={patch}
             />
           </SettingsCard>
         </SettingsSection>
+        <HowToSend />
         {deleteDialog}
       </div>
     )
   }
 
+  const target =
+    scope.kind === "chat" && scope.channelName
+      ? `#${scope.channelName}`
+      : "this channel"
   return (
-    <div className="space-y-6">
-      <SettingsSection
-        title="Webhooks"
-        count={webhooks.length || undefined}
-        description={`Let other apps and services post data into ${target}.`}
-        action={
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            disabled={createMutation.isPending}
-            onClick={() => createMutation.mutate()}
-          >
-            {createMutation.isPending ? (
-              <Spinner className="size-3.5" />
-            ) : (
-              <HugeiconsIcon
-                icon={PlusSignIcon}
-                className="size-3.5"
-                strokeWidth={2}
-              />
-            )}
-            New webhook
-          </Button>
-        }
-      >
-        {isPending ? (
-          <SettingsCard className="flex justify-center">
-            <Spinner className="size-4 text-muted-foreground" />
-          </SettingsCard>
-        ) : webhooks.length === 0 ? (
-          <SettingsCard className="py-8 text-center">
-            <p className="text-sm">No webhooks yet</p>
-            <p className="text-xs text-muted-foreground">
-              Create one to get a URL other services can post to.
-            </p>
-          </SettingsCard>
-        ) : (
-          <SettingsGroup>
-            {webhooks.map((hook) => (
-              <div key={hook.id} className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => openWebhook(hook.id, hook.name)}
-                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <WebhookAvatar
-                    src={hook.avatarUrl}
-                    className="size-8 rounded-full"
-                    iconClassName="size-4"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm">{hook.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {effectsSummary(hook, agentName)}
-                    </span>
+    <SettingsSection
+      title="Webhooks"
+      count={webhooks.length || undefined}
+      description={
+        forAgent
+          ? `A URL other apps and services send data to. ${forAgent.name} hears what arrives.`
+          : `Let other apps and services post data into ${target}.`
+      }
+      action={
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          disabled={createMutation.isPending || !newIn}
+          onClick={() => newIn && createMutation.mutate(newIn)}
+        >
+          {createMutation.isPending ? (
+            <Spinner className="size-3.5" />
+          ) : (
+            <HugeiconsIcon
+              icon={PlusSignIcon}
+              className="size-3.5"
+              strokeWidth={2}
+            />
+          )}
+          New webhook
+        </Button>
+      }
+      caption={
+        forAgent && chatList && !newIn
+          ? `Add ${forAgent.name} to a chat first: it reports there.`
+          : undefined
+      }
+    >
+      {isPending ? (
+        <SettingsCard className="flex justify-center">
+          <Spinner className="size-4 text-muted-foreground" />
+        </SettingsCard>
+      ) : webhooks.length === 0 && forAgent ? (
+        // Beside the agent's loops and events, an empty list is one line.
+        <SettingsCard>
+          <p className="text-muted-foreground text-sm">
+            No webhooks yet. Create one to get a URL other services can send to.
+          </p>
+        </SettingsCard>
+      ) : webhooks.length === 0 ? (
+        <SettingsCard className="py-8 text-center">
+          <p className="text-sm">No webhooks yet</p>
+          <p className="text-xs text-muted-foreground">
+            Create one to get a URL other services can post to.
+          </p>
+        </SettingsCard>
+      ) : (
+        <SettingsGroup>
+          {webhooks.map((hook) => (
+            <div key={hook.id} className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => openWebhook(hook.id, hook.name)}
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <WebhookAvatar
+                  src={hook.avatarUrl}
+                  className="size-8 rounded-full"
+                  iconClassName="size-4"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm">{hook.name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {forAgent
+                      ? `${hook.filter ? `Only when ${hook.filter}. ` : ""}Reports in ${chatOf(hook.channelId)?.name ?? "its chat"}`
+                      : effectsSummary(
+                          hook,
+                          chatList
+                            ? (agents.get(hook.agentId ?? "")?.name ?? null)
+                            : undefined
+                        )}
                   </span>
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Copy ${hook.name}'s URL`}
-                  title="Copy URL"
-                  onClick={() => handleCopy(hook.id, hook.token)}
-                  className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-                >
-                  <HugeiconsIcon
-                    icon={copiedId === hook.id ? Tick02Icon : Copy01Icon}
-                    className="size-3.5"
-                    strokeWidth={2}
-                  />
-                </button>
+                </span>
+              </button>
+              <button
+                type="button"
+                aria-label={`Copy ${hook.name}'s URL`}
+                title="Copy URL"
+                onClick={() => handleCopy(hook.id, hook.token)}
+                className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+              >
                 <HugeiconsIcon
-                  icon={ArrowRight01Icon}
-                  className="size-3.5 shrink-0 text-muted-foreground"
+                  icon={copiedId === hook.id ? Tick02Icon : Copy01Icon}
+                  className="size-3.5"
                   strokeWidth={2}
                 />
-              </div>
-            ))}
-          </SettingsGroup>
-        )}
-      </SettingsSection>
-      <HowToSend />
+              </button>
+              <HugeiconsIcon
+                icon={ArrowRight01Icon}
+                className="size-3.5 shrink-0 text-muted-foreground"
+                strokeWidth={2}
+              />
+            </div>
+          ))}
+        </SettingsGroup>
+      )}
       {deleteDialog}
-    </div>
+    </SettingsSection>
   )
 }

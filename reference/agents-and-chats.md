@@ -1,16 +1,19 @@
 # Agents and chats: agents apart from channels
 
-**Status:** Decided with Jacob on 2026-11-23 and 11-24, and built step by
-step from §9. Step 1 (agents apart from channels) is built, all on 11-24.
-Later that day Jacob set the end goal this doc now follows (decisions 22 to
-30): an agent owns everything it has, its knowledge is shared with the whole
-workspace, it has one memory across every place it works, and people's
-requests run side by side. Step 2 (memory) and the backend of step 3
-(conversations) are built, also on 11-24: lint and type checks pass and both
-were run live on a throwaway database, except code sessions, which are
-type-checked only. Left in step 3: chats in the app's sidebar, New chat, and
-Loops stored on the agent. Steps 4 and 5 are design only.
-`db:push` on the shared databases is owed (§9, rollout). It
+**Status:** Decided with Jacob from 2026-11-23 to 11-26 and built step by
+step from §9. This doc is the record: §3 lists every decision (1 to 43) with
+who made it and when, §9 says what each step built, how it was checked and
+what was not run, and "What is left" at the top of §9 is the order of the
+remaining work. Built so far: agents apart from channels (step 1), one
+memory per agent (step 2), and of step 3 the conversations backend, several
+agents in a chat posting as bot users, the Jev wake for messages that name
+nobody, the sidebar's chat list with its member records, listeners (several
+agents per connector event, custom webhooks on the agent's page) and the
+notification rules. Left in step 3: New chat, the chat's header and panel,
+finding and joining a chat, agents messaging each other, and Loops stored on
+the agent. Steps 4 and 5 are design only. Lint and type checks pass and each
+part was run live on a throwaway database, except where its section says
+otherwise. `db:push` on the shared databases is owed (§9, rollout). It
 changes the shape built under `always-on-agents.md` (LOR-169): where a step
 here has landed, this doc says what the code does.
 
@@ -274,6 +277,21 @@ tools all stay.
 ## 9. Build steps
 
 Each step ends in something the team uses. Steps 2 to 5 are not sized.
+
+**What is left** (the order agreed with Jacob on 2026-11-26):
+
+1. New chat: pick people and agents, name it, and it is in the list.
+2. The chat's header and right panel: who is in it, adding and removing
+   people and agents, its settings. Replaces the channel settings dialog.
+3. Find and join a chat; then `channel-list.tsx` is deleted.
+4. Agents messaging each other (§8): the tool, the agents' chat, the
+   "messaged" line and the read-only view, in Lor only.
+5. Loops stored on the agent.
+6. Slack and Discord as places (steps 4 and 5 below).
+
+Beside these: the mobile app still lists channels; listeners an agent
+proposes for itself; `db:push` on the shared databases, then API, realtime,
+worker and web deployed together.
 
 ### Step 1: agents apart from channels (built 2026-11-24)
 
@@ -769,8 +787,21 @@ Listeners and notifications (decisions 40 to 42, built 2026-11-26):
   (decision 43). Hovering a listener's chip
   puts an X over its face that removes it, with Undo in the toast; a clock
   at the end of the chips opens the last 30 deliveries.
-- **On the agent's page** "Listens to" lists its connector events. Custom
-  webhooks are still created from a chat's Webhooks tab.
+- **On the agent's page** "Listens to" lists its connector events, and
+  "Webhooks" lists the custom webhooks it hears, with New webhook.
+- **A custom webhook is a listener too** (built 2026-11-26). It is one
+  `webhook` connection with its trigger, which carries the agent that hears
+  it and the chat that agent reports in. Made from the agent's page
+  (`POST …/channels/{chat}/webhooks` with `agentId`) it starts in the
+  agent's first chat, wakes the agent and posts nothing; made from a chat's
+  Webhooks tab it posts and is heard by the chat's first agent, as before.
+  `GET …/agents/{id}/webhooks` lists the ones an agent hears, including
+  those that name nobody in a chat where it is first. `PATCH` takes
+  `channelId` (move it to another chat the agent is in; a saved repository
+  the new chat can't use is dropped) and `agentId` (which of the chat's
+  agents hears it). One list and editor serve both places
+  (`channel-webhooks-tab.tsx`): "Reports in" on the agent's page, "Heard
+  by" in a chat with several agents. A webhook has one listener.
 - **Notifications** (`buildMessageFanout`, `read-states.ts`). A chat's own
   message reaches the people in it (`channel_member`), not everyone who can
   see it; a chat nobody is in yet still reaches everyone. A direct mention
@@ -788,10 +819,15 @@ Listeners and notifications (decisions 40 to 42, built 2026-11-26):
   and for GitHub the engineering one; a suggestion turned on in one press
   and five at once with "Add all suggested"; a second agent added to an
   event from the page; a mention put a person in a chat, and so did writing
-  in one. Not run: a real connector's webhook, the notify switch's effect
-  on a push, threads, a Discord-linked chat.
-- **Not built:** creating a custom webhook from the agent's page; listeners
-  an agent proposes for itself beyond the existing change proposal.
+  in one; a webhook made from an agent's page, moved to another chat from
+  there, woke the agent on an event with nothing posted and was answered in
+  the chat it was moved to; the same webhook showed in that chat's Webhooks
+  tab, where its agent was switched and switched back; five events in two
+  seconds all woke the agent after the caps were removed. Not run: a real
+  connector's webhook, the notify switch's effect on a push, threads, a
+  Discord-linked chat.
+- **Not built:** several agents on one custom webhook; listeners an agent
+  proposes for itself beyond the existing change proposal.
 - **Rollout:** `pnpm db:push` adds the columns, swaps the unique index and
   drops `hourly_run_cap` and `daily_run_cap`.
   Existing triggers keep their chat and are heard by its first agent; their

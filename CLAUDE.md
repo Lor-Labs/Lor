@@ -288,9 +288,12 @@ chats nobody is in (`chat-members.ts`). Listeners are built (decisions 40
 to 42): an incoming connector event or webhook is heard by one or several
 agents (`connector_trigger.agent_id`, each with a Jev `filter` and a
 `notify` switch), set up on the connector's page with a suggested agent
-(`apps/web/src/components/workspace/connector-events.tsx`), and
+(`apps/web/src/components/workspace/connector-events.tsx`), a custom
+webhook is made from a chat or from the agent's page
+(`channel-webhooks-tab.tsx`), there are no wake caps (decision 43), and
 notifications reach the people in a chat (`buildMessageFanout`). Not built yet: New chat, the chat's header and
-panel, finding and joining a chat, and Loops stored on the agent. The mock of the chat list is
+panel, finding and joining a chat, agents messaging each other, and Loops
+stored on the agent (the order is "What is left" in that doc's §9). The mock of the chat list is
 `/prototype/chats`; `/prototype/agents` is the earlier design.
 
 ### Conventions

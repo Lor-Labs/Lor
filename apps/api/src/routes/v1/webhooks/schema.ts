@@ -18,6 +18,16 @@ export const webhookIdParamsSchema = channelWebhookParamsSchema.extend({
     .openapi({ param: { name: "webhookId", in: "path", required: true } }),
 })
 
+export const agentWebhookParamsSchema = z.object({
+  workspaceSlug: z.string().openapi({
+    param: { name: "workspaceSlug", in: "path", required: true },
+  }),
+  agentId: z
+    .string()
+    .uuid()
+    .openapi({ param: { name: "agentId", in: "path", required: true } }),
+})
+
 // The newest Act run on this webhook's trigger, carrying the handoff note that
 // run left for the next one. null = the trigger has never run.
 export const lastActSchema = z
@@ -35,7 +45,11 @@ export const lastActSchema = z
 export const channelWebhookSchema = z.object({
   id: z.string(),
   name: z.string(),
+  // The chat its agent reports in, and where the data is posted.
   channelId: z.string(),
+  // The agent that hears it (the chat's first agent when none was picked);
+  // null when its chat has no agent.
+  agentId: z.string().nullable(),
   avatarUrl: z.string().nullable(),
   token: z.string(),
   createdAt: z.string(),
@@ -63,6 +77,10 @@ export const listChannelWebhooksResponseSchema = z.object({
 export const createChannelWebhookRequestSchema = z.object({
   name: z.string().trim().min(1).max(80),
   avatarUrl: z.string().url().max(2048).optional(),
+  // The agent that hears it; it must be in the chat. Made for an agent, a
+  // webhook wakes it and posts nothing. Absent: the data is posted, and the
+  // chat's first agent hears it.
+  agentId: z.string().uuid().optional(),
 })
 
 export const createChannelWebhookResponseSchema = z.object({
@@ -73,6 +91,10 @@ export const updateChannelWebhookRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(80).optional(),
     avatarUrl: z.string().url().max(2048).nullable().optional(),
+    // Moves the webhook to another chat its agent is in.
+    channelId: z.string().uuid().optional(),
+    // Which of the chat's agents hears it.
+    agentId: z.string().uuid().optional(),
     post: z.boolean().optional(),
     notify: z.boolean().optional(),
     // Null or empty clears it.

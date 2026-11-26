@@ -1,6 +1,10 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { db } from "@repo/db"
-import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import { agentIdsByChannel } from "@repo/db/queries/agents"
+import {
+  listAccessibleChannelIds,
+  resolveChannelAccess,
+} from "@repo/db/queries/channel-access"
 import {
   type ActSessionMode,
   channel,
@@ -20,6 +24,7 @@ import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CreateChannelWebhookRoute,
   DeleteChannelWebhookRoute,
+  ListAgentWebhooksRoute,
   ListChannelWebhooksRoute,
   UpdateChannelWebhookRoute,
 } from "@/routes/v1/webhooks/routes"
@@ -27,6 +32,9 @@ import type {
 // A webhook = one `webhook`-provider connection row + its channel-anchored
 // trigger, created and managed together. The webhook id in the execute URL is
 // the connection's externalId. See reference/automation-primitives.md §3.
+// It is a listener like a connector event's (reference/agents-and-chats.md,
+// decision 40): an agent hears it and reports in the chat it is anchored to.
+// It is made from that chat or from the agent's page.
 
 const MAX_WEBHOOKS_PER_CHANNEL = 10
 
@@ -44,6 +52,7 @@ type WebhookRow = {
   accessToken: string | null
   createdAt: Date
   channelId: string
+  agentId: string | null
   post: boolean
   notify: boolean
   filter: string | null
@@ -58,7 +67,9 @@ function toResponse(
   row: WebhookRow,
   createdByName: string | null,
   key: string,
-  lastAct: LastAct | null
+  lastAct: LastAct | null,
+  // The chat's first agent, which hears a webhook that names none.
+  firstAgentId: string | null
 ) {
   let token = ""
   try {
@@ -70,6 +81,7 @@ function toResponse(
     id: row.externalId,
     name: row.name ?? "Webhook",
     channelId: row.channelId,
+    agentId: row.agentId ?? firstAgentId,
     avatarUrl: row.avatarUrl,
     token,
     createdAt: row.createdAt.toISOString(),
@@ -92,6 +104,7 @@ const webhookSelection = {
   accessToken: integrationConnection.accessToken,
   createdAt: integrationConnection.createdAt,
   channelId: connectorTrigger.channelId,
+  agentId: connectorTrigger.agentId,
   post: connectorTrigger.post,
   notify: connectorTrigger.notify,
   filter: connectorTrigger.filter,
@@ -210,6 +223,7 @@ export const listChannelWebhooks: AppRouteHandler<
     rows.map((row) => row.triggerId),
     [channelId]
   )
+  const firstAgentId = await firstAgentOf(channelId)
 
   return c.json(
     {
@@ -218,7 +232,89 @@ export const listChannelWebhooks: AppRouteHandler<
           row,
           row.creatorName,
           key,
-          lastActs.get(row.triggerId) ?? null
+          lastActs.get(row.triggerId) ?? null,
+          firstAgentId
+        )
+      ),
+    },
+    HttpStatusCodes.OK
+  )
+}
+
+async function firstAgentOf(channelId: string): Promise<string | null> {
+  return (await agentIdsByChannel([channelId])).get(channelId)?.[0] ?? null
+}
+
+// The webhooks an agent hears, for its own page: the ones that name it, and
+// the ones that name nobody in a chat where it is the first agent. Only in
+// chats the caller can see.
+export const listAgentWebhooks: AppRouteHandler<
+  ListAgentWebhooksRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const { agentId } = c.req.valid("param")
+
+  // Listing exposes tokens, so it's gated like management.
+  assertWorkspaceAuthority(c.var.authority, { webhook: ["manage"] })
+
+  const key = env.INTEGRATION_ENCRYPTION_KEY
+  if (!key) {
+    return c.json(
+      {
+        success: false,
+        message: "Webhooks require INTEGRATION_ENCRYPTION_KEY to be configured",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const [rows, accessible] = await Promise.all([
+    db
+      .select({
+        ...webhookSelection,
+        triggerId: connectorTrigger.id,
+        creatorName: user.name,
+      })
+      .from(integrationConnection)
+      .innerJoin(
+        connectorTrigger,
+        eq(connectorTrigger.connectionId, integrationConnection.id)
+      )
+      .leftJoin(user, eq(integrationConnection.createdBy, user.id))
+      .where(
+        and(
+          eq(integrationConnection.provider, "webhook"),
+          eq(integrationConnection.workspaceId, workspace.id)
+        )
+      )
+      .orderBy(integrationConnection.createdAt),
+    listAccessibleChannelIds(c.var.user.id, workspace.id),
+  ])
+  const visible = rows.filter((row) => accessible.has(row.channelId))
+  const firstAgents = await agentIdsByChannel([
+    ...new Set(
+      visible.filter((row) => !row.agentId).map((row) => row.channelId)
+    ),
+  ])
+  const firstAgentOfRow = (row: (typeof rows)[number]) =>
+    firstAgents.get(row.channelId)?.[0] ?? null
+  const heard = visible.filter(
+    (row) => (row.agentId ?? firstAgentOfRow(row)) === agentId
+  )
+  const lastActs = await lastActByTrigger(
+    heard.map((row) => row.triggerId),
+    [...new Set(heard.map((row) => row.channelId))]
+  )
+
+  return c.json(
+    {
+      webhooks: heard.map((row) =>
+        toResponse(
+          row,
+          row.creatorName,
+          key,
+          lastActs.get(row.triggerId) ?? null,
+          firstAgentOfRow(row)
         )
       ),
     },
@@ -243,7 +339,7 @@ export const createChannelWebhook: AppRouteHandler<
 > = async (c) => {
   const workspace = c.var.workspace
   const { channelId } = c.req.valid("param")
-  const { name, avatarUrl } = c.req.valid("json")
+  const { name, avatarUrl, agentId } = c.req.valid("json")
 
   assertWorkspaceAuthority(c.var.authority, { webhook: ["manage"] })
 
@@ -274,6 +370,15 @@ export const createChannelWebhook: AppRouteHandler<
   if (avatarUrl && !isOwnWebhookAvatarUrl(avatarUrl, channelId)) {
     return c.json(
       { success: false, message: "Avatar must be an uploaded asset" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  // The agent that hears it reports in this chat, so it has to be in it.
+  const inChat = (await agentIdsByChannel([channelId])).get(channelId) ?? []
+  if (agentId && !inChat.includes(agentId)) {
+    return c.json(
+      { success: false, message: "That agent is not in this chat" },
       HttpStatusCodes.BAD_REQUEST
     )
   }
@@ -337,7 +442,11 @@ export const createChannelWebhook: AppRouteHandler<
         connectionId: connection.id,
         event: "data_received",
         channelId,
-        post: true,
+        // Made for an agent, it wakes that agent, which decides what to
+        // say; made from a chat, the data is posted there.
+        ...(agentId
+          ? { agentId, post: false, actInstructions: "" }
+          : { post: true }),
         configuredById: c.var.user.id,
       })
       .returning()
@@ -379,6 +488,7 @@ export const createChannelWebhook: AppRouteHandler<
           accessToken: result.connection.accessToken,
           createdAt: result.connection.createdAt,
           channelId: result.trigger.channelId,
+          agentId: result.trigger.agentId,
           post: result.trigger.post,
           notify: result.trigger.notify,
           filter: result.trigger.filter,
@@ -390,7 +500,8 @@ export const createChannelWebhook: AppRouteHandler<
         },
         c.var.user.name,
         key,
-        null
+        null,
+        inChat[0] ?? null
       ),
     },
     HttpStatusCodes.OK
@@ -405,6 +516,8 @@ export const updateChannelWebhook: AppRouteHandler<
   const {
     name,
     avatarUrl,
+    channelId: nextChannelId,
+    agentId: nextAgentId,
     post,
     notify,
     filter,
@@ -452,16 +565,75 @@ export const updateChannelWebhook: AppRouteHandler<
     )
   }
 
-  const target =
-    actSessionMode !== undefined || actCode !== undefined
+  // Moved to another chat: the mover has to be able to write there, and
+  // the chat has room for it.
+  const moveTo =
+    nextChannelId && nextChannelId !== channelId ? nextChannelId : null
+  if (moveTo) {
+    const movable =
+      (await checkChannelWriteAccess(c.var.user.id, moveTo)) === "ok" &&
+      (await findTextChannel(moveTo, workspace.id))
+    if (!movable) {
+      return c.json(
+        { success: false, message: "Chat not found" },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
+    const there = await db
+      .select({ value: count() })
+      .from(connectorTrigger)
+      .innerJoin(
+        integrationConnection,
+        eq(connectorTrigger.connectionId, integrationConnection.id)
+      )
+      .where(
+        and(
+          eq(connectorTrigger.channelId, moveTo),
+          eq(integrationConnection.provider, "webhook")
+        )
+      )
+      .then((rows) => rows[0]?.value ?? 0)
+    if (there >= MAX_WEBHOOKS_PER_CHANNEL) {
+      return c.json(
+        {
+          success: false,
+          message: `A channel can have at most ${MAX_WEBHOOKS_PER_CHANNEL} webhooks`,
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
+  }
+  const chatId = moveTo ?? channelId
+  // Its agent reports in the chat, so it has to be in it.
+  const listening = nextAgentId ?? (moveTo ? existing.agentId : null)
+  if (listening) {
+    const inChat = (await agentIdsByChannel([chatId])).get(chatId) ?? []
+    if (!inChat.includes(listening)) {
+      return c.json(
+        { success: false, message: "That agent is not in this chat" },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
+  }
+
+  let target =
+    actSessionMode !== undefined || actCode !== undefined || moveTo
       ? await checkActTarget({
           workspaceId: workspace.id,
-          channelId,
+          channelId: chatId,
           sessionMode: actSessionMode ?? existing.actSessionMode,
           code: actCode !== undefined ? actCode : actCodeOf(existing),
-          recheck: actCodeChanged(actCode, actCodeOf(existing)),
+          recheck: !!moveTo || actCodeChanged(actCode, actCodeOf(existing)),
         })
       : null
+  // A saved repository the new chat can't use is dropped with the move: it
+  // is only a hint to the agent.
+  if (target && !target.ok && moveTo && actCode === undefined) {
+    target = {
+      ok: true,
+      columns: { actRepoFullName: null, actBaseBranch: null },
+    }
+  }
   if (target && !target.ok) {
     return c.json(
       { success: false, message: target.message },
@@ -481,6 +653,8 @@ export const updateChannelWebhook: AppRouteHandler<
         .where(eq(integrationConnection.id, existing.connectionId))
     }
     if (
+      moveTo ||
+      nextAgentId !== undefined ||
       post !== undefined ||
       notify !== undefined ||
       filter !== undefined ||
@@ -492,6 +666,8 @@ export const updateChannelWebhook: AppRouteHandler<
         .update(connectorTrigger)
         .set({
           configuredById: c.var.user.id,
+          ...(moveTo ? { channelId: moveTo } : {}),
+          ...(nextAgentId !== undefined ? { agentId: nextAgentId } : {}),
           ...(post !== undefined ? { post } : {}),
           ...(notify !== undefined ? { notify } : {}),
           ...(filter !== undefined ? { filter: filter?.trim() || null } : {}),
@@ -504,7 +680,7 @@ export const updateChannelWebhook: AppRouteHandler<
     }
   })
 
-  const updated = await findWebhook(workspace.id, channelId, webhookId)
+  const updated = await findWebhook(workspace.id, chatId, webhookId)
   if (!updated) {
     return c.json(
       { success: false, message: "Webhook not found" },
@@ -520,7 +696,7 @@ export const updateChannelWebhook: AppRouteHandler<
         .then((rows) => rows[0]?.name ?? null)
     : null
 
-  const lastActs = await lastActByTrigger([updated.triggerId], [channelId])
+  const lastActs = await lastActByTrigger([updated.triggerId], [chatId])
 
   return c.json(
     {
@@ -528,7 +704,8 @@ export const updateChannelWebhook: AppRouteHandler<
         updated,
         creatorName,
         key,
-        lastActs.get(updated.triggerId) ?? null
+        lastActs.get(updated.triggerId) ?? null,
+        await firstAgentOf(chatId)
       ),
     },
     HttpStatusCodes.OK

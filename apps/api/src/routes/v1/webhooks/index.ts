@@ -25,6 +25,7 @@ import { executeWebhookBodySchema } from "@/routes/v1/webhooks/schema"
 
 const webhooksRouter = createRouter()
   .openapi(routes.listChannelWebhooks, handlers.listChannelWebhooks)
+  .openapi(routes.listAgentWebhooks, handlers.listAgentWebhooks)
   .openapi(routes.createChannelWebhook, handlers.createChannelWebhook)
   .openapi(routes.updateChannelWebhook, handlers.updateChannelWebhook)
   .openapi(routes.deleteChannelWebhook, handlers.deleteChannelWebhook)

@@ -17,7 +17,7 @@ import {
 // What an agent listens to (reference/agents-and-chats.md, decision 40): the
 // connector events it is woken by, each with the chat it reports in. A row
 // opens its connector in settings, where listeners are turned on and off.
-// Custom webhooks are still set up from their chat.
+// Its custom webhooks are listed below it (AgentWebhooks).
 export function AgentListeners({
   workspaceSlug,
   agent,

@@ -33,6 +33,7 @@ import { AgentListeners } from "@/components/agent/agent-listeners"
 import { AgentLoops } from "@/components/agent/agent-loops"
 import { AgentRuns } from "@/components/agent/agent-runs"
 import { AgentFactsList } from "@/components/sidebar/channel-panel/agent-facts-list"
+import { AgentWebhooks } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
 import { InlineConfirmButton } from "@/components/ui/inline-confirm-button"
 import {
   PaneBody,
@@ -165,6 +166,7 @@ function AgentDialog({
   const { tab, setTab } = useAgentDialog()
   const { data: session } = authClient.useSession()
   const canManage = useCanManageChannels(workspaceSlug)
+  const [webhookOpen, setWebhookOpen] = useState(false)
   // Without channel:update, the person who made it may still name it.
   const canEditIdentity = canManage || agent.createdById === session?.user.id
   const state = useAgentState(workspaceId, agent)
@@ -293,10 +295,20 @@ function AgentDialog({
         ) : shownTab === "loops" ? (
           <PaneBody
             title="Loops"
-            description={`What ${agent.name} does on a schedule, and the events it listens to. A loop runs in the chat it was set up in.`}
+            description={`What ${agent.name} does on a schedule, and the events and webhooks it listens to. A loop runs in the chat it was set up in.`}
           >
-            <AgentLoops workspaceSlug={workspaceSlug} agent={agent} />
-            <AgentListeners workspaceSlug={workspaceSlug} agent={agent} />
+            {/* An open webhook takes the pane. */}
+            {!webhookOpen && (
+              <>
+                <AgentLoops workspaceSlug={workspaceSlug} agent={agent} />
+                <AgentListeners workspaceSlug={workspaceSlug} agent={agent} />
+              </>
+            )}
+            <AgentWebhooks
+              workspaceSlug={workspaceSlug}
+              agent={agent}
+              onOpenChange={setWebhookOpen}
+            />
           </PaneBody>
         ) : (
           <PaneBody
