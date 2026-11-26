@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto"
 import { readServerEnv } from "@repo/env/server-fields"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
-import type { InferenceFunding, KeyProvider } from "@repo/utils/inference"
+import {
+  type InferenceCredential,
+  type InferenceFunding,
+  type InferenceKeyConfig,
+  inferenceKeyConfig,
+  inferenceKeyHint,
+  type KeyProvider,
+} from "@repo/utils/inference"
 import { and, asc, db, eq, schema } from "../index"
 
 function encryptionKey() {
@@ -18,6 +25,24 @@ const keyOf = (workspaceId: string, provider: KeyProvider) =>
     eq(schema.workspaceInferenceKey.provider, provider)
   )
 
+// Anthropic/OpenAI rows store the bare API key; the cloud providers store
+// their JSON credential.
+function encodeCredential(credential: InferenceCredential) {
+  if (credential.provider === "anthropic" || credential.provider === "openai")
+    return credential.apiKey
+  const { provider: _, ...rest } = credential
+  return JSON.stringify(rest)
+}
+
+function decodeCredential(
+  provider: KeyProvider,
+  plaintext: string
+): InferenceCredential {
+  if (provider === "anthropic" || provider === "openai")
+    return { provider, apiKey: plaintext }
+  return { provider, ...JSON.parse(plaintext) } as InferenceCredential
+}
+
 export async function workspaceInferenceKeyId(
   workspaceId: string,
   provider: KeyProvider
@@ -28,6 +53,28 @@ export async function workspaceInferenceKeyId(
     .where(keyOf(workspaceId, provider))
     .then((rows) => rows[0]?.keyId ?? null)
 }
+
+// The key's identity and non-secret settings, to check a model pick against
+// what the provider was set up to run.
+export async function workspaceInferenceKeyRef(
+  workspaceId: string,
+  provider: KeyProvider
+): Promise<{ keyId: string; config: InferenceKeyConfig } | null> {
+  const row = await db
+    .select({
+      keyId: schema.workspaceInferenceKey.keyId,
+      config: schema.workspaceInferenceKey.config,
+    })
+    .from(schema.workspaceInferenceKey)
+    .where(keyOf(workspaceId, provider))
+    .then((rows) => rows[0])
+  const config = row ? (row.config ?? legacyConfig(provider)) : null
+  return row && config ? { keyId: row.keyId, config } : null
+}
+
+// Rows saved before config existed are Anthropic/OpenAI keys.
+const legacyConfig = (provider: KeyProvider): InferenceKeyConfig | null =>
+  provider === "anthropic" || provider === "openai" ? { provider } : null
 
 // A run on a workspace key stops once that key is replaced or removed.
 // Lor-paid runs never depend on the workspace's keys.
@@ -41,7 +88,7 @@ export async function assertInferenceKeyCurrent(
     funding.keyId
   )
     throw new Error(
-      "The workspace API key changed. Start a new response to use the updated key."
+      "The workspace's AI provider settings changed. Start a new response to use the updated settings."
     )
 }
 
@@ -59,46 +106,93 @@ export async function loadWorkspaceInferenceKey(
     .then((rows) => rows[0])
   if (!row || row.keyId !== funding.keyId)
     throw new Error(
-      "The workspace API key changed; this response has been paused"
+      "The workspace's AI provider settings changed; this response has been paused"
     )
-  return decryptSecret(row.encryptedKey, encryptionKey())
+  return decodeCredential(
+    funding.provider,
+    decryptSecret(row.encryptedKey, encryptionKey())
+  )
 }
 
+// The saved credential, so an edit can keep secrets the form left blank.
+// credential is null when the saved row can't be decrypted (e.g. a rotated
+// encryption key): it exists but its secrets can't be reused.
+export async function currentWorkspaceInferenceCredential(
+  workspaceId: string,
+  provider: KeyProvider
+) {
+  const row = await db
+    .select({
+      keyId: schema.workspaceInferenceKey.keyId,
+      encryptedKey: schema.workspaceInferenceKey.encryptedKey,
+    })
+    .from(schema.workspaceInferenceKey)
+    .where(keyOf(workspaceId, provider))
+    .then((rows) => rows[0])
+  if (!row) return null
+  let credential: InferenceCredential | null = null
+  try {
+    credential = decodeCredential(
+      provider,
+      decryptSecret(row.encryptedKey, encryptionKey())
+    )
+  } catch {}
+  return { keyId: row.keyId, credential }
+}
+
+// Writes only if the saved row is still the one the edit read
+// (expectedKeyId; null: none saved), so a concurrent change or removal is
+// never overwritten or recreated. Returns false when it wasn't.
 export async function saveWorkspaceInferenceKey(input: {
   workspaceId: string
-  provider: KeyProvider
-  apiKey: string
+  credential: InferenceCredential
   createdById: string
+  expectedKeyId: string | null
 }) {
   const values = {
     keyId: randomUUID(),
-    encryptedKey: encryptSecret(input.apiKey, encryptionKey()),
-    lastFour: input.apiKey.slice(-4),
+    encryptedKey: encryptSecret(
+      encodeCredential(input.credential),
+      encryptionKey()
+    ),
+    lastFour: inferenceKeyHint(input.credential),
+    config: inferenceKeyConfig(input.credential),
     createdById: input.createdById,
     createdAt: new Date(),
   }
-  await db
+  if (input.expectedKeyId) {
+    const updated = await db
+      .update(schema.workspaceInferenceKey)
+      .set(values)
+      .where(
+        and(
+          keyOf(input.workspaceId, input.credential.provider),
+          eq(schema.workspaceInferenceKey.keyId, input.expectedKeyId)
+        )
+      )
+      .returning({ keyId: schema.workspaceInferenceKey.keyId })
+    return updated.length > 0
+  }
+  const inserted = await db
     .insert(schema.workspaceInferenceKey)
     .values({
       workspaceId: input.workspaceId,
-      provider: input.provider,
+      provider: input.credential.provider,
       ...values,
     })
-    .onConflictDoUpdate({
-      target: [
-        schema.workspaceInferenceKey.workspaceId,
-        schema.workspaceInferenceKey.provider,
-      ],
-      set: values,
-    })
+    .onConflictDoNothing()
+    .returning({ keyId: schema.workspaceInferenceKey.keyId })
+  return inserted.length > 0
 }
 
-// Masked keys for billing settings and the composer's key-paid models.
+// Masked providers for AI provider settings and the composer's key-paid
+// models.
 export async function workspaceInferenceKeys(workspaceId: string) {
-  return db
+  const rows = await db
     .select({
       provider: schema.workspaceInferenceKey.provider,
       lastFour: schema.workspaceInferenceKey.lastFour,
+      config: schema.workspaceInferenceKey.config,
       createdAt: schema.workspaceInferenceKey.createdAt,
       createdBy: schema.user.name,
     })
@@ -109,6 +203,10 @@ export async function workspaceInferenceKeys(workspaceId: string) {
     )
     .where(eq(schema.workspaceInferenceKey.workspaceId, workspaceId))
     .orderBy(asc(schema.workspaceInferenceKey.provider))
+  return rows.flatMap((row) => {
+    const config = row.config ?? legacyConfig(row.provider)
+    return config ? [{ ...row, config }] : []
+  })
 }
 
 export async function removeWorkspaceInferenceKey(

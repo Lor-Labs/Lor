@@ -25,6 +25,7 @@ import {
   type ExtensionContext,
   getLatestCompactionEntry,
 } from "@earendil-works/pi-coding-agent"
+import type { KeyProvider } from "@repo/utils/inference"
 import {
   type JSONSchema7,
   jsonSchema,
@@ -135,7 +136,7 @@ const isPiThinkingLevel = (
 // fallback chain, so a fallback model never receives an oversize request.
 // This list replaces the provider's whole model list.
 function providerModels(
-  provider: "vercel-ai-gateway" | "anthropic" | "openai",
+  provider: "vercel-ai-gateway" | KeyProvider,
   ids: string[],
   contextWindow: number
 ) {
@@ -618,7 +619,7 @@ export type PiTurnInput = {
   // Without it every call is allowed.
   builtinToolApproval?: PiBuiltinToolApproval
   model: { id: string; fallbacks: string[]; contextWindow: number }
-  nativeProvider?: "anthropic" | "openai"
+  nativeProvider?: KeyProvider
   beforeRequest?: () => Promise<void>
   thinkingLevel?: string
   gatewayAuth: Record<string, string>
