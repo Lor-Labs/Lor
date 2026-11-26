@@ -191,7 +191,9 @@ function ChannelRoute() {
         chatName={data.name ?? "the chat"}
         focusId={agents}
         onBack={() =>
-          void navigate({ search: (prev) => ({ ...prev, agents: undefined }) })
+          void navigate({
+            search: (prev) => ({ ...prev, agents: undefined }),
+          })
         }
       />
     )

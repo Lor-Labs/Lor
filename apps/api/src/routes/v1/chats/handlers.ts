@@ -327,6 +327,7 @@ export const listAgentMessages: AppRouteHandler<
       fromAgentId: agentMessage.fromAgentId,
       toAgentIds: agentMessage.toAgentIds,
       toEveryone: agentMessage.toEveryone,
+      replyToId: agentMessage.replyToId,
       content: agentMessage.content,
       createdAt: agentMessage.createdAt,
     })

@@ -3,13 +3,14 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import type { AgentChatMessage } from "@repo/realtime-types"
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { AgentCreature } from "@/components/agent/agent-creature"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { useSocket } from "@/context/socket-context"
 import { agentCreature, useAgentsById } from "@/hooks/use-agents"
 import { apiClient } from "@/lib/api-client"
+import { toSearchPreviewText } from "@/lib/search-preview"
 
 // A chat's agents talking to each other about its work
 // (reference/agents-and-chats.md, decision 39): one conversation, oldest
@@ -26,6 +27,8 @@ const TIME = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
   minute: "2-digit",
 })
+// How much of the post it answers a reply's line shows.
+const REPLY_PREVIEW_CHARS = 140
 // A pause this long starts a new stretch, with its time above it.
 const STRETCH_GAP_MS = 30 * 60_000
 
@@ -98,19 +101,45 @@ export function AgentsChatView({
   useAgentMessagesLive(workspaceSlug, channelId)
 
   const scroller = useRef<HTMLDivElement>(null)
-  const focused = useRef<HTMLDivElement>(null)
+  const rows = useRef(new Map<string, HTMLDivElement>())
   const count = messages?.length ?? 0
   const opened = useRef(false)
   useEffect(() => {
     if (count === 0) return
     // Opens at the message asked for, else at the newest; then follows.
-    if (!opened.current && focused.current) {
-      focused.current.scrollIntoView({ block: "start" })
+    const focused = focusId ? rows.current.get(focusId) : undefined
+    if (!opened.current && focused) {
+      focused.scrollIntoView({ block: "start" })
     } else if (scroller.current) {
       scroller.current.scrollTop = scroller.current.scrollHeight
     }
     opened.current = true
-  }, [count])
+  }, [count, focusId])
+
+  // A reply's line jumps to the post it answers and marks it for a moment.
+  const [flashId, setFlashId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!flashId) return
+    const timer = setTimeout(() => setFlashId(null), 1400)
+    return () => clearTimeout(timer)
+  }, [flashId])
+  const jumpTo = (id: string) => {
+    rows.current
+      .get(id)
+      ?.scrollIntoView({ block: "center", behavior: "smooth" })
+    setFlashId(id)
+  }
+  // Agents are mentioned by id, as in a chat: the chips need their names.
+  const mentions = useMemo(
+    () =>
+      [...agentsById.values()].map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+        image: null,
+        avatarColor: null,
+      })),
+    [agentsById]
+  )
 
   const agentIds = [
     ...new Set(
@@ -195,20 +224,30 @@ export function AgentsChatView({
             const stretchEnds =
               !after ||
               new Date(after.createdAt).getTime() - at > STRETCH_GAP_MS
-            // A run is one agent writing to the same agents: with three in
-            // the room, who a bubble is for matters as much as who wrote it.
-            const audience = (item: (typeof messages)[number]) =>
-              item.toEveryone ? "everyone" : item.toAgentIds.join(",")
+            // As in a chat: an answer the agent marked as one is a reply
+            // to the post it answers, and any other post names who it is
+            // for with a mention.
+            const parent = message.replyToId
+              ? messages.find((item) => item.id === message.replyToId)
+              : undefined
+            const named = message.toEveryone
+              ? "@everyone "
+              : parent
+                ? ""
+                : message.toAgentIds.map((id) => `<@${id}> `).join("")
+            // A run is one agent writing on: a reply starts a new one.
             const sameRun = (other: (typeof messages)[number] | undefined) =>
-              other !== undefined &&
-              other.fromAgentId === message.fromAgentId &&
-              audience(other) === audience(message)
-            const first = stretch || !sameRun(before)
-            const last = stretchEnds || !sameRun(after)
+              other !== undefined && other.fromAgentId === message.fromAgentId
+            const first = stretch || !sameRun(before) || parent !== undefined
+            const last =
+              stretchEnds || !sameRun(after) || Boolean(after?.replyToId)
             return (
               <div
                 key={message.id}
-                ref={message.id === focusId ? focused : undefined}
+                ref={(el) => {
+                  if (el) rows.current.set(message.id, el)
+                  else rows.current.delete(message.id)
+                }}
                 className="scroll-mt-4"
               >
                 {stretch && (
@@ -227,30 +266,40 @@ export function AgentsChatView({
                     {last && face(message.fromAgentId, 22)}
                   </span>
                   <div className="min-w-0 max-w-[85%]">
+                    {parent && (
+                      <button
+                        type="button"
+                        onClick={() => jumpTo(parent.id)}
+                        title="Go to the post it answers"
+                        className="mb-0.5 flex max-w-full cursor-pointer items-center gap-1.5 rounded-sm pl-4 text-xs outline-none transition-opacity duration-150 hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring/50"
+                      >
+                        <span className="mt-2 h-3 w-6 shrink-0 rounded-tl-md border-muted-foreground/40 border-t-2 border-l-2" />
+                        {face(parent.fromAgentId, 16)}
+                        <span className="shrink-0 font-semibold text-foreground/80">
+                          {nameOf(parent.fromAgentId)}
+                        </span>
+                        <span className="truncate text-muted-foreground">
+                          {toSearchPreviewText(parent.content, mentions).slice(
+                            0,
+                            REPLY_PREVIEW_CHARS
+                          )}
+                        </span>
+                      </button>
+                    )}
                     {first && (
                       <div className="pb-1 pl-4 text-[12px] text-muted-foreground">
                         {nameOf(message.fromAgentId)}
-                        {/* As in a chat: named, everyone, or nobody. */}
-                        {message.toEveryone ? (
-                          <span className="text-muted-foreground/70">
-                            {" "}
-                            to everyone
-                          </span>
-                        ) : (
-                          message.toAgentIds.length > 0 &&
-                          agentIds.length > 2 && (
-                            <span className="text-muted-foreground/70">
-                              {" "}
-                              to {LIST.format(message.toAgentIds.map(nameOf))}
-                            </span>
-                          )
-                        )}
                       </div>
                     )}
-                    <div className="text-pretty rounded-[22px] bg-foreground/[0.06] px-4 py-2.5 text-[14px] text-foreground/90 leading-relaxed">
+                    <div
+                      className={cn(
+                        "text-pretty rounded-[22px] bg-foreground/[0.06] px-4 py-2.5 text-[14px] text-foreground/90 leading-relaxed transition-colors duration-500 ease-out",
+                        flashId === message.id && "bg-foreground/[0.13]"
+                      )}
+                    >
                       <MessageMarkdown
-                        content={message.content}
-                        mentions={[]}
+                        content={`${named}${message.content}`}
+                        mentions={mentions}
                       />
                     </div>
                   </div>

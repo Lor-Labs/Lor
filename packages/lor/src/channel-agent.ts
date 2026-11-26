@@ -67,10 +67,13 @@ export type AgentWakeUps = {
 
 // A post in the agents' room of the chat the turn is about
 // (reference/agents-and-chats.md, decisions 39 and 44). `to` names the
-// agents it is for, or is ["everyone"]; left out, it names nobody. The
-// worker implements it; it returns what the model reads.
+// agents it is for, or is ["everyone"]; left out, it names nobody.
+// `replyTo` is the post it answers, when the agent says it is an answer:
+// nothing is taken for a reply unless the agent said so. The worker
+// implements it; it returns what the model reads.
 export type MessageAgentExecutor = (input: {
   to?: string[]
+  replyTo?: string
   content: string
 }) => Promise<
   { ok: true; woke: string[]; note?: string } | { ok: false; error: string }
@@ -179,7 +182,7 @@ const messageAgentContext = z.object({
 export const messageAgentTool = {
   message_agent: tool({
     description:
-      "Post in the agents' room of this chat: where the agents in it talk to each other about its work. It is not posted in the chat; people can read the room, but in a place of its own. It works like any chat. Name the agent it is for in `to` and that agent is woken with it. Leave `to` out when you don't know which agent to ask: the one it reads as meant for is woken, and the others see it later. Set `to` to [\"everyone\"] to wake every agent in the chat, only when all of them need to act. Use it to ask for something another agent has (what it remembers, its tools, what it is working on) or to hand over something that is another agent's to do. They do not see your conversation, so say what you need and everything needed to act on it. An answer wakes you. Use it only when the work needs it: never to chat, to thank an agent, or to say you got its answer.",
+      "Post in the agents' room of this chat: where the agents in it talk to each other about its work. It is not posted in the chat; people can read the room, but in a place of its own. It works like any chat. Name the agent it is for in `to` and that agent is woken with it. Leave `to` out when you don't know which agent to ask: the one it reads as meant for is woken, and the others see it later. Set `to` to [\"everyone\"] to wake every agent in the chat, only when all of them need to act. Use it to ask for something another agent has (what it remembers, its tools, what it is working on) or to hand over something that is another agent's to do. They do not see your conversation, so say what you need and everything needed to act on it. To answer a post, pass its id in `replyTo`: it is shown as a reply to that post and its writer is woken with it, so `to` is not needed. An answer wakes you. Use it only when the work needs it: never to chat, to thank an agent, or to say you got its answer.",
     inputSchema: z.object({
       to: z
         .array(z.string().min(1).max(100))
@@ -187,6 +190,13 @@ export const messageAgentTool = {
         .optional()
         .describe(
           'the names (or ids) of the agents it is for, or ["everyone"]; leave out when you don\'t know which agent to ask'
+        ),
+      replyTo: z
+        .string()
+        .uuid()
+        .optional()
+        .describe(
+          "the id of the post you are answering, when this is an answer to one"
         ),
       content: z
         .string()
@@ -212,12 +222,14 @@ export function agentMessageInboxNote(input: {
   kind: "named" | "everyone" | "open" | "overheard"
   // The agents it names, for `overheard`.
   toNames?: string[]
+  // The post's id, to answer it with `replyTo`.
+  postId: string
 }): string {
   const from = sanitizeInlineLabel(input.fromName)
   const role = input.fromRole ? ` (${sanitizeInlineLabel(input.fromRole)})` : ""
   const chat = `#${sanitizeInlineLabel(input.channelName ?? "channel")}`
   const who = `${from}${role}, another agent on this team,`
-  const answer = `answer ${from} with message_agent (to: ["${from}"])`
+  const answer = `answer ${from} with message_agent (replyTo: "${input.postId}")`
   const quiet =
     "When it needs no answer, end the turn without one: do not thank it or confirm. Speak in the chat with send_message only when people should hear it from you."
   switch (input.kind) {

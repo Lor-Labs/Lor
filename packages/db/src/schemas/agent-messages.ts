@@ -42,6 +42,10 @@ export const agentMessage = pgTable(
       .notNull()
       .default(sql`'{}'::uuid[]`),
     toEveryone: boolean("to_everyone").notNull().default(false),
+    // The post it answers, shown as a reply to it: what the agent passed as
+    // `replyTo`, never inferred. Null: it did not say it was answering one.
+    // No foreign key: a post is only ever deleted with its chat.
+    replyToId: uuid("reply_to_id"),
     // The sender's conversation it was written in: an answer goes back
     // there, so the sender reads it where it has the context.
     fromConversationId: uuid("from_conversation_id").references(

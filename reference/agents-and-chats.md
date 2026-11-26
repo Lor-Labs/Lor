@@ -857,14 +857,34 @@ Agents messaging each other (decision 39, built 2026-11-26):
   so messages sent at once share it), "Quill messaged Inky and Rusty", or
   "Quill, Inky and Rusty talked" once two of the others message each other.
   Answers to the agent that started the run don't count as messaging. A
-  post to the room (no name, or everyone) reads "Quill posted to the
-  agents".
+  post to the room reads "Quill messaged the room" (no name) or "Quill
+  messaged everyone", followed by the faces of the agents in the room
+  (`roomIds` and `everyone` on the line's payload).
 - **The agents' chat** (`apps/web/src/components/chat/agents-chat-view.tsx`,
   `?agents=` on the chat's route, `GET …/chats/{id}/agent-messages`) is
   shown in place of the chat: bubbles, the agents' faces in the header, a
   Read-only mark where the composer would be, and a way back. The line
   opens it at that message, and is the only way in (Jacob, 11-26: a row,
   then a card, in the chat's details panel were both built and removed). It follows live (`agent-message:created`).
+- **Who a post is for, in the room** (Jacob, 11-26: as a chat shows it,
+  not a "to" beside the name). A post that names agents starts with their
+  @mention, and one for everyone with @everyone, drawn from `to` with the
+  app's own mention chips. An answer is shown as a reply, with the line a
+  reply has in a chat above it (the asker's face, name and the start of
+  the post), which jumps to that post. A second look, every post starting
+  with its @mention and no replies, was built beside it and dropped.
+- **A reply is what the agent says it is** (Jacob, 11-26: not a guess).
+  `message_agent` takes `replyTo`, the id of the post it answers; each
+  post reaches an agent with its id and the words to answer it with. The
+  worker saves it as `agent_message.reply_to_id`, wakes that post's writer
+  and puts the answer in the conversation the post was written from. It
+  refuses an id that is not a post in this room, or is the writer's own.
+  Nothing is shown as a reply unless the agent passed one. One rule is
+  left, for where a post lands and not for what is shown: a message to an
+  agent that the writer did not mark as a reply still lands in the
+  conversation that agent asked from, when that agent's newest post to
+  the writer is newer than the writer's last message to it, so a request
+  is not left without its answer.
 - **Lor only:** nothing is posted to a chat's Discord thread.
 - **Checked live:** a person asked one agent for something only the other
   knew. It messaged the other, which answered within fifteen seconds; the
@@ -878,12 +898,24 @@ Agents messaging each other (decision 39, built 2026-11-26):
   formula, with the same three: a post naming nobody (Jev scored the
   support agent 0.85 and the engineering one 0.08, only the first was
   woken, it answered the asker, and the other got both posts in its wait
-  lane); a post for everyone (both woken, neither replied, as asked). Not
-  run: a post naming two agents, Jev picking nobody, an
+  lane); a post for everyone (both woken, neither replied, as asked); a
+  post Jev woke nobody for (scores 0.49 and 0.30, under the 0.5 it takes):
+  the writer was told so and said in the chat that nobody had answered
+  yet, and an agent answered it at its check-in 43 seconds later, saved as
+  a reply. With `replyTo` (two runs of a post for everyone that asked each
+  agent for a line): both agents answered with the post's id, 8 to 11
+  seconds after it; the two answers reached the asker 0.1 and 2.8 seconds
+  apart and were read in one turn; the asker answered the person 32 and 35
+  seconds after being asked; four agent turns each time, nothing said
+  after the answers, and about $0.52 and $0.28 in model spend on a
+  database where the agents' conversations are long from a day of runs.
+  Each answer also sits unread in the third agent's own conversation until
+  its check-in. Not run: a post naming two agents, an
   agent messaging another unprompted, the view updating live while open, a
   Discord-linked chat, the mobile app (it shows the line as plain text).
 - **Rollout:** `pnpm db:push` adds `agent_message` and two enum values
-  (`channel_event_type`, `agent_inbox_source`). A database pushed between
+  (`channel_event_type`, `agent_inbox_source`), with `reply_to_id` among
+  its columns. A database pushed between
   the first cut and decision 44 has `agent_message.to_agent_id`: the push
   drops it for `to_agent_ids` and `to_everyone`, losing who those early
   messages were for.

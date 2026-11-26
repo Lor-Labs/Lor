@@ -43,7 +43,10 @@ type Deps = LorMessageDeps & {
 
 // The feed line's words: who wrote, and to whom.
 function lineText(
-  line: Pick<AgentMessagedPayload, "agentIds" | "senderIds" | "room">,
+  line: Pick<
+    AgentMessagedPayload,
+    "agentIds" | "senderIds" | "room" | "everyone"
+  >,
   names: Map<string, string>
 ) {
   const named = (ids: string[]) =>
@@ -51,7 +54,9 @@ function lineText(
   const senderIds = line.senderIds ?? []
   const agentIds = line.agentIds ?? []
   if (senderIds.length > 1) return `${named(agentIds)} talked`
-  if (line.room) return `${named(senderIds)} posted to the agents`
+  if (line.room) {
+    return `${named(senderIds)} messaged ${line.everyone ? "everyone in the room" : "the room"}`
+  }
   return `${named(senderIds)} messaged ${named(agentIds.filter((id) => !senderIds.includes(id)))}`
 }
 
@@ -65,7 +70,7 @@ export function agentMessenger(
     conversationId: string
   }
 ): MessageAgentExecutor {
-  return async ({ to, content }) => {
+  return async ({ to, replyTo, content }) => {
     const here = await db
       .select({
         id: schema.agent.id,
@@ -110,7 +115,102 @@ export function agentMessenger(
         error: `No agent named ${unknown.join(", ")} is in this chat with you. The agents here: ${others.map((row) => row.name).join(", ")}. Leave \`to\` out to ask whichever of them it fits.`,
       }
     }
+
+    // A reply is what the agent says it is (`replyTo`), never a guess. Its
+    // writer is woken with it, in the conversation it asked from, where it
+    // has the context.
+    let replied: {
+      id: string
+      fromAgentId: string
+      conversationId: string | null
+    } | null = null
+    if (replyTo) {
+      const [post] = await db
+        .select({
+          id: schema.agentMessage.id,
+          fromAgentId: schema.agentMessage.fromAgentId,
+          conversationId: schema.agentMessage.fromConversationId,
+        })
+        .from(schema.agentMessage)
+        .where(
+          and(
+            eq(schema.agentMessage.id, replyTo),
+            eq(schema.agentMessage.channelId, from.channelId)
+          )
+        )
+      if (!post) {
+        return {
+          ok: false,
+          error:
+            "No post with that id is in this chat's agents' room. Use the id given with the post you are answering, or leave `replyTo` out.",
+        }
+      }
+      if (post.fromAgentId === from.agentId) {
+        return {
+          ok: false,
+          error:
+            "That post is your own. Leave `replyTo` out, or use the id of the post you are answering.",
+        }
+      }
+      replied = post
+      const writer = others.find((row) => row.id === post.fromAgentId)
+      if (writer && !everyone && !named.includes(writer)) named.push(writer)
+    }
     const open = !everyone && named.length === 0
+
+    // Where a post lands for an agent it names. A reply goes to the
+    // conversation its post was written from. One the agent did not mark as
+    // a reply may still be an answer (the named agent's newest post that
+    // reached this writer is newer than this writer's last message to it):
+    // it then lands where that agent asked from too, so a request is not
+    // left unanswered. Only where it lands: it is not shown as a reply.
+    const asked = async (agentId: string) => {
+      const [theirs] = await db
+        .select({
+          conversationId: schema.agentMessage.fromConversationId,
+          createdAt: schema.agentMessage.createdAt,
+        })
+        .from(schema.agentMessage)
+        .where(
+          and(
+            eq(schema.agentMessage.channelId, from.channelId),
+            eq(schema.agentMessage.fromAgentId, agentId),
+            or(
+              sql`${from.agentId}::uuid = any(${schema.agentMessage.toAgentIds})`,
+              eq(schema.agentMessage.toEveryone, true),
+              sql`cardinality(${schema.agentMessage.toAgentIds}) = 0`
+            )
+          )
+        )
+        .orderBy(desc(schema.agentMessage.createdAt))
+        .limit(1)
+      if (!theirs?.conversationId) return null
+      const [mine] = await db
+        .select({ createdAt: schema.agentMessage.createdAt })
+        .from(schema.agentMessage)
+        .where(
+          and(
+            eq(schema.agentMessage.channelId, from.channelId),
+            eq(schema.agentMessage.fromAgentId, from.agentId),
+            sql`${agentId}::uuid = any(${schema.agentMessage.toAgentIds})`
+          )
+        )
+        .orderBy(desc(schema.agentMessage.createdAt))
+        .limit(1)
+      return !mine || theirs.createdAt > mine.createdAt
+        ? theirs.conversationId
+        : null
+    }
+    const lands = new Map<string, string>()
+    if (replied?.conversationId) {
+      lands.set(replied.fromAgentId, replied.conversationId)
+    } else if (!replied) {
+      for (const row of everyone ? [] : named) {
+        const conversationId = await asked(row.id)
+        if (conversationId) lands.set(row.id, conversationId)
+      }
+    }
+    const replyToId = replied?.id ?? null
 
     const [saved] = await db
       .insert(schema.agentMessage)
@@ -120,6 +220,7 @@ export function agentMessenger(
         fromAgentId: from.agentId,
         toAgentIds: named.map((row) => row.id),
         toEveryone: everyone,
+        replyToId,
         fromConversationId: from.conversationId,
         content,
       })
@@ -166,54 +267,11 @@ export function agentMessenger(
       )
     }
 
-    // An answer goes to the conversation the other agent asked from, where
-    // it has the context: when its newest post that reached this agent is
-    // newer than this agent's last message to it. Anything else goes to its
-    // own conversation.
-    const askedFrom = async (agentId: string) => {
-      const [theirs] = await db
-        .select({
-          conversationId: schema.agentMessage.fromConversationId,
-          createdAt: schema.agentMessage.createdAt,
-        })
-        .from(schema.agentMessage)
-        .where(
-          and(
-            eq(schema.agentMessage.channelId, from.channelId),
-            eq(schema.agentMessage.fromAgentId, agentId),
-            or(
-              sql`${from.agentId}::uuid = any(${schema.agentMessage.toAgentIds})`,
-              eq(schema.agentMessage.toEveryone, true),
-              sql`cardinality(${schema.agentMessage.toAgentIds}) = 0`
-            )
-          )
-        )
-        .orderBy(desc(schema.agentMessage.createdAt))
-        .limit(1)
-      if (!theirs?.conversationId) return null
-      const [mine] = await db
-        .select({ createdAt: schema.agentMessage.createdAt })
-        .from(schema.agentMessage)
-        .where(
-          and(
-            eq(schema.agentMessage.channelId, from.channelId),
-            eq(schema.agentMessage.fromAgentId, from.agentId),
-            ne(schema.agentMessage.id, saved.id),
-            sql`${agentId}::uuid = any(${schema.agentMessage.toAgentIds})`
-          )
-        )
-        .orderBy(desc(schema.agentMessage.createdAt))
-        .limit(1)
-      return !mine || theirs.createdAt > mine.createdAt
-        ? theirs.conversationId
-        : null
-    }
-
     for (const row of others) {
       const woken = wake.includes(row)
       const isNamed = named.includes(row)
       const conversationId =
-        (woken && isNamed ? await askedFrom(row.id) : null) ??
+        (woken && isNamed ? lands.get(row.id) : null) ??
         (
           await ownConversation({
             workspaceId: from.workspaceId,
@@ -240,6 +298,7 @@ export function agentMessenger(
                 ? "open"
                 : "overheard",
           toNames: named.map((item) => item.name),
+          postId: saved.id,
         }),
       })
       if (delivered && woken) {
@@ -267,6 +326,7 @@ export function agentMessenger(
         fromAgentId: from.agentId,
         toAgentIds: named.map((row) => row.id),
         toEveryone: everyone,
+        replyToId,
         content,
         createdAt: saved.createdAt.toISOString(),
       },
@@ -309,7 +369,13 @@ export function agentMessenger(
             agentMessageId: saved.id,
             agentIds: [from.agentId, ...named.map((row) => row.id)],
             senderIds: [from.agentId],
-            ...(named.length === 0 ? { room: true } : {}),
+            ...(named.length === 0
+              ? {
+                  room: true,
+                  roomIds: others.map((row) => row.id),
+                  ...(everyone ? { everyone: true } : {}),
+                }
+              : {}),
           }
           await postLorMessage(deps, {
             channelId: from.channelId,
@@ -330,6 +396,7 @@ export function agentMessenger(
           ],
           senderIds: line.senderIds ?? [line.fromAgentId],
           room: line.room ?? false,
+          everyone: line.everyone ?? false,
         }
         // An answer to the agent that started the run does not make its
         // writer a sender: "Quill messaged Inky and Rusty" stays true until
@@ -351,11 +418,13 @@ export function agentMessenger(
             ]),
           ],
           room: before.room || named.length === 0,
+          everyone: before.everyone || everyone,
         }
         if (
           after.agentIds.length === before.agentIds.length &&
           after.senderIds.length === before.senderIds.length &&
-          after.room === before.room
+          after.room === before.room &&
+          after.everyone === before.everyone
         ) {
           return
         }
@@ -363,7 +432,13 @@ export function agentMessenger(
           ...line,
           agentIds: after.agentIds,
           senderIds: after.senderIds,
-          ...(after.room ? { room: true } : {}),
+          ...(after.room
+            ? {
+                room: true,
+                roomIds: line.roomIds ?? others.map((row) => row.id),
+              }
+            : {}),
+          ...(after.everyone ? { everyone: true } : {}),
         }
         const text = lineText(payload, names)
         await tx

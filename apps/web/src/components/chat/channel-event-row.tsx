@@ -36,7 +36,10 @@ import { useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { type ReactNode, useState } from "react"
 import { AgentCreature } from "@/components/agent/agent-creature"
-import { ChannelAgentProvider } from "@/components/agent/channel-agent"
+import {
+  ChannelAgentProvider,
+  useChannelAgentsContext,
+} from "@/components/agent/channel-agent"
 import { MessageItem } from "@/components/chat/message-item"
 import { isReviewedEvent, ReviewCard } from "@/components/session/review-card"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
@@ -1049,7 +1052,12 @@ function AgentMessagedLine({ message }: { message: Message }) {
     agentIds?: string[]
     senderIds?: string[]
     room?: boolean
+    everyone?: boolean
+    roomIds?: string[]
   } | null
+  // The room is the chat's agents. A line from before it carried them falls
+  // back to the agents in the chat now.
+  const inChat = useChannelAgentsContext()
   const ids = payload?.agentIds ?? [
     payload?.fromAgentId ?? "",
     payload?.toAgentId ?? "",
@@ -1060,6 +1068,11 @@ function AgentMessagedLine({ message }: { message: Message }) {
   const others = involved.filter((agent) => !senderIds.includes(agent.id))
   // One writer posting to the whole room, naming nobody or everyone.
   const toRoom = Boolean(payload?.room) && senders.length === 1
+  const room = toRoom
+    ? (payload?.roomIds ?? inChat.map((agent) => agent.id))
+        .filter((id) => !senderIds.includes(id))
+        .flatMap((id) => agents.get(id) ?? [])
+    : []
   // An agent since deleted: the line keeps the words it was written with.
   if (
     !workspaceSlug ||
@@ -1072,9 +1085,9 @@ function AgentMessagedLine({ message }: { message: Message }) {
       </div>
     )
   }
-  // Faces sit by their names: "Quill messaged Inky and Rusty", "Quill
-  // posted to the agents", or past one writer "Quill, Inky and Rusty
-  // talked".
+  // Faces sit by their names: "Quill messaged Inky and Rusty", or past one
+  // writer "Quill, Inky and Rusty talked". A post to the room shows the
+  // faces of everyone in it: "Quill messaged the room", or "everyone".
   const names = (list: typeof involved) =>
     list.map((agent, index) => (
       <span key={agent.id} className="flex items-center gap-1">
@@ -1105,7 +1118,24 @@ function AgentMessagedLine({ message }: { message: Message }) {
         ) : toRoom ? (
           <>
             {names(senders)}
-            <span>posted to the agents</span>
+            <span>messaged {payload?.everyone ? "everyone" : "the room"}</span>
+            <span
+              className="flex items-center -space-x-1"
+              title={room.map((agent) => agent.name).join(", ")}
+            >
+              {room.map((agent) => (
+                <span
+                  key={agent.id}
+                  className="flex rounded-full ring-[1.5px] ring-background"
+                >
+                  <AgentCreature
+                    creature={agentCreature(agent)}
+                    size={16}
+                    still
+                  />
+                </span>
+              ))}
+            </span>
           </>
         ) : (
           <>

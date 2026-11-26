@@ -66,6 +66,8 @@ export const listAgentMessagesResponseSchema = z.object({
       // The agents it names; none and not `toEveryone` is a post to the room.
       toAgentIds: z.array(z.string().uuid()),
       toEveryone: z.boolean(),
+      // The post it answers, when it is an answer.
+      replyToId: z.string().uuid().nullable(),
       content: z.string(),
       createdAt: z.string().datetime(),
     })

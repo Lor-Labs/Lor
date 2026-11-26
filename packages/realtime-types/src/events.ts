@@ -317,6 +317,8 @@ export type AgentChatMessage = {
   // The agents it names; none and not `toEveryone` is a post to the room.
   toAgentIds: string[]
   toEveryone: boolean
+  // The post it answers, when it is an answer.
+  replyToId: string | null
   content: string
   createdAt: string
 }
@@ -354,6 +356,8 @@ export type RealtimeChannelEventPayload =
       agentIds?: string[]
       senderIds?: string[]
       room?: boolean
+      everyone?: boolean
+      roomIds?: string[]
     }
   | { sessionId: string; title: string; repoFullName: string | null }
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }

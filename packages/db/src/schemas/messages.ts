@@ -459,6 +459,9 @@ export type AgentMessagedPayload = {
   senderIds?: string[]
   // The run has a post to the whole room (naming nobody, or everyone).
   room?: boolean
+  // That post was for everyone, and who was in the room besides its writer.
+  everyone?: boolean
+  roomIds?: string[]
 }
 
 export type ChannelEventPayload =
