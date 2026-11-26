@@ -107,7 +107,7 @@ export function NewSessionView({
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center pb-24">
           <p className="px-4 text-center text-sm text-muted-foreground">
-            {isPending ? "Loading…" : "Create a channel to start a session."}
+            {isPending ? "Loading…" : "Create a chat to start a session."}
           </p>
         </div>
       )}
@@ -141,7 +141,7 @@ function NewSessionComposer({
     broadcasts: false,
     agent: false,
   })
-  const channelName = channel.name ?? "channel"
+  const channelName = channel.name ?? "chat"
   const [composerDraft, setComposerDraft] = useState<
     { id: string; text: string } | undefined
   >(() => (draft ? { id: crypto.randomUUID(), text: draft } : undefined))
@@ -189,15 +189,15 @@ function NewSessionComposer({
 
   // The channel is named in the headline; its picker is the name itself.
   const channelPicker = continueFromSessionId ? (
-    <span>#{channelName}</span>
+    <span>{channelName}</span>
   ) : (
     <DropdownMenu>
       <DropdownMenuTrigger className="cursor-pointer underline decoration-muted-foreground/40 decoration-dotted decoration-2 underline-offset-[6px] transition-colors hover:decoration-foreground data-popup-open:decoration-foreground">
-        #{channelName}
+        {channelName}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="center" className="max-h-80 w-64">
         <p className="px-2 pt-1 pb-1.5 text-muted-foreground text-xs">
-          Everyone in the channel can see and join the session.
+          Everyone in the chat can see and join the session.
         </p>
         <DropdownMenuRadioGroup
           value={channel.id}
@@ -205,7 +205,7 @@ function NewSessionComposer({
         >
           {options.map((option) => (
             <DropdownMenuRadioItem key={option.id} value={option.id}>
-              # {option.name}
+              {option.name}
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>

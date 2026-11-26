@@ -23,8 +23,9 @@ import { toSearchPreviewText } from "@/lib/search-preview"
 // radius instead of their full pill, and the purple ∞ + schedule leading —
 // "∞ Every hour · Name". State reads from the leading segment ("Paused ·
 // Name", dimmed "Completed · Name"); every detail lives one click away in
-// the panel. Drafts get a Create Loop button beside the chip (activates in
-// the viewer's device timezone).
+// the panel. Drafts (a session's proposal) get a Create Loop button beside
+// the chip (activates in the viewer's device timezone); a Loop an agent set
+// up is already running, and its card is the record that it did.
 //
 // Fire markers (type "loop_fire", posted each time the loop runs) render the
 // same chip — they resolve the loop through referencedMessageId, which
@@ -48,16 +49,25 @@ export function LoopCard({ message }: { message: Message }) {
       </div>
     )
   }
-  return <LoopCardBody loop={loop} authorId={message.author.id} />
+  return (
+    <LoopCardBody
+      loop={loop}
+      authorId={message.author.id}
+      channelId={message.channelId}
+    />
+  )
 }
 
 function LoopCardBody({
   loop,
   authorId,
+  channelId,
 }: {
   loop: ChannelLoop
-  // Who posted the card: the agent that proposed the Loop.
+  // Who posted the card: the agent that set the Loop up.
   authorId: string
+  // The chat the card is in, which need not be the one the Loop reports in.
+  channelId: string
 }) {
   const { workspaceSlug } = useParams({ strict: false })
   const { view, setView, isCollapsed, toggleCollapsed } = useRightSidebar()
@@ -95,12 +105,7 @@ function LoopCardBody({
 
   const openPanel = () => {
     if (!workspaceSlug) return
-    setView({
-      type: "loop",
-      workspaceSlug,
-      channelId: loop.channelId,
-      loopId: loop.id,
-    })
+    setView({ type: "loop", workspaceSlug, channelId, loopId: loop.id })
     if (isCollapsed) toggleCollapsed()
   }
 

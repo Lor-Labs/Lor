@@ -9,13 +9,23 @@ import {
   schema,
   sql,
 } from "@repo/db"
-import { isAgentInChannel, pauseLoopsAgentLeft } from "@repo/db/queries/agents"
+import {
+  agentAnchorChannelId,
+  agentChannelIds,
+  isAgentInChannel,
+  pauseLoopsAgentLeft,
+} from "@repo/db/queries/agents"
+import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
+import {
+  listAccessibleChannelIds,
+  resolveChannelAccess,
+} from "@repo/db/queries/channel-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { Loop } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { ensureLoopSession } from "@repo/lor/agent-sessions"
 import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
-import { toRealtimeLoop } from "@repo/lor/loops"
+import { loopEventTargets, toRealtimeLoop } from "@repo/lor/loops"
 import {
   AGENT_RUN_STOP_CHANNEL,
   LOOP_RUN_JOB,
@@ -34,19 +44,68 @@ import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 // management routes. All emits go to the channel room (channel membership
 // already implies loop visibility). See reference/loops.md.
 
-export async function emitLoopUpdated(row: Loop): Promise<void> {
+export async function emitLoopUpdated(
+  row: Loop,
+  // The chat it reported in until this change, which lists it no more.
+  leftChannelId?: string | null
+): Promise<void> {
   const emitter = await getEmitter()
+  const { rooms, cardChannelId } = await loopEventTargets(row)
+  if (leftChannelId) rooms.push(channelRoom(leftChannelId))
+  if (rooms.length === 0) return
   emitter
-    .to(channelRoom(row.channelId))
-    .emit("loop:updated", { loop: toRealtimeLoop(row) })
+    .to(rooms)
+    .emit("loop:updated", { loop: toRealtimeLoop(row), cardChannelId })
 }
 
-// Why a Loop in a chat can't run, or null. It runs only while its own agent
-// is in the chat it reports in (reference/agents-and-chats.md §9); outside
-// a text chat it runs in its own session and needs no agent.
+// Who can see a Loop and act on it. One in a chat: the people who can see
+// that chat. One with no chat: the people who can see a chat its agent is
+// in (anyone in the workspace when it is in none), as for the agent's
+// memory. `canWrite` is false in an archived chat or once beta access ended.
+export async function loopAccess(
+  loop: Pick<Loop, "workspaceId" | "channelId" | "agentId">,
+  userId: string
+): Promise<{ canWrite: boolean } | null> {
+  if (loop.channelId) {
+    const access = await resolveChannelAccess(userId, loop.channelId)
+    return access.ok ? { canWrite: access.access.canWrite } : null
+  }
+  const [member] = await db
+    .select({ id: schema.workspaceMember.id })
+    .from(schema.workspaceMember)
+    .where(
+      and(
+        eq(schema.workspaceMember.workspaceId, loop.workspaceId),
+        eq(schema.workspaceMember.userId, userId)
+      )
+    )
+    .limit(1)
+  if (!member) return null
+  const [agentChats, accessible] = await Promise.all([
+    loop.agentId ? agentChannelIds(loop.agentId) : [],
+    listAccessibleChannelIds(userId, loop.workspaceId),
+  ])
+  if (agentChats.length > 0 && !agentChats.some((id) => accessible.has(id))) {
+    return null
+  }
+  return {
+    canWrite: (await workspaceBetaAccess(loop.workspaceId)).state === "active",
+  }
+}
+
+// Why a Loop can't run, or null. In a chat it runs only while its own agent
+// is in that chat; with no chat, while its agent is in any chat, since a
+// turn starts in one (reference/agents-and-chats.md §9). Outside a text
+// chat it runs in its own session and needs no agent.
 export async function loopAgentProblem(
   loop: Pick<Loop, "agentId" | "channelId">
 ): Promise<string | null> {
+  if (!loop.channelId) {
+    if (!loop.agentId) return "No agent runs this Loop yet. Pick one first."
+    return (await agentAnchorChannelId(loop.agentId))
+      ? null
+      : "Its agent is in no chat, so it has nowhere to work. Add the agent to a chat first."
+  }
   const [channel] = await db
     .select({ type: schema.channel.type })
     .from(schema.channel)
@@ -72,16 +131,22 @@ export async function loopAgentProblem(
 }
 
 // An agent taken out of a chat: its Loops that report there pause, each
-// with a line in the chat saying why.
+// with a line in the chat saying why. Once it is in no chat at all, its
+// Loops with no chat pause too.
 export async function pauseLoopsOfRemovedAgent(
   agentId: string,
   channelId: string
 ): Promise<void> {
-  for (const paused of await pauseLoopsAgentLeft(agentId, channelId)) {
+  const left = await pauseLoopsAgentLeft(agentId, channelId)
+  if (!(await agentAnchorChannelId(agentId))) {
+    left.push(...(await pauseLoopsAgentLeft(agentId, null)))
+  }
+  for (const paused of left) {
     await stopInFlightRuns(paused.id)
     await emitLoopUpdated(paused).catch((err) =>
       logger.error({ err, loopId: paused.id }, "Loop pause emit failed")
     )
+    // One with no chat has nowhere to say so: its panel shows the reason.
     await postLoopChannelEvent({
       loop: paused,
       actorId: LOR_USER_ID,
@@ -125,13 +190,15 @@ export async function openLoopSession(
   loop: Loop,
   activatorId: string
 ): Promise<void> {
+  const channelId = loop.channelId
+  if (!channelId) return
   const [channel] = await db
     .select({ type: schema.channel.type })
     .from(schema.channel)
-    .where(eq(schema.channel.id, loop.channelId))
+    .where(eq(schema.channel.id, channelId))
   if (channel?.type === "text") return
-  await adoptCardSession(loop)
-  const session = await ensureLoopSession(loop)
+  await adoptCardSession(loop, channelId)
+  const session = await ensureLoopSession({ ...loop, channelId })
   await subscribeToThread(session.threadRootId, [
     activatorId,
     ...(loop.creatorId ? [loop.creatorId] : []),
@@ -143,7 +210,7 @@ export async function openLoopSession(
 // every fire lands in the conversation where it was set up instead of a new
 // one. A session holds at most one loop; another loop set up there gets its
 // own session.
-async function adoptCardSession(loop: Loop): Promise<void> {
+async function adoptCardSession(loop: Loop, channelId: string): Promise<void> {
   if (!loop.cardMessageId) return
   const card = await db
     .select({ threadRootId: schema.message.threadRootId })
@@ -158,7 +225,7 @@ async function adoptCardSession(loop: Loop): Promise<void> {
     .where(
       and(
         eq(schema.agentSession.threadRootId, card.threadRootId),
-        eq(schema.agentSession.channelId, loop.channelId),
+        eq(schema.agentSession.channelId, channelId),
         isNull(schema.agentSession.loopId)
       )
     )
@@ -267,7 +334,14 @@ export async function pauseLoop(input: {
 }): Promise<Loop | null> {
   const paused = await db
     .update(schema.loop)
-    .set({ status: "paused", pausedReason: "manual", nextRunAt: null })
+    .set({
+      status: "paused",
+      pausedReason: "manual",
+      nextRunAt: null,
+      ...(input.requestedBy
+        ? { changedById: input.requestedBy, changedAt: new Date() }
+        : {}),
+    })
     .where(
       and(eq(schema.loop.id, input.loopId), eq(schema.loop.status, "active"))
     )
@@ -290,6 +364,7 @@ export type ResumeLoopResult =
 // human saying "try again", not "fail once more and re-pause".
 export async function resumeLoop(input: {
   loopId: string
+  requestedBy?: string
 }): Promise<ResumeLoopResult | null> {
   const loop = await db
     .select({
@@ -321,6 +396,9 @@ export async function resumeLoop(input: {
       pausedReason: null,
       nextRunAt: next,
       consecutiveFailures: 0,
+      ...(input.requestedBy
+        ? { changedById: input.requestedBy, changedAt: new Date() }
+        : {}),
     })
     .where(
       and(eq(schema.loop.id, input.loopId), eq(schema.loop.status, "paused"))
@@ -374,32 +452,42 @@ export async function completeLoopManually(input: {
 // Run rows survive (agent_run.loopId nulls via FK) for audit.
 async function deleteLoopCardAndEmit(loop: Loop): Promise<void> {
   const emitter = await getEmitter().catch(() => null)
+  // Read before the card goes: its chat is one of the rooms.
+  const rooms = await loopEventTargets(loop).then(
+    (targets) => targets.rooms,
+    () => [] as string[]
+  )
   if (loop.cardMessageId) {
     // Only announce the deletion if it actually happened: telling clients to
     // drop a row that is still in the table makes it reappear on the next
     // fetch, which reads as the card resurrecting itself.
-    const cardDeleted = await db
+    // The card sits where the Loop was set up, which need not be the chat
+    // it reports in.
+    const card = await db
       .delete(schema.message)
       .where(eq(schema.message.id, loop.cardMessageId))
-      .then(() => true)
+      .returning({ channelId: schema.message.channelId })
+      .then((rows) => rows[0] ?? null)
       .catch((err) => {
         logger.error(
           { err, loopId: loop.id },
           "Loop delete: card message delete failed"
         )
-        return false
+        return null
       })
-    if (cardDeleted) {
-      emitter?.to(channelRoom(loop.channelId)).emit("message:deleted", {
-        channelId: loop.channelId,
+    if (card) {
+      emitter?.to(channelRoom(card.channelId)).emit("message:deleted", {
+        channelId: card.channelId,
         messageId: loop.cardMessageId,
       })
     }
   }
-  emitter?.to(channelRoom(loop.channelId)).emit("loop:deleted", {
-    loopId: loop.id,
-    channelId: loop.channelId,
-  })
+  if (rooms.length > 0) {
+    emitter?.to(rooms).emit("loop:deleted", {
+      loopId: loop.id,
+      channelId: loop.channelId,
+    })
+  }
 }
 
 // Cancel the conversational creation flow. The status predicate is the safety

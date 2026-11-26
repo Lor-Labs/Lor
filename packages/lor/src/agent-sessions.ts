@@ -197,9 +197,12 @@ async function findLoopSession(loopId: string) {
 }
 
 // A loop's one recurring session, created on its first fire. Archive only
-// dismisses a loop's session, so each fire brings it back.
+// dismisses a loop's session, so each fire brings it back. Only a Loop in a
+// channel that is not a text chat has one, so it always has a channel.
 export async function ensureLoopSession(
-  loop: Pick<Loop, "id" | "workspaceId" | "channelId" | "creatorId" | "name">
+  loop: Pick<Loop, "id" | "workspaceId" | "creatorId" | "name"> & {
+    channelId: string
+  }
 ): Promise<AgentSession> {
   const existing = await findLoopSession(loop.id)
   if (existing) {

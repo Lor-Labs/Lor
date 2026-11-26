@@ -1,8 +1,9 @@
 import {
   BotIcon,
+  BubbleChatIcon,
+  BubbleChatLockIcon,
   Copy01Icon,
   Folder01Icon,
-  HashtagIcon,
   PlusSignIcon,
   Settings01Icon,
   Tick02Icon,
@@ -38,7 +39,6 @@ import {
   PaneFooter,
   type PaneTab,
 } from "@/components/ui/pane-dialog"
-import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { GrantedChips } from "@/components/workspace/agent-profiles-section"
 import {
   SETTINGS_SURFACE,
@@ -112,7 +112,7 @@ export function EditChannelDialog({
   const isCategory = channel.type === "category"
   const isText = channel.type === "text"
   const isPrivate = channel.audience === "members" && channel.parentId === null
-  const kind = isCategory ? "category" : "channel"
+  const kind = isCategory ? "category" : "chat"
 
   // Agents and webhooks are a text channel's. Tools also sit on a category,
   // for the channels in it to inherit.
@@ -135,7 +135,7 @@ export function EditChannelDialog({
     <PaneDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={`${isCategory ? "Category" : "Channel"} settings`}
+      title={`${isCategory ? "Category" : "Chat"} settings`}
       description={`Manage this ${kind}'s settings.`}
       identity={
         <div className="flex items-center gap-3 sm:flex-col sm:items-start">
@@ -152,11 +152,10 @@ export function EditChannelDialog({
                 className="size-5"
                 strokeWidth={2}
               />
-            ) : isPrivate ? (
-              <PrivateHashIcon className="size-5" strokeWidth={2} />
             ) : (
+              // A chat, not a "#channel": no hash.
               <HugeiconsIcon
-                icon={HashtagIcon}
+                icon={isPrivate ? BubbleChatLockIcon : BubbleChatIcon}
                 className="size-5"
                 strokeWidth={2}
               />
@@ -170,10 +169,10 @@ export function EditChannelDialog({
               {isCategory
                 ? "Category"
                 : isPrivate
-                  ? "Private channel"
+                  ? "Private chat"
                   : channel.type === "voice"
                     ? "Voice channel"
-                    : "Channel"}
+                    : "Chat"}
             </div>
           </div>
         </div>
@@ -201,7 +200,7 @@ export function EditChannelDialog({
       ) : (
         <PaneBody
           title="Webhooks"
-          description={`Events from your other tools, posted in #${channel.name}.`}
+          description={`Events from your other tools, posted in ${channel.name}.`}
         >
           <ChannelWebhooksTab
             workspaceSlug={workspaceSlug}
@@ -226,7 +225,7 @@ function CopyId({ channelId }: { channelId: string }) {
         try {
           await navigator.clipboard.writeText(channelId)
         } catch {
-          toast.error("Failed to copy channel ID")
+          toast.error("Failed to copy chat ID")
           return
         }
         setCopied(true)
@@ -238,7 +237,7 @@ function CopyId({ channelId }: { channelId: string }) {
         className="size-3.5"
         strokeWidth={2}
       />
-      {copied ? "Copied" : "Copy channel ID"}
+      {copied ? "Copied" : "Copy chat ID"}
     </Button>
   )
 }
@@ -270,7 +269,7 @@ function OverviewTab({
 }) {
   const queryClient = useQueryClient()
   const isCategory = channel.type === "category"
-  const kind = isCategory ? "category" : "channel"
+  const kind = isCategory ? "category" : "chat"
   const [name, setName] = useState(channel.name ?? "")
   const [topic, setTopic] = useState(channel.topic ?? "")
   // Drafts start from the channel when the dialog opens or switches channel,
@@ -360,10 +359,10 @@ function OverviewTab({
                 onChange={(event) => setTopic(event.target.value)}
                 maxLength={1024}
                 rows={3}
-                placeholder="What this channel is for"
+                placeholder="What this chat is for"
               />
               <p className="text-muted-foreground text-xs">
-                Shown in the channel's header. The agent in it reads it too.
+                Shown in the chat's header. The agent in it reads it too.
               </p>
             </div>
           )}
@@ -474,8 +473,8 @@ function AgentTab({
         title={placed.length > 1 ? "Agents" : "Agent"}
         description={
           placed.length > 1
-            ? `${NAMES.format(placed.map((item) => item.name))} read along in #${channel.name}. A mention or a reply wakes the one it names at once.`
-            : `${first.name} reads along in #${channel.name}. A mention or a reply wakes it at once.`
+            ? `${NAMES.format(placed.map((item) => item.name))} read along in ${channel.name}. A mention or a reply wakes the one it names at once.`
+            : `${first.name} reads along in ${channel.name}. A mention or a reply wakes it at once.`
         }
       >
         {placed.map((agent) => (
@@ -510,7 +509,7 @@ function AgentTab({
   return (
     <PaneBody
       title="Agent"
-      description={`No agent is in #${channel.name}. People talk here and nothing answers.`}
+      description={`No agent is in ${channel.name}. People talk here and nothing answers.`}
     >
       {add}
     </PaneBody>
@@ -572,15 +571,15 @@ function PlacedAgent({
         </span>
         <span className="block truncate text-muted-foreground text-xs">
           {elsewhere.length > 0
-            ? `Also in ${elsewhere.map((name) => `#${name}`).join(", ")}`
-            : "Only in this channel"}
+            ? `Also in ${elsewhere.join(", ")}`
+            : "Only in this chat"}
         </span>
       </span>
       <Button type="button" size="sm" variant="outline" onClick={onOpen}>
         Settings
       </Button>
       <InlineConfirmButton
-        label={`Remove ${agent.name} from #${channel.name}`}
+        label={`Remove ${agent.name} from ${channel.name}`}
         confirmLabel="Remove"
         onConfirm={onRemove}
       />
@@ -626,7 +625,7 @@ function ChannelInstructions({
   const changed = text.trim() !== stored.trim()
   return (
     <SettingsSection
-      title="Instructions for this channel"
+      title="Instructions for this chat"
       // Always there, so the heading doesn't move when the text changes.
       action={
         <Button
@@ -645,16 +644,16 @@ function ChannelInstructions({
           Save
         </Button>
       }
-      caption={`Only the people in #${channel.name} can read these. ${agent.name} follows them here, ahead of its own brief.`}
+      caption={`Only the people in ${channel.name} can read these. ${agent.name} follows them here, ahead of its own brief.`}
     >
       <Textarea
-        aria-label={`Instructions for ${agent.name} in this channel`}
+        aria-label={`Instructions for ${agent.name} in this chat`}
         value={text}
         disabled={!data}
         onChange={(event) => setDraft(event.target.value)}
         maxLength={4000}
         rows={4}
-        placeholder={`What ${agent.name} should do in #${channel.name}. “Only speak up when a deploy fails.”`}
+        placeholder={`What ${agent.name} should do in ${channel.name}. “Only speak up when a deploy fails.”`}
       />
     </SettingsSection>
   )
@@ -709,8 +708,8 @@ function ToolsTab({
       title="Tools"
       description={
         isCategory
-          ? "What an agent may use in this category's channels."
-          : "What an agent may use in this channel."
+          ? "What an agent may use in this category's chats."
+          : "What an agent may use in this chat."
       }
     >
       {custom.length > 0 && (
@@ -748,7 +747,7 @@ function ToolsTab({
           title="Can use"
           caption={
             custom.length === 0
-              ? "Add agent profiles in workspace settings to give channels different tools."
+              ? "Add agent profiles in workspace settings to give chats different tools."
               : undefined
           }
         >

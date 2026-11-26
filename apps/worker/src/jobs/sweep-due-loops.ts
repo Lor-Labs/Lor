@@ -1,13 +1,12 @@
 import { and, db, eq, isNotNull, lte, schema } from "@repo/db"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import { nextLoopRunAt } from "@repo/lor/loop-schedule"
-import { toRealtimeLoop } from "@repo/lor/loops"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import { LOOP_RUN_JOB, type LoopRunJobData } from "@repo/realtime-types/queues"
-import { channelRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
 import { logger } from "@/lib/logger"
+import { emitLoopUpdated } from "@/lib/loop-session"
 
 export const LOOP_SWEEP_EVERY_MS = 60_000
 // Per-tick ceiling; anything beyond it is still due next minute. Keeps one
@@ -64,9 +63,7 @@ export async function sweepDueLoops(
         .then((rows) => rows[0] ?? null)
       if (ended) {
         logger.info({ loopId: loop.id }, "Loop completed; end date reached")
-        emitter
-          .to(channelRoom(ended.channelId))
-          .emit("loop:updated", { loop: toRealtimeLoop(ended) })
+        emitLoopUpdated(emitter, ended)
       }
       continue
     }
@@ -96,9 +93,7 @@ export async function sweepDueLoops(
           { loopId: loop.id },
           "Loop paused; schedule has no next fire"
         )
-        emitter
-          .to(channelRoom(paused.channelId))
-          .emit("loop:updated", { loop: toRealtimeLoop(paused) })
+        emitLoopUpdated(emitter, paused)
       }
       continue
     }

@@ -17,6 +17,7 @@ import {
   agentLoopsParamsSchema,
   channelLoopsParamsSchema,
   deleteLoopResponseSchema,
+  getLoopResponseSchema,
   listChannelLoopsResponseSchema,
   listLoopRunsResponseSchema,
   loopParamsSchema,
@@ -75,6 +76,28 @@ export const listAgentLoops = createRoute({
 })
 
 export type ListAgentLoopsRoute = typeof listAgentLoops
+
+export const getLoop = createRoute({
+  path: "/loops/{loopId}",
+  method: "get",
+  summary: "Get a loop",
+  description: "One loop by id, for the people who can see it.",
+  tags: ["Loops"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: loopParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: getLoopResponseSchema,
+      description: "The loop",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetLoopRoute = typeof getLoop
 
 export const activateLoop = createRoute({
   path: "/loops/{loopId}/activate",

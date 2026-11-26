@@ -130,7 +130,7 @@ export function AgentProfileFields({
 
       <SettingsSection
         title="Brief"
-        caption={`Everyone in the workspace can read ${shownName}'s brief. Instructions for one channel go in that channel's settings.`}
+        caption={`Everyone in the workspace can read ${shownName}'s brief. Instructions for one chat go in that chat's settings.`}
       >
         <Textarea
           id={`${idPrefix}-brief`}

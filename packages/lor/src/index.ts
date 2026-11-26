@@ -197,7 +197,7 @@ import {
 } from "./linear"
 import { logger } from "./logger"
 import {
-  agentProposeLoopTool,
+  agentOwnLoopTools,
   type ProposeLoopExecutor,
   proposeLoopTool,
 } from "./loops"
@@ -443,7 +443,7 @@ const CODE_PROMPT_LINE = `- The team's code: clone_repo copies a connected GitHu
 
 const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a loop — a recurring run of you on a cron schedule, with standing instructions and an optional plain-language end condition. Each run is a turn in the loop's own session, which the team follows. It creates a draft card here; a teammate activates it from the card, so tell them to press Create Loop there. Only for genuinely recurring work — never for one-off requests you can handle now.`
 // The channel agent's Loops wake it in the chat instead of a session.
-const AGENT_LOOPS_PROMPT_LINE = `- Loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a Loop: a cron schedule that wakes you in this channel with standing instructions, and an optional plain-language end condition. It posts a draft card in the chat; a teammate activates it from the card, so tell them to press Create Loop there. Only when a person asks for genuinely recurring work, never for one-off requests you can handle now.`
+const AGENT_LOOPS_PROMPT_LINE = `- Loops: create_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a Loop of your own: a cron schedule that wakes you with standing instructions, and an optional plain-language end condition. It starts at once, with no approval, and a card for it appears where you were asked. A Loop reports in one chat, or in none when the work is not about one chat. Only when a person asks for genuinely recurring work: never for one-off asks. update_loop changes one of yours (its instructions, schedule, chat, or whether it runs), and people see a line saying what you changed.`
 
 // Pi's sandbox tools, by their public names; the Sandbox tool group in agent
 // profiles turns them (and share_file) on or off.
@@ -3064,6 +3064,7 @@ async function respondImpl(
             ...readAgentHistoryTool,
             ...(ctx.agent.sessions ? agentSessionTools : {}),
             ...(ctx.agent.completeLoop ? agentLoopTools : {}),
+            ...(ctx.agent.loops ? agentOwnLoopTools : {}),
             ...(ctx.agent.wakeUps ? agentWakeUpTools : {}),
           }
         : {}),
@@ -3071,10 +3072,10 @@ async function respondImpl(
       ...(ctx.code ? sessionChangesTool : {}),
       ...(ctx.code && ctx.threadRootId ? sessionSetupTool : {}),
       ...(ctx.voice ? voiceTools : {}),
-      ...(ctx.proposeLoop && ctx.channelId
-        ? ctx.agent
-          ? agentProposeLoopTool
-          : proposeLoopTool
+      // A session proposes a Loop as a draft card. An agent makes its own
+      // with create_loop (agentOwnLoopTools above).
+      ...(ctx.proposeLoop && ctx.channelId && !ctx.agent
+        ? proposeLoopTool
         : {}),
       ...(ctx.proposeChange && ctx.channelId ? proposeChangeTool : {}),
       ...(linear ? linearTools : {}),
@@ -3296,6 +3297,12 @@ async function respondImpl(
             ...(ctx.agent.completeLoop
               ? { complete_loop: { completeLoop: ctx.agent.completeLoop } }
               : {}),
+            ...(ctx.agent.loops
+              ? {
+                  create_loop: { loops: ctx.agent.loops },
+                  update_loop: { loops: ctx.agent.loops },
+                }
+              : {}),
             ...(ctx.agent.wakeUps
               ? {
                   wake_up: { wakeUps: ctx.agent.wakeUps },
@@ -3310,7 +3317,7 @@ async function respondImpl(
             react_in_call: { react: ctx.voice.react },
           }
         : {}),
-      ...(ctx.proposeLoop && ctx.channelId
+      ...(ctx.proposeLoop && ctx.channelId && !ctx.agent
         ? { propose_loop: { createLoopCard: ctx.proposeLoop } }
         : {}),
       ...(ctx.proposeChange && ctx.channelId
@@ -3411,11 +3418,11 @@ async function respondImpl(
       hasToolGroup(notionTools) ? NOTION_PROMPT_LINE : null,
       hasToolGroup(notionWriteTools) ? NOTION_WRITE_PROMPT_LINE : null,
       ctx.channelId ? EXPORT_PROMPT_LINE : null,
-      ctx.proposeLoop && ctx.channelId
-        ? ctx.agent
-          ? AGENT_LOOPS_PROMPT_LINE
-          : LOOPS_PROMPT_LINE
-        : null,
+      ctx.agent?.loops
+        ? AGENT_LOOPS_PROMPT_LINE
+        : ctx.proposeLoop && ctx.channelId
+          ? LOOPS_PROMPT_LINE
+          : null,
       ctx.proposeChange && ctx.channelId
         ? ctx.agent
           ? AGENT_PROPOSALS_PROMPT_LINE

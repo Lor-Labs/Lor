@@ -126,9 +126,7 @@ export function HeaderSearch({
         onOpenChange={setIsOpen}
         debounce={300}
         placeholder={
-          mode === "dm"
-            ? "Search this conversation..."
-            : "Search this channel..."
+          mode === "dm" ? "Search this conversation..." : "Search this chat..."
         }
         resultCount={debouncedQuery ? data?.itemsTotal : undefined}
         showCollapsedFrame={false}

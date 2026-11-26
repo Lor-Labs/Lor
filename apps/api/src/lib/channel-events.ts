@@ -91,11 +91,14 @@ export async function postChannelEvent(
 // only the loop row. Best effort like postChannelEvent: a lookup failure must
 // not fail the loop transition that already committed.
 export async function postLoopChannelEvent(input: {
-  loop: { id: string; name: string; channelId: string }
+  // A Loop with no chat has nowhere for the line.
+  loop: { id: string; name: string; channelId: string | null }
   actorId: string
   eventType: "loop_created" | "loop_paused" | "loop_completed"
   reason?: "failures" | "out_of_credits" | "agent_left"
 }): Promise<void> {
+  const channelId = input.loop.channelId
+  if (!channelId) return
   try {
     const channel = await db
       .select({
@@ -104,7 +107,7 @@ export async function postLoopChannelEvent(input: {
         name: schema.channel.name,
       })
       .from(schema.channel)
-      .where(eq(schema.channel.id, input.loop.channelId))
+      .where(eq(schema.channel.id, channelId))
       .limit(1)
       .then((rows) => rows[0])
     if (!channel) return

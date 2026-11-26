@@ -243,7 +243,6 @@ export function ThreadView({
   const mentions = useWorkspaceMentionCandidates({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
-    channelAudience: channelState.channel?.audience,
     broadcasts: !lorSession,
   })
   const avatarColorByUserId = useMemo(

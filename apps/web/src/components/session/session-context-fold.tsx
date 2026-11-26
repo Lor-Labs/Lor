@@ -119,9 +119,9 @@ export function SessionContextFold({
         {sourceLink(newest.session.title, newest.session.id)}
       </>
     ) : newest.kind === "asked" ? (
-      <span className="shrink-0">Asked about a message in #{channelName}</span>
+      <span className="shrink-0">Asked about a message in {channelName}</span>
     ) : (
-      <span className="shrink-0">Started from #{channelName}</span>
+      <span className="shrink-0">Started from {channelName}</span>
     )
 
   return (
@@ -205,9 +205,7 @@ function ContextSegment({
       ? "document"
       : "chat"
   const messages = segment.messages as Message[]
-  const from = segment.session
-    ? `“${segment.session.title}”`
-    : `#${channelName}`
+  const from = segment.session ? `“${segment.session.title}”` : channelName
   return (
     <div>
       {labelled && (

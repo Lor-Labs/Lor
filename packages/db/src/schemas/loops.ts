@@ -17,8 +17,9 @@ import { workspace } from "./workspaces"
 
 // A loop: scheduled work an agent was told to do, repeating on a cron
 // schedule until an end condition is met, it's paused, or completed. It
-// belongs to its agent (`agentId`) and reports in a chat (`channelId`), as a
-// listener does (reference/agents-and-chats.md, decisions 15, 23 and 27).
+// belongs to its agent (`agentId`). The chat it reports in (`channelId`) is
+// optional: with none it is the agent's own work across its chats
+// (reference/agents-and-chats.md, decisions 15, 23 and 27).
 // Postgres
 // is the only source of truth for scheduling — a 60s worker sweep claims due
 // loops via CAS on nextRunAt; there are no per-loop BullMQ schedulers.
@@ -59,9 +60,11 @@ export const loop = pgTable(
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
     // The chat it reports in: the turn a fire starts is about this chat.
-    channelId: uuid("channel_id")
-      .notNull()
-      .references(() => channel.id, { onDelete: "cascade" }),
+    // Null: no chat. It runs as the agent's own work, in a turn that starts
+    // in one of the agent's chats only because every turn has one.
+    channelId: uuid("channel_id").references(() => channel.id, {
+      onDelete: "cascade",
+    }),
     // The agent that runs it: a fire wakes this agent in its own
     // conversation. A Loop goes with its agent, never with the chat's other
     // agents. Null: nobody runs it in a text chat (made in a chat with no
@@ -72,6 +75,13 @@ export const loop = pgTable(
     creatorId: uuid("creator_id").references(() => user.id, {
       onDelete: "set null",
     }),
+    // Who last changed it (its name, instructions, schedule, end, chat or
+    // whether it runs) and when: a person, or the agent itself, which makes
+    // and changes its own Loops with no approval. Shown on the Loop.
+    changedById: uuid("changed_by_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    changedAt: timestamp("changed_at"),
     kind: loopKindEnum("kind").notNull().default("custom"),
     // The loop card message (message type `loop_card`) — the card renders
     // from this row, looked up by cardMessageId like plan.cardMessageId.

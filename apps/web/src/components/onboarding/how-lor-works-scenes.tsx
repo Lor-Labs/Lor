@@ -291,7 +291,7 @@ function SceneCursor({
 
 const WELCOME_ASK = " draft the launch post for Thursday"
 const WELCOME_DRAFT =
-  "Here's a draft for #announcements: shared sessions ship Thursday, for every team."
+  "Here's a draft for announcements: shared sessions ship Thursday, for every team."
 const WELCOME_TIMES = [
   400, 1300, 2900, 3800, 5200, 6200, 6700, 7200, 8300,
 ] as const
@@ -397,7 +397,7 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
                 ) : (
                   <>
                     <span className="min-w-0 flex-1 truncate">
-                      Post to #announcements?
+                      Post to announcements?
                     </span>
                     <span className="rounded-md px-2 py-1 text-[11px] text-muted-foreground">
                       Reject
@@ -472,7 +472,7 @@ export function ChannelAgentScene({ you, onDone }: SceneProps) {
   return (
     <div className="absolute top-1/2 left-1/2 w-[360px] -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-background p-3 text-[12px] shadow-lg/5">
       <div className="flex items-center gap-2 border-b pb-2">
-        <span className="flex-1 font-semibold text-[13px]"># gtm</span>
+        <span className="flex-1 font-semibold text-[13px]">GTM</span>
         <div className="flex -space-x-1.5">
           <PersonAvatar person={ZOE} />
           <PersonAvatar person={RAFAEL} />
@@ -528,7 +528,7 @@ export function ChannelAgentScene({ you, onDone }: SceneProps) {
             className="flex items-center gap-1.5 text-muted-foreground"
           >
             <img src="/lor-mark.svg" alt="" className="size-3.5" />
-            Shared with everyone in #gtm
+            Shared with everyone in GTM
           </motion.div>
         )}
       </div>
@@ -554,7 +554,7 @@ export function ChatAnswerScene({ workspaceName, you, onDone }: SceneProps) {
         sessions={<MiniSessionRow title="Pricing page copy" state="unread" />}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="border-b px-3 py-2 font-semibold"># engineering</div>
+        <div className="border-b px-3 py-2 font-semibold">engineering</div>
         <div className="flex flex-1 flex-col justify-end gap-3 overflow-hidden px-1.5 pb-1 [mask-image:linear-gradient(to_bottom,transparent,black_28px)]">
           <div
             className={cn(
@@ -604,7 +604,7 @@ export function ChatAnswerScene({ workspaceName, you, onDone }: SceneProps) {
               <TypewriterText text={phase >= 2 ? QUESTION : ""} animate />
             </>
           ) : (
-            <span className="text-muted-foreground">Message #engineering</span>
+            <span className="text-muted-foreground">Message engineering</span>
           )}
         </MiniComposer>
       </div>

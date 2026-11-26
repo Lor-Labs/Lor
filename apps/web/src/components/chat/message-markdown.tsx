@@ -28,10 +28,11 @@ const USER_MENTION_TOKEN_REGEX =
   /<@([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})>/gi
 const TIPTAP_MENTION_REGEX =
   /\[@[^\]]*?\bid="([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})"[^\]]*]/gi
-const EVERYONE_MENTION_REGEX = /(^|\s)@everyone\b/gi
-const CHANNEL_MENTION_REGEX = /(^|\s)@channel\b/gi
+// The group mentions: @chat and @here (packages/messaging). @everyone and
+// @channel are gone and stay plain text in messages from before.
+const CHAT_MENTION_REGEX = /(^|\s)@chat\b/gi
 const HERE_MENTION_REGEX = /(^|\s)@here\b/gi
-const BROADCAST_MENTION_IDS = new Set(["everyone", "channel", "here", "agents"])
+const BROADCAST_MENTION_IDS = new Set(["chat", "here", "agents"])
 // A post for every agent in a chat's agents' room starts with this
 // (reference/agents-and-chats.md, decision 44). No pattern turns typed text
 // into it: @agents is not a mention people can write in a chat.
@@ -127,14 +128,9 @@ function toRenderableMarkdown(
   return content
     .replace(TIPTAP_MENTION_REGEX, (_match, userId: string) => `<@${userId}>`)
     .replace(
-      EVERYONE_MENTION_REGEX,
+      CHAT_MENTION_REGEX,
       (_match, prefix: string) =>
-        `${prefix}<mention data-id="everyone">@everyone</mention>`
-    )
-    .replace(
-      CHANNEL_MENTION_REGEX,
-      (_match, prefix: string) =>
-        `${prefix}<mention data-id="channel">@channel</mention>`
+        `${prefix}<mention data-id="chat">@chat</mention>`
     )
     .replace(
       HERE_MENTION_REGEX,

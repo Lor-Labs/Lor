@@ -243,7 +243,7 @@ function AgentDialog({
           >
             <PaneBody
               title="Profile"
-              description={`Who ${agent.name} is, in every channel it is in.`}
+              description={`Who ${agent.name} is, in every chat it is in.`}
             >
               <AgentProfileFields
                 draft={draft}
@@ -276,7 +276,7 @@ function AgentDialog({
         ) : shownTab === "memory" ? (
           <PaneBody
             title="Memory"
-            description={`What ${agent.name} knows, the same wherever it works: a channel, a code session, Slack or Discord. The whole team can read it.`}
+            description={`What ${agent.name} knows, the same wherever it works: a chat, a code session, Slack or Discord. The whole team can read it.`}
           >
             <AgentFactsList
               workspaceSlug={workspaceSlug}
@@ -314,7 +314,7 @@ function AgentDialog({
         ) : shownTab === "loops" ? (
           <PaneBody
             title="Loops"
-            description={`What ${agent.name} does on a schedule. Each loop is ${agent.name}'s own and reports in one chat.`}
+            description={`What ${agent.name} does on a schedule. Each loop is ${agent.name}'s own, and reports in one chat or in none.`}
           >
             <AgentLoops workspaceSlug={workspaceSlug} agent={agent} />
           </PaneBody>
@@ -361,7 +361,7 @@ function ChannelName({
           "#"
         )}
       </span>
-      <span className="truncate">{name ?? "channel"}</span>
+      <span className="truncate">{name ?? "chat"}</span>
     </span>
   )
 }
@@ -442,7 +442,7 @@ function AgentChannels({
                 />
                 {canManage && (
                   <InlineConfirmButton
-                    label={`Remove ${agent.name} from #${channel.name}`}
+                    label={`Remove ${agent.name} from ${channel.name}`}
                     confirmLabel="Remove"
                     onConfirm={() => place(channel.id, [])}
                   />
@@ -613,7 +613,7 @@ function NewAgentDialog({
       onTabChange={() => {}}
       aside={
         <p className="px-2 text-pretty text-muted-foreground text-xs">
-          Its memory, channels and runs come once it exists.
+          Its memory, chats and runs come once it exists.
         </p>
       }
     >
@@ -626,7 +626,7 @@ function NewAgentDialog({
       >
         <PaneBody
           title="New agent"
-          description="A teammate with its own name, brief and memory. You add it to channels next."
+          description="A teammate with its own name, brief and memory. You add it to chats next."
         >
           <AgentProfileFields
             draft={draft}

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import type { LoopChange } from "./loops"
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "./uploads"
 
 export type PresenceStatus = "online" | "offline" | "idle" | "dnd"
@@ -332,6 +333,7 @@ export type RealtimeChannelEventType =
   | "loop_created"
   | "loop_paused"
   | "loop_completed"
+  | "loop_updated"
   | "loop_run"
   | "trigger_run"
   | "session_continued"
@@ -369,6 +371,7 @@ export type RealtimeChannelEventPayload =
       loopName: string
       reason?: "failures" | "out_of_credits" | "agent_left"
       via?: "proposal"
+      changes?: LoopChange[]
     }
   | {
       triggerId: string
@@ -1031,10 +1034,14 @@ export interface ServerToClientEvents {
   // A change proposal was resolved or applied (pillar 3). Channel room; ids
   // only — cards refetch the durable rows.
   "proposal:updated": (payload: ProposalUpdatedEvent) => void
-  // Loop snapshot changed (status, schedule, run bookkeeping). Channel room.
+  // Loop snapshot changed (status, schedule, run bookkeeping). To its chat's
+  // room and its card's; with no chat, to the chats its agent is in.
   "loop:updated": (payload: LoopUpdatedEvent) => void
   // Loop hard-deleted (its card message goes separately via message:deleted).
-  "loop:deleted": (payload: { loopId: string; channelId: string }) => void
+  "loop:deleted": (payload: {
+    loopId: string
+    channelId: string | null
+  }) => void
   // The channel agent's wake-ups changed (set, fired or cancelled): clients
   // refetch the channel's Follow-ups.
   "agent:wake-ups:updated": (payload: { channelId: string }) => void
@@ -1304,10 +1311,13 @@ export type RealtimeLoopStatus = "draft" | "active" | "paused" | "completed"
 export type RealtimeLoop = {
   id: string
   workspaceId: string
-  // The chat it reports in.
-  channelId: string
+  // The chat it reports in; null when it has none.
+  channelId: string | null
   // The agent that runs it; null when nobody does (agents-and-chats.md §9).
   agentId: string | null
+  // Who last changed it, a person or the agent itself, and when.
+  changedById: string | null
+  changedAt: string | null
   cardMessageId: string | null
   creatorId: string | null
   // "check_in": the one every channel's agent comes with (decision 7).
@@ -1333,6 +1343,9 @@ export type RealtimeLoop = {
 
 export type LoopUpdatedEvent = {
   loop: RealtimeLoop
+  // The chat its card is in, which may not be the chat it reports in: that
+  // chat's list keeps the Loop so the card renders.
+  cardChannelId?: string | null
 }
 
 export type LorSteerEvent = {

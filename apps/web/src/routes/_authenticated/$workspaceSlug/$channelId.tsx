@@ -151,7 +151,7 @@ function ChannelRoute() {
   if (!data) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
-        <p>Could not load this channel.</p>
+        <p>Could not load this chat.</p>
         <button
           type="button"
           className="underline"
@@ -670,7 +670,7 @@ function ChannelView() {
     return (
       <div className="flex flex-1 items-center justify-center">
         <span className="text-sm text-muted-foreground">
-          {error instanceof Error ? error.message : "Failed to load channel"}
+          {error instanceof Error ? error.message : "Failed to load chat"}
         </span>
       </div>
     )
@@ -679,7 +679,7 @@ function ChannelView() {
   if (!data) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <span className="text-sm text-muted-foreground">Channel not found</span>
+        <span className="text-sm text-muted-foreground">Chat not found</span>
       </div>
     )
   }

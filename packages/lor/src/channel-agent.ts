@@ -85,6 +85,40 @@ export type CompleteAgentLoop = (input: {
   closingNote: string
 }) => Promise<{ ok: true } | { ok: false; error: string }>
 
+// An agent makes and changes its own Loops with no approval
+// (reference/agents-and-chats.md §9, Jacob 2026-11-26). The worker does the
+// work and leaves the trace: a card where it was asked, a line in the
+// Loop's chat, and who changed it last on the Loop. Each returns what the
+// model reads.
+export type AgentLoopExecutors = {
+  create: (input: {
+    name: string
+    instructions: string
+    schedule: string
+    timezone: string
+    // A chat the agent is in, by name or id; null for no chat.
+    chat: string | null
+    endCondition: string | null
+    endAt: Date | null
+  }) => Promise<
+    { ok: true; loopId: string; note: string } | { ok: false; error: string }
+  >
+  update: (input: {
+    loopId: string
+    name?: string
+    instructions?: string
+    schedule?: string
+    timezone?: string
+    chat?: string | null
+    endCondition?: string | null
+    endAt?: Date | null
+    running?: boolean
+  }) => Promise<
+    | { ok: true; changed: string[]; note?: string }
+    | { ok: false; error: string }
+  >
+}
+
 // Set on every run of an agent. The worker binds the hooks, since it owns
 // the run's lease and billing.
 export type RunAgentContext = {
@@ -121,6 +155,7 @@ export type RunAgentContext = {
   loadDecisions?: (pausedRunId: string) => Promise<ApprovalDecision[]>
   sessions?: AgentSessionTools
   completeLoop?: CompleteAgentLoop
+  loops?: AgentLoopExecutors
   wakeUps?: AgentWakeUps
 }
 
@@ -412,7 +447,7 @@ ${teammates.length > 0 ? `- Other agents work for this team too, each with a mem
 - For a back-and-forth that would crowd the chat (debugging, planning, anything long), answer with send_message's startThread: it starts a thread on the message you're answering. Keep quick answers in the chat.
 - In a thread you're part of (one under your message, or one you started or posted in), every message wakes you. Answer when you're addressed or have something useful to add; otherwise end the turn without sending.
 - You have no computer of your own yet: you can't run code, use a shell or make files yourself. Work on code goes to code sessions: start_session hands a task to a coding agent on one repository, and you are woken with its report when its turn ends. Tell people in the chat what you started and, when it reports, what came of it. People review the branch and open pull requests; you and the sessions never do.
-- A Loop is a schedule the team set for you: when one fires you are woken${own ? "" : " in your own conversation"} with its standing instructions, and you do its work then. propose_loop drafts a new one when a person asks for recurring work.
+- A Loop is a schedule of your own: when one fires you are woken${own ? "" : " in your own conversation"} with its standing instructions, and you do its work then. create_loop sets one up when a person asks for recurring work, and update_loop changes one of yours; both take effect at once, and people see what you did.
 - In the chat, never narrate what woke you: no "my Loop ran", "a scheduled check", "an event came in" or "my inbox". Say what you noticed and what it means, the way a teammate who was keeping an eye on things would.
 - When you are done, end the turn. Any closing note to yourself is one short line.
 - Your conversation is kept across turns, and summarized when it grows long. read_agent_history reads your earlier turns word for word, in this conversation and your others, and read_thread reads a chat. Use them before guessing at something you no longer see.
@@ -517,11 +552,16 @@ export function loopInboxNote(input: {
   instructions: string
   endCondition: string | null
   setUpBy: string | null
+  // False for a Loop with no chat.
+  hasChat: boolean
 }): string {
   const endCondition = input.endCondition?.trim()
   return [
     `The Loop "${sanitizeInlineLabel(input.name)}" fired (${input.scheduleDescription}; Loop ${input.loopId}). Do its work now. Nobody asked just now and nobody may be watching: don't ask questions, and when the instructions don't cover the situation, make the conservative call.`,
-    `The team's standing instructions for it${input.setUpBy ? `, set up by ${sanitizeInlineLabel(input.setUpBy)}` : ""}:\n${input.instructions.trim() || "(none: use your judgment about what this run needs)"}`,
+    input.hasChat
+      ? null
+      : "This Loop has no chat of its own: it is your work across the chats you are in and your tools. The turn names a chat only because every turn has one. Post with send_message's `channel` in the chat a result belongs to, and nowhere when nothing needs saying.",
+    `Its standing instructions${input.setUpBy ? `, set up for ${sanitizeInlineLabel(input.setUpBy)}` : ""}:\n${input.instructions.trim() || "(none: use your judgment about what this run needs)"}`,
     endCondition
       ? `It runs until: ${endCondition}\nCheck that first. If it is met (verify with your tools, don't assume), call complete_loop with this Loop's id instead of doing the work again.`
       : null,

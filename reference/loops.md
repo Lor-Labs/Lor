@@ -665,3 +665,14 @@ apps/realtime `services/lor.ts`, card rendering in web
   it to another agent; deleting an agent deletes its Loops. Loop and
   proposal cards are posted by the agent that proposed them. A Loop outside
   a text chat is unchanged: no agent, its own session.
+- 2026-11-26 — Loops with no chat, and agents' own Loops
+  (`agents-and-chats.md`, decisions 45 and 46). `loop.channel_id` is
+  nullable: a Loop with no chat is its agent's work across its chats, and
+  its fire starts in the agent's first chat. An agent's `propose_loop` is
+  replaced by `create_loop` (active at once, no approval, timezone
+  required) and `update_loop`; a session's `propose_loop` still drafts a
+  card a person activates. `loop.changed_by_id` and `changed_at` record who
+  changed a Loop last, and a `loop_updated` line says what an agent
+  changed. `loop:updated` goes to the Loop's chat and its card's chat (for
+  one with no chat, the chats its agent is in) and carries
+  `cardChannelId`; a chat's list also holds the Loops whose card is there.

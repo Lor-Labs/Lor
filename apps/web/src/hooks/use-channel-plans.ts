@@ -20,7 +20,7 @@ export function channelPlansQueryOptions(channelId: string) {
         param: { channelId },
         query: {},
       })
-      if (!res.ok) throw new Error("Failed to fetch channel plans")
+      if (!res.ok) throw new Error("Failed to fetch the chat's plans")
       const payload = await res.json()
       return payload.plans
     },

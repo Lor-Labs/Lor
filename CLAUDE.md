@@ -304,7 +304,13 @@ agents to wake them, name nobody and Jev picks, or `agents` for all): saved in
 feed. A Loop belongs to its agent (`loop.agent_id`, filled once by
 `loop-agents.ts` before the push) and reports in one chat: a fire wakes
 that agent, taking it out of the chat pauses the Loop, and "Run by" in the
-Loop's panel hands it to another agent. Step 3 is built; what is left is
+Loop's panel hands it to another agent. A Loop's chat is optional
+(`loop.channel_id` null: the agent's own work across its chats), and an
+agent makes and changes its own Loops with no approval (`create_loop`,
+`update_loop`, `apps/worker/src/lib/agent-loops.ts`), shown by a card, a
+`loop_updated` line and `loop.changed_by_id` (decisions 45 and 46). A chat's
+group mentions are `@chat` and `@here`; `@everyone` and `@channel` are plain
+text (decision 47). Step 3 is built; what is left is
 "What is left" in that doc's §9. The mock of the chat list is
 `/prototype/chats`; `/prototype/agents` is the earlier design.
 

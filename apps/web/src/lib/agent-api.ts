@@ -67,7 +67,7 @@ export async function setChannelAgents(
     param: { workspaceSlug, channelId },
     json: { agentIds },
   })
-  if (!res.ok) throw await failure(res, "Failed to change the channel's agent")
+  if (!res.ok) throw await failure(res, "Failed to change the chat's agent")
   return res.json()
 }
 
@@ -92,7 +92,7 @@ export async function loadChannelAgents(
   const res = await workspaces.channels[":channelId"].agents.$get({
     param: { workspaceSlug, channelId },
   })
-  if (!res.ok) throw await failure(res, "Failed to load the channel's agents")
+  if (!res.ok) throw await failure(res, "Failed to load the chat's agents")
   return (await res.json()).agents
 }
 

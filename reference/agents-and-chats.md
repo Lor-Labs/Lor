@@ -1,7 +1,7 @@
 # Agents and chats: agents apart from channels
 
 **Status:** Decided with Jacob from 2026-11-23 to 11-26 and built step by
-step from §9. This doc is the record: §3 lists every decision (1 to 44) with
+step from §9. This doc is the record: §3 lists every decision (1 to 47) with
 who made it and when, §9 says what each step built, how it was checked and
 what was not run, and "What is left" at the top of §9 is the order of the
 remaining work. Built so far: agents apart from channels (step 1), one
@@ -106,7 +106,10 @@ objected to and should confirm.
 | 41 | Notifications: a chat's message notifies the people in it; a posted event pings people only when its listener says so; what an agent says to a Lor chat pings like anyone's message; a thread's reply is unread only for the people who follow it; a chat that lives in Slack or Discord shows unread in Lor and leaves the ping to that app | Jacob, 11-26 |
 | 42 | Several agents can listen to one event, each once and each with its own chat, filter and instructions. The connector's page shows events as a plain list, one line an event with who hears it; opening an event shows its listeners as chips and one flat form for the picked one | Jacob, 11-26 |
 | 43 | A listener has no hourly or daily cap on how often it wakes its agent, shown or hidden: nothing limits it that the person cannot see. The filter turns events away and the inbox batches bursts | Jacob, 11-26 |
-| 44 | The agents' room of a chat works as a chat does. A post that names agents wakes them; one that names nobody wakes the agent it reads as meant for (Jev, as for a person's message) and the rest read it at their check-in; one for all agents (`@agents`) wakes them all. It is not @everyone or @here: in a chat those mean the whole workspace and whoever is online, and neither is what happens here. An agent that doesn't know which agent to ask posts without a name. The only way into the room is the line in the chat's feed | Jacob, 11-26 |
+| 44 | The agents' room of a chat works as a chat does. A post that names agents wakes them; one that names nobody wakes the agent it reads as meant for (Jev, as for a person's message) and the rest read it at their check-in; one for all agents (`@agents`) wakes them all. It is not @chat or @here, the group mentions people have (decision 47): those ping people. An agent that doesn't know which agent to ask posts without a name. The only way into the room is the line in the chat's feed | Jacob, 11-26 |
+| 45 | A Loop's chat is optional. With one, it reports there. With none it is the agent's own work across its chats and tools ("check all the chats you are in for a condition"), and each run posts where its result belongs, or nowhere. This settles decision 27 the way it was written | Jacob, 11-26 |
+| 46 | An agent makes and changes its own Loops with no approval: asking a person to press Create Loop is off by default. What it did is shown: a card where it was asked, a line in the Loop's chat when it has one, and who changed the Loop last on the Loop itself | Jacob, 11-26 |
+| 47 | A group chat has no @everyone and no @channel: those are Slack and Discord words. @chat pings everyone in the chat and @here those of them online. The older words stay plain text | Jacob, 11-26 |
 
 Considered and dropped:
 
@@ -309,10 +312,14 @@ not bring back `channel.agentModel` or a workspace "Autonomous runs"
 setting. `db:push` then also adds the `config` column. The patch:
 https://cdn.lor.chat/artifacts/aa5b7d27-2b2f-4f9d-a0de-ba847a06b546/926da81d-a381-455e-9225-25faa84fae5b/1eb898b5-6091-427b-b7b1-6bbe643d68fb/lor-screenshots_ironwood-provider-models.patch
 
-Beside these: the chat's settings dialog
-(tools, webhooks) still says "channel"; no private chat can be made from
+Beside these: no private chat can be made from
 the web app (Jacob, 11-26: no switch for now); the mobile app still lists
-channels; listeners an agent
+channels and is to be discussed (Jacob, 11-26); the API's error messages
+and what agents are told still say "channel" (the web app's own wording
+says "chat" since 11-26); no switch yet turns approval back on for an
+agent's own Loops (decision 46 says "off by default"; it could be an
+approval gate on `create_loop` and `update_loop`, which needs them added
+to the gates' tool catalog); listeners an agent
 proposes for itself; `db:push` on the shared databases, then API, realtime,
 worker and web deployed together.
 
@@ -1087,11 +1094,10 @@ chat's agents changed.
   push): it adds the column and gives every existing Loop to the first agent
   of its chat, the one that ran it. It runs once per database, so a Loop
   left with no agent later is never handed to one by a push.
-- **Choices made while building, for Jacob to confirm.** The chat stays
-  required: decision 27 says where a Loop posts is optional, but a turn is
-  always about a chat (`agent_inbox.channel_id`, `agent_run.channel_id`),
-  as for a listener. A removed agent's Loops pause instead of going to
-  another agent. An agent's Loops are deleted with it.
+- **Choices made while building.** The chat was required at first and is
+  optional since decision 45 (next section). Still for Jacob to confirm: a
+  removed agent's Loops pause instead of going to another agent, and an
+  agent's Loops are deleted with it.
 - **Checked** live on a throwaway database: the move gave a seeded Loop to
   its chat's first agent and left one in a chat with no agent alone; a Loop
   handed to the third agent of a chat ran as that agent ("Run now"), which
@@ -1113,6 +1119,90 @@ chat's agents changed.
   index and the `agent_left` paused reason. Then API, realtime, worker, web
   and mobile together. Take `loop-agents.ts` out of `BEFORE_PUSH` once
   every environment has pushed.
+
+### Loops with no chat, and agents' own Loops (built 2026-11-26)
+
+Decisions 45 and 46, on top of "Loops on the agent".
+
+- **`loop.channel_id` is nullable.** Null: the Loop has no chat. A fire
+  still needs a chat for its turn to start in (`agent_inbox.channel_id`,
+  `agent_run.channel_id`), so it starts in the first open chat the agent is
+  in (`agentAnchorChannelId`), as the check-in picks one, and the fire's
+  note tells the agent the Loop has no chat and to post with
+  `send_message`'s `channel` where a result belongs. An agent in no chat
+  can't run one: its Loops with no chat pause when it leaves its last chat,
+  and activate and resume refuse.
+- **`create_loop` and `update_loop`** (`agentOwnLoopTools`,
+  `packages/lor/src/loops.ts`; `apps/worker/src/lib/agent-loops.ts`)
+  replace the agent's `propose_loop`. `create_loop` makes a Loop that is
+  active at once, only in a turn a person asked in (a Loop fire or an event
+  can't schedule more). It takes the chat by name or id, among the chats
+  the agent is in, or null, and a required IANA timezone: nobody activates
+  it any more, so nobody's device timezone is pinned, and the agent is told
+  to ask when it does not know it. `update_loop` changes one of the agent's
+  own Loops in any turn: name, instructions, schedule, timezone, chat, end,
+  and whether it runs. The 5-minute floor on a schedule stays; the
+  confirmation a person gave for a sub-hourly one is gone for these, and
+  the tool's result tells the agent to say how often it runs.
+- **What people see** (decision 46). A card for the new Loop, posted by the
+  agent in the chat it was asked in, already running (no Create Loop
+  button). When the Loop reports in another chat, a "created the loop" line
+  there. For a change, a quiet line in the Loop's chat, "Inky changed the
+  loop X: schedule" (`message.event_type = "loop_updated"`,
+  `payload.changes`); with no chat, in the chat a person asked in, and
+  nowhere when nobody asked. Always: `loop.changed_by_id` and
+  `changed_at`, shown in the Loop's panel as "Last changed by Inky, 2h
+  ago". A person's edits stamp them too.
+- **A session's `propose_loop` is unchanged:** a draft card a person
+  activates. So is a change proposal's `create_loop`.
+- **Moving a Loop** (`PATCH /loops/{id}` with `channelId`): "Reports in" in
+  the Loop's panel picks one of the chats its agent is in, or "No chat".
+  The card stays where the Loop was set up.
+- **Who sees a Loop with no chat** (`loopAccess`, `apps/api/src/lib/loops.ts`):
+  the people who can see a chat its agent is in, or anyone in the workspace
+  when it is in none, the rule the agent's memory has. Its events go to the
+  rooms of those chats (`loopEventTargets`), never to the whole workspace.
+- **A chat's loop list** (`GET /channels/{id}/loops`) holds the Loops that
+  report there and those whose card is there, so a card renders whichever
+  chat its Loop reports in; `loop:updated` carries `cardChannelId` for the
+  same reason. The lists people read narrow to the first (`inChat`). The
+  Loop's panel reads a Loop by id when it is not in the chat it is opened
+  beside (`GET /loops/{id}`, `useLoop`). The agent's Loops tab has a "No
+  chat" group, and such a Loop opens beside the chat that is open.
+- **Checked** live on a throwaway database: an agent asked for a Loop made
+  one that was running at once, with its card under its own name and no
+  button; asked to move it an hour, it changed the schedule and the line
+  appeared in the chat; an agent asked for a Loop "not tied to one chat"
+  made one with no chat, whose card was in the chat it was asked in; "Run
+  now" on it ran as that agent in its own conversation and it posted in the
+  chat the result belonged to; the panel moved it to a chat and back to no
+  chat, and showed who changed it last; an agent asked to resume and then
+  pause its own Loop did both, each with its line ("Inky paused the loop
+  X"); an agent asked in one chat for a Loop that reports in another made
+  it, with the card where it was asked and a "created the loop" line in
+  the other chat. Type checks pass for db, lor, messaging, realtime, API,
+  worker, web and mobile.
+- **Not run:** a scheduled fire of a Loop with no chat (only "Run now"),
+  and an agent leaving its last chat.
+- **Not built:** a switch that turns approval back on (see "Beside
+  these"), and the mobile app's view of any of this (it shows a Loop with
+  no chat only through a card).
+- **Rollout:** `pnpm db:push` drops the not-null on `loop.channel_id`, adds
+  `changed_by_id` and `changed_at`, and adds the `loop_updated` event
+  type. API, realtime, worker and web together: an older worker would bind
+  `propose_loop` for agents again.
+
+### Group mentions: @chat and @here (built 2026-11-26)
+
+Decision 47. `packages/messaging/src/index.ts` matches `@chat` (everyone in
+the chat, stored as the `channel` mention type) and `@here` (those of them
+online). `@everyone` and `@channel` are no longer matched: in a message
+from before, or typed now, they are plain text and ping nobody. The web
+and mobile composers offer `@chat` and `@here`, and render only those as
+chips. `mention_type` keeps its `everyone` value for rows from before.
+Checked live: `@chat` in a chat of three reached the two others as
+`channel` mentions, and a message with `@everyone` and `@channel` made no
+mention rows.
 
 ### Step 4: places and tools
 

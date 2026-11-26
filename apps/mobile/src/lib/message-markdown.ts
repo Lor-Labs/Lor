@@ -16,11 +16,10 @@ const USER_MENTION_TOKEN_REGEX =
 const TIPTAP_MENTION_REGEX =
   /\[@[^\]]*?\bid="([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})"[^\]]*]/gi
 const ENRICHED_MENTION_REGEX =
-  /\[@(?:\\.|[^\]])*]\(lor:\/\/mention\/(everyone|channel|here|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\)/gi
-const EVERYONE_MENTION_REGEX = /(^|\s)@everyone\b/gi
-const CHANNEL_MENTION_REGEX = /(^|\s)@channel\b/gi
+  /\[@(?:\\.|[^\]])*]\(lor:\/\/mention\/(chat|here|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\)/gi
+const CHAT_MENTION_REGEX = /(^|\s)@chat\b/gi
 const HERE_MENTION_REGEX = /(^|\s)@here\b/gi
-const BROADCAST_MENTION_TOKENS = new Set(["everyone", "channel", "here"])
+const BROADCAST_MENTION_TOKENS = new Set(["chat", "here"])
 const CITATION_REGEX = /\[\[([^\]]+)\]\]/g
 // An inline image with a bracket-free alt, or else any other "![" (reference
 // images, and alts holding a nested image whose outer src would win).
@@ -123,14 +122,8 @@ export function toDisplayMarkdown(
       )
     })
     .replace(
-      EVERYONE_MENTION_REGEX,
-      (_match, prefix: string) =>
-        `${prefix}[@everyone](${MENTION_SCHEME}everyone)`
-    )
-    .replace(
-      CHANNEL_MENTION_REGEX,
-      (_match, prefix: string) =>
-        `${prefix}[@channel](${MENTION_SCHEME}channel)`
+      CHAT_MENTION_REGEX,
+      (_match, prefix: string) => `${prefix}[@chat](${MENTION_SCHEME}chat)`
     )
     .replace(
       HERE_MENTION_REGEX,

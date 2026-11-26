@@ -430,7 +430,7 @@ export const MessageItem = memo(function MessageItem({
 
   const isOwnMessage = !!currentUserId && currentUserId === message.authorId
   // Match the broadcast tokens recognized by messaging fanout, including app posts.
-  const hasBroadcastMention = /(^|\s)@(everyone|channel|here)\b/i.test(
+  const hasBroadcastMention = /(^|\s)@(chat|here)\b/i.test(
     message.content ?? ""
   )
   const canWrapUnderAvatar = wrapContentAroundAvatar && byAgent

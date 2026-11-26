@@ -149,7 +149,6 @@ function ChannelScreen() {
   const mentions = useWorkspaceMentionCandidates({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
-    channelAudience: channelState.channel?.audience,
   })
   const avatarColorByUserId = useMemo(
     () =>

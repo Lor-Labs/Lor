@@ -28,6 +28,7 @@ import { endAfterToDate } from "@repo/lor/loops"
 import { initialMcpServerOAuthStatus } from "@repo/lor/mcp-server-oauth"
 import { encryptSecret } from "@repo/utils/crypto"
 import { placeDefaultAgent } from "@/lib/agents"
+import { loopAccess } from "@/lib/loops"
 import { approvalTargetIssue } from "./approval-targets"
 import { profileToolAccessIssue } from "./profile-tool-access"
 
@@ -370,7 +371,11 @@ async function applyOperation(
         .limit(1)
         .then((rows) => rows[0])
       if (!loop) fail(position, "Loop not found")
-      await requireWritableChannel(ctx, loop.channelId, position)
+      if (loop.channelId) {
+        await requireWritableChannel(ctx, loop.channelId, position)
+      } else if (!(await loopAccess(loop, ctx.approverId))?.canWrite) {
+        fail(position, "Loop not found")
+      }
       if (loop.status === "completed") {
         fail(position, "Completed loops can't be edited")
       }

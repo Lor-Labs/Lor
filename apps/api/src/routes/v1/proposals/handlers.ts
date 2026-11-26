@@ -465,8 +465,8 @@ async function announceCreatedResources(args: {
         workspaceId: schema.channel.workspaceId,
         name: schema.channel.name,
       })
-      .from(schema.channel)
-      .innerJoin(schema.loop, eq(schema.loop.channelId, schema.channel.id))
+      .from(schema.loop)
+      .innerJoin(schema.channel, eq(schema.channel.id, schema.loop.channelId))
       .where(eq(schema.loop.id, loopId))
       .limit(1)
       .then((rows) => rows[0])

@@ -16,9 +16,8 @@ export interface MentionSuggestionListProps {
 }
 
 const BROADCAST_DESCRIPTIONS: Record<string, string> = {
-  channel: "Notify everyone who can see this channel",
-  here: "Notify channel members who are online right now",
-  everyone: "Notify everyone in the workspace",
+  chat: "Notify everyone in this chat",
+  here: "Notify the people in this chat who are online now",
 }
 
 const WORD_BREAK = /[\s._()-]+/
@@ -45,8 +44,8 @@ function matchTier(
 
 // @ menu order. Lor (the channel agent) leads its tier, so the first letter
 // of its name + Enter picks it. A broadcast
-// (@channel, @here, @everyone) shows only once the query starts its name,
-// and always last, so a stray Enter never notifies a whole channel.
+// (@chat, @here) shows only once the query starts its name, and always
+// last, so a stray Enter never notifies a whole chat.
 export function rankMentionCandidates(
   candidates: MentionCandidate[],
   rawQuery: string,

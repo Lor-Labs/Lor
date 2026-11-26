@@ -3,7 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
+import { useNavigate, useParams } from "@tanstack/react-router"
 import { sortLoops } from "@/components/loops/loop-row"
 import {
   SettingsGroup,
@@ -28,10 +28,11 @@ const statusWord = (loop: ChannelLoop) =>
     ? "Not in this chat"
     : STATUS_WORD[loop.status]
 
-// An agent's loops: the ones it runs, by the chat each reports in. A loop
-// belongs to its agent (reference/agents-and-chats.md, decisions 15 and 23),
-// whichever other agents are in that chat. A loop opens in its chat, where
-// it is paused, edited, handed to another agent and deleted.
+// An agent's loops: the ones it runs, by the chat each reports in, then
+// the ones with no chat. A loop belongs to its agent
+// (reference/agents-and-chats.md, decisions 15, 23 and 27), whichever other
+// agents are in that chat. A loop opens in its panel beside its chat, where
+// it is paused, edited, moved, handed to another agent and deleted.
 export function AgentLoops({
   workspaceSlug,
   agent,
@@ -40,29 +41,31 @@ export function AgentLoops({
   agent: WorkspaceAgent
 }) {
   const navigate = useNavigate()
+  const { channelId: openChannelId } = useParams({ strict: false })
   const { data: list } = useQuery(workspaceChannelsQueryOptions(workspaceSlug))
   const { data: loops } = useAgentLoops(workspaceSlug, agent.id)
 
   if (!list || !loops) {
     return <p className="px-4 text-muted-foreground text-sm">Loading…</p>
   }
-  // In the order of the chat list; a chat that is put away comes last.
+  // In the order of the chat list; a chat that is put away comes after
+  // them, and the loops with no chat last.
   const chats = openTextChannels(list)
+  const place = (channelId: string | null) =>
+    channelId === null
+      ? chats.length + 2
+      : chats.findIndex((chat) => chat.id === channelId) + 1 || chats.length + 1
   const groups = [...new Set(loops.map((loop) => loop.channelId))]
+    .sort((a, b) => place(a) - place(b))
     .map((channelId) => ({
-      channel: chats.find((chat) => chat.id === channelId) ?? {
-        id: channelId,
-        name: null,
-      },
+      key: channelId ?? "none",
+      title:
+        channelId === null
+          ? "No chat"
+          : (chats.find((chat) => chat.id === channelId)?.name ??
+            "A chat that was put away"),
       loops: sortLoops(loops.filter((loop) => loop.channelId === channelId)),
     }))
-    .sort(
-      (a, b) =>
-        (chats.findIndex((chat) => chat.id === a.channel.id) + 1 ||
-          chats.length + 1) -
-        (chats.findIndex((chat) => chat.id === b.channel.id) + 1 ||
-          chats.length + 1)
-    )
   if (groups.length === 0) {
     return (
       <p className="rounded-xl bg-muted px-4 py-3 text-muted-foreground text-sm dark:bg-muted/60">
@@ -72,22 +75,23 @@ export function AgentLoops({
     )
   }
 
-  const openLoop = (loop: ChannelLoop) =>
-    // Leaves this dialog: the loop's panel opens beside its channel.
+  const openLoop = (loop: ChannelLoop) => {
+    // Leaves this dialog: the loop's panel opens beside its chat. One with
+    // no chat opens beside the chat that is open, else one the agent is in.
+    const channelId =
+      loop.channelId ?? openChannelId ?? agent.channelIds[0] ?? chats[0]?.id
+    if (!channelId) return
     void navigate({
       to: "/$workspaceSlug/$channelId",
-      params: { workspaceSlug, channelId: loop.channelId },
+      params: { workspaceSlug, channelId },
       search: { loop: loop.id },
     })
+  }
 
   return (
     <>
-      {groups.map(({ channel, loops }) => (
-        <SettingsSection
-          key={channel.id}
-          title={channel.name ?? "A chat that was put away"}
-          count={loops.length}
-        >
+      {groups.map(({ key, title, loops }) => (
+        <SettingsSection key={key} title={title} count={loops.length}>
           <SettingsGroup>
             {loops.map((loop) => {
               const live = loop.status === "active" || loop.status === "draft"

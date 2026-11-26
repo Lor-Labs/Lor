@@ -16,7 +16,11 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { APP_USER_ID } from "@repo/db/constants"
 import type { TriggerRunPayload } from "@repo/db/schema"
-import { describeLoopSchedule } from "@repo/realtime-types/loops"
+import {
+  describeLoopChanges,
+  describeLoopSchedule,
+  type LoopChange,
+} from "@repo/realtime-types/loops"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { HeightTransition } from "@repo/ui/components/height-transition"
 import {
@@ -47,7 +51,7 @@ import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
 import { agentSessionQueryOptions } from "@/hooks/use-agent-session"
 import { agentCreature, useAgentsById } from "@/hooks/use-agents"
-import { channelLoopsQueryOptions } from "@/hooks/use-channel-loops"
+import { useLoop } from "@/hooks/use-channel-loops"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 
@@ -68,6 +72,8 @@ type RemovedPayload = { userId: string }
 type LoopPayload = {
   loopId: string
   loopName: string
+  // loop_updated: what the agent changed on its own Loop.
+  changes?: LoopChange[]
   reason?: "failures" | "out_of_credits" | "agent_left"
   via?: "proposal"
 }
@@ -265,7 +271,7 @@ function ChannelHoverContent({
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
         ":channelId"
       ].$get({ param: { workspaceSlug, channelId } })
-      if (!res.ok) throw new Error("Failed to fetch channel")
+      if (!res.ok) throw new Error("Failed to fetch the chat")
       return res.json()
     },
   })
@@ -281,14 +287,14 @@ function ChannelHoverContent({
   if (isError || !data) {
     return (
       <div className="text-sm text-muted-foreground">
-        This channel is private or no longer exists.
+        This chat is private or no longer exists.
       </div>
     )
   }
 
   const isPrivate = data.audience === "members"
   const meta = [
-    isPrivate ? "Private channel" : null,
+    isPrivate ? "Private chat" : null,
     data.archivedAt ? "Archived" : null,
     `Created ${formatDateTime(data.createdAt)}`,
   ].filter(Boolean)
@@ -326,8 +332,9 @@ function LoopHoverContent({
   channelId: string
   loopId: string
 }) {
-  const { data, isPending } = useQuery(channelLoopsQueryOptions(channelId))
-  const loop = data?.find((candidate) => candidate.id === loopId)
+  // By id when it is not one of this chat's (a Loop that reports elsewhere).
+  const loop = useLoop(loopId, channelId)
+  const isPending = loop === undefined
 
   if (isPending) {
     return (
@@ -490,6 +497,20 @@ function eventText(
             {p.loopName}
           </LoopName>
           {p.via === "proposal" ? " from an approved change proposal" : null}
+        </>
+      )
+    }
+    case "loop_updated": {
+      if (!payload) break
+      const p = payload as LoopPayload
+      const { verb, detail } = describeLoopChanges(p.changes)
+      return (
+        <>
+          {actor} {verb} the loop{" "}
+          <LoopName channelId={message.channelId} loopId={p.loopId}>
+            {p.loopName}
+          </LoopName>
+          {detail ? `: ${detail}` : null}
         </>
       )
     }
@@ -943,8 +964,8 @@ export function ChannelEventRow({
 function agentTaskAuthor(message: Message): string {
   const payload = message.eventPayload as { channelName?: string | null } | null
   return payload?.channelName
-    ? `#${payload.channelName}'s agent`
-    : "The channel's agent"
+    ? `${payload.channelName}'s agent`
+    : "The chat's agent"
 }
 
 // The channel agent's brief or follow-up in a session it runs, shown as a

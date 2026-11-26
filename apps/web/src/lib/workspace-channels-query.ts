@@ -12,7 +12,7 @@ export function workspaceChannelsQueryOptions(workspaceSlug: string) {
         { param: { workspaceSlug } }
       )
       if (!res.ok) {
-        throw new Error("Failed to fetch channels")
+        throw new Error("Failed to fetch chats")
       }
       return res.json()
     },

@@ -115,8 +115,11 @@ type NotificationInsertType = Extract<
   "direct_mention" | "everyone_mention"
 >
 
-const EVERYONE_MENTION_REGEX = /(^|\s)@everyone\b/i
-const CHANNEL_MENTION_REGEX = /(^|\s)@channel\b/i
+// The two group mentions a chat has: @chat pings everyone in it, @here
+// those of them online now. There is no @everyone or @channel any more
+// (Jacob, 2026-11-26: a group chat is not a Slack or Discord channel);
+// messages from before keep the words as plain text.
+const CHAT_MENTION_REGEX = /(^|\s)@chat\b/i
 const HERE_MENTION_REGEX = /(^|\s)@here\b/i
 const mentionNotificationTypes = ["direct_mention", "everyone_mention"] as const
 
@@ -164,7 +167,7 @@ async function listRecipientAudience(channel: FanoutChannel) {
 function buildMentionTargets(args: {
   audience: ChannelAudienceInfo["audience"]
   recipients: string[]
-  // Who @everyone/@channel/@here can reach; defaults to all recipients.
+  // Who @chat and @here can reach; defaults to all recipients.
   broadcastRecipients?: string[]
   messageContent: string
   onlineRecipientIds: Set<string>
@@ -178,17 +181,11 @@ function buildMentionTargets(args: {
   )
 
   // Broadcast mentions live in workspace channels only (never DMs).
-  // @everyone additionally requires the audience to BE the workspace — in a
-  // members-only channel it is rejected (no fanout), not narrowed.
   const isWorkspaceChannel =
     args.broadcasts &&
     (args.audience === "workspace" || args.audience === "members")
-  const includeEveryone =
-    args.broadcasts &&
-    args.audience === "workspace" &&
-    EVERYONE_MENTION_REGEX.test(args.messageContent)
-  const includeChannel =
-    isWorkspaceChannel && CHANNEL_MENTION_REGEX.test(args.messageContent)
+  const includeChat =
+    isWorkspaceChannel && CHAT_MENTION_REGEX.test(args.messageContent)
   const includeHere =
     isWorkspaceChannel && HERE_MENTION_REGEX.test(args.messageContent)
 
@@ -201,13 +198,13 @@ function buildMentionTargets(args: {
     }
   }
 
-  // Broadest first: @everyone/@channel cover the whole audience, @here only
-  // whoever is online right now. Direct mentions always win.
-  if (includeEveryone || includeChannel) {
-    const type: MentionInsertType = includeEveryone ? "everyone" : "channel"
+  // Broadest first: @chat covers everyone in the chat, @here only whoever
+  // is online right now. Direct mentions always win. @chat is stored as
+  // the "channel" mention type.
+  if (includeChat) {
     for (const userId of broadcastRecipients) {
       if (!mentionTypeByUserId.has(userId)) {
-        mentionTypeByUserId.set(userId, type)
+        mentionTypeByUserId.set(userId, "channel")
       }
     }
   } else if (includeHere) {
@@ -235,8 +232,7 @@ function needsPresenceLookup(
     broadcasts &&
     (audience === "workspace" || audience === "members") &&
     HERE_MENTION_REGEX.test(content) &&
-    !EVERYONE_MENTION_REGEX.test(content) &&
-    !CHANNEL_MENTION_REGEX.test(content)
+    !CHAT_MENTION_REGEX.test(content)
   )
 }
 

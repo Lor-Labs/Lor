@@ -198,7 +198,7 @@ export function useThreadSubscribers({
       ].threads[":threadRootId"].subscribers.everyone.$post({
         param: { workspaceSlug, channelId, threadRootId },
       })
-      if (!res.ok) throw new Error("Couldn't subscribe the channel")
+      if (!res.ok) throw new Error("Couldn't subscribe everyone in the chat")
     },
     onMutate: async (people) => {
       await Promise.all([

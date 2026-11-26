@@ -129,10 +129,8 @@ export async function resolveChannelAccess(
 
 /**
  * Everyone who can see the channel plus the effective audience kind — the
- * fanout/recipient set and what broadcast mentions mean here: @channel/@here
- * ping this set; @everyone is only honored when the audience is the whole
- * workspace (it's rejected in members-only channels and DMs — there is no
- * "all-company channel" concept to widen to).
+ * fanout/recipient set. The group mentions @chat and @here ping the people
+ * in the chat (packages/messaging), never wider than this set.
  */
 export type ChannelAudienceInfo = {
   audience: "workspace" | "members" | "dm" | null
@@ -186,8 +184,8 @@ export async function resolveChannelAudienceInfo(
 }
 
 /**
- * Everyone who can see the channel — the fanout/recipient set and the meaning
- * of `@channel`. Includes the author; callers drop them.
+ * Everyone who can see the channel — the fanout/recipient set. Includes the
+ * author; callers drop them.
  */
 export async function listChannelAudienceUserIds(
   channelId: string,

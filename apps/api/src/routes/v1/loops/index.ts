@@ -5,6 +5,7 @@ import * as routes from "@/routes/v1/loops/routes"
 const loopsRouter = createRouter()
   .openapi(routes.listChannelLoops, handlers.listChannelLoops)
   .openapi(routes.listAgentLoops, handlers.listAgentLoops)
+  .openapi(routes.getLoop, handlers.getLoop)
   .openapi(routes.activateLoop, handlers.activateLoop)
   .openapi(routes.discardDraftLoop, handlers.discardDraftLoop)
   .openapi(routes.updateLoop, handlers.updateLoop)

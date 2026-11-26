@@ -50,7 +50,7 @@ export function DeleteChannelDialog({
         const data = await res.json().catch(() => null)
         throw new Error(
           (data as { message?: string } | null)?.message ??
-            `Failed to delete ${channel.type === "category" ? "category" : "channel"}`
+            `Failed to delete ${channel.type === "category" ? "category" : "chat"}`
         )
       }
       return res.json()
@@ -94,22 +94,22 @@ export function DeleteChannelDialog({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>
-            {isCategory ? "Delete Category" : "Delete Channel"}
+            {isCategory ? "Delete Category" : "Delete Chat"}
           </AlertDialogTitle>
           <AlertDialogDescription>
             {isCategory ? (
               <>
                 Are you sure you want to delete the{" "}
                 <span className="font-semibold">{channel.name}</span> category?
-                Channels inside it will become uncategorized. This action cannot
-                be undone.
+                Chats inside it will become uncategorized. This action cannot be
+                undone.
               </>
             ) : (
               <>
                 Are you sure you want to delete{" "}
-                <span className="font-semibold">#{channel.name}</span>? This
-                will permanently delete all messages in this channel. This
-                action cannot be undone.
+                <span className="font-semibold">{channel.name}</span>? This will
+                permanently delete all messages in this chat. This action cannot
+                be undone.
               </>
             )}
           </AlertDialogDescription>
@@ -123,7 +123,7 @@ export function DeleteChannelDialog({
             onClick={() => deleteMutation.mutate()}
             loading={deleteMutation.isPending}
           >
-            {isCategory ? "Delete Category" : "Delete Channel"}
+            {isCategory ? "Delete Category" : "Delete Chat"}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

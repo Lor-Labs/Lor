@@ -23,7 +23,7 @@ function channelProposalsQueryOptions(channelId: string) {
       const res = await apiClient.v1.channels[":channelId"].proposals.$get({
         param: { channelId },
       })
-      if (!res.ok) throw new Error("Failed to fetch channel proposals")
+      if (!res.ok) throw new Error("Failed to fetch the chat's proposals")
       const payload = await res.json()
       return payload.proposals
     },

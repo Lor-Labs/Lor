@@ -34,10 +34,9 @@ export function ForwardedMessageCard({
   }, [expanded])
 
   const { author, source } = forwarded
-  const where = [
-    `#${source.channelName ?? "channel"}`,
-    source.sessionTitle,
-  ].filter(Boolean)
+  const where = [source.channelName ?? "chat", source.sessionTitle].filter(
+    Boolean
+  )
 
   return (
     <div className="mt-1 max-w-2xl border-border border-l-2 py-0.5 pl-3">

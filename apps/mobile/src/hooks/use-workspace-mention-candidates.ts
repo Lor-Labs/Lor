@@ -14,15 +14,11 @@ import {
 export function useWorkspaceMentionCandidates({
   workspaceSlug,
   currentUserId,
-  channelAudience,
   broadcasts = true,
 }: {
   workspaceSlug: string
   currentUserId?: string
-  // Gates which broadcast mentions the composer offers (@everyone is not
-  // offered in members-only channels). Undefined = offer all.
-  channelAudience?: "workspace" | "members"
-  // Off in sessions, where the server ignores @here, @channel and @everyone.
+  // Off in sessions, where the server ignores @chat and @here.
   broadcasts?: boolean
 }) {
   const membersState = useWorkspaceMembers(workspaceSlug)
@@ -32,7 +28,7 @@ export function useWorkspaceMentionCandidates({
   const noAgent = useChannelHasNoAgent()
   const candidates = useMemo<MentionCandidate[]>(
     () => [
-      ...(broadcasts ? broadcastMentionCandidates(channelAudience) : []),
+      ...(broadcasts ? broadcastMentionCandidates() : []),
       ...membersState.members
         .filter(
           (member) =>
@@ -52,14 +48,7 @@ export function useWorkspaceMentionCandidates({
             : candidate
         }),
     ],
-    [
-      membersState.members,
-      currentUserId,
-      channelAudience,
-      broadcasts,
-      agent,
-      noAgent,
-    ]
+    [membersState.members, currentUserId, broadcasts, agent, noAgent]
   )
 
   return { ...membersState, candidates }

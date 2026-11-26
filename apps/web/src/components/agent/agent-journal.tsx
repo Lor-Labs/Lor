@@ -60,10 +60,8 @@ export function AgentJournal({
         <ul className="divide-y divide-border rounded-xl bg-muted px-4 dark:bg-muted/60">
           {entries.map((entry) => {
             const where = entry.session
-              ? `${entry.session.title ?? "A code session"}${entry.channel?.name ? ` in #${entry.channel.name}` : ""}`
-              : entry.channel?.name
-                ? `#${entry.channel.name}`
-                : null
+              ? `${entry.session.title ?? "A code session"}${entry.channel?.name ? ` in ${entry.channel.name}` : ""}`
+              : entry.channel?.name || null
             return (
               <li key={entry.id} className="py-2.5">
                 <p className="text-[13px] leading-5">{entry.text}</p>

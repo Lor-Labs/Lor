@@ -37,19 +37,19 @@ const STEPS: [Step, ...Step[]] = [
   },
   {
     title: "Agents answer in the chat",
-    body: "Mention the agent in a channel and it answers there. It reads what everyone said, so it knows what's going on.",
+    body: "Mention the agent in a chat and it answers there. It reads what everyone said, so it knows what's going on.",
     Scene: ChatAnswerScene,
   },
   {
     title: "Code sessions",
-    body: `Lor starts a code session when work needs a change, or ${isTauri ? "press ⌘N" : "click the pencil beside the search"} to start one yourself. Anyone in the channel can see the work, step in, or approve what Lor sends.`,
+    body: `Lor starts a code session when work needs a change, or ${isTauri ? "press ⌘N" : "click the pencil beside the search"} to start one yourself. Anyone in the chat can see the work, step in, or approve what Lor sends.`,
     Scene: SharedSessionScene,
   },
   // Last: an agent is a teammate added to channels, and works on a schedule
   // too.
   {
-    title: "Agents are teammates you add to channels",
-    body: "Each agent has its own name, brief and memory, and takes them to every channel it is in. Choose its tools per channel, and give it work on a schedule, like finding leads in #gtm every weekday.",
+    title: "Agents are teammates you add to chats",
+    body: "Each agent has its own name, brief and memory, and takes them to every chat it is in. Choose its tools per chat, and give it work on a schedule, like finding leads in the GTM chat every weekday.",
     Scene: ChannelAgentScene,
   },
 ]

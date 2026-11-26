@@ -33,7 +33,7 @@ function useChannelAudience(workspaceSlug: string, channelId: string) {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
         ":channelId"
       ].audience.$get({ param: { workspaceSlug, channelId } })
-      if (!res.ok) throw new Error("Failed to fetch channel audience")
+      if (!res.ok) throw new Error("Failed to fetch who is in the chat")
       return res.json()
     },
   })
@@ -44,8 +44,7 @@ function useChannelAudience(workspaceSlug: string, channelId: string) {
 // audience the server notifies. Bots (Lor) aren't channel members but can be
 // mentioned anywhere, except in voice session chats, which are human-only.
 // Broadcasts come last, as the @ menu lists them. Session composers pass
-// `broadcasts: false`: the server ignores @here, @channel and @everyone in
-// sessions.
+// `broadcasts: false`: the server ignores @chat and @here in sessions.
 // In a text channel's chat and threads, Lor is the channel's agent and goes
 // by its name and creature (reference/always-on-agents.md, decision 32).
 // Session composers pass `agent: false`: there Lor is the session's agent.
@@ -99,7 +98,7 @@ export function useMentionCandidates(
         name: member.name,
         image: member.image,
       })),
-      ...(broadcasts ? broadcastMentionCandidates(audience?.audience) : []),
+      ...(broadcasts ? broadcastMentionCandidates() : []),
     ]
   }, [members, channel, audience, broadcasts, agent, agents])
 }

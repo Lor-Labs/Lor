@@ -748,9 +748,7 @@ function Webhooks({
   }
 
   const target =
-    scope.kind === "chat" && scope.channelName
-      ? `#${scope.channelName}`
-      : "this channel"
+    scope.kind === "chat" && scope.channelName ? scope.channelName : "this chat"
   return (
     <SettingsSection
       title="Webhooks"

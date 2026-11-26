@@ -61,7 +61,6 @@ import {
   showDiscordTyping,
   startDiscordThread,
 } from "@repo/lor/discord"
-import { LoopProposalError, type ProposeLoopExecutor } from "@repo/lor/loops"
 import {
   ProposalRefusedError,
   type ProposeChangeExecutor,
@@ -85,6 +84,7 @@ import { creatureById, isCreatureId } from "@repo/utils/bestiary"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
+import { agentLoopExecutors } from "@/lib/agent-loops"
 import { agentMessenger } from "@/lib/agent-messages"
 import {
   claimAgentRun,
@@ -101,7 +101,6 @@ import {
 import { createProposalCard } from "@/lib/change-proposal"
 import { logger } from "@/lib/logger"
 import { agentCompleteLoop, settleLoopRun } from "@/lib/loop-session"
-import { createLoopCard } from "@/lib/lor-loop"
 import { postLorMessage } from "@/lib/lor-messages"
 import { loadPausedDecisions } from "@/lib/paused-turn"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
@@ -867,38 +866,6 @@ async function setUpBy(runId: string): Promise<string | null> {
   return trigger?.userId ?? null
 }
 
-// propose_loop for the agent: a draft card in the chat, only in a turn a
-// person started (a trigger or a Loop must not schedule more Loops).
-function agentProposeLoop(
-  deps: AgentDeps,
-  // `agentId`: the agent proposing it, which the Loop then belongs to.
-  channel: { id: string; workspaceId: string; agentId: string },
-  askerId: string | null,
-  conversationId: string
-): ProposeLoopExecutor {
-  return async (input) => {
-    if (!askerId) {
-      throw new LoopProposalError(
-        "Nobody asked for this in the chat just now. Propose a Loop only when a person asks for one."
-      )
-    }
-    const made = await createLoopCard(deps, {
-      workspaceId: channel.workspaceId,
-      channelId: channel.id,
-      agentId: channel.agentId,
-      threadRootId: null,
-      creatorId: askerId,
-      ...input,
-    })
-    const [loop] = await db
-      .select({ cardMessageId: schema.loop.cardMessageId })
-      .from(schema.loop)
-      .where(eq(schema.loop.id, made.loopId))
-    await linkCard(loop?.cardMessageId, conversationId)
-    return made
-  }
-}
-
 // A card the agent filed in the chat belongs to the request that filed it:
 // a reply or a decision in the card's thread goes on with that request.
 async function linkCard(
@@ -1075,6 +1042,14 @@ function agentHooks(
       requestUserId: turn.requestUserId ?? null,
     }),
     completeLoop: agentCompleteLoop(deps, channel.agentId),
+    loops: agentLoopExecutors(deps, {
+      workspaceId: channel.workspaceId,
+      agentId: channel.agentId,
+      agentName: channel.agentName,
+      channelId: channel.id,
+      askerId: turn.askerId,
+      conversationId: conversation.id,
+    }),
     wakeUps: agentWakeUpExecutors(deps, {
       workspaceId: channel.workspaceId,
       agentId: channel.agentId,
@@ -1408,12 +1383,6 @@ export async function runAgentTurnJob(
       autonomous: !requestUserId,
       aiSessionId: conversationId,
       turn: { model: channel.agentModel ?? AGENT_DEFAULT_MODEL },
-      proposeLoop: agentProposeLoop(
-        deps,
-        { id: channelId, workspaceId, agentId: channel.agentId },
-        userId ?? null,
-        conversationId
-      ),
       proposeChange: agentProposeChange(
         deps,
         { id: channelId, workspaceId, agentId: channel.agentId },
@@ -1707,13 +1676,6 @@ export async function runAgentCompactJob(
         turn: {
           model: context.model ?? channel.agentModel ?? AGENT_DEFAULT_MODEL,
         },
-        // Unused here, but the summary call needs the turn's exact tool set.
-        proposeLoop: agentProposeLoop(
-          deps,
-          { id: channelId, workspaceId, agentId: channel.agentId },
-          null,
-          conversationId
-        ),
         proposeChange: agentProposeChange(
           deps,
           { id: channelId, workspaceId, agentId: channel.agentId },

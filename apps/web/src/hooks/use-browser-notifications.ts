@@ -141,7 +141,7 @@ export function useBrowserNotifications() {
       }
 
       const mentionType =
-        payload.type === "everyone_mention" ? "@everyone" : "a mention"
+        payload.type === "everyone_mention" ? "a group mention" : "a mention"
 
       showNotification("New Mention", `You received ${mentionType}`, {
         tag: `mention-${payload.messageId}`,

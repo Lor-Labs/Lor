@@ -71,6 +71,8 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   "loop_created",
   "loop_paused",
   "loop_completed",
+  // An agent changed one of its own Loops.
+  "loop_updated",
   // One fire of a loop, the first line of its turn in the loop's session.
   "loop_run",
   // The connector event that started an Act session. Content is the event
@@ -321,7 +323,18 @@ export type LoopEventPayload = {
   // loop_paused only
   reason?: "failures" | "out_of_credits" | "agent_left"
   via?: "proposal"
+  // loop_updated only: what the agent changed.
+  changes?: LoopChange[]
 }
+
+export type LoopChange =
+  | "name"
+  | "instructions"
+  | "schedule"
+  | "end"
+  | "chat"
+  | "paused"
+  | "resumed"
 
 // A forwarded message's snapshot (message.forwarded). Self-contained so the
 // target channel can read it even when its members can't open the source

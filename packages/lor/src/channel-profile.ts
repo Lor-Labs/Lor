@@ -751,17 +751,22 @@ export async function openBlock(agentId: string): Promise<string | null> {
       .orderBy(asc(schema.approval.createdAt)),
     db
       .select({
+        id: schema.loop.id,
         name: schema.loop.name,
+        status: schema.loop.status,
         nextRunAt: schema.loop.nextRunAt,
         endCondition: schema.loop.endCondition,
+        channelId: schema.loop.channelId,
         channelName: schema.channel.name,
       })
       .from(schema.loop)
-      .innerJoin(schema.channel, eq(schema.channel.id, schema.loop.channelId))
+      // A Loop may have no chat.
+      .leftJoin(schema.channel, eq(schema.channel.id, schema.loop.channelId))
       .where(
         and(
           eq(schema.loop.agentId, agentId),
-          eq(schema.loop.status, "active"),
+          // Paused ones too: the agent can resume its own with update_loop.
+          inArray(schema.loop.status, ["active", "paused"]),
           eq(schema.loop.kind, "custom")
         )
       )
@@ -795,7 +800,7 @@ export async function openBlock(agentId: string): Promise<string | null> {
     ),
     ...loops.map(
       (loop) =>
-        `- Loop "${sanitizeInlineLabel(loop.name)}" in ${hash(loop.channelName)}${loop.nextRunAt ? ` runs next at ${minute(loop.nextRunAt)} UTC` : ""}${loop.endCondition ? `, until: ${loop.endCondition}` : ""}`
+        `- Your Loop "${sanitizeInlineLabel(loop.name)}" (Loop ${loop.id}) ${loop.channelId ? `in ${hash(loop.channelName)}` : "with no chat"}${loop.status === "paused" ? " is paused" : loop.nextRunAt ? ` runs next at ${minute(loop.nextRunAt)} UTC` : ""}${loop.endCondition ? `, until: ${loop.endCondition}` : ""}`
     ),
     ...wakeUps.map(
       (wakeUp) =>

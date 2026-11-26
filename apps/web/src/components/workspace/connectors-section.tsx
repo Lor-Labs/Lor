@@ -338,7 +338,7 @@ export function ConnectorsSection({
             <AlertDialogDescription>
               Lor will no longer be able to search{" "}
               {disconnectTarget?.name ?? "this connector"}, and its activity
-              posts to channels will stop. You can reconnect at any time.
+              posts to chats will stop. You can reconnect at any time.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1130,7 +1130,7 @@ function BetterstackConnectDialog({
           </div>
           <p className="text-xs text-muted-foreground">
             The selected tools will be available to workspace members through
-            their assigned agent profiles. Your existing channel alert webhook
+            their assigned agent profiles. Your existing alert webhook in a chat
             keeps delivering alerts independently.
           </p>
         </DialogPanel>

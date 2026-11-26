@@ -440,7 +440,7 @@ export const MessageInput = memo(function MessageInput({
           channelId: channelId as string,
         },
       })
-      if (!res.ok) throw new Error("Failed to load channel connectors")
+      if (!res.ok) throw new Error("Failed to load the chat's connectors")
       return res.json()
     },
     enabled: Boolean(workspaceSlug && channelId),
@@ -1031,7 +1031,7 @@ export const MessageInput = memo(function MessageInput({
         <div className="flex items-center justify-center rounded-lg border border-input bg-muted/40 px-3 py-3">
           <span className="text-sm text-muted-foreground">
             {disabledReason ??
-              "You do not have permission to send messages in this channel"}
+              "You do not have permission to send messages in this chat"}
           </span>
         </div>
       </div>
