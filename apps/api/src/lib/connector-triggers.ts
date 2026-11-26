@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { recordUsage } from "@repo/billing"
 import type { ConnectorEventKey } from "@repo/connectors"
-import { APP_USER_ID, and, asc, db, eq, schema } from "@repo/db"
+import { APP_USER_ID, and, asc, db, eq, isNull, schema } from "@repo/db"
 import { ownConversation } from "@repo/db/queries/agent-conversations"
 import { channelAgentId } from "@repo/db/queries/agents"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
@@ -154,6 +154,9 @@ async function listListeners(input: DispatchInput) {
         eq(schema.integrationConnection.status, "active"),
         eq(schema.connectorTrigger.event, input.event),
         eq(schema.connectorTrigger.enabled, true),
+        // An archived chat's listeners stay set up and hear nothing until it
+        // is unarchived (reference/agents-and-chats.md, decision 52).
+        isNull(schema.channel.archivedAt),
         // Belt: never act across tenants even if a stale trigger survives.
         eq(schema.channel.workspaceId, schema.integrationConnection.workspaceId)
       )

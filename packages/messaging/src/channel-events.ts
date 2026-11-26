@@ -21,6 +21,7 @@ export type ChannelEventContentInput =
       to: string
     }
   | { eventType: "channel_archived"; actorName: string }
+  | { eventType: "channel_unarchived"; actorName: string }
   | { eventType: "member_added"; actorName: string; memberNames: string[] }
   | { eventType: "member_removed"; actorName: string; memberName: string }
   | { eventType: "member_left"; actorName: string }
@@ -125,6 +126,8 @@ export function channelEventContent(input: ChannelEventContentInput): string {
       return `${input.actorName} renamed the chat from ${input.from} to ${input.to}`
     case "channel_archived":
       return `${input.actorName} archived the chat`
+    case "channel_unarchived":
+      return `${input.actorName} unarchived the chat`
     case "member_added":
       return `${input.actorName} added ${joinNames(input.memberNames)}`
     case "member_removed":

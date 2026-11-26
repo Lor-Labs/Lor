@@ -42,6 +42,7 @@ type ChannelEventInput =
   | { eventType: "channel_created"; payload?: ChannelCreatedPayload }
   | { eventType: "channel_renamed"; payload: ChannelRenamedPayload }
   | { eventType: "channel_archived" }
+  | { eventType: "channel_unarchived" }
   | { eventType: "member_added"; payload: MemberAddedPayload }
   | { eventType: "member_removed"; payload: MemberRemovedPayload }
   | { eventType: "member_left" }
@@ -162,6 +163,7 @@ async function buildEventContent(
         to: input.payload.to,
       })
     case "channel_archived":
+    case "channel_unarchived":
       return channelEventContent({ eventType: input.eventType, actorName })
     case "member_added":
       return channelEventContent({

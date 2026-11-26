@@ -37,6 +37,7 @@ const PAUSED_REASON_LABEL: Record<string, string> = {
   failures: "Paused after repeated failures",
   out_of_credits: "Paused: the workspace is out of credits",
   agent_left: "Paused when its agent left this chat",
+  chat_archived: "Paused while its chat is archived",
 }
 
 // Completed is the expected outcome and wears no word; only the exceptions

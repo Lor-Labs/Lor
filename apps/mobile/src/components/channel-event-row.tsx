@@ -173,6 +173,8 @@ function eventText(
     }
     case "channel_archived":
       return <>{actor} archived the chat</>
+    case "channel_unarchived":
+      return <>{actor} unarchived the chat</>
     case "member_added": {
       if (!payload) break
       const p = payload as AddedPayload

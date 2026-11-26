@@ -62,7 +62,7 @@ import {
   useAgents,
   type WorkspaceAgent,
 } from "@/hooks/use-agents"
-import { chatsKey } from "@/hooks/use-chats"
+import { useChatArchive } from "@/hooks/use-chat-archive"
 import {
   channelAgentsKey,
   loadChannelAgents,
@@ -199,7 +199,7 @@ export function EditChannelDialog({
           open={open}
           onDone={() => onOpenChange(false)}
           // Archiving takes channel:update, like the other tabs here.
-          canArchive={isText && !overviewOnly && !channel.archivedAt}
+          canArchive={isText && !overviewOnly}
         />
       ) : shownTab === "agent" ? (
         <AgentTab
@@ -417,31 +417,30 @@ function ArchiveChat({
   channel: Channel
   onArchived: () => void
 }) {
-  const queryClient = useQueryClient()
   const [confirming, setConfirming] = useState(false)
   const hasAgents = (channel.agentIds?.length ?? 0) > 0
-  const archive = useMutation({
-    mutationFn: async () => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].chats[
-        ":channelId"
-      ].archive.$post({ param: { workspaceSlug, channelId: channel.id } })
-      if (!res.ok) throw await errorOf(res, "Failed to archive the chat")
-    },
-    onSuccess: async () => {
-      setConfirming(false)
-      onArchived()
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: channelQueryOptions(workspaceSlug, channel.id).queryKey,
-        }),
-        queryClient.invalidateQueries({
-          queryKey: workspaceChannelsQueryOptions(workspaceSlug).queryKey,
-        }),
-        queryClient.invalidateQueries({ queryKey: chatsKey(workspaceSlug) }),
-      ])
-    },
-    onError: (error) => toast.error(error.message),
-  })
+  const { archive, unarchive } = useChatArchive(workspaceSlug)
+  if (channel.archivedAt) {
+    return (
+      <SettingsSection title="Archive">
+        <SettingsCard className="flex items-center justify-between gap-4 space-y-0">
+          <p className="min-w-0 text-muted-foreground text-sm">
+            Archived for everyone. Unarchiving opens it again and restarts its
+            paused loops.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="shrink-0"
+            loading={unarchive.isPending}
+            onClick={() => unarchive.mutate({ channelId: channel.id })}
+          >
+            Unarchive
+          </Button>
+        </SettingsCard>
+      </SettingsSection>
+    )
+  }
   return (
     <SettingsSection title="Archive">
       <SettingsCard className="flex items-center justify-between gap-4 space-y-0">
@@ -465,10 +464,10 @@ function ArchiveChat({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {hasAgents
-                ? "The agents in it stop: they read nothing more here, their loops that report here end, and events stop posting here. "
+                ? "The agents in it stop: they read nothing more here, their loops that report here pause, and events stop posting here. "
                 : "Events stop posting here. "}
               It leaves everyone's sidebar and takes no new messages. Its
-              messages are kept.
+              messages are kept, and it can be unarchived.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -478,7 +477,17 @@ function ArchiveChat({
             <Button
               variant="destructive"
               loading={archive.isPending}
-              onClick={() => archive.mutate()}
+              onClick={() =>
+                archive.mutate(
+                  { channelId: channel.id, name: channel.name },
+                  {
+                    onSuccess: () => {
+                      setConfirming(false)
+                      onArchived()
+                    },
+                  }
+                )
+              }
             >
               Archive for everyone
             </Button>

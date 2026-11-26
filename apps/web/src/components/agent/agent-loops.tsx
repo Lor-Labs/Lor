@@ -22,11 +22,14 @@ const STATUS_WORD: Partial<Record<ChannelLoop["status"], string>> = {
   completed: "Completed",
 }
 
-// Paused because the agent was taken out of the chat the Loop reports in.
+// Paused because the agent was taken out of the chat the Loop reports in,
+// or because that chat was archived.
 const statusWord = (loop: ChannelLoop) =>
   loop.status === "paused" && loop.pausedReason === "agent_left"
     ? "Not in this chat"
-    : STATUS_WORD[loop.status]
+    : loop.status === "paused" && loop.pausedReason === "chat_archived"
+      ? "Chat archived"
+      : STATUS_WORD[loop.status]
 
 // An agent's loops: the ones it runs, by the chat each reports in, then
 // the ones with no chat. A loop belongs to its agent

@@ -5,6 +5,7 @@ import {
   desc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   ne,
   or,
@@ -23,7 +24,7 @@ import { extractDirectMentionUserIds } from "@repo/messaging/mentions"
 import { userRoom } from "@repo/realtime-types"
 import { publishRealtime } from "@/lib/bot-messages"
 import { postChannelEvent } from "@/lib/channel-events"
-import { stopChatAgents } from "@/lib/chat-archive"
+import { restartChatAgents, stopChatAgents } from "@/lib/chat-archive"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { hasWorkspaceAuthority } from "@/lib/permissions"
@@ -35,6 +36,7 @@ import type {
   ListChatPeopleRoute,
   ListChatsRoute,
   RemoveChatPersonRoute,
+  UnarchiveChatRoute,
   UpdateChatRoute,
 } from "@/routes/v1/chats/routes"
 
@@ -46,9 +48,12 @@ const notFound = { success: false as const, message: "Chat not found" }
 // The caller's chat list (reference/agents-and-chats.md, decisions 33, 35
 // and 36): the chats they are in, minus the ones they hid and nothing was
 // said in since. The client orders them: pinned first, then by last message.
+// `archived` is the other list: the archived chats they can see, in one
+// or not, which the sidebar shows greyed when asked (decision 52).
 export const listChats: AppRouteHandler<ListChatsRoute> = async (c) => {
   const workspace = c.var.workspace
   const me = c.var.user.id
+  const archived = c.req.valid("query").archived === "true"
   const { channel, channelMember, message, user } = schema
 
   // The newest message the chat feed shows, per chat. Event lines ("created
@@ -94,6 +99,8 @@ export const listChats: AppRouteHandler<ListChatsRoute> = async (c) => {
         createdAt: channel.createdAt,
         audience: channel.audience,
         parentId: channel.parentId,
+        archivedAt: channel.archivedAt,
+        memberId: channelMember.userId,
         pinnedAt: channelMember.pinnedAt,
         hiddenAt: channelMember.hiddenAt,
         lastId: last.lastId,
@@ -104,15 +111,22 @@ export const listChats: AppRouteHandler<ListChatsRoute> = async (c) => {
         lastAuthorName: last.lastAuthorName,
         lastAgentId: last.lastAgentId,
       })
-      .from(channelMember)
-      .innerJoin(channel, eq(channel.id, channelMember.channelId))
+      .from(channel)
+      .leftJoin(
+        channelMember,
+        and(
+          eq(channelMember.channelId, channel.id),
+          eq(channelMember.userId, me)
+        )
+      )
       .leftJoinLateral(last, sql`true`)
       .where(
         and(
-          eq(channelMember.userId, me),
           eq(channel.workspaceId, workspace.id),
           eq(channel.type, "text"),
-          isNull(channel.archivedAt)
+          archived
+            ? isNotNull(channel.archivedAt)
+            : and(isNotNull(channelMember.userId), isNull(channel.archivedAt))
         )
       ),
     listAccessibleChannelIds(me, workspace.id),
@@ -122,7 +136,8 @@ export const listChats: AppRouteHandler<ListChatsRoute> = async (c) => {
   const shown = rows.filter(
     (row) =>
       accessible.has(row.id) &&
-      !(row.hiddenAt && row.hiddenAt >= (row.lastAt ?? row.createdAt))
+      (archived ||
+        !(row.hiddenAt && row.hiddenAt >= (row.lastAt ?? row.createdAt)))
   )
   const ids = shown.map((row) => row.id)
   if (ids.length === 0) return c.json({ chats: [] }, HttpStatusCodes.OK)
@@ -215,6 +230,8 @@ export const listChats: AppRouteHandler<ListChatsRoute> = async (c) => {
         })),
       peopleCount: people.length,
       pinnedAt: row.pinnedAt?.toISOString() ?? null,
+      archivedAt: row.archivedAt?.toISOString() ?? null,
+      joined: row.memberId !== null,
       lastMessage:
         row.lastId && row.lastAt && row.lastAuthorId
           ? {
@@ -332,9 +349,10 @@ export const archiveChat: AppRouteHandler<ArchiveChatRoute> = async (c) => {
   const access = await visibleChat(me, workspace.id, channelId)
   if (!access) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
 
+  const archivedAt = new Date()
   const [archived] = await db
     .update(schema.channel)
-    .set({ archivedAt: new Date() })
+    .set({ archivedAt })
     .where(
       and(eq(schema.channel.id, channelId), isNull(schema.channel.archivedAt))
     )
@@ -351,18 +369,77 @@ export const archiveChat: AppRouteHandler<ArchiveChatRoute> = async (c) => {
     actorId: me,
     eventType: "channel_archived",
   })
-  await stopChatAgents(channelId).catch((err) =>
+  await stopChatAgents(channelId, archivedAt).catch((err) =>
     logger.error({ err, channelId }, "Archived chat's agents not all stopped")
   )
+  await nudgeChatMembers(workspace.id, channelId)
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
+
+async function nudgeChatMembers(workspaceId: string, channelId: string) {
   const people = await db
     .select({ userId: schema.channelMember.userId })
     .from(schema.channelMember)
     .where(eq(schema.channelMember.channelId, channelId))
   nudgeChatLists(
-    workspace.id,
+    workspaceId,
     channelId,
     people.map((row) => row.userId)
   )
+}
+
+// Unarchiving undoes an archive (decision 52): the chat takes messages
+// again, comes back to its people's sidebars, and the Loops and follow-ups
+// archiving paused start again. Takes channel:update, like archiving.
+export const unarchiveChat: AppRouteHandler<UnarchiveChatRoute> = async (c) => {
+  const workspace = c.var.workspace
+  const me = c.var.user.id
+  const { channelId } = c.req.valid("param")
+  if (!hasWorkspaceAuthority(c.var.authority, { channel: ["update"] })) {
+    return c.json(
+      {
+        success: false as const,
+        message: "Only someone who manages chats can unarchive one",
+      },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  const access = await visibleChat(me, workspace.id, channelId)
+  if (!access) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
+  const archivedAt = access.channel.archivedAt
+  if (!archivedAt) {
+    return c.json(
+      { success: false as const, message: "This chat is not archived" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const [unarchived] = await db
+    .update(schema.channel)
+    .set({ archivedAt: null })
+    .where(
+      and(
+        eq(schema.channel.id, channelId),
+        eq(schema.channel.archivedAt, archivedAt)
+      )
+    )
+    .returning({ id: schema.channel.id })
+  if (!unarchived) {
+    return c.json(
+      { success: false as const, message: "This chat is not archived" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  await postChannelEvent({
+    channel: access.channel,
+    actorId: me,
+    eventType: "channel_unarchived",
+  })
+  await restartChatAgents(channelId, archivedAt).catch((err) =>
+    logger.error({ err, channelId }, "Unarchived chat's agents not restarted")
+  )
+  await nudgeChatMembers(workspace.id, channelId)
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 

@@ -1,4 +1,6 @@
 import {
+  Archive02Icon,
+  ArchiveRestoreIcon,
   Delete02Icon,
   Layers01Icon,
   Notification01Icon,
@@ -26,6 +28,11 @@ import {
 } from "@repo/ui/components/context-menu"
 import { MentionBadge } from "@repo/ui/components/mention-badge"
 import { Skeleton } from "@repo/ui/components/skeleton"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@repo/ui/components/tooltip"
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
@@ -54,11 +61,13 @@ import {
 } from "@/hooks/use-agents"
 import { useChannelCreated } from "@/hooks/use-channel-created"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
+import { useChatArchive } from "@/hooks/use-chat-archive"
 import {
   type Chat,
   chatActivityAt,
   chatsKey,
   orderChats,
+  useArchivedChats,
   useChatListUpdates,
   useChats,
   useUpdateChat,
@@ -72,7 +81,35 @@ import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels-query"
 // 36): the ones this person pinned, then the rest by last message, each
 // with its code sessions under it. A chat is a text channel; its row, name
 // and agents come from the channels query, and who is in it, its last
-// message and the pin from the chats one.
+// message and the pin from the chats one. The archive icon at the top adds
+// the archived chats, greyed, among the rest (decision 52).
+
+// Showing archived chats is this person's choice per workspace, kept
+// across reloads.
+const showArchivedKey = (workspaceSlug: string) =>
+  `lor:show-archived-chats:${workspaceSlug}`
+
+function useShowArchived(workspaceSlug: string | undefined) {
+  const [shown, setShown] = useState(false)
+  useEffect(() => {
+    if (!workspaceSlug) return
+    try {
+      setShown(localStorage.getItem(showArchivedKey(workspaceSlug)) === "1")
+    } catch {
+      setShown(false)
+    }
+  }, [workspaceSlug])
+  const toggle = () => {
+    const next = !shown
+    setShown(next)
+    if (!workspaceSlug) return
+    try {
+      if (next) localStorage.setItem(showArchivedKey(workspaceSlug), "1")
+      else localStorage.removeItem(showArchivedKey(workspaceSlug))
+    } catch {}
+  }
+  return [shown, toggle] as const
+}
 
 const SPRING = { type: "spring", bounce: 0, duration: 0.4 } as const
 const DAY_MS = 86_400_000
@@ -130,6 +167,9 @@ export function ChatList({ workspaceId }: { workspaceId?: string }) {
   const me = session?.user.id
 
   const { data: chats, isPending } = useChats(workspaceSlug)
+  const [showArchived, toggleArchived] = useShowArchived(workspaceSlug)
+  const { data: archivedChats } = useArchivedChats(workspaceSlug, showArchived)
+  const { unarchive } = useChatArchive(workspaceSlug ?? "")
   const { data: channelData } = useQuery(
     workspaceChannelsQueryOptions(workspaceSlug ?? "")
   )
@@ -201,22 +241,55 @@ export function ChatList({ workspaceId }: { workspaceId?: string }) {
     ? canDeleteChannels(permissionCtx.actor, permissionCtx.workspace)
     : false
 
-  const { pinned, recent } = useMemo(() => orderChats(chats ?? []), [chats])
+  const { pinned, recent } = useMemo(
+    () =>
+      orderChats([
+        ...(chats ?? []),
+        ...(showArchived ? (archivedChats ?? []) : []),
+      ]),
+    [chats, archivedChats, showArchived]
+  )
 
   if (isPending || !workspaceSlug) return <ChatListSkeleton />
 
   const layout = reduced ? false : ("position" as const)
-  const label = (text: string) => (
+  const archivedToggle = (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Show archived chats"
+            aria-pressed={showArchived}
+            onClick={toggleArchived}
+            className="relative -my-1 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-[transform,background-color,color] duration-150 ease-out after:absolute after:-inset-1.5 hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.94] aria-pressed:bg-foreground/[0.09] aria-pressed:text-foreground motion-reduce:transition-none motion-reduce:active:scale-100"
+          />
+        }
+      >
+        <HugeiconsIcon
+          icon={Archive02Icon}
+          className="size-3.5"
+          strokeWidth={2}
+        />
+      </TooltipTrigger>
+      <TooltipContent>
+        {showArchived ? "Hide archived chats" : "Show archived chats"}
+      </TooltipContent>
+    </Tooltip>
+  )
+  // The list's first label carries the archive toggle.
+  const label = (text: string | null, first: boolean) => (
     <motion.div
-      key={`label-${text}`}
+      key={`label-${text ?? "none"}`}
       layout={layout}
       transition={SPRING}
       className={cn(
         sidebarSectionLabel,
-        "px-2 pt-3 pb-1 hover:text-muted-foreground"
+        "flex items-center justify-between px-2 pt-3 pb-1 hover:text-muted-foreground"
       )}
     >
-      {text}
+      <span>{text}</span>
+      {first && archivedToggle}
     </motion.div>
   )
   // A chat that gets a message moves to the top of Recent; a pinned one
@@ -253,20 +326,24 @@ export function ChatList({ workspaceId }: { workspaceId?: string }) {
           updateChat.mutate({ channelId: chat.id, pinned: !chat.pinnedAt })
         }
         onHide={() => updateChat.mutate({ channelId: chat.id, hidden: true })}
+        onUnarchive={() => unarchive.mutate({ channelId: chat.id })}
       />
     </motion.div>
   )
 
   return (
     <nav aria-label="Chats" className="pb-2">
-      {pinned.length > 0 && label("Pinned")}
+      {pinned.length > 0 && label("Pinned", true)}
       {pinned.map(row)}
-      {recent.length > 0 && label("Recent")}
+      {recent.length > 0 && label("Recent", pinned.length === 0)}
       {recent.map(row)}
       {pinned.length + recent.length === 0 && (
-        <p className="px-2 py-6 text-center text-[13px] text-muted-foreground">
-          No chats yet.
-        </p>
+        <>
+          {label(null, true)}
+          <p className="px-2 py-6 text-center text-[13px] text-muted-foreground">
+            No chats yet.
+          </p>
+        </>
       )}
     </nav>
   )
@@ -321,6 +398,7 @@ function ChatRow({
   onOpenNeed,
   onPin,
   onHide,
+  onUnarchive,
 }: {
   chat: Chat
   // The channel row: its settings dialogs need it. Missing for a moment
@@ -337,6 +415,7 @@ function ChatRow({
   onOpenNeed: (need: AgentNeed) => void
   onPin: () => void
   onHide: () => void
+  onUnarchive: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
@@ -352,17 +431,22 @@ function ChatRow({
 
   const { getUnreadCount, getMentionCount } = useUnread()
   const { getMute, muteChannel, unmuteChannel } = muteControls
-  const mute = getMute(chat.id)
-  const unread = !active && getUnreadCount(chat.id) > 0
-  const mentionCount = active ? 0 : getMentionCount(chat.id)
+  // Shown greyed while the list shows archived chats: nothing in it is
+  // unread, pinned or running, and its menu only unarchives or deletes.
+  const archived = Boolean(chat.archivedAt)
+  const mute = archived ? undefined : getMute(chat.id)
+  const unread = !archived && !active && getUnreadCount(chat.id) > 0
+  const mentionCount = active || archived ? 0 : getMentionCount(chat.id)
   const activity = useChannelActivity(chat.id)
-  const sessions = activity?.sessions ?? []
+  const sessions = archived ? [] : (activity?.sessions ?? [])
   // An approval waiting on this person: once the chat is read nothing else
   // in the list says an agent is still blocked, so the row keeps a mark
   // until it is decided (the sidebar's "Needs you" group, removed
   // 2026-11-26, used to list these).
-  const approval = activity?.agentNeeds.find((need) => need.kind === "approval")
-  const running = activity?.runningSessions ?? 0
+  const approval = archived
+    ? undefined
+    : activity?.agentNeeds.find((need) => need.kind === "approval")
+  const running = archived ? 0 : (activity?.runningSessions ?? 0)
   const runningLabel = `${running} ${running === 1 ? "session" : "sessions"} running`
 
   const name = channel?.name ?? chat.name ?? "Chat"
@@ -379,7 +463,10 @@ function ChatRow({
 
   return (
     <>
-      <ContextMenu onOpenChange={setMenuOpen}>
+      <ContextMenu
+        onOpenChange={setMenuOpen}
+        disabled={archived && !canManage && !(channel && canDelete)}
+      >
         <ContextMenuTrigger
           className={cn(
             "group/chat relative flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors duration-150 ease-out has-[[data-open]:active]:bg-foreground/[0.09]",
@@ -388,21 +475,30 @@ function ChatRow({
               : "hover:bg-foreground/[0.04]"
           )}
         >
-          <ChatAvatar
-            agents={agents}
-            people={people}
-            // The list holds only chats this person is in.
-            total={
-              agents.length + Math.max(chat.peopleCount - 1, people.length)
-            }
-          />
+          <span className={cn("flex shrink-0", archived && "opacity-50")}>
+            <ChatAvatar
+              agents={agents}
+              people={people}
+              // The person is in every chat here but some archived ones.
+              total={
+                agents.length +
+                Math.max(
+                  chat.peopleCount - (chat.joined ? 1 : 0),
+                  people.length
+                )
+              }
+            />
+          </span>
           {/* The whole row opens the chat, under the button that pins it. */}
           <button
             type="button"
             data-open
             onClick={onOpen}
             aria-current={active ? "page" : undefined}
-            className="min-w-0 flex-1 cursor-pointer text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring/50 active:opacity-100"
+            className={cn(
+              "min-w-0 flex-1 cursor-pointer text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring/50",
+              archived ? "opacity-55" : "active:opacity-100"
+            )}
           >
             <span className="flex items-baseline gap-1.5">
               <span
@@ -429,8 +525,23 @@ function ChatRow({
                   strokeWidth={2}
                 />
               )}
+              {archived && (
+                <HugeiconsIcon
+                  icon={Archive02Icon}
+                  aria-label="Archived"
+                  className="size-3 shrink-0 self-center text-muted-foreground"
+                  strokeWidth={2}
+                />
+              )}
               <span className="flex-1" />
-              <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums group-hover/chat:invisible group-has-[[data-pin]:focus-visible]/chat:invisible">
+              <span
+                className={cn(
+                  "shrink-0 text-[11px] text-muted-foreground tabular-nums",
+                  // The pin button takes the time's place on hover.
+                  !archived &&
+                    "group-hover/chat:invisible group-has-[[data-pin]:focus-visible]/chat:invisible"
+                )}
+              >
                 {chatTime(chatActivityAt(chat))}
               </span>
             </span>
@@ -476,85 +587,101 @@ function ChatRow({
               !
             </button>
           )}
-          <button
-            type="button"
-            data-pin
-            onClick={onPin}
-            aria-label={chat.pinnedAt ? `Unpin ${name}` : `Pin ${name}`}
-            title={chat.pinnedAt ? "Unpin" : "Pin"}
-            className="absolute top-1 right-1 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none transition-[transform,background-color,color,opacity] duration-150 ease-out hover:bg-foreground/[0.08] hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.94] group-hover/chat:opacity-100"
-          >
-            <HugeiconsIcon
-              icon={chat.pinnedAt ? PinOffIcon : PinIcon}
-              className="size-3.5"
-              strokeWidth={2}
-            />
-          </button>
+          {!archived && (
+            <button
+              type="button"
+              data-pin
+              onClick={onPin}
+              aria-label={chat.pinnedAt ? `Unpin ${name}` : `Pin ${name}`}
+              title={chat.pinnedAt ? "Unpin" : "Pin"}
+              className="absolute top-1 right-1 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none transition-[transform,background-color,color,opacity] duration-150 ease-out hover:bg-foreground/[0.08] hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.94] group-hover/chat:opacity-100"
+            >
+              <HugeiconsIcon
+                icon={chat.pinnedAt ? PinOffIcon : PinIcon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+            </button>
+          )}
         </ContextMenuTrigger>
         <ContextMenuPopup align="start">
-          <ContextMenuItem onClick={onPin}>
-            <HugeiconsIcon
-              icon={chat.pinnedAt ? PinOffIcon : PinIcon}
-              strokeWidth={2}
-            />
-            {chat.pinnedAt ? "Unpin Chat" : "Pin Chat"}
-          </ContextMenuItem>
-          <ContextMenuItem onClick={onHide}>
-            <HugeiconsIcon icon={ViewOffSlashIcon} strokeWidth={2} />
-            Hide Chat
-          </ContextMenuItem>
-          {mute ? (
-            <ContextMenuItem onClick={() => unmuteChannel(chat.id)}>
-              <HugeiconsIcon icon={Notification01Icon} strokeWidth={2} />
-              Unmute Chat
-            </ContextMenuItem>
+          {archived ? (
+            canManage && (
+              <ContextMenuItem onClick={onUnarchive}>
+                <HugeiconsIcon icon={ArchiveRestoreIcon} strokeWidth={2} />
+                Unarchive Chat
+              </ContextMenuItem>
+            )
           ) : (
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>
-                <HugeiconsIcon icon={NotificationOff01Icon} strokeWidth={2} />
-                Mute Chat
-              </ContextMenuSubTrigger>
-              <ContextMenuSubPopup>
-                {MUTE_DURATIONS.map((duration) => (
-                  <ContextMenuItem
-                    key={duration.label}
-                    onClick={() =>
-                      muteChannel({
-                        channelId: chat.id,
-                        minutes: duration.minutes,
-                      })
-                    }
-                  >
-                    {duration.label}
+            <>
+              <ContextMenuItem onClick={onPin}>
+                <HugeiconsIcon
+                  icon={chat.pinnedAt ? PinOffIcon : PinIcon}
+                  strokeWidth={2}
+                />
+                {chat.pinnedAt ? "Unpin Chat" : "Pin Chat"}
+              </ContextMenuItem>
+              <ContextMenuItem onClick={onHide}>
+                <HugeiconsIcon icon={ViewOffSlashIcon} strokeWidth={2} />
+                Hide Chat
+              </ContextMenuItem>
+              {mute ? (
+                <ContextMenuItem onClick={() => unmuteChannel(chat.id)}>
+                  <HugeiconsIcon icon={Notification01Icon} strokeWidth={2} />
+                  Unmute Chat
+                </ContextMenuItem>
+              ) : (
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>
+                    <HugeiconsIcon
+                      icon={NotificationOff01Icon}
+                      strokeWidth={2}
+                    />
+                    Mute Chat
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubPopup>
+                    {MUTE_DURATIONS.map((duration) => (
+                      <ContextMenuItem
+                        key={duration.label}
+                        onClick={() =>
+                          muteChannel({
+                            channelId: chat.id,
+                            minutes: duration.minutes,
+                          })
+                        }
+                      >
+                        {duration.label}
+                      </ContextMenuItem>
+                    ))}
+                  </ContextMenuSubPopup>
+                </ContextMenuSub>
+              )}
+              {channel && canEdit && (
+                <>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={() => openEdit("overview")}>
+                    <HugeiconsIcon icon={Settings01Icon} strokeWidth={2} />
+                    Edit Chat
                   </ContextMenuItem>
-                ))}
-              </ContextMenuSubPopup>
-            </ContextMenuSub>
-          )}
-          {channel && canEdit && (
-            <>
-              <ContextMenuSeparator />
-              <ContextMenuItem onClick={() => openEdit("overview")}>
-                <HugeiconsIcon icon={Settings01Icon} strokeWidth={2} />
-                Edit Chat
-              </ContextMenuItem>
-            </>
-          )}
-          {channel && canEdit && canManage && (
-            <>
-              <ContextMenuItem onClick={() => openEdit("agent")}>
-                <HugeiconsIcon icon={Layers01Icon} strokeWidth={2} />
-                Agents
-              </ContextMenuItem>
-              <ContextMenuItem onClick={() => openEdit("webhooks")}>
-                <HugeiconsIcon icon={WebhookIcon} strokeWidth={2} />
-                Webhooks
-              </ContextMenuItem>
+                </>
+              )}
+              {channel && canEdit && canManage && (
+                <>
+                  <ContextMenuItem onClick={() => openEdit("agent")}>
+                    <HugeiconsIcon icon={Layers01Icon} strokeWidth={2} />
+                    Agents
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => openEdit("webhooks")}>
+                    <HugeiconsIcon icon={WebhookIcon} strokeWidth={2} />
+                    Webhooks
+                  </ContextMenuItem>
+                </>
+              )}
             </>
           )}
           {channel && canDelete && (
             <>
-              <ContextMenuSeparator />
+              {!(archived && !canManage) && <ContextMenuSeparator />}
               <ContextMenuItem
                 variant="destructive"
                 onClick={() => setDeleteOpen(true)}

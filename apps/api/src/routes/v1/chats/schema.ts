@@ -39,6 +39,10 @@ export const chatSchema = z.object({
   people: z.array(chatPersonSchema),
   peopleCount: z.number().int(),
   pinnedAt: z.string().datetime().nullable(),
+  // Archived for everyone (decision 52); set only in the archived list.
+  archivedAt: z.string().datetime().nullable(),
+  // Whether the caller is in it; an archived chat they can see may not be.
+  joined: z.boolean(),
   lastMessage: z
     .object({
       id: z.string().uuid(),
@@ -51,6 +55,15 @@ export const chatSchema = z.object({
       agentId: z.string().uuid().nullable(),
     })
     .nullable(),
+})
+
+export const listChatsQuerySchema = z.object({
+  // The archived chats the caller can see, in place of their list: what the
+  // sidebar adds when it shows archived chats.
+  archived: z
+    .enum(["true", "false"])
+    .optional()
+    .openapi({ param: { name: "archived", in: "query" } }),
 })
 
 export const listChatsResponseSchema = z.object({

@@ -33,10 +33,12 @@ import { VoiceChannelView } from "@/components/voice/voice-channel-view"
 import { useSocket } from "@/context/socket-context"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
+import { useCanManageChannels } from "@/hooks/use-can-manage-channels"
 import { useChannelDiscord } from "@/hooks/use-channel-discord"
 import { useChannelEntry } from "@/hooks/use-channel-entry"
 import { useChannelFilesRealtime } from "@/hooks/use-channel-files"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
+import { useChatArchive } from "@/hooks/use-chat-archive"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useMentionCandidates } from "@/hooks/use-mention-candidates"
@@ -252,8 +254,8 @@ function ChannelView() {
   const { data, isPending, isError, error } = useQuery(
     channelQueryOptions(workspaceSlug, channelId)
   )
-  // Someone archived this chat for everyone: the composer gives way to the
-  // archived mark for whoever has it open.
+  // Someone archived or unarchived this chat for everyone: the composer and
+  // the archived bar swap for whoever has it open.
   useEffect(() => {
     if (!socket) return
     const onCreated = (message: {
@@ -262,7 +264,8 @@ function ChannelView() {
     }) => {
       if (
         message.channelId !== channelId ||
-        message.eventType !== "channel_archived"
+        (message.eventType !== "channel_archived" &&
+          message.eventType !== "channel_unarchived")
       )
         return
       void queryClient.invalidateQueries({
@@ -757,25 +760,11 @@ function ChannelView() {
         />
         <TypingIndicator users={typingUsers} />
         {data.archivedAt ? (
-          // Archived: no composer — a terminal divider marks when it closed.
-          <div className="px-4 pt-1 pb-5">
-            <div className="relative flex items-center">
-              <div className="h-px w-full bg-border/70" />
-              <span className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                <HugeiconsIcon
-                  icon={Archive02Icon}
-                  className="size-3.5 shrink-0"
-                  strokeWidth={2}
-                />
-                Archived{" "}
-                {new Date(data.archivedAt).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}
-              </span>
-            </div>
-          </div>
+          <ArchivedChatBar
+            workspaceSlug={workspaceSlug}
+            channelId={channelId}
+            archivedAt={data.archivedAt}
+          />
         ) : discordUnknown ? (
           discordQuery.isError ? (
             <div className="px-4 pt-1 pb-5">
@@ -858,6 +847,50 @@ function ChannelView() {
           </>
         )}
       </ChannelAgentProvider>
+    </div>
+  )
+}
+
+// An archived chat has no composer: the bar says when it closed, and
+// someone who manages chats can open it again (decision 52).
+function ArchivedChatBar({
+  workspaceSlug,
+  channelId,
+  archivedAt,
+}: {
+  workspaceSlug: string
+  channelId: string
+  archivedAt: string
+}) {
+  const canManage = useCanManageChannels(workspaceSlug)
+  const { unarchive } = useChatArchive(workspaceSlug)
+  const date = new Date(archivedAt).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+  return (
+    <div className="px-4 pt-1 pb-5">
+      <div className="flex min-h-11 items-center gap-2.5 rounded-xl bg-foreground/[0.04] py-2 pr-2 pl-3.5 text-[13px] text-muted-foreground">
+        <HugeiconsIcon
+          icon={Archive02Icon}
+          className="size-4 shrink-0"
+          strokeWidth={2}
+        />
+        <span className="min-w-0 flex-1">
+          Archived {date}. Nobody can post here.
+        </span>
+        {canManage && (
+          <button
+            type="button"
+            disabled={unarchive.isPending}
+            onClick={() => unarchive.mutate({ channelId })}
+            className="h-7 shrink-0 cursor-pointer rounded-full bg-foreground/[0.08] px-3 font-medium text-foreground outline-none transition-[background-color,transform] duration-150 ease-out hover:bg-foreground/[0.12] focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.97] disabled:opacity-60"
+          >
+            Unarchive
+          </button>
+        )}
+      </div>
     </div>
   )
 }

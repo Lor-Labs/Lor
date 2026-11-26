@@ -68,6 +68,7 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   // Archived for everyone from the chat's settings: read-only, its agents
   // stopped, out of every sidebar.
   "channel_archived",
+  "channel_unarchived",
   "member_added",
   "member_removed",
   "member_left",

@@ -328,6 +328,7 @@ export type RealtimeChannelEventType =
   | "channel_created"
   | "channel_renamed"
   | "channel_archived"
+  | "channel_unarchived"
   | "member_added"
   | "member_removed"
   | "member_left"
@@ -1333,7 +1334,13 @@ export type RealtimeLoop = {
   // Hard end date (sweep-enforced); null = no date end.
   endAt: string | null
   status: RealtimeLoopStatus
-  pausedReason: "manual" | "failures" | "out_of_credits" | "agent_left" | null
+  pausedReason:
+    | "manual"
+    | "failures"
+    | "out_of_credits"
+    | "agent_left"
+    | "chat_archived"
+    | null
   nextRunAt: string | null
   lastRunAt: string | null
   consecutiveFailures: number

@@ -29,7 +29,7 @@ export function chatsQueryOptions(workspaceSlug: string) {
   return queryOptions({
     queryKey: chatsKey(workspaceSlug),
     queryFn: async () => {
-      const res = await chatsRoute.$get({ param: { workspaceSlug } })
+      const res = await chatsRoute.$get({ param: { workspaceSlug }, query: {} })
       if (!res.ok) throw new Error("Failed to fetch chats")
       return (await res.json()).chats
     },
@@ -43,17 +43,40 @@ export function useChats(workspaceSlug: string | undefined) {
   })
 }
 
+// The archived chats the person can see, which the sidebar adds, greyed,
+// when asked to show them. Under chatsKey, so whatever refreshes the list
+// refreshes this.
+export function useArchivedChats(
+  workspaceSlug: string | undefined,
+  enabled: boolean
+) {
+  return useQuery({
+    queryKey: [...chatsKey(workspaceSlug ?? ""), "archived"],
+    queryFn: async () => {
+      const res = await chatsRoute.$get({
+        param: { workspaceSlug: workspaceSlug ?? "" },
+        query: { archived: "true" },
+      })
+      if (!res.ok) throw new Error("Failed to fetch archived chats")
+      return (await res.json()).chats
+    },
+    enabled: enabled && Boolean(workspaceSlug),
+  })
+}
+
 // When a chat last had something said in it: what Recent is ordered by.
 export const chatActivityAt = (chat: Chat) =>
   chat.lastMessage?.createdAt ?? chat.createdAt
 
 // Pinned chats in the order they were pinned, then the rest by last message.
+// An archived chat is among the rest, whatever its pin.
 export function orderChats(chats: Chat[]) {
+  const isPinned = (chat: Chat) => Boolean(chat.pinnedAt) && !chat.archivedAt
   const pinned = chats
-    .filter((chat) => chat.pinnedAt)
+    .filter(isPinned)
     .sort((a, b) => (a.pinnedAt ?? "").localeCompare(b.pinnedAt ?? ""))
   const recent = chats
-    .filter((chat) => !chat.pinnedAt)
+    .filter((chat) => !isPinned(chat))
     .sort((a, b) => chatActivityAt(b).localeCompare(chatActivityAt(a)))
   return { pinned, recent }
 }

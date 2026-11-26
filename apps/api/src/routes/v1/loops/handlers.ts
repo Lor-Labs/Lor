@@ -384,6 +384,10 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
     if (moved) values.channelId = nextChannelId
     if (handedOver) values.agentId = nextAgentId
     if (loop.pausedReason === "agent_left") values.pausedReason = "manual"
+    // Moved out of the archived chat: unarchiving it no longer resumes it.
+    if (moved && loop.pausedReason === "chat_archived") {
+      values.pausedReason = "manual"
+    }
   }
 
   // End modes are one-per-loop: setting either clears the other (the zod

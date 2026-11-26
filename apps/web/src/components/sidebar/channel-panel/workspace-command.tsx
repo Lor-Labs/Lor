@@ -24,6 +24,7 @@ import {
 } from "@repo/ui/components/command"
 import { Spinner } from "@repo/ui/components/spinner"
 import { Kbd } from "@repo/ui/components/unlumen-ui/kbd"
+import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useTheme } from "next-themes"
@@ -36,7 +37,7 @@ import { useMessageSearchNavigation } from "@/hooks/use-message-search-navigatio
 import { useOpenNewSession } from "@/hooks/use-open-new-session"
 import { apiClient } from "@/lib/api-client"
 import {
-  openTextChannels,
+  textChannels,
   workspaceChannelsQueryOptions,
 } from "@/lib/workspace-channels-query"
 
@@ -179,16 +180,21 @@ export function WorkspaceCommand() {
   const { data: myChats } = useChats(open ? workspaceSlug : undefined)
   const mine = new Map((myChats ?? []).map((chat) => [chat.id, chat]))
   const needle = query.trim().toLowerCase()
-  const allChats = (channelList ? openTextChannels(channelList) : []).filter(
+  const allChats = (channelList ? textChannels(channelList) : []).filter(
     (chat) => !needle || (chat.name ?? "").toLowerCase().includes(needle)
   )
   const yourChats = needle ? allChats.filter((chat) => mine.has(chat.id)) : []
   // Only once something is typed: an empty search stays commands only.
+  // Archived chats are in no one's list: they get their own group, greyed.
   const otherChats =
     needle && myChats
       ? allChats
-          .filter((chat) => !mine.has(chat.id))
+          .filter((chat) => !mine.has(chat.id) && !chat.archivedAt)
           .slice(0, OTHER_CHATS_SHOWN)
+      : []
+  const archivedChats =
+    needle && myChats
+      ? allChats.filter((chat) => chat.archivedAt).slice(0, OTHER_CHATS_SHOWN)
       : []
   const goToChat = (channelId: string) => {
     if (!workspaceSlug) return
@@ -207,7 +213,7 @@ export function WorkspaceCommand() {
       <CommandItem
         key={chat.id}
         value={`chat-${chat.id}`}
-        className="gap-2.5"
+        className={cn("gap-2.5", chat.archivedAt && "text-muted-foreground")}
         onClick={() => goToChat(chat.id)}
       >
         {agents.length + people.length > 0 ? (
@@ -242,7 +248,7 @@ export function WorkspaceCommand() {
     !isFetching &&
     results.length === 0 &&
     sessions.length === 0 &&
-    yourChats.length + otherChats.length === 0
+    yourChats.length + otherChats.length + archivedChats.length === 0
   const showLoader = hasQuery && isFetching
 
   return (
@@ -293,6 +299,13 @@ export function WorkspaceCommand() {
                   <CommandGroup>
                     <CommandGroupLabel>Other chats</CommandGroupLabel>
                     {otherChats.map(chatItem)}
+                  </CommandGroup>
+                )}
+
+                {archivedChats.length > 0 && (
+                  <CommandGroup>
+                    <CommandGroupLabel>Archived</CommandGroupLabel>
+                    {archivedChats.map(chatItem)}
                   </CommandGroup>
                 )}
 

@@ -114,7 +114,7 @@ objected to and should confirm.
 | 49 | An agent sets up a Loop without being asked, when work it was given needs it back on a cadence until it is done ("a launch video every Wednesday until we reach 100 followers"). It gives the Loop an end condition and completes it when that is met | Jacob, 11-26 |
 | 50 | `create_loop` and `update_loop` are approval gate targets, off by default, so a workspace that wants a person to approve an agent's Loops can require it | Jacob, 11-26 |
 | 51 | Slack and Discord channels are places on the agent (decision 24), and a Discord channel linked to a Lor chat today becomes one. A place is not in the Lor sidebar: people use it in their own chat app. Its messages go to the agent's inbox by a chat's rules (a mention wakes it, the rest waits, a message naming nobody goes to Jev), the agent posts there by naming it, a Loop's "Reports in" lists places beside chats, and approvals are asked there with buttons. Discord first, then Slack in the same shape. Reading a place's messages in Lor is left out for now (later, perhaps on the agent's page) | Jacob, 11-26 |
-| 52 | Hiding a chat stays each person's own, from the sidebar, and a new message brings it back. Archiving is for everyone, only from the chat's settings, behind a dialog that says what happens: its agents stop there (their pending items are dropped, running turns stopped, Loops that report there end, wake-ups there are cancelled, its events are switched off), it leaves everyone's sidebar, and it takes no new messages. Its messages are kept, and a line says who archived it | Jacob, 11-26 |
+| 52 | Hiding a chat stays each person's own, from the sidebar, and a new message brings it back. Archiving is for everyone, only from the chat's settings, behind a dialog that says what happens: its agents stop there (their pending items are dropped, running turns stopped, Loops that report there pause, wake-ups there are cancelled, its listeners are skipped), it leaves everyone's sidebar, and it takes no new messages. Its messages are kept, and a line says who archived it. Archiving can be undone: Undo in the toast, or Unarchive on the chat, in its settings or from its row's menu. A small archive icon at the top of the sidebar's list flips between the list and the list with the archived chats you can see, greyed, among the rest. Unarchiving resumes those Loops and the wake-ups not yet due | Jacob, 11-26 |
 
 Considered and dropped:
 
@@ -292,10 +292,17 @@ chat's header and panel, finding and joining a chat, agents messaging each
 other and Loops on the agent were first and are built, see below):
 
 1. Slack and Discord as places (steps 4 and 5 below, decision 51).
-Archiving a chat for everyone is built (decision 52): `POST
-/chats/{id}/archive` (`archiveChat`, `apps/api/src/lib/chat-archive.ts`),
-the Archive section in the chat's settings, and a `channel_archived` line.
-Checked live on a throwaway database. Not built: unarchiving.
+Archiving a chat for everyone, and undoing it, are built (decision 52):
+`POST /chats/{id}/archive` and `/unarchive` (`apps/api/src/lib/chat-archive.ts`),
+the Archive section in the chat's settings, Undo in the toast, Unarchive on
+an archived chat, a `channel_archived` and a `channel_unarchived` line, and
+the archive icon at the top of the sidebar's list, which adds the archived
+chats, greyed (`GET /chats?archived=true`, the person's choice kept in
+`localStorage`); search lists them too. Archiving pauses Loops with the
+`chat_archived` reason and stamps the wake-ups it cancels with the archive
+time; unarchiving resumes the one and puts back the other when not yet due.
+Listeners stay on and are skipped while the chat is archived. Checked live
+on a throwaway database.
 
 **Owed: merging with the AI providers branch** (flagged 2026-11-26).
 Commit `8597867` on `lor/foghollow-320c80` (Azure OpenAI, Vertex AI and

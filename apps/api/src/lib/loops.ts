@@ -541,3 +541,50 @@ export async function completeLoopsForChannels(
     await emitLoopUpdated(loop).catch(() => {})
   }
 }
+
+// Archiving a chat pauses the Loops that report in it, and unarchiving
+// resumes those (reference/agents-and-chats.md, decision 52). A Loop someone
+// paused themselves stays paused.
+export async function pauseLoopsForArchivedChat(
+  channelId: string
+): Promise<void> {
+  const paused = await db
+    .update(schema.loop)
+    .set({ status: "paused", pausedReason: "chat_archived", nextRunAt: null })
+    .where(
+      and(
+        eq(schema.loop.channelId, channelId),
+        eq(schema.loop.status, "active")
+      )
+    )
+    .returning()
+  for (const loop of paused) {
+    await stopInFlightRuns(loop.id)
+    await emitLoopUpdated(loop).catch(() => {})
+  }
+}
+
+export async function resumeLoopsForUnarchivedChat(
+  channelId: string
+): Promise<void> {
+  const paused = await db
+    .select({ id: schema.loop.id })
+    .from(schema.loop)
+    .where(
+      and(
+        eq(schema.loop.channelId, channelId),
+        eq(schema.loop.status, "paused"),
+        eq(schema.loop.pausedReason, "chat_archived")
+      )
+    )
+  for (const loop of paused) {
+    // One whose end date passed while archived stays paused.
+    const result = await resumeLoop({ loopId: loop.id })
+    if (result && !result.ok) {
+      logger.info(
+        { loopId: loop.id, reason: result.reason },
+        "Loop left paused after unarchive"
+      )
+    }
+  }
+}

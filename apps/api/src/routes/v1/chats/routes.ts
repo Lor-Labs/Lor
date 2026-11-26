@@ -16,6 +16,7 @@ import {
   chatWorkspaceParamsSchema,
   listAgentMessagesResponseSchema,
   listChatPeopleResponseSchema,
+  listChatsQuerySchema,
   listChatsResponseSchema,
   updateChatRequestSchema,
   updateChatResponseSchema,
@@ -26,10 +27,10 @@ export const listChats = createRoute({
   method: "get",
   summary: "List the caller's chats",
   description:
-    "The chats the caller is in and has not hidden, each with its last message, its agents and the people in it (reference/agents-and-chats.md).",
+    "The chats the caller is in and has not hidden, each with its last message, its agents and the people in it (reference/agents-and-chats.md). With archived=true, the archived chats they can see instead.",
   tags: ["Chats"],
   middleware: [workspaceAuthMiddleware] as const,
-  request: { params: chatWorkspaceParamsSchema },
+  request: { params: chatWorkspaceParamsSchema, query: listChatsQuerySchema },
   hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
@@ -91,6 +92,30 @@ export const archiveChat = createRoute({
 })
 
 export type ArchiveChatRoute = typeof archiveChat
+
+export const unarchiveChat = createRoute({
+  path: "/workspaces/{workspaceSlug}/chats/{channelId}/unarchive",
+  method: "post",
+  summary: "Unarchive a chat",
+  description:
+    "Undoes an archive: the chat takes messages again, returns to its people's sidebars, and the Loops and follow-ups archiving paused start again. Takes channel:update.",
+  tags: ["Chats"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: chatParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: chatPeopleChangedResponseSchema,
+      description: "Unarchived",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export type UnarchiveChatRoute = typeof unarchiveChat
 
 export const listChatPeople = createRoute({
   path: "/workspaces/{workspaceSlug}/chats/{channelId}/people",

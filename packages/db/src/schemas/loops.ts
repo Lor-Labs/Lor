@@ -45,6 +45,8 @@ export const loopPausedReasonEnum = pgEnum("loop_paused_reason", [
   "out_of_credits",
   // Its agent was taken out of the chat it reports in.
   "agent_left",
+  // Its chat was archived; unarchiving resumes it.
+  "chat_archived",
 ])
 
 export const loop = pgTable(
