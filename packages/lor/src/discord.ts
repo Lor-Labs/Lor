@@ -508,13 +508,65 @@ export function splitForDiscord(text: string): string[] {
   return parts
 }
 
-export type DiscordButton = {
-  customId: string
-  label: string
-  style: "primary" | "secondary" | "success" | "danger"
-}
+export type DiscordButton =
+  | {
+      customId: string
+      label: string
+      style: "primary" | "secondary" | "success" | "danger"
+    }
+  // A link button opens its URL.
+  | { url: string; label: string }
 
 const BUTTON_STYLES = { primary: 1, secondary: 2, success: 3, danger: 4 }
+
+export function discordComponents(buttons: DiscordButton[] | undefined) {
+  if (!buttons?.length) return []
+  return [
+    {
+      type: 1,
+      components: buttons.map((button) =>
+        "url" in button
+          ? { type: 2, style: 5, label: button.label, url: button.url }
+          : {
+              type: 2,
+              style: BUTTON_STYLES[button.style],
+              label: button.label,
+              custom_id: button.customId,
+            }
+      ),
+    },
+  ]
+}
+
+// Changes a message an agent posted through its webhook in a place.
+export async function editAgentDiscordMessage(input: {
+  channelId: string
+  agentId: string
+  discordMessageId: string
+  discordThreadId: string | null
+  content: string
+  buttons?: DiscordButton[]
+}) {
+  if (!discordConfigured()) return
+  const link = await discordLinkFor(input.channelId)
+  if (!link) return
+  const hook = await agentWebhookFor(link, input.agentId)
+  if (!hook) return
+  const token = decryptSecret(hook.webhookToken, encryptionKey())
+  const { text, allowedUserIds } = await toDiscordContent(input.content)
+  await discordRequest(
+    `/webhooks/${hook.webhookId}/${token}/messages/${input.discordMessageId}?with_components=true${input.discordThreadId ? `&thread_id=${input.discordThreadId}` : ""}`,
+    {
+      method: "PATCH",
+      bot: false,
+      body: {
+        content: splitForDiscord(text || "…")[0],
+        allowed_mentions: { parse: [], users: allowedUserIds },
+        components: discordComponents(input.buttons),
+      },
+    }
+  )
+}
 
 // A message an agent posts in a place's Discord channel, under its own name
 // and creature. Null when the channel isn't a place. The Lor message it
@@ -585,19 +637,7 @@ export async function postAgentToDiscord(input: {
           username: webhookSafeName(identity.name),
           allowed_mentions: { parse: [], users: allowedUserIds },
           ...(last && input.buttons?.length
-            ? {
-                components: [
-                  {
-                    type: 1,
-                    components: input.buttons.map((button) => ({
-                      type: 2,
-                      style: BUTTON_STYLES[button.style],
-                      label: button.label,
-                      custom_id: button.customId,
-                    })),
-                  },
-                ],
-              }
+            ? { components: discordComponents(input.buttons) }
             : {}),
         },
       }

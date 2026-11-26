@@ -15,6 +15,10 @@ import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import { agentRunConversation } from "@repo/db/queries/channel-agent"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { Approval, ClaudeCodeAnswers, Plan } from "@repo/db/schema"
+import {
+  sessionOfRunWithCard,
+  updateSessionCard,
+} from "@repo/lor/discord-sessions"
 import { channelRoom } from "@repo/realtime-types/rooms"
 import { findRunVoiceRequest } from "@repo/voice/server"
 import { flushAgentInbox } from "@/lib/agent-inbox-queue"
@@ -411,6 +415,12 @@ export async function resolveApproval(
   })
   if (!decided) return { kind: "conflict" }
   const { resolved } = decided
+  // A session started from Discord goes back to work: its card says so.
+  if (decided.complete && resolved.runId) {
+    void sessionOfRunWithCard(resolved.runId)
+      .then((id) => (id ? updateSessionCard(id, { state: "working" }) : null))
+      .catch(() => {})
+  }
 
   const undoResolution = () =>
     db

@@ -266,7 +266,8 @@ export const connectDiscordAccount: AppRouteHandler<
     return c.json(
       {
         success: false,
-        message: "This link is wrong or expired. Run /lor connect again.",
+        message:
+          "This link is wrong or expired. Run /lor connect-account again.",
       },
       HttpStatusCodes.BAD_REQUEST
     )

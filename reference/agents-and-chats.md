@@ -301,8 +301,16 @@ other and Loops on the agent were first and are built, see below):
    (`GET /chats?places=true`). `discord-places.ts` converts linked chats
    after the push. Checked on a throwaway database with a seeded place and
    the Discord API mocked in the browser; not run against a real Discord
-   server. Next: code sessions started from Discord, a Loop's "Reports in"
-   listing places, then Slack.
+   server. Code sessions started from Discord are built too (Jacob, 11-26):
+   only a person whose Lor account is linked (`/lor connect-account`) starts
+   one, on their own plan, and they own it; a card in the request's thread
+   (`discord_session_card`, `packages/lor/src/discord-sessions.ts`) follows
+   it (working, waiting for approval, finished, failed, pushed) with links to
+   Lor and GitHub, the agent's answers move into that thread, and its
+   approvals are asked there with buttons (an answer or a plan links to Lor).
+   Follow-ups go through the agent, on the owner's plan. Not run against a
+   real Discord server either. Next: a Loop's "Reports in" listing places,
+   then Slack.
 Archiving a chat for everyone, and undoing it, are built (decision 52):
 `POST /chats/{id}/archive` and `/unarchive` (`apps/api/src/lib/chat-archive.ts`),
 the Archive section in the chat's settings, Undo in the toast, Unarchive on

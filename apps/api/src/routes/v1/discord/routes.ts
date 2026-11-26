@@ -201,7 +201,7 @@ export const connectDiscordAccount = createRoute({
   path: "/discord/connect",
   method: "post",
   summary: "Link your Discord account",
-  description: "Finishes `/lor connect` with the token from its link.",
+  description: "Finishes `/lor connect-account` with the token from its link.",
   tags: ["Discord"],
   middleware: [sessionAuthMiddleware] as const,
   request: {

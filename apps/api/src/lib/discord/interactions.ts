@@ -69,7 +69,7 @@ export const LOR_COMMANDS = [
       },
       {
         type: 1,
-        name: "connect",
+        name: "connect-account",
         description: "Link your Discord account to your Lor account",
       },
     ],
@@ -108,7 +108,7 @@ function sign(payload: string) {
     .digest("base64url")
 }
 
-// The link `/lor connect` shows only to the person who ran it.
+// The link `/lor connect-account` shows only to the person who ran it.
 function connectToken(discordUserId: string, username: string) {
   const payload = Buffer.from(
     JSON.stringify({
@@ -305,7 +305,7 @@ async function managerOf(
   if (!person) {
     return {
       refusal:
-        "Link your Lor account first with `/lor connect`, then try again.",
+        "Link your Lor account first with `/lor connect-account`, then try again.",
     }
   }
   const authority = await resolveWorkspaceAuthority(person.member, {
@@ -535,7 +535,7 @@ async function handleApprovalButton(
   if (!account) {
     return reply(
       interaction,
-      "Link your Lor account first with `/lor connect`, then try again."
+      "Link your Lor account first with `/lor connect-account`, then try again."
     )
   }
   const outcome = await resolveApproval(approvalId, account.userId, resolution)
@@ -589,7 +589,9 @@ export async function handleDiscordInteraction(
         return await handleRemove(interaction, option("agent"))
       }
       if (sub?.name === "agents") return await handleAgents(interaction)
-      if (sub?.name === "connect") return await handleConnect(interaction)
+      if (sub?.name === "connect-account") {
+        return await handleConnect(interaction)
+      }
       return
     }
     if (interaction.type === 3) {

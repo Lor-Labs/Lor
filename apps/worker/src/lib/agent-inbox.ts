@@ -1076,6 +1076,7 @@ function agentHooks(
             askerId: turn.askerId,
             planUserId: turn.planUserId,
             requestUserId: turn.requestUserId ?? null,
+            turn,
           }),
         }
       : {}),

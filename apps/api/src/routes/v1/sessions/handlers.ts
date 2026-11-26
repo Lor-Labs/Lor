@@ -71,6 +71,7 @@ import {
   listTerminals,
   openTerminal,
 } from "@repo/lor/dev-env/terminal"
+import { updateSessionCard } from "@repo/lor/discord-sessions"
 import { sessionPullRequestReview } from "@repo/lor/pr-reviews"
 import {
   BranchRefusedError,
@@ -1233,6 +1234,11 @@ export const pushSessionChanges: AppRouteHandler<
   }
   broadcastChangesUpdated(session, user.id)
   checkpointAfter(session)
+  // A session started from Discord shows the pushed branch on its card.
+  void updateSessionCard(sessionId, {
+    branchUrl: `https://github.com/${session.repoFullName}/tree/${result.pushed.branch.split("/").map(encodeURIComponent).join("/")}`,
+    ...(pullRequest?.open ? { pullRequestUrl: pullRequest.url } : {}),
+  }).catch((err) => logger.warn({ err, sessionId }, "Session card failed"))
   const author = eventAuthor(user)
   const eventPayload = {
     sessionId,

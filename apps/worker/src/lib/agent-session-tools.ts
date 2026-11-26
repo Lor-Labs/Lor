@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import {
+  APP_USER_ID,
   and,
   count,
   db,
@@ -17,12 +18,18 @@ import { channelAgentId } from "@repo/db/queries/agents"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import {
   getHarnessSettings,
+  hasOwnRequestRoute,
   personalRequestHarness,
   resolveHarnessAccount,
 } from "@repo/db/queries/personal-accounts"
 import { createSession, toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import { type AgentSessionTools, addInboxNote } from "@repo/lor/channel-agent"
 import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
+import {
+  postSessionApprovals,
+  postSessionCard,
+  updateSessionCard,
+} from "@repo/lor/discord-sessions"
 import { resolveWorkspaceGithub } from "@repo/lor/github"
 import { loadThreadSummary } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
@@ -239,6 +246,9 @@ export function agentSessionExecutors(
     planUserId: string | null
     // Set only for a direct request; automation attribution is not a payer.
     requestUserId: string | null
+    // The turn's place in the chat: a session started in a Discord place
+    // moves it into the thread its card opens.
+    turn?: { threadRootId: string | null; triggerMessageId?: string | null }
   }
 ): AgentSessionTools {
   const { workspaceId, channelId, channelName } = args
@@ -252,6 +262,26 @@ export function agentSessionExecutors(
 
   return {
     start: async ({ repo, baseBranch, title, task, harness: wanted }) => {
+      // From Discord (decision 51) only a person with a linked Lor account
+      // starts one, and it runs on that person's own plan: they own it.
+      const place = await isPlace(channelId)
+      let requestUserId = args.requestUserId
+      if (place) {
+        const owner = await personAsking(args.askerId)
+        if (!owner) {
+          return {
+            error:
+              "Code sessions from Discord need the person asking to link their Lor account. Tell them to run /lor connect-account in Discord, then ask again.",
+          }
+        }
+        if (!(await hasOwnRequestRoute(workspaceId, owner))) {
+          return {
+            error:
+              "A code session from Discord runs on the asker's own plan, and they have none in Lor. Tell them to link their Claude or ChatGPT account in Lor's settings, then ask again.",
+          }
+        }
+        requestUserId = owner
+      }
       const available = await reposForChannel(workspaceId, channelId)
       if ("error" in available) return available
       const { repos } = available
@@ -291,8 +321,8 @@ export function agentSessionExecutors(
       })
       const harness =
         wanted ??
-        (args.requestUserId
-          ? await personalRequestHarness(workspaceId, args.requestUserId)
+        (requestUserId
+          ? await personalRequestHarness(workspaceId, requestUserId)
           : settings.defaultHarness)
       if (!isHarnessEnabled(harness))
         return {
@@ -301,12 +331,7 @@ export function agentSessionExecutors(
         }
       let route: TaskRoute
       try {
-        route = await taskRoute(
-          workspaceId,
-          channelId,
-          harness,
-          args.requestUserId
-        )
+        route = await taskRoute(workspaceId, channelId, harness, requestUserId)
       } catch (err) {
         return {
           error:
@@ -362,6 +387,23 @@ export function agentSessionExecutors(
       }).catch((err) =>
         logger.warn({ err, sessionId }, "Agent session line failed")
       )
+      // Its card in Discord, in the thread of the request, which the agent's
+      // answers move into.
+      if (place) {
+        const card = await postSessionCard({
+          sessionId,
+          channelId,
+          agentId: args.agentId,
+          threadRootId: args.turn?.threadRootId ?? null,
+          triggerMessageId: args.turn?.triggerMessageId ?? null,
+        }).catch((err: unknown) => {
+          logger.warn({ err, sessionId }, "Discord session card failed")
+          return null
+        })
+        if (card?.threadRootId && args.turn) {
+          args.turn.threadRootId = card.threadRootId
+        }
+      }
       const started = await runTask(
         deps,
         session,
@@ -385,7 +427,13 @@ export function agentSessionExecutors(
       return {
         sessionId,
         title,
-        runsOn: `${harness === "pi" ? "Lor" : harness === "codex" ? "Codex" : "Claude Code"} with ${args.requestUserId && harness !== "pi" ? "the requester's personal subscription" : "workspace API or autonomous billing"}`,
+        runsOn: `${harness === "pi" ? "Lor" : harness === "codex" ? "Codex" : "Claude Code"} with ${requestUserId && harness !== "pi" ? "the requester's personal subscription" : "workspace API or autonomous billing"}`,
+        ...(place
+          ? {
+              discord:
+                "A card in the Discord thread shows this session with a link to it and follows its state; no need to paste the link.",
+            }
+          : {}),
         repo: allowed.repo.fullName,
         baseBranch: branch,
         branch: newBranch,
@@ -467,18 +515,20 @@ export function agentSessionExecutors(
             "The session is working. Wait for its report, or stop it first.",
         }
       }
+      // A session from Discord goes on on its owner's plan.
+      const payer = (await isPlace(channelId))
+        ? session.creatorId
+        : args.requestUserId
       const started = await runTask(
         deps,
         session,
         channelName,
         message,
-        await taskRoute(
-          workspaceId,
-          channelId,
-          session.harness,
-          args.requestUserId
-        )
+        await taskRoute(workspaceId, channelId, session.harness, payer)
       )
+      if (started === "started") {
+        void updateSessionCard(session.id, { state: "working" }).catch(() => {})
+      }
       if (started === "failed") {
         return {
           error: "The follow-up did not start. You can send it again.",
@@ -507,6 +557,25 @@ export function agentSessionExecutors(
       return { ok: true }
     },
   }
+}
+
+async function isPlace(channelId: string) {
+  const [row] = await db
+    .select({ kind: schema.channel.kind })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, channelId))
+  return row?.kind === "place"
+}
+
+// The person behind a turn: someone who wrote in Discord without a linked
+// account is the app, not a person.
+async function personAsking(userId: string | null) {
+  if (!userId || userId === LOR_USER_ID || userId === APP_USER_ID) return null
+  const [row] = await db
+    .select({ isBot: schema.user.isBot })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId))
+  return row && !row.isBot ? userId : null
 }
 
 export type HelperOutcome = "finished" | "approval" | "failed" | "stopped"
@@ -552,6 +621,17 @@ export async function reportHelperTurn(
     note,
     lane: "wake",
   })
+  // Its card in Discord follows, and asks there for what it waits on (once:
+  // a repeated report adds no note).
+  void updateSessionCard(args.session.id, { state: args.outcome })
+    .then(() =>
+      added && args.outcome === "approval"
+        ? postSessionApprovals(args.session.id, args.runId)
+        : undefined
+    )
+    .catch((err: unknown) =>
+      logger.warn({ err, sessionId: args.session.id }, "Session card failed")
+    )
   // A repeated report adds no note, and the stranded-inbox sweep flushes a
   // first one whose enqueue failed.
   if (!added) {

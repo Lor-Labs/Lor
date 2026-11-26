@@ -7,6 +7,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { agentSession } from "./agent-sessions"
 import { agent } from "./agents"
 import { channel } from "./channels"
 import { message } from "./messages"
@@ -133,7 +134,7 @@ export const discordMessage = pgTable("discord_message", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 })
 
-// A person's Discord account, linked with `/lor connect`: their Discord
+// A person's Discord account, linked with `/lor connect-account`: their Discord
 // messages post as them in Lor, and they can decide approvals from Discord.
 export const discordAccount = pgTable("discord_account", {
   userId: uuid("user_id")
@@ -156,5 +157,29 @@ export const discordThread = pgTable("discord_thread", {
     .notNull()
     .unique()
     .references(() => message.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+})
+
+// The card a code session started from a Discord place shows there
+// (reference/agents-and-chats.md, decision 51): posted by the agent that
+// started it, in the thread of the request, and edited in place as the
+// session works, waits on an approval, finishes or is pushed.
+export const discordSessionCard = pgTable("discord_session_card", {
+  sessionId: uuid("session_id")
+    .primaryKey()
+    .references(() => agentSession.id, { onDelete: "cascade" }),
+  channelId: uuid("channel_id")
+    .notNull()
+    .references(() => channel.id, { onDelete: "cascade" }),
+  agentId: uuid("agent_id")
+    .notNull()
+    .references(() => agent.id, { onDelete: "cascade" }),
+  discordMessageId: text("discord_message_id").notNull(),
+  // The Discord thread it is in; null when it is in the channel itself.
+  discordThreadId: text("discord_thread_id"),
+  state: text("state").notNull().default("working"),
+  // Set once someone pushes the session's branch from Lor.
+  branchUrl: text("branch_url"),
+  pullRequestUrl: text("pull_request_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 })
