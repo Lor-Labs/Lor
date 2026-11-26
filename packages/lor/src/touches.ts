@@ -4,6 +4,7 @@ import {
   type ConnectorToolName,
   githubItemKey,
   githubRepoKey,
+  granolaNoteKey,
   type ItemRef,
   itemFromUrl,
   linearIssueKey,
@@ -74,6 +75,11 @@ function betterstackError(input: Rec): Item | null {
   return applicationId && pattern
     ? item("betterstack_error", betterstackErrorKey(applicationId, pattern))
     : null
+}
+
+const granolaNote = (input: Rec) => {
+  const id = str(input, "noteId")
+  return item("granola_note", id ? granolaNoteKey(id) : null)
 }
 
 // A connector item when the URL names one, else the plain URL.
@@ -187,6 +193,9 @@ const CATALOG_SPECS: Record<
     item("betterstack_incident", str(input, "id")),
   ],
   update_betterstack_error_state: (input) => [betterstackError(input)],
+  search_granola_meetings: null,
+  get_granola_meeting: (input) => [granolaNote(input)],
+  get_granola_transcript: (input) => [granolaNote(input)],
   search_web: null,
   // A plain web page is not an item: only a connector link counts.
   fetch_web: (input, output) => [

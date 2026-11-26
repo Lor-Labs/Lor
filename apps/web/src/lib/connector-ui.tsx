@@ -6,6 +6,7 @@ import { AWSCloudWatchLogo } from "@repo/ui/components/logos/aws-cloudwatch"
 import { BetterStackLogo } from "@repo/ui/components/logos/betterstack"
 import { DatadogLogo } from "@repo/ui/components/logos/datadog"
 import { GitHubLogo } from "@repo/ui/components/logos/github"
+import { GranolaLogo } from "@repo/ui/components/logos/granola"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { NotionLogo } from "@repo/ui/components/logos/notion"
 import { cn } from "@repo/ui/lib/utils"
@@ -204,6 +205,17 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
     tools: BETTERSTACK_TOOLS.map((tool) => tool.name),
     linkLabel: () => "Better Stack",
   },
+  // In color: Granola's mark is its app icon.
+  granola: {
+    logo: GranolaLogo,
+    urlHost: CONNECTOR_URL_HOSTS.granola,
+    tools: [
+      "search_granola_meetings",
+      "get_granola_meeting",
+      "get_granola_transcript",
+    ],
+    linkLabel: () => "Granola",
+  },
   // BYO inbound webhooks have no agent tools or URL host.
   webhook: {
     logo: WebhookMark,
@@ -222,6 +234,10 @@ const CONNECTOR_BRANDS: Partial<
     accent: "#24292f",
     avatarClassName:
       "bg-[#24292f]! text-white! dark:bg-[#f0f6fc]! dark:text-[#24292f]!",
+  },
+  granola: {
+    accent: "#b2c248",
+    avatarClassName: "bg-[#b2c248]! text-[#1e1e1e]!",
   },
   linear: {
     accent: "#5e6ad2",

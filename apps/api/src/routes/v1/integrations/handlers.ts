@@ -20,11 +20,15 @@ import {
 import { env } from "@repo/env/server"
 import { suggestListeners } from "@repo/lor/listener-suggest"
 import {
+  connectGranola as connectGranolaKey,
   deleteAttioWebhook,
+  deleteGranolaWebhook,
   connectAttio as exchangeAttioCode,
   connectLinear as exchangeLinearCode,
   connectNotion as exchangeNotionCode,
+  type GranolaConnectError,
   getAttioAccessToken,
+  getGranolaApiKey,
   getInstallationOverview,
   connectBetterstack as verifyBetterstackToken,
   connectCloudwatch as verifyCloudwatchKeys,
@@ -61,6 +65,7 @@ import type {
   ConnectBetterstackRoute,
   ConnectCloudwatchRoute,
   ConnectDatadogRoute,
+  ConnectGranolaRoute,
   ConnectLinearRoute,
   ConnectNotionRoute,
   CreateListenerRoute,
@@ -83,6 +88,38 @@ const attioRedirectUri = () => `${env.APP_BASE_URL}/integrations/attio/callback`
 // Where Attio delivers events — must be publicly reachable (tunnel in dev).
 const attioWebhookTargetUrl = () =>
   `${env.NEXT_PUBLIC_API_URL.replace(/\/+$/, "")}/v1/integrations/attio/webhook`
+
+// Granola accepts only a public HTTPS URL, so local development connects
+// without a webhook. The path names the connection by its key fingerprint.
+function granolaWebhookTargetUrl(): ((externalId: string) => string) | null {
+  const base = env.NEXT_PUBLIC_API_URL.replace(/\/+$/, "")
+  let url: URL
+  try {
+    url = new URL(base)
+  } catch {
+    return null
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.hostname === "localhost" ||
+    url.hostname.endsWith(".localhost") ||
+    /^(127\.|10\.|192\.168\.|0\.0\.0\.0$)/.test(url.hostname)
+  ) {
+    return null
+  }
+  return (externalId) => `${base}/v1/integrations/granola/webhook/${externalId}`
+}
+
+const GRANOLA_CONNECT_ERRORS: Record<GranolaConnectError, string> = {
+  invalid_key:
+    "Granola didn't accept this API key. Check that it was copied whole and hasn't been revoked.",
+  not_workspace_key:
+    "This looks like a personal Granola key. Lor needs a workspace API key: a Granola admin creates one in Settings → Connectors → Workspace API keys.",
+  webhooks_unavailable:
+    "Granola's webhooks aren't available for this workspace. They need a Business or Enterprise plan.",
+  webhook_failed:
+    "Granola didn't register Lor's webhook. Try again in a minute.",
+}
 
 const notionRedirectUri = () =>
   `${env.APP_BASE_URL}/integrations/notion/callback`
@@ -1436,6 +1473,10 @@ export const disconnectIntegration: AppRouteHandler<
     connection.provider === "attio" && connection.webhookId
       ? await getAttioAccessToken(connection.externalId).catch(() => null)
       : null
+  const granolaKey =
+    connection.provider === "granola" && connection.webhookId
+      ? await getGranolaApiKey(connection.externalId).catch(() => null)
+      : null
 
   const deleted = await db
     .delete(integrationConnection)
@@ -1465,6 +1506,10 @@ export const disconnectIntegration: AppRouteHandler<
   if (deleted.provider === "attio" && attioToken && connection.webhookId) {
     // Best effort — a leftover webhook just degrades on Attio's side.
     void deleteAttioWebhook(attioToken, connection.webhookId)
+  }
+  if (deleted.provider === "granola" && granolaKey && connection.webhookId) {
+    // Best effort — Granola disables an endpoint that keeps failing.
+    void deleteGranolaWebhook(granolaKey, connection.webhookId)
   }
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)
@@ -1555,6 +1600,85 @@ export const connectBetterstack: AppRouteHandler<
     )
   return c.json(
     { success: true as const, accountLogin: result.accountLabel },
+    HttpStatusCodes.OK
+  )
+}
+
+export const connectGranola: AppRouteHandler<ConnectGranolaRoute> = async (
+  c
+) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
+  if (!env.INTEGRATION_ENCRYPTION_KEY)
+    return c.json(
+      { success: false, message: "Granola isn't available on this server" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  const { apiKey } = c.req.valid("json")
+  const targetUrlFor = granolaWebhookTargetUrl()
+  const result = await connectGranolaKey(apiKey, targetUrlFor).catch((err) => {
+    logger.error({ err }, "Granola connection failed")
+    return "webhook_failed" as const
+  })
+  if (typeof result === "string")
+    return c.json(
+      { success: false, message: GRANOLA_CONNECT_ERRORS[result] },
+      HttpStatusCodes.BAD_REQUEST
+    )
+
+  // The outgoing connection's webhook is removed once the new one is saved.
+  const outgoing = await db
+    .select({
+      externalId: integrationConnection.externalId,
+      webhookId: integrationConnection.webhookId,
+    })
+    .from(integrationConnection)
+    .where(
+      and(
+        eq(integrationConnection.workspaceId, c.var.workspace.id),
+        eq(integrationConnection.provider, "granola"),
+        eq(integrationConnection.status, "active"),
+        ne(integrationConnection.externalId, result.externalId)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  const outgoingKey = outgoing?.webhookId
+    ? await getGranolaApiKey(outgoing.externalId).catch(() => null)
+    : null
+
+  const ok = await replaceActiveConnection({
+    workspaceId: c.var.workspace.id,
+    provider: "granola",
+    connectedById: c.var.user.id,
+    externalId: result.externalId,
+    reclaimRevoked: true,
+    clearOnRevoke: { apiKey: null, webhookId: null, webhookSecret: null },
+    values: {
+      accountLogin: result.accountLabel,
+      apiKey: result.apiKey,
+      webhookId: result.webhookId,
+      webhookSecret: result.webhookSecret,
+    },
+  })
+  if (!ok) {
+    if (result.webhookId) void deleteGranolaWebhook(apiKey, result.webhookId)
+    return c.json(
+      {
+        success: false,
+        message: "This Granola key is connected to another workspace",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  if (outgoing?.webhookId && outgoingKey) {
+    void deleteGranolaWebhook(outgoingKey, outgoing.webhookId)
+  }
+  return c.json(
+    {
+      success: true as const,
+      accountLogin: result.accountLabel,
+      events: result.webhookId !== null,
+    },
     HttpStatusCodes.OK
   )
 }

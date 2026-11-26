@@ -26,6 +26,7 @@ export const integrationProviderEnum = pgEnum("integration_provider", [
   "notion",
   "cloudwatch",
   "betterstack",
+  "granola",
   "webhook",
 ])
 

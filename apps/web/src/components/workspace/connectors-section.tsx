@@ -275,6 +275,14 @@ export function ConnectorsSection({
         }}
         onConnected={() => openConnector("betterstack")}
       />
+      <GranolaConnectDialog
+        workspaceSlug={workspaceSlug}
+        open={keyConnect === "granola"}
+        onOpenChange={(open) => {
+          if (!open) setKeyConnect(null)
+        }}
+        onConnected={() => openConnector("granola")}
+      />
       <CloudwatchConnectDialog
         workspaceSlug={workspaceSlug}
         open={keyConnect === "cloudwatch"}
@@ -1038,6 +1046,106 @@ function CloudwatchConnectDialog({
           >
             {connect.isPending && <Spinner className="size-4" />}
             Connect
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// Workspace API keys only (reference/granola-connector.md): a personal key
+// would put one person's private notes in front of the whole workspace.
+function GranolaConnectDialog({
+  workspaceSlug,
+  open,
+  onOpenChange,
+  onConnected,
+}: {
+  workspaceSlug: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onConnected: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [apiKey, setApiKey] = useState("")
+  const connect = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1.workspaces[
+        ":workspaceSlug"
+      ].integrations.granola.connect.$post({
+        param: { workspaceSlug },
+        json: { apiKey: apiKey.trim() },
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Couldn't connect Granola")
+      }
+      return res.json()
+    },
+    onSuccess: async (result) => {
+      setApiKey("")
+      await queryClient.invalidateQueries({
+        queryKey: ["integrations", workspaceSlug],
+      })
+      toast.success(
+        result.events
+          ? "Granola connected"
+          : "Granola connected, without new-meeting events on this server"
+      )
+      onOpenChange(false)
+      onConnected()
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(value) => {
+        if (connect.isPending) return
+        if (!value) setApiKey("")
+        onOpenChange(value)
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Connect Granola</DialogTitle>
+          <DialogDescription>
+            Agents can search your team's meetings and read their notes and
+            transcripts, and hear about each new meeting as it is written up.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            A Granola admin creates a workspace API key in the Granola app,
+            under Settings → Connectors → Workspace API keys. It needs a
+            Business or Enterprise plan. Personal keys aren't accepted.
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="granola-api-key">Workspace API key</Label>
+            <Input
+              id="granola-api-key"
+              type="password"
+              autoComplete="off"
+              placeholder="grn_…"
+              value={apiKey}
+              disabled={connect.isPending}
+              onChange={(event) => setApiKey(event.target.value)}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Lor sees the notes in the spaces the key covers, and everyone in
+            this workspace can find them. Notes in Granola are private until
+            they're in a shared space.
+          </p>
+        </DialogPanel>
+        <DialogFooter>
+          <Button
+            onClick={() => connect.mutate()}
+            disabled={!apiKey.trim() || connect.isPending}
+          >
+            {connect.isPending && <Spinner className="size-4" />}Connect
           </Button>
         </DialogFooter>
       </DialogContent>

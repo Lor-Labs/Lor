@@ -5,6 +5,7 @@ import { betterstackProvider } from "./betterstack"
 import { cloudwatchProvider } from "./cloudwatch"
 import { datadogProvider } from "./datadog"
 import { fetchGithubSourceItem, githubProvider } from "./github"
+import { fetchGranolaSourceItem, granolaProvider } from "./granola"
 import { fetchLinearSourceItem, linearProvider } from "./linear"
 import { notionProvider } from "./notion"
 import type { SourceFetcher, SourceProvider } from "./types"
@@ -20,6 +21,7 @@ const providers: Record<IntegrationProvider, SourceProvider> = {
   notion: notionProvider,
   cloudwatch: cloudwatchProvider,
   betterstack: betterstackProvider,
+  granola: granolaProvider,
   webhook: webhookProvider,
 }
 
@@ -35,6 +37,7 @@ export const SOURCE_FETCHERS = {
   github: fetchGithubSourceItem,
   linear: fetchLinearSourceItem,
   attio: fetchAttioSourceItem,
+  granola: fetchGranolaSourceItem,
 } satisfies Partial<Record<IntegrationProvider, SourceFetcher>>
 
 export type IngestedProvider = keyof typeof SOURCE_FETCHERS
@@ -71,6 +74,19 @@ export {
   listInstallationRepos,
   searchIssues,
 } from "./github"
+export {
+  connectGranola,
+  deleteGranolaWebhook,
+  fetchGranolaNote,
+  formatGranolaTranscript,
+  GRANOLA_MEETING_KIND,
+  type GranolaConnectError,
+  type GranolaNote,
+  getGranolaApiKey,
+  granolaAttendees,
+  granolaMeetingAt,
+  granolaMinutes,
+} from "./granola"
 export { connectLinear, getLinearAccessToken } from "./linear"
 export {
   connectNotion,

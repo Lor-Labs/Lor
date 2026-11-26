@@ -234,11 +234,7 @@ async function postEventCard(
     })
     // Meeting insights are a model call — too slow to hold the webhook ack
     // open. Post the base card first, then patch the embeds in place.
-    if (
-      input.provider === "attio" &&
-      input.event === "call_recording_ready" &&
-      input.embeds?.length
-    ) {
+    if (input.embeds?.some((embed) => embed.meeting)) {
       void enrichPostedMeetingEmbeds({
         messageId: message.id,
         channelId: target.channel.id,

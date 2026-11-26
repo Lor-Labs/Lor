@@ -415,6 +415,30 @@ const CONNECTOR_TOOL_CATALOG = {
     },
   ],
   betterstack: BETTERSTACK_CATALOG,
+  granola: [
+    {
+      name: "search_granola_meetings",
+      label: "Search meetings",
+      description:
+        "Find meetings by keyword, attendee, or date, in notes or what was said.",
+      readOnlyHint: true,
+      defaultEnabled: true,
+    },
+    {
+      name: "get_granola_meeting",
+      label: "Read meeting notes",
+      description: "Read a meeting's notes, attendees, and calendar event.",
+      readOnlyHint: true,
+      defaultEnabled: true,
+    },
+    {
+      name: "get_granola_transcript",
+      label: "Read transcript",
+      description: "Read what was said in a meeting.",
+      readOnlyHint: true,
+      defaultEnabled: true,
+    },
+  ],
   webhook: [],
 } as const satisfies Record<
   IntegrationProvider,

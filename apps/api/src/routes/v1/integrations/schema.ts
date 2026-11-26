@@ -288,3 +288,19 @@ export const connectBetterstackResponseSchema = z.object({
   success: z.literal(true),
   accountLogin: z.string().nullable(),
 })
+
+export const connectGranolaRequestSchema = z.object({
+  apiKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(4096)
+    .refine((value) => !/\s/.test(value), "API keys cannot contain whitespace"),
+})
+
+export const connectGranolaResponseSchema = z.object({
+  success: z.literal(true),
+  accountLogin: z.string().nullable(),
+  // False in local development, where Granola can't reach the API.
+  events: z.boolean(),
+})

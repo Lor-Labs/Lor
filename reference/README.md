@@ -44,6 +44,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `boat-fallback.md` | Boat (boat.dev) VMs take new session sandboxes when Blaxel's RAM quota is full; built 2026-11-05, full in-app session still owed |
 | `skills-and-commands.md` | LOR-151, 2026-11-06: each harness's own slash commands and skills as its CLI takes them, repo skills included; command turns, per-session menus. `db:push` and live QA owed |
 | `connector-tools.md` | Shared tool selections, MCP read-only hints, Better Stack, Notion/Attio writes |
+| `granola-connector.md` | Built 2026-11-26: Granola with a workspace API key only, its webhook registered at connect, meetings stored as sources, "Meeting notes ready" for listeners, three read tools, the shared meeting card, the color logo; `db:push` and a run against a real Granola account owed. Circleback notes for later |
 | `voice-channels-runbook.md` | Voice calls, transcription, Lor in the call, memory. V0–V7 built; prod setup, live QA and merge open |
 | `approval-policies.md` | Per-tool approval rules, resolver controls, breaking schema rollout, and pause/resume on the Pi path (2026-10-22) |
 | `change-proposals.md` | Workspace change proposals (self-configuration pillar 3). P6 vertical-slice QA |

@@ -22,6 +22,8 @@ import {
   connectCloudwatchResponseSchema,
   connectDatadogRequestSchema,
   connectDatadogResponseSchema,
+  connectGranolaRequestSchema,
+  connectGranolaResponseSchema,
   connectionIdParamsSchema,
   connectLinearRequestSchema,
   connectLinearResponseSchema,
@@ -464,3 +466,32 @@ export const connectBetterstack = createRoute({
   },
 })
 export type ConnectBetterstackRoute = typeof connectBetterstack
+
+export const connectGranola = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/granola/connect",
+  method: "post",
+  summary: "Connect a Granola workspace",
+  description:
+    "Takes a Granola workspace API key and registers Lor's webhook with it.",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: integrationsWorkspaceParamsSchema,
+    body: jsonContent({
+      schema: connectGranolaRequestSchema,
+      description: "Granola workspace API key",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: connectGranolaResponseSchema,
+      description: "Connected",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+  },
+})
+export type ConnectGranolaRoute = typeof connectGranola

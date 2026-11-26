@@ -79,6 +79,16 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
     authType: "api-key",
     envKeys: ["INTEGRATION_ENCRYPTION_KEY"],
   },
+  // A Granola workspace API key (Business or Enterprise); its webhook is
+  // registered at connect time. reference/granola-connector.md.
+  granola: {
+    id: "granola",
+    label: "Granola",
+    description:
+      "Search meeting notes and transcripts, and hear about new meetings as they are written up.",
+    authType: "api-key",
+    envKeys: ["INTEGRATION_ENCRYPTION_KEY"],
+  },
   // BYO inbound webhooks (reference/automation-primitives.md §3): each webhook
   // a user creates in channel settings is one connection row under this
   // provider + a channel-anchored trigger. Never listed on the connect page.
@@ -175,6 +185,7 @@ export const CONNECTOR_EVENTS: Record<
   notion: [],
   cloudwatch: [],
   betterstack: [],
+  granola: [{ key: "meeting_ready", label: "Meeting notes ready" }],
   webhook: [{ key: "data_received", label: "Data received" }],
 }
 

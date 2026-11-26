@@ -12,7 +12,14 @@ import {
   BETTERSTACK_LOGO_PATHS,
   BETTERSTACK_LOGO_VIEW_BOX,
 } from "@repo/ui/lib/betterstack-logo"
-import Svg, { G, Path } from "react-native-svg"
+import {
+  GRANOLA_BRAND,
+  GRANOLA_INK,
+  GRANOLA_LOGO_VIEW_BOX,
+  GRANOLA_SPIRAL_PATH,
+  GRANOLA_TILE,
+} from "@repo/ui/lib/granola-logo"
+import Svg, { G, Path, Rect } from "react-native-svg"
 
 export type ConnectorKey =
   | "github"
@@ -22,6 +29,7 @@ export type ConnectorKey =
   | "notion"
   | "cloudwatch"
   | "betterstack"
+  | "granola"
   | "webhook"
 
 const CONNECTORS: Record<
@@ -90,6 +98,14 @@ const CONNECTORS: Record<
     host: /(^|\.)betterstack\.com$/i,
     tools: BETTERSTACK_TOOLS.map((tool) => tool.name),
   },
+  granola: {
+    host: /(^|\.)granola\.ai$/i,
+    tools: [
+      "search_granola_meetings",
+      "get_granola_meeting",
+      "get_granola_transcript",
+    ],
+  },
   // BYO inbound webhooks have no agent tools or URL host.
   webhook: {
     host: /$^/,
@@ -149,6 +165,27 @@ export function ConnectorIcon({
         {BETTERSTACK_LOGO_PATHS.map((path) => (
           <Path d={path} fill={color} key={path} />
         ))}
+      </Svg>
+    )
+  }
+  // In color, as Granola's own app icon; ignores `color`.
+  if (connector === "granola") {
+    return (
+      <Svg
+        accessibilityLabel="Granola"
+        height={size}
+        viewBox={GRANOLA_LOGO_VIEW_BOX}
+        width={size}
+      >
+        <Rect
+          fill={GRANOLA_BRAND}
+          height={GRANOLA_TILE.size}
+          rx={GRANOLA_TILE.radius}
+          width={GRANOLA_TILE.size}
+          x={GRANOLA_TILE.x}
+          y={GRANOLA_TILE.y}
+        />
+        <Path d={GRANOLA_SPIRAL_PATH} fill={GRANOLA_INK} />
       </Svg>
     )
   }
