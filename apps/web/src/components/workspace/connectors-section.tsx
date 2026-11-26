@@ -1053,6 +1053,11 @@ function CloudwatchConnectDialog({
   )
 }
 
+// Granola's own link (its IT admin guide): opens the desktop app at Settings →
+// Connectors → Workspace API keys.
+const GRANOLA_WORKSPACE_KEYS_URL =
+  "https://grano.la/app?path=%2Fsettings%2Fintegrations%2Fworkspace-api-keys"
+
 // Workspace API keys only (reference/granola-connector.md): a personal key
 // would put one person's private notes in front of the whole workspace.
 function GranolaConnectDialog({
@@ -1118,9 +1123,17 @@ function GranolaConnectDialog({
         </DialogHeader>
         <DialogPanel className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            A Granola admin creates a workspace API key in the Granola app,
-            under Settings → Connectors → Workspace API keys. It needs a
-            Business or Enterprise plan. Personal keys aren't accepted.
+            A Granola admin creates one in{" "}
+            <a
+              href={GRANOLA_WORKSPACE_KEYS_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-4"
+            >
+              Granola's workspace API keys
+            </a>
+            . It needs a Business or Enterprise plan. Personal keys aren't
+            accepted.
           </p>
           <div className="space-y-1.5">
             <Label htmlFor="granola-api-key">Workspace API key</Label>
