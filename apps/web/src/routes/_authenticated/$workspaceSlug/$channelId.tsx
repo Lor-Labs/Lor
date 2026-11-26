@@ -26,6 +26,7 @@ import {
   scrollToMessage,
 } from "@/components/chat/message-list"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
+import { JoinChatBar } from "@/components/sidebar/right-panel/chat-details-panel"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { VoiceChannelView } from "@/components/voice/voice-channel-view"
 import { useSocket } from "@/context/socket-context"
@@ -772,32 +773,41 @@ function ChannelView() {
             </div>
           </div>
         ) : (
-          <MessageInput
-            // One editor, draft and undo history per channel. Prefixed: the
-            // sibling MessageList is keyed by the same id, and duplicate keys
-            // leave every visited channel's message list mounted.
-            key={`composer:${channelId}`}
-            draftKey={`channel:${channelId}`}
-            composerDraft={composerDraft}
-            onComposerDraftConsumed={consumeComposerDraft}
-            lorIntro
-            destination="channel"
-            context={context}
-            channelId={channelId}
-            onSend={onComposerSend}
-            currentUserId={currentUserId}
-            mentionCandidates={mentionCandidates}
-            replyingTo={replyingTo}
-            onCancelReply={clearReply}
-            pendingAttachments={fileUpload.attachments}
-            addFiles={fileUpload.addFiles}
-            removeAttachment={fileUpload.removeAttachment}
-            clearAttachments={fileUpload.clearAttachments}
-            getUploadedAttachments={fileUpload.getUploadedAttachments}
-            isUploading={fileUpload.isUploading}
-            onTyping={emitTyping}
-            onEditLast={editLastOwnMessage}
-          />
+          <>
+            {data.type === "text" && (
+              <JoinChatBar
+                workspaceSlug={workspaceSlug}
+                channelId={channelId}
+                me={currentUserId}
+              />
+            )}
+            <MessageInput
+              // One editor, draft and undo history per channel. Prefixed: the
+              // sibling MessageList is keyed by the same id, and duplicate keys
+              // leave every visited channel's message list mounted.
+              key={`composer:${channelId}`}
+              draftKey={`channel:${channelId}`}
+              composerDraft={composerDraft}
+              onComposerDraftConsumed={consumeComposerDraft}
+              lorIntro
+              destination="channel"
+              context={context}
+              channelId={channelId}
+              onSend={onComposerSend}
+              currentUserId={currentUserId}
+              mentionCandidates={mentionCandidates}
+              replyingTo={replyingTo}
+              onCancelReply={clearReply}
+              pendingAttachments={fileUpload.attachments}
+              addFiles={fileUpload.addFiles}
+              removeAttachment={fileUpload.removeAttachment}
+              clearAttachments={fileUpload.clearAttachments}
+              getUploadedAttachments={fileUpload.getUploadedAttachments}
+              isUploading={fileUpload.isUploading}
+              onTyping={emitTyping}
+              onEditLast={editLastOwnMessage}
+            />
+          </>
         )}
       </ChannelAgentProvider>
     </div>

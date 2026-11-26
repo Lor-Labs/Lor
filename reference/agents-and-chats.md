@@ -9,9 +9,9 @@ memory per agent (step 2), and of step 3 the conversations backend, several
 agents in a chat posting as bot users, the Jev wake for messages that name
 nobody, the sidebar's chat list with its member records, listeners (several
 agents per connector event, custom webhooks on the agent's page), the
-notification rules, New chat and the chat's header and panel. Left in step 3:
-finding and joining a chat, agents messaging each other, and Loops stored on
-the agent. Steps 4 and 5 are design only. Lint and type checks pass and each
+notification rules, New chat, the chat's header and panel, and finding and
+joining a chat. Left in step 3: agents messaging each other, and Loops stored
+on the agent. Steps 4 and 5 are design only. Lint and type checks pass and each
 part was run live on a throwaway database, except where its section says
 otherwise. `db:push` on the shared databases is owed (§9, rollout). It
 changes the shape built under `always-on-agents.md` (LOR-169): where a step
@@ -278,16 +278,14 @@ tools all stay.
 
 Each step ends in something the team uses. Steps 2 to 5 are not sized.
 
-**What is left** (the order agreed with Jacob on 2026-11-26; New chat and
-the chat's header and panel were first and are built, see below):
+**What is left** (the order agreed with Jacob on 2026-11-26; New chat, the
+chat's header and panel, and finding and joining a chat were first and are
+built, see below):
 
-1. Find and join a chat; then `channel-list.tsx` and the old create dialog
-   are deleted. Joining itself is built (the panel's Join chat); what is
-   missing is a place to find the chats you are not in.
-2. Agents messaging each other (§8): the tool, the agents' chat, the
+1. Agents messaging each other (§8): the tool, the agents' chat, the
    "messaged" line and the read-only view, in Lor only.
-3. Loops stored on the agent.
-4. Slack and Discord as places (steps 4 and 5 below).
+2. Loops stored on the agent.
+3. Slack and Discord as places (steps 4 and 5 below).
 
 Beside these: "Needs you" in the sidebar (a group from the channel days;
 not in the mock, and proposed to Jacob on 11-26 to go, with a pending
@@ -732,8 +730,8 @@ The chat list (decisions 33, 35 and 36; sidebar built 2026-11-25):
 - **Notifications** follow the people in a chat since 2026-11-26 (see
   "Listeners and notifications" below). The mobile app still lists channels.
   Categories, projects and voice channels are no longer in the web sidebar
-  (voice is behind its launch flag); `channel-list.tsx` is unused and goes
-  when New chat replaces the create dialog it still shares code with.
+  (voice is behind its launch flag); `channel-list.tsx` was deleted on
+  2026-11-26 with the old create dialog.
 - **Checked live** on a throwaway database with five people and three
   agents: the fill of existing chats (a private chat only its two members,
   a second run a no-op, a chat the person left not refilled), a database
@@ -807,6 +805,22 @@ The chat's header and panel (built 2026-11-26):
   on the top pinned chat), opening the chat again as someone not in it, and
   Join chat. Not run: a private chat, a chat inside a project, someone
   without channel:update, a second person's screen following live.
+
+Finding and joining a chat (decision 35, built 2026-11-26):
+
+- **The sidebar's search** (`workspace-command.tsx`, Cmd+K) lists chats by
+  name as the person types: theirs, and every other chat they can see.
+  With nothing typed it lists up to eight chats they are not in, and has a
+  New chat command.
+- **A chat the person is not in** opens like any other. Above its composer
+  a line says it isn't in their list, with Join chat (`JoinChatBar`); the
+  details panel has the same button, and writing in it joins too.
+- **Removed:** `channel-list.tsx`, the old create dialog and its context,
+  unused since the chat list and New chat.
+- **Checked live:** a chat left, found under "Chats you're not in" and by
+  name under "Other chats", opened, and joined from the line above the
+  composer. Not run: more than eight other chats, a private chat (not
+  listed for people outside it, as it is not in their channel list).
 
 Listeners and notifications (decisions 40 to 42, built 2026-11-26):
 

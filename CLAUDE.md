@@ -295,9 +295,9 @@ notifications reach the people in a chat (`buildMessageFanout`). New chat is bui
 (`apps/web/src/components/chat/new-chat-view.tsx`): a chat starts with the
 people picked, not everyone. A chat's header and details panel are built
 (`apps/web/src/components/sidebar/right-panel/chat-details-panel.tsx`,
-people routes under `apps/api/src/routes/v1/chats`). Not built yet: a
-place to find chats you are not in, agents messaging each other, and Loops
-stored on the agent (the order is "What is left" in that doc's §9). The mock of the chat list is
+people routes under `apps/api/src/routes/v1/chats`), and the sidebar's
+search finds chats you are not in, which you join from the chat. Not built
+yet: agents messaging each other, and Loops stored on the agent (the order is "What is left" in that doc's §9). The mock of the chat list is
 `/prototype/chats`; `/prototype/agents` is the earlier design.
 
 ### Conventions

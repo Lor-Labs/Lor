@@ -582,3 +582,56 @@ function AddPeople({
     </Popover>
   )
 }
+
+// Above the composer of a chat the person is only looking at: it is not in
+// their list until they join, or write in it.
+export function JoinChatBar({
+  workspaceSlug,
+  channelId,
+  me,
+}: {
+  workspaceSlug: string
+  channelId: string
+  me: string | undefined
+}) {
+  const queryClient = useQueryClient()
+  const { data: people } = useQuery(
+    chatPeopleQueryOptions(workspaceSlug, channelId)
+  )
+  const join = useMutation({
+    mutationFn: async (userId: string) => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].chats[
+        ":channelId"
+      ].people.$post({
+        param: { workspaceSlug, channelId },
+        json: { userIds: [userId] },
+      })
+      if (!res.ok) throw await failure(res, "Couldn't join the chat")
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: chatPeopleKey(workspaceSlug, channelId),
+      })
+      void queryClient.invalidateQueries({ queryKey: chatsKey(workspaceSlug) })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  if (!me || !people || people.some((person) => person.id === me)) return null
+  return (
+    <div className="px-4 pb-2">
+      <div className="flex items-center gap-3 rounded-xl bg-foreground/[0.04] py-2 pr-2 pl-3.5 text-[13px] text-muted-foreground">
+        <span className="min-w-0 flex-1">
+          You're not in this chat, so it isn't in your list.
+        </span>
+        <button
+          type="button"
+          disabled={join.isPending}
+          onClick={() => join.mutate(me)}
+          className="h-7 shrink-0 cursor-pointer rounded-full bg-foreground/[0.08] px-3 font-medium text-foreground outline-none transition-[background-color,transform] duration-150 ease-out hover:bg-foreground/[0.12] focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.97] disabled:opacity-60"
+        >
+          Join chat
+        </button>
+      </div>
+    </div>
+  )
+}

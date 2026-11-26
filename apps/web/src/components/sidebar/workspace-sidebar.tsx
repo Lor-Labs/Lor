@@ -49,7 +49,6 @@ import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
 import { ChannelActivityProvider } from "@/components/sidebar/channel-panel/channel-activity"
-import { CreateChannelProvider } from "@/components/sidebar/channel-panel/create-channel-context"
 import { NeedsYouGroup } from "@/components/sidebar/channel-panel/needs-you-list"
 import { VoicePresenceProvider } from "@/components/sidebar/channel-panel/voice-presence"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
@@ -96,11 +95,7 @@ export function WorkspaceSidebar() {
  * a single Sidebar so we can animate the swap.
  */
 export function WorkspaceSidebarContent() {
-  return (
-    <CreateChannelProvider>
-      <WorkspaceSidebarInner />
-    </CreateChannelProvider>
-  )
+  return <WorkspaceSidebarInner />
 }
 
 function WorkspaceSidebarInner() {
