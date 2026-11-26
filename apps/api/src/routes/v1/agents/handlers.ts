@@ -1,17 +1,19 @@
 import { db, schema } from "@repo/db"
 import {
   agentChannelIds,
+  agentChatIds,
   createAgent as insertAgent,
 } from "@repo/db/queries/agents"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import type { Agent } from "@repo/db/schema"
 import { keyFunding } from "@repo/lor/byok"
 import { agentProfileLock } from "@repo/lor/channel-profile"
-import { syncAgentRole } from "@repo/lor/discord"
+import { syncAgentRoles } from "@repo/lor/discord"
 import { isLorCreditModel } from "@repo/lor/model-catalog"
 import { normalizeAgentName } from "@repo/utils/bestiary"
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull, ne } from "drizzle-orm"
 import { emitAgentsUpdated } from "@/lib/agents"
+import { removeAgentFromDiscordPlace } from "@/lib/discord/places"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { deleteLoop } from "@/lib/loops"
@@ -77,14 +79,15 @@ async function modelAvailable(workspaceId: string, model: string) {
   )
 }
 
-// The channels an agent is in that this person can see.
+// The chats an agent is in that this person can see. Its places in Slack
+// or Discord are listed by their own routes (routes/v1/discord).
 async function visibleChannelIds(
   agentId: string,
   userId: string,
   workspaceId: string
 ) {
   const [ids, accessible] = await Promise.all([
-    agentChannelIds(agentId),
+    agentChatIds(agentId),
     listAccessibleChannelIds(userId, workspaceId),
   ])
   return ids.filter((id) => accessible.has(id))
@@ -111,10 +114,17 @@ export const listAgents: AppRouteHandler<ListAgentsRoute> = async (c) => {
             agentId: schema.channelAgent.agentId,
           })
           .from(schema.channelAgent)
+          .innerJoin(
+            schema.channel,
+            eq(schema.channel.id, schema.channelAgent.channelId)
+          )
           .where(
-            inArray(
-              schema.channelAgent.agentId,
-              agents.map((agent) => agent.id)
+            and(
+              inArray(
+                schema.channelAgent.agentId,
+                agents.map((agent) => agent.id)
+              ),
+              ne(schema.channel.kind, "place")
             )
           )
           .orderBy(asc(schema.channelAgent.createdAt))
@@ -240,14 +250,14 @@ export const updateAgent: AppRouteHandler<UpdateAgentRoute> = async (c) => {
       .where(eq(schema.user.id, agent.id))
   }
 
-  const channelIds = await agentChannelIds(agent.id)
-  // Every Discord-linked channel's @mention role follows the new name.
+  // Its @mention role in every Discord server it is in follows the new name.
   if (identityChanged) {
-    for (const channelId of channelIds) {
-      void syncAgentRole(channelId).catch((err: unknown) =>
-        logger.warn({ err, channelId }, "Discord agent role rename failed")
+    void syncAgentRoles(agent.id).catch((err: unknown) =>
+      logger.warn(
+        { err, agentId: agent.id },
+        "Discord agent role rename failed"
       )
-    }
+    )
   }
   emitAgentsUpdated(workspace.id)
   return c.json(
@@ -274,6 +284,26 @@ export const deleteAgent: AppRouteHandler<DeleteAgentRoute> = async (c) => {
     .where(eq(schema.loop.agentId, agent.id))
   for (const loop of loops) {
     await deleteLoop({ loop, requestedBy: c.var.user.id })
+  }
+  // It leaves its places in Discord first: its webhooks and roles there go,
+  // and a place it was alone in.
+  const places = await db
+    .select({ channelId: schema.channelDiscordLink.channelId })
+    .from(schema.channelDiscordLink)
+    .innerJoin(
+      schema.channelAgent,
+      eq(schema.channelAgent.channelId, schema.channelDiscordLink.channelId)
+    )
+    .where(eq(schema.channelAgent.agentId, agent.id))
+  for (const place of places) {
+    await removeAgentFromDiscordPlace({
+      workspaceId: workspace.id,
+      channelId: place.channelId,
+      agentId: agent.id,
+      userId: c.var.user.id,
+    }).catch((err: unknown) =>
+      logger.warn({ err, agentId: agent.id }, "Discord place cleanup failed")
+    )
   }
   // Its channels are left with no agent, and its conversations go with it.
   // Its bot user stays, so its messages keep their author.

@@ -1,7 +1,7 @@
 import { and, db, eq, inArray, schema, sql } from "@repo/db"
 import { defaultAgentFor, MAX_CHANNEL_AGENTS } from "@repo/db/queries/agents"
 import { clearAgentChannelInbox } from "@repo/lor/channel-agent"
-import { syncAgentRole } from "@repo/lor/discord"
+import { deleteAgentPlaceResources, discordLinkFor } from "@repo/lor/discord"
 import { workspaceRoom } from "@repo/realtime-types"
 import { getEmitter } from "@/lib/bot-messages"
 import { logger } from "@/lib/logger"
@@ -145,7 +145,7 @@ export async function setChannelAgents(input: {
 
 // After a channel's agents changed: an agent taken out reads nothing more
 // from the channel (its conversations stay, and a new agent's are its own),
-// and a linked Discord channel's @mention role follows the new name.
+// and in a place it loses its Discord webhook there.
 export async function afterChannelAgentsChanged(input: {
   workspaceId: string
   channelId: string
@@ -164,10 +164,16 @@ export async function afterChannelAgentsChanged(input: {
       ),
     ])
   )
-  if (input.hasAgent) {
-    void syncAgentRole(channelId).catch((err: unknown) =>
-      logger.warn({ err, channelId }, "Discord agent role rename failed")
-    )
+  const link =
+    input.removed.length > 0
+      ? await discordLinkFor(channelId).catch(() => null)
+      : null
+  if (link) {
+    for (const agentId of input.removed) {
+      await deleteAgentPlaceResources(link, agentId).catch((err: unknown) =>
+        logger.warn({ err, channelId }, "Discord agent cleanup failed")
+      )
+    }
   }
   emitAgentsUpdated(input.workspaceId)
 }

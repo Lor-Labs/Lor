@@ -14,6 +14,7 @@ import {
   handleDiscordInteraction,
   LOR_COMMANDS,
 } from "@/lib/discord/interactions"
+import { disconnectDiscordGuild, discordGuildFor } from "@/lib/discord/places"
 import {
   type DiscordThreadEvent,
   forgetThread,
@@ -24,7 +25,7 @@ import { logger } from "@/lib/logger"
 import { getRedisClient } from "@/lib/redis"
 
 // Lor's one connection to Discord's gateway (reference/always-on-agents.md
-// §10): it hears messages in linked channels (Message Content intent) and
+// §10): it hears messages in places (Message Content intent) and
 // the slash commands and button clicks, which arrive here because the app
 // sets no interactions endpoint. One API process holds it, by a Redis lease.
 
@@ -59,7 +60,6 @@ class DiscordGateway {
   private acked = true
   private stopped = false
   private botUserId = ""
-  private botName = "Lor"
   private registered = false
   private registering = false
 
@@ -184,7 +184,6 @@ class DiscordGateway {
       this.sessionId = ready.session_id
       this.resumeUrl = ready.resume_gateway_url
       this.botUserId = ready.user.id
-      this.botName = ready.user.username
       logger.info({ bot: ready.user.username }, "Discord gateway ready")
       void this.registerCommands()
       return
@@ -223,7 +222,24 @@ class DiscordGateway {
       return
     }
     if (type === "INTERACTION_CREATE") {
-      void handleDiscordInteraction(data as DiscordInteraction, this.botName)
+      void handleDiscordInteraction(data as DiscordInteraction)
+      return
+    }
+    // The bot was taken out of a server (not an outage, which sets
+    // `unavailable`): the server is disconnected and its places go.
+    if (type === "GUILD_DELETE") {
+      const gone = data as { id: string; unavailable?: boolean }
+      if (gone.unavailable) return
+      void discordGuildFor(gone.id)
+        .then((guild) =>
+          guild ? disconnectDiscordGuild(guild.workspaceId, gone.id) : null
+        )
+        .catch((err) =>
+          logger.warn(
+            { err, guildId: gone.id },
+            "Discord server cleanup failed"
+          )
+        )
     }
   }
 

@@ -86,7 +86,7 @@ objected to and should confirm.
 | 21 | A channel's loops are listed in its agent's dialog, under Loops, and not in the channel's right panel: each fire wakes that channel's agent, so they are that agent's. A loop is still stored on its channel (`loop.channel_id`) until step 3 moves it to the agent (decision 15), so a channel that swaps its agent hands its loops to the new one. A channel with no agent still lists its own loops in its right panel, where nothing runs them | Jacob, 11-24 |
 | 22 | No privacy promise inside an agent. Everything an agent knows is shared with the whole workspace and used wherever it works. A private channel that must stay private gets its own agent; the app does not say so. A new private channel starts with no agent, so putting one in is a choice | Jacob, 11-24 |
 | 23 | An agent owns everything it has: brief, tools, memory, loops and places. Nothing is stored on a channel except the team's instructions for the agent there | Jacob, 11-24 |
-| 24 | A Slack or Discord channel an agent is in is a place on the agent. Its messages are stored, since the agent's inbox and history need them, and it is not shown as a Lor channel. It is managed from the agent's dialog | Jacob, 11-24 |
+| 24 | A Slack or Discord channel an agent is in is a place on the agent. Its messages are stored, since the agent's inbox and history need them, and it is not shown as a Lor channel. It is managed from the agent's dialog (replaced by decision 51: a place is a hidden Lor chat, managed from the Discord connector) | Jacob, 11-24 |
 | 25 | One memory under every conversation, so it is the same agent in a channel, a chat, a code session, Slack and Discord: facts in every prompt, a dated journal of what it did and heard, and the ability to read any of its conversations word for word. No shared transcript | Jacob, 11-24 |
 | 26 | The check-in is automatic and hidden: about every 15 minutes, skipped when nothing is unread, reading every place the agent is in. It is not a Loop and has no setting | Jacob, 11-24 |
 | 27 | A Loop is work the agent was told to do on a schedule: when, what, some context, and optionally where to post. It runs in the agent's own conversation, and the agent starts a chat or a session itself when the work is heavy | Jacob, 11-24 |
@@ -113,7 +113,7 @@ objected to and should confirm.
 | 48 | A Loop is a scheduled wake of its agent and nothing more. One with no chat runs whether or not its agent is in any chat: an agent may only report to Slack or Discord, or only keep its memory. Its turn is about no chat | Jacob, 11-26 |
 | 49 | An agent sets up a Loop without being asked, when work it was given needs it back on a cadence until it is done ("a launch video every Wednesday until we reach 100 followers"). It gives the Loop an end condition and completes it when that is met | Jacob, 11-26 |
 | 50 | `create_loop` and `update_loop` are approval gate targets, off by default, so a workspace that wants a person to approve an agent's Loops can require it | Jacob, 11-26 |
-| 51 | Slack and Discord channels are places on the agent (decision 24), and a Discord channel linked to a Lor chat today becomes one. A place is not in the Lor sidebar: people use it in their own chat app. Its messages go to the agent's inbox by a chat's rules (a mention wakes it, the rest waits, a message naming nobody goes to Jev), the agent posts there by naming it, a Loop's "Reports in" lists places beside chats, and approvals are asked there with buttons. Discord first, then Slack in the same shape. Reading a place's messages in Lor is left out for now (later, perhaps on the agent's page) | Jacob, 11-26 |
+| 51 | Slack and Discord channels agents are in are places, and a place is a hidden Lor chat (`channel.kind = "place"`, revised 11-26 from "not a Lor channel"), so the inbox, turns, Loops, code sessions, approvals and archive work there as in a chat. It is read-only in Lor, sends no Lor notifications, has no people, and the sidebar shows it only when "Discord channels" is on in its filter. Discord is a connector: a server is connected once with a code run as `/lor link`, and its channels get agents from the connector's page or with `/lor add`. Several agents can be in one channel, each mentioned by its own role (@Inky) and posting through its own webhook; a message naming nobody goes to Jev. Threads stay threads. The bot answers a mention in a channel with no agent with how to add one. Chats linked to Discord before become places, not archived. DMs are left out; code sessions started from Discord must work before this ships. Slack later in the same shape | Jacob, 11-26 |
 | 52 | Hiding a chat stays each person's own, from the sidebar, and a new message brings it back. Archiving is for everyone, only from the chat's settings, behind a dialog that says what happens: its agents stop there (their pending items are dropped, running turns stopped, Loops that report there pause, wake-ups there are cancelled, its listeners are skipped), it leaves everyone's sidebar, and it takes no new messages. Its messages are kept, and a line says who archived it. Archiving can be undone: Undo in the toast, or Unarchive on the chat, in its settings or from its row's menu. A small archive icon at the top of the sidebar's list flips between the list and the list with the archived chats you can see, greyed, among the rest. Unarchiving resumes those Loops and the wake-ups not yet due | Jacob, 11-26 |
 
 Considered and dropped:
@@ -291,7 +291,18 @@ Each step ends in something the team uses. Steps 2 to 5 are not sized.
 chat's header and panel, finding and joining a chat, agents messaging each
 other and Loops on the agent were first and are built, see below):
 
-1. Slack and Discord as places (steps 4 and 5 below, decision 51).
+1. Slack and Discord as places (steps 4 and 5 below, decision 51). Discord's
+   first step is built: `channel.kind = "place"` with `discord_guild`,
+   `discord_agent_role` and `discord_agent_webhook`
+   (`apps/api/src/lib/discord/places.ts`, `packages/lor/src/discord.ts`),
+   the Discord connector page (`discord-connector.tsx`), `/lor link`, `add`,
+   `remove` and `agents`, several agents per channel, the hint in a channel
+   with no agent, and the sidebar filter's "Discord channels"
+   (`GET /chats?places=true`). `discord-places.ts` converts linked chats
+   after the push. Checked on a throwaway database with a seeded place and
+   the Discord API mocked in the browser; not run against a real Discord
+   server. Next: code sessions started from Discord, a Loop's "Reports in"
+   listing places, then Slack.
 Archiving a chat for everyone, and undoing it, are built (decision 52):
 `POST /chats/{id}/archive` and `/unarchive` (`apps/api/src/lib/chat-archive.ts`),
 the Archive section in the chat's settings, Undo in the toast, Unarchive on

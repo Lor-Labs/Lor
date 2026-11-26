@@ -43,6 +43,11 @@ export const chatSchema = z.object({
   archivedAt: z.string().datetime().nullable(),
   // Whether the caller is in it; an archived chat they can see may not be.
   joined: z.boolean(),
+  // A Slack or Discord channel agents are in (decision 51), only in the
+  // places list: where it is, to open it there.
+  place: z
+    .object({ source: z.enum(["discord", "slack"]), url: z.string() })
+    .nullable(),
   lastMessage: z
     .object({
       id: z.string().uuid(),
@@ -64,6 +69,12 @@ export const listChatsQuerySchema = z.object({
     .enum(["true", "false"])
     .optional()
     .openapi({ param: { name: "archived", in: "query" } }),
+  // The places (Slack and Discord channels agents are in) the caller can
+  // see, in place of their list.
+  places: z
+    .enum(["true", "false"])
+    .optional()
+    .openapi({ param: { name: "places", in: "query" } }),
 })
 
 export const listChatsResponseSchema = z.object({

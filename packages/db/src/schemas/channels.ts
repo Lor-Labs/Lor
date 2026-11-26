@@ -39,7 +39,15 @@ export const channelAudienceEnum = pgEnum("channel_audience", [
 // A text channel is a chat (reference/agents-and-chats.md, decision 31): a
 // named group of people and agents, listed by its last message. "channel" is
 // kept for long-lived channels, should they come back; nothing makes one yet.
-export const channelKindEnum = pgEnum("channel_kind", ["chat", "channel"])
+// "place" is a Slack or Discord channel an agent is in (decisions 24 and 51):
+// the row holds what was said there, for the agents' inboxes, history, Loops
+// and sessions, and no list in Lor shows it. Which outside channel it is:
+// `channel_discord_link`.
+export const channelKindEnum = pgEnum("channel_kind", [
+  "chat",
+  "channel",
+  "place",
+])
 
 export const channel = pgTable(
   "channel",

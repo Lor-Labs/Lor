@@ -1,26 +1,35 @@
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto"
-import { db, eq, schema } from "@repo/db"
-import { loadChannelAgent } from "@repo/db/queries/agents"
+import { and, asc, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import {
-  createAgentWebhook,
+  agentRolesIn,
   DISCORD_ADMINISTRATOR,
   DISCORD_MANAGE_CHANNELS,
-  deleteLinkResources,
+  DISCORD_MANAGE_GUILD,
   discordLinkByDiscordChannel,
-  discordLinkFor,
   discordRequest,
-  LINKABLE_CHANNEL_TYPES,
-  postAgentToDiscord,
-  syncAgentRole,
-  withDiscordLinkLock,
 } from "@repo/lor/discord"
-import { channelRoom } from "@repo/realtime-types"
-import { agentIdentityFor } from "@repo/utils/bestiary"
-import { getEmitter } from "@/lib/bot-messages"
+import {
+  addAgentToDiscordChannel,
+  connectDiscordGuild,
+  discordGuildFor,
+  removeAgentFromDiscordPlace,
+} from "@/lib/discord/places"
 import { logger } from "@/lib/logger"
+import {
+  hasWorkspaceAuthority,
+  resolveWorkspaceAuthority,
+} from "@/lib/permissions"
 import { getRedisClient } from "@/lib/redis"
 import { resolveApproval } from "@/routes/v1/approvals/handlers"
+
+const agentOption = (description: string) => ({
+  type: 3,
+  name: "agent",
+  description,
+  required: true,
+  autocomplete: true,
+})
 
 // The bot's slash commands, registered at each gateway start.
 export const LOR_COMMANDS = [
@@ -31,20 +40,32 @@ export const LOR_COMMANDS = [
       {
         type: 1,
         name: "link",
-        description: "Move a Lor channel's chat here, with the code from Lor",
+        description: "Connect this server to your Lor workspace",
         options: [
           {
             type: 3,
             name: "code",
-            description: "The code from the channel's Agent settings in Lor",
+            description: "The code from Connectors in Lor",
             required: true,
           },
         ],
       },
       {
         type: 1,
-        name: "unlink",
-        description: "Move this channel's Lor chat back to Lor",
+        name: "add",
+        description: "Put one of your team's agents in this channel",
+        options: [agentOption("The agent to add")],
+      },
+      {
+        type: 1,
+        name: "remove",
+        description: "Take an agent out of this channel",
+        options: [agentOption("The agent to take out")],
+      },
+      {
+        type: 1,
+        name: "agents",
+        description: "Which agents are in this channel",
       },
       {
         type: 1,
@@ -60,11 +81,11 @@ const CONNECT_TTL_MS = 15 * 60 * 1000
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 const linkCodeKey = (code: string) => `discord:link-code:${code}`
 
-type LinkCodeData = { channelId: string; workspaceId: string; userId: string }
+type LinkCodeData = { workspaceId: string; userId: string }
 
-// A one-time code a person with channel settings access makes in Lor and
-// runs as `/lor link` in the Discord channel. Running it proves they can
-// manage that Discord channel too.
+// A one-time code someone who manages the workspace's chats makes in Lor's
+// Connectors and runs as `/lor link` in the Discord server. Running it
+// proves they manage that server too.
 export async function createLinkCode(data: LinkCodeData) {
   const raw = Array.from(
     { length: 8 },
@@ -141,7 +162,7 @@ export type DiscordInteraction = {
     options?: Array<{
       name: string
       type: number
-      options?: Array<{ name: string; value: string }>
+      options?: Array<{ name: string; value: string; focused?: boolean }>
     }>
   }
 }
@@ -197,158 +218,279 @@ async function reply(
   }
 }
 
-function canManage(interaction: DiscordInteraction) {
+function hasPermission(interaction: DiscordInteraction, permission: bigint) {
   const permissions = BigInt(interaction.member?.permissions ?? "0")
   return (
     (permissions & DISCORD_ADMINISTRATOR) !== 0n ||
-    (permissions & DISCORD_MANAGE_CHANNELS) !== 0n
+    (permissions & permission) !== 0n
   )
 }
 
-async function notifyLinkChanged(channelId: string) {
-  const io = await getEmitter()
-  io.to(channelRoom(channelId)).emit("channel:discord:updated", { channelId })
-}
+const NOT_CONNECTED =
+  "This server isn't connected to a Lor workspace yet. In Lor, open Connectors, pick Discord, and run the code it gives you here with `/lor link`."
 
-export async function unlinkDiscord(channelId: string) {
-  const link = await discordLinkFor(channelId)
-  if (!link) return false
-  // Message and thread mappings belong to the old Discord channel: a later
-  // link must not reuse them. The Lor messages stay.
-  const removed = await withDiscordLinkLock(
-    channelId,
-    link.webhookId,
-    async (tx) => {
-      await tx
-        .delete(schema.channelDiscordLink)
-        .where(eq(schema.channelDiscordLink.channelId, channelId))
-      await tx
-        .delete(schema.discordThread)
-        .where(eq(schema.discordThread.channelId, channelId))
-      await tx
-        .delete(schema.discordMessage)
-        .where(eq(schema.discordMessage.channelId, channelId))
-      return true
-    }
-  )
-  if (!removed) return false
-  await deleteLinkResources(link)
-  await notifyLinkChanged(channelId)
-  return true
-}
-
-async function handleLink(
-  interaction: DiscordInteraction,
-  code: string,
-  botName: string
-) {
-  if (!interaction.guild_id || !interaction.channel_id) {
-    return reply(interaction, "Run `/lor link` in a server channel.")
+async function handleLink(interaction: DiscordInteraction, code: string) {
+  if (!interaction.guild_id) {
+    return reply(interaction, "Run `/lor link` in a server.")
   }
-  if (!canManage(interaction)) {
+  if (!hasPermission(interaction, DISCORD_MANAGE_GUILD)) {
     return reply(
       interaction,
-      "Linking needs the Manage Channels permission in this channel."
+      "Connecting a server needs its Manage Server permission."
     )
-  }
-  const channelType =
-    interaction.channel?.type ??
-    (
-      await discordRequest<{ type: number }>(
-        `/channels/${interaction.channel_id}`
-      )
-    ).type
-  if (!LINKABLE_CHANNEL_TYPES.has(channelType)) {
-    return reply(interaction, "Link a text channel, not a thread or forum.")
   }
   const redis = await getRedisClient()
   const raw = await redis.getDel(linkCodeKey(code.trim().toUpperCase()))
   if (!raw) {
     return reply(
       interaction,
-      "That code is wrong or expired. Make a new one in the channel's Agent settings in Lor."
+      "That code is wrong or expired. Make a new one in Lor, under Connectors."
     )
   }
   const data = JSON.parse(raw) as LinkCodeData
-  const taken = await discordLinkByDiscordChannel(interaction.channel_id)
-  if (taken && taken.channelId !== data.channelId) {
-    return reply(
-      interaction,
-      "This Discord channel is already linked to another Lor channel. Run `/lor unlink` first."
-    )
-  }
-  const [channel] = await db
-    .select({
-      id: schema.channel.id,
-      name: schema.channel.name,
-      archivedAt: schema.channel.archivedAt,
-    })
-    .from(schema.channel)
-    .where(eq(schema.channel.id, data.channelId))
-  if (!channel || channel.archivedAt) {
-    return reply(interaction, "That Lor channel no longer takes messages.")
-  }
-  // The link posts under the agent's name and face, so there has to be one.
-  const agent = await loadChannelAgent(channel.id)
-  if (!agent) {
-    return reply(
-      interaction,
-      "That Lor channel has no agent. Add one in Lor, then link again."
-    )
-  }
-  const identity = agentIdentityFor(agent.id, agent)
-  const hook = await createAgentWebhook({
-    discordChannelId: interaction.channel_id,
-    name: identity.name,
-    creature: identity.creature,
-  })
-  await unlinkDiscord(channel.id)
-  const guild = await discordRequest<{ name: string }>(
-    `/guilds/${interaction.guild_id}`
-  ).catch(() => null)
-  await db.insert(schema.channelDiscordLink).values({
-    channelId: channel.id,
-    workspaceId: data.workspaceId,
+  const outcome = await connectDiscordGuild({
     guildId: interaction.guild_id,
-    guildName: guild?.name ?? null,
-    discordChannelId: interaction.channel_id,
-    discordChannelName: interaction.channel?.name ?? null,
-    ...hook,
-    linkedById: data.userId,
+    workspaceId: data.workspaceId,
+    userId: data.userId,
   })
-  await notifyLinkChanged(channel.id)
-  const roleId = await syncAgentRole(channel.id).catch((err: unknown) => {
-    logger.warn({ err, channelId: channel.id }, "Discord agent role failed")
-    return null
-  })
-  await reply(
+  if (outcome === "other_workspace") {
+    return reply(
+      interaction,
+      "This server is already connected to another Lor workspace. Disconnect it there first."
+    )
+  }
+  return reply(
     interaction,
-    roleId
-      ? `Linked to #${channel.name ?? "channel"} in Lor. Its chat lives here now, and ${identity.name} answers when someone mentions @${identity.name} or @${botName}, or replies to it.`
-      : `Linked to #${channel.name ?? "channel"} in Lor. Its chat lives here now, and ${identity.name} answers when someone mentions @${botName} or replies to it. To mention it as @${identity.name}, add Lor to this server again with its Manage Roles permission.`
-  )
-  await postAgentToDiscord({
-    channelId: channel.id,
-    messageId: null,
-    content: `Hi, I'm ${identity.name}, this channel's agent from Lor. Mention ${roleId ? `<@&${roleId}>` : `@${botName}`} or reply to me, and I'll answer here.`,
-  }).catch((err) =>
-    logger.warn({ err, channelId: channel.id }, "Discord hello failed")
+    "Connected to your Lor workspace. Put an agent in a channel with `/lor add`, or from the agent's page in Lor."
   )
 }
 
-async function handleUnlink(interaction: DiscordInteraction) {
-  if (!canManage(interaction)) {
+// Whoever ran a command, as a person in the workspace this server belongs
+// to who may manage its chats: adding or removing an agent takes Manage
+// Channels here and channel:update in Lor. An answer to give instead, when
+// they may not.
+async function managerOf(
+  interaction: DiscordInteraction
+): Promise<
+  { userId: string; workspaceId: string; guildId: string } | { refusal: string }
+> {
+  const guildId = interaction.guild_id
+  const discordUser = interaction.member?.user ?? interaction.user
+  if (!guildId || !discordUser) return { refusal: "Run this in a server." }
+  const guild = await discordGuildFor(guildId)
+  if (!guild) return { refusal: NOT_CONNECTED }
+  if (!hasPermission(interaction, DISCORD_MANAGE_CHANNELS)) {
+    return {
+      refusal: "This needs the Manage Channels permission in this channel.",
+    }
+  }
+  const [person] = await db
+    .select({
+      member: schema.workspaceMember,
+      ownerId: schema.workspace.ownerId,
+    })
+    .from(schema.discordAccount)
+    .innerJoin(
+      schema.workspaceMember,
+      and(
+        eq(schema.workspaceMember.userId, schema.discordAccount.userId),
+        eq(schema.workspaceMember.workspaceId, guild.workspaceId)
+      )
+    )
+    .innerJoin(
+      schema.workspace,
+      eq(schema.workspace.id, schema.workspaceMember.workspaceId)
+    )
+    .where(eq(schema.discordAccount.discordUserId, discordUser.id))
+  if (!person) {
+    return {
+      refusal:
+        "Link your Lor account first with `/lor connect`, then try again.",
+    }
+  }
+  const authority = await resolveWorkspaceAuthority(person.member, {
+    id: guild.workspaceId,
+    ownerId: person.ownerId,
+  })
+  if (!hasWorkspaceAuthority(authority, { channel: ["update"] })) {
+    return {
+      refusal: "Your Lor account can't manage agents in this workspace.",
+    }
+  }
+  return {
+    userId: person.member.userId,
+    workspaceId: guild.workspaceId,
+    guildId,
+  }
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// The agent a command names: its id when picked from the list, else its
+// name as typed.
+async function agentNamed(workspaceId: string, value: string) {
+  const wanted = value.trim()
+  const agents = await db
+    .select({ id: schema.agent.id, name: schema.agent.name })
+    .from(schema.agent)
+    .where(eq(schema.agent.workspaceId, workspaceId))
+    .orderBy(asc(schema.agent.createdAt))
+  return (
+    (UUID.test(wanted) ? agents.find((agent) => agent.id === wanted) : null) ??
+    agents.find(
+      (agent) =>
+        agent.name.toLowerCase() === wanted.replace(/^@/, "").toLowerCase()
+    ) ??
+    null
+  )
+}
+
+async function agentsHere(discordChannelId: string) {
+  const link = await discordLinkByDiscordChannel(discordChannelId)
+  if (!link) return { link: null, agents: [] }
+  const agents = await db
+    .select({ id: schema.agent.id, name: schema.agent.name })
+    .from(schema.channelAgent)
+    .innerJoin(schema.agent, eq(schema.agent.id, schema.channelAgent.agentId))
+    .where(eq(schema.channelAgent.channelId, link.channelId))
+    .orderBy(
+      asc(schema.channelAgent.createdAt),
+      asc(schema.channelAgent.agentId)
+    )
+  return { link, agents }
+}
+
+async function handleAdd(interaction: DiscordInteraction, value: string) {
+  const manager = await managerOf(interaction)
+  if ("refusal" in manager) return reply(interaction, manager.refusal)
+  if (!interaction.channel_id) return
+  const agent = await agentNamed(manager.workspaceId, value)
+  if (!agent) {
+    return reply(interaction, "Your Lor workspace has no agent by that name.")
+  }
+  const added = await addAgentToDiscordChannel({
+    workspaceId: manager.workspaceId,
+    guildId: manager.guildId,
+    discordChannelId: interaction.channel_id,
+    agentId: agent.id,
+    userId: manager.userId,
+  })
+  if (!added.ok) {
     return reply(
       interaction,
-      "Unlinking needs the Manage Channels permission in this channel."
+      {
+        no_server: NOT_CONNECTED,
+        no_agent: "Your Lor workspace has no agent by that name.",
+        not_a_text_channel:
+          "Add an agent in a text channel, not a thread or forum.",
+        already_here: `${agent.name} is already in this channel.`,
+        too_many: "This channel has as many agents as one can hold.",
+        discord_refused: `Discord didn't allow it: ${added.detail ?? "unknown error"}. Check that Lor can manage webhooks in this channel.`,
+      }[added.reason]
     )
   }
-  const link = interaction.channel_id
-    ? await discordLinkByDiscordChannel(interaction.channel_id)
+  return reply(
+    interaction,
+    added.roleId
+      ? `${added.agentName} is in this channel now. It answers when someone mentions <@&${added.roleId}> or replies to it.`
+      : `${added.agentName} is in this channel now. It answers when someone mentions Lor or replies to it. To mention it by its own name, add Lor to this server again with its Manage Roles permission.`,
+    { allowed_mentions: { parse: [] } }
+  )
+}
+
+async function handleRemove(interaction: DiscordInteraction, value: string) {
+  const manager = await managerOf(interaction)
+  if ("refusal" in manager) return reply(interaction, manager.refusal)
+  if (!interaction.channel_id) return
+  const { link, agents } = await agentsHere(interaction.channel_id)
+  const wanted = await agentNamed(manager.workspaceId, value)
+  const agent = agents.find((here) => here.id === wanted?.id)
+  if (!link || !agent) {
+    return reply(interaction, "No agent by that name is in this channel.")
+  }
+  await removeAgentFromDiscordPlace({
+    workspaceId: manager.workspaceId,
+    channelId: link.channelId,
+    agentId: agent.id,
+    userId: manager.userId,
+  })
+  return reply(interaction, `${agent.name} is no longer in this channel.`)
+}
+
+async function handleAgents(interaction: DiscordInteraction) {
+  if (!interaction.guild_id || !interaction.channel_id) return
+  if (!(await discordGuildFor(interaction.guild_id))) {
+    return reply(interaction, NOT_CONNECTED)
+  }
+  const { agents } = await agentsHere(interaction.channel_id)
+  if (agents.length === 0) {
+    return reply(
+      interaction,
+      "No agent is in this channel. Someone who manages it can add one with `/lor add`."
+    )
+  }
+  const roles = new Map(
+    [...(await agentRolesIn(interaction.guild_id))].map(([roleId, agentId]) => [
+      agentId,
+      roleId,
+    ])
+  )
+  return reply(
+    interaction,
+    `In this channel: ${agents
+      .map((agent) => {
+        const roleId = roles.get(agent.id)
+        return roleId ? `<@&${roleId}>` : agent.name
+      })
+      .join(", ")}. Mention one or reply to it, and it answers here.`,
+    { allowed_mentions: { parse: [] } }
+  )
+}
+
+// The list under `/lor add` and `/lor remove` as someone types: the
+// workspace's agents not here yet, or the ones here. Answered at once, with
+// no acknowledgement first.
+async function handleAutocomplete(interaction: DiscordInteraction) {
+  const sub = interaction.data?.options?.[0]
+  const typed = (
+    sub?.options?.find((option) => option.focused)?.value ?? ""
+  ).toLowerCase()
+  const guild = interaction.guild_id
+    ? await discordGuildFor(interaction.guild_id)
     : null
-  if (!link) return reply(interaction, "This channel isn't linked to Lor.")
-  await unlinkDiscord(link.channelId)
-  return reply(interaction, "Unlinked. The chat is back in Lor.")
+  let choices: { id: string; name: string }[] = []
+  if (guild && interaction.channel_id) {
+    const here = (await agentsHere(interaction.channel_id)).agents
+    if (sub?.name === "remove") {
+      choices = here
+    } else {
+      const all = await db
+        .select({ id: schema.agent.id, name: schema.agent.name })
+        .from(schema.agent)
+        .where(eq(schema.agent.workspaceId, guild.workspaceId))
+        .orderBy(asc(schema.agent.createdAt))
+      choices = all.filter((agent) => !here.some((h) => h.id === agent.id))
+    }
+  }
+  await discordRequest(
+    `/interactions/${interaction.id}/${interaction.token}/callback`,
+    {
+      method: "POST",
+      bot: false,
+      body: {
+        type: 8,
+        data: {
+          choices: choices
+            .filter((agent) => agent.name.toLowerCase().includes(typed))
+            .slice(0, 25)
+            .map((agent) => ({
+              name: agent.name.slice(0, 100),
+              value: agent.id,
+            })),
+        },
+      },
+    }
+  )
 }
 
 async function handleConnect(interaction: DiscordInteraction) {
@@ -421,18 +563,32 @@ async function handleApprovalButton(
 }
 
 export async function handleDiscordInteraction(
-  interaction: DiscordInteraction,
-  botName: string
+  interaction: DiscordInteraction
 ) {
+  if (interaction.type === 4) {
+    return handleAutocomplete(interaction).catch((err) =>
+      logger.warn(
+        { err, interactionId: interaction.id },
+        "Discord autocomplete failed"
+      )
+    )
+  }
   try {
     if (interaction.type === 2 && interaction.data?.name === "lor") {
       await ack(interaction, "reply")
       const sub = interaction.data.options?.[0]
+      const option = (name: string) =>
+        sub?.options?.find((o) => o.name === name)?.value ?? ""
       if (sub?.name === "link") {
-        const code = sub.options?.find((o) => o.name === "code")?.value ?? ""
-        return await handleLink(interaction, code, botName)
+        return await handleLink(interaction, option("code"))
       }
-      if (sub?.name === "unlink") return await handleUnlink(interaction)
+      if (sub?.name === "add") {
+        return await handleAdd(interaction, option("agent"))
+      }
+      if (sub?.name === "remove") {
+        return await handleRemove(interaction, option("agent"))
+      }
+      if (sub?.name === "agents") return await handleAgents(interaction)
       if (sub?.name === "connect") return await handleConnect(interaction)
       return
     }

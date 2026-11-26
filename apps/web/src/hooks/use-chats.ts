@@ -64,6 +64,26 @@ export function useArchivedChats(
   })
 }
 
+// The Discord channels agents are in that the person can see, which the
+// sidebar adds when asked (decision 51).
+export function usePlaceChats(
+  workspaceSlug: string | undefined,
+  enabled: boolean
+) {
+  return useQuery({
+    queryKey: [...chatsKey(workspaceSlug ?? ""), "places"],
+    queryFn: async () => {
+      const res = await chatsRoute.$get({
+        param: { workspaceSlug: workspaceSlug ?? "" },
+        query: { places: "true" },
+      })
+      if (!res.ok) throw new Error("Failed to fetch Discord channels")
+      return (await res.json()).chats
+    },
+    enabled: enabled && Boolean(workspaceSlug),
+  })
+}
+
 // When a chat last had something said in it: what Recent is ordered by.
 export const chatActivityAt = (chat: Chat) =>
   chat.lastMessage?.createdAt ?? chat.createdAt

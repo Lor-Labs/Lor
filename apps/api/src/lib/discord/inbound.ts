@@ -1,26 +1,32 @@
-import { APP_USER_ID, db, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
-import { loadChannelAgent } from "@repo/db/queries/agents"
-import { addInboxMessage, agentInThread } from "@repo/lor/channel-agent"
 import {
+  APP_USER_ID,
+  asc,
+  db,
+  eq,
+  inArray,
+  LOR_USER_ID,
+  schema,
+} from "@repo/db"
+import { addInboxMessage, agentsInThread } from "@repo/lor/channel-agent"
+import {
+  agentOfWebhook,
+  agentRolesIn,
   type DiscordLink,
   discordLinkByDiscordChannel,
   discordLinkFor,
+  discordRequest,
   withDiscordLinkLock,
 } from "@repo/lor/discord"
-import {
-  buildMessageFanout,
-  loadThreadSummary,
-  sendMessagePushNotifications,
-} from "@repo/messaging"
+import { loadThreadSummary } from "@repo/messaging"
 import {
   channelRoom,
   type RealtimeMessage,
   threadRoom,
-  userRoom,
 } from "@repo/realtime-types"
 import { AGENT_INBOX_BATCH_MS } from "@repo/realtime-types/queues"
 import { classifyAgentInbox, flushAgentInbox } from "@/lib/agent-inbox-queue"
 import { getEmitter } from "@/lib/bot-messages"
+import { discordGuildFor } from "@/lib/discord/places"
 import { threadInfo } from "@/lib/discord/threads"
 import { logger } from "@/lib/logger"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
@@ -52,7 +58,10 @@ export type DiscordMessageEvent = {
   }>
   mention_roles?: string[]
   message_reference?: { message_id?: string }
-  referenced_message?: { webhook_id?: string | null } | null
+  referenced_message?: {
+    webhook_id?: string | null
+    author?: { id: string }
+  } | null
   attachments?: Array<{ url: string; filename: string }>
 }
 
@@ -84,13 +93,13 @@ async function lorUsersFor(discordUserIds: string[]) {
   return new Map(rows.map((row) => [row.discordUserId, row.userId]))
 }
 
-// Discord's text in Lor's terms: the bot's mention is Lor's (the channel
-// agent's), people who linked their account are mentioned by their Lor id,
-// everyone else by name.
+// Discord's text in Lor's terms: an agent's role is that agent's mention,
+// the bot's mention is Lor's (the place's first agent), people who linked
+// their account are mentioned by their Lor id, everyone else by name.
 function fromDiscordContent(
   event: DiscordMessageEvent,
   botUserId: string,
-  agentRoleId: string | null,
+  agentRoles: Map<string, string>,
   lorIds: Map<string, string>
 ) {
   const names = new Map(
@@ -102,9 +111,10 @@ function fromDiscordContent(
       const lorId = lorIds.get(id)
       return lorId ? `<@${lorId}>` : `@${names.get(id) ?? "someone"}`
     })
-    .replace(/<@&(\d+)>/g, (_, id: string) =>
-      id === agentRoleId ? `<@${LOR_USER_ID}>` : "@role"
-    )
+    .replace(/<@&(\d+)>/g, (_, id: string) => {
+      const agentId = agentRoles.get(id)
+      return agentId ? `<@${agentId}>` : "@role"
+    })
     .replace(/<#(\d+)>/g, "#channel")
     .replace(/<a?:(\w+):\d+>/g, ":$1:")
   for (const file of event.attachments ?? []) {
@@ -113,10 +123,48 @@ function fromDiscordContent(
   return text.trim()
 }
 
-// A message someone wrote in a linked Discord channel, mirrored into the Lor
-// channel and delivered to the channel agent's inbox like a chat message
-// (reference/always-on-agents.md §10). The agent's own posts come back
-// through its webhook and are skipped.
+const NO_AGENT_HINT_S = 10 * 60
+
+// Lor's bot shows in every channel it can see, and answers only in places.
+// Someone who mentions it, or an agent, anywhere else is told why nothing
+// happens and what to do, at most once per channel every 10 minutes.
+async function hintNoAgentHere(event: DiscordMessageEvent, botUserId: string) {
+  if (!event.guild_id || event.author.bot || event.webhook_id) return
+  const mentionsBot = (event.mentions ?? []).some(
+    (user) => user.id === botUserId
+  )
+  const roles = event.mention_roles ?? []
+  if (!mentionsBot && roles.length === 0) return
+  const guild = await discordGuildFor(event.guild_id)
+  if (!mentionsBot) {
+    if (!guild) return
+    const agentRoles = await agentRolesIn(event.guild_id)
+    if (!roles.some((id) => agentRoles.has(id))) return
+  }
+  const redis = await getRedisClient()
+  const first = await redis.set(
+    `discord:no-agent-hint:${event.channel_id}`,
+    "1",
+    { NX: true, EX: NO_AGENT_HINT_S }
+  )
+  if (first !== "OK") return
+  await discordRequest(`/channels/${event.channel_id}/messages`, {
+    method: "POST",
+    body: {
+      content: guild
+        ? "No agent is in this channel yet. Someone who manages it can add one with `/lor add`."
+        : "This server isn't connected to a Lor workspace yet. Connect it from Lor, under Connectors, then add an agent here with `/lor add`.",
+      message_reference: { message_id: event.id, fail_if_not_exists: false },
+      allowed_mentions: { parse: [] },
+    },
+  })
+}
+
+// A message someone wrote in a place's Discord channel, kept in the place
+// and delivered to the inboxes of the agents in it like a chat message
+// (reference/always-on-agents.md §10; reference/agents-and-chats.md,
+// decision 51). The agents' own posts come back through their webhooks and
+// are skipped.
 export async function mirrorDiscordMessage(
   event: DiscordMessageEvent,
   botUserId: string
@@ -125,8 +173,13 @@ export async function mirrorDiscordMessage(
   if (event.author.id === botUserId) return
   const direct = await discordLinkByDiscordChannel(event.channel_id)
   const link = direct ?? (await threadParentLink(event.channel_id))
-  if (!link) return
-  if (event.webhook_id && event.webhook_id === link.webhookId) return
+  if (!link) {
+    await hintNoAgentHere(event, botUserId).catch((err) =>
+      logger.warn({ err, discordMessageId: event.id }, "Discord hint failed")
+    )
+    return
+  }
+  if (event.webhook_id && (await agentOfWebhook(event.webhook_id))) return
   const threadId = direct ? null : event.channel_id
   await mirrorInto(link, event, botUserId, threadId).catch((err) =>
     logger.error(
@@ -210,7 +263,12 @@ async function mirrorInto(
     (await userCanAccessChannel(link.channelId, linkedAuthor))
       ? linkedAuthor
       : null
-  const content = fromDiscordContent(event, botUserId, link.agentRoleId, lorIds)
+  const content = fromDiscordContent(
+    event,
+    botUserId,
+    await agentRolesIn(link.guildId),
+    lorIds
+  )
   if (!content) return
 
   const [channel] = await db
@@ -333,47 +391,11 @@ async function mirrorInto(
     .where(eq(schema.user.id, inserted.authorId))
   if (!author) return
 
-  // Notifications and realtime only for a newly stored message.
+  // Realtime only for a newly stored message, for whoever has the place
+  // open. Nobody is notified: a place has no people in Lor, and Discord
+  // already told them.
   if (inserted.fresh) {
     const io = await getEmitter()
-    let mentions: RealtimeMessage["mentions"] = []
-    try {
-      const redis = await getRedisClient()
-      const fanout = await buildMessageFanout({
-        authorId,
-        channel,
-        message: {
-          id: inserted.id,
-          content,
-          author: {
-            name: override?.overrideName ?? author.name,
-            image: override?.overrideAvatarUrl ?? author.image,
-          },
-          attachments: [],
-          threadRootId,
-        },
-        redis,
-      })
-      mentions = fanout.messageMentions
-      for (const n of fanout.unreadNotifications) {
-        io.to(userRoom(n.userId)).emit("notification:unread", n.payload)
-      }
-      for (const n of fanout.mentionNotifications) {
-        io.to(userRoom(n.userId)).emit("notification:mention", n.payload)
-      }
-      void sendMessagePushNotifications({ fanout, redis }).catch((err) =>
-        logger.error(
-          { err, messageId: inserted.id },
-          "Discord mirror push failed"
-        )
-      )
-    } catch (err) {
-      logger.error(
-        { err, messageId: inserted.id },
-        "Discord mirror fanout failed"
-      )
-    }
-
     const message: RealtimeMessage = {
       id: inserted.id,
       channelId: link.channelId,
@@ -386,7 +408,7 @@ async function mirrorInto(
       author: { ...author, avatarColor: null },
       overrideName: override?.overrideName ?? null,
       overrideAvatarUrl: override?.overrideAvatarUrl ?? null,
-      mentions,
+      mentions: [],
       reactions: [],
       attachments: [],
       embeds: [],
@@ -422,32 +444,52 @@ async function mirrorInto(
     }
   }
 
-  // Into the agent's inbox: a mention of the bot or a reply to the agent
-  // wakes it, anything else waits unread. A channel whose agent was removed
-  // only mirrors.
-  const agent = await loadChannelAgent(link.channelId)
-  if (!agent) return
-  // In a thread a mention or a reply to the agent reaches it, and so does
-  // every message in a thread it's part of, as in Lor's own threads.
-  // A reply to anything the agent's webhook posted counts, mapped or not
-  // (its hello, the later parts of a long answer).
-  const addressed =
-    content.includes(`<@${LOR_USER_ID}>`) ||
-    referenced?.authorId === LOR_USER_ID ||
-    referenced?.authorId === agent.id ||
-    event.referenced_message?.webhook_id === link.webhookId ||
-    (threadRootId ? await agentInThread(threadRootId) : false)
-  if (threadRootId && !addressed) return
-  const lane = addressed ? "wake" : "wait"
-  const conversationId = await addInboxMessage({
-    workspaceId: channel.workspaceId,
-    channelId: link.channelId,
-    messageId: inserted.id,
-    lane,
-  })
-  if (conversationId && lane === "wake") {
-    await flushAgentInbox(conversationId, AGENT_INBOX_BATCH_MS)
-  } else if (conversationId) {
+  // Into the inboxes of the place's agents, by a chat's rules
+  // (apps/realtime/src/services/agent-inbox.ts): a mention of an agent or a
+  // reply to it wakes that agent and waits for the others; a message that
+  // names nobody waits for all and is judged at once (LOR-171). In a thread
+  // it reaches the agents it names, or with none named the ones that are
+  // part of the thread. A reply to anything an agent's webhook posted counts,
+  // mapped or not (its hello, the later parts of a long answer).
+  const placed = await db
+    .select({ agentId: schema.channelAgent.agentId })
+    .from(schema.channelAgent)
+    .where(eq(schema.channelAgent.channelId, link.channelId))
+    .orderBy(
+      asc(schema.channelAgent.createdAt),
+      asc(schema.channelAgent.agentId)
+    )
+    .then((rows) => rows.map((row) => row.agentId))
+  const first = placed[0]
+  if (!first) return
+  const named = new Set(placed.filter((id) => content.includes(`<@${id}>`)))
+  if (content.includes(`<@${LOR_USER_ID}>`)) named.add(first)
+  const repliedTo = event.referenced_message?.webhook_id
+    ? (await agentOfWebhook(event.referenced_message.webhook_id))?.agentId
+    : referenced?.authorId === LOR_USER_ID
+      ? first
+      : referenced?.authorId
+  if (repliedTo && placed.includes(repliedTo)) named.add(repliedTo)
+  const inThread =
+    threadRootId && named.size === 0
+      ? await agentsInThread(threadRootId, placed)
+      : new Set<string>()
+  for (const agentId of placed) {
+    const wakes = named.has(agentId) || inThread.has(agentId)
+    if (threadRootId && !wakes) continue
+    const lane = wakes ? "wake" : "wait"
+    const conversationId = await addInboxMessage({
+      workspaceId: channel.workspaceId,
+      channelId: link.channelId,
+      agentId,
+      messageId: inserted.id,
+      lane,
+    })
+    if (conversationId && lane === "wake") {
+      await flushAgentInbox(conversationId, AGENT_INBOX_BATCH_MS)
+    }
+  }
+  if (named.size === 0 && !threadRootId) {
     classifyAgentInbox(link.channelId, inserted.id)
   }
 }

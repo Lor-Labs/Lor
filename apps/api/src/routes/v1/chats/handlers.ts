@@ -19,6 +19,7 @@ import {
   listAccessibleChannelIds,
   resolveChannelAccess,
 } from "@repo/db/queries/channel-access"
+import { discordChannelUrl } from "@repo/lor/discord"
 import { buildNotificationContentPreview } from "@repo/messaging"
 import { extractDirectMentionUserIds } from "@repo/messaging/mentions"
 import { userRoom } from "@repo/realtime-types"
@@ -53,7 +54,11 @@ const notFound = { success: false as const, message: "Chat not found" }
 export const listChats: AppRouteHandler<ListChatsRoute> = async (c) => {
   const workspace = c.var.workspace
   const me = c.var.user.id
-  const archived = c.req.valid("query").archived === "true"
+  const query = c.req.valid("query")
+  const archived = query.archived === "true"
+  // Places: the Slack and Discord channels agents are in, hidden from the
+  // list unless asked for (decision 51).
+  const places = !archived && query.places === "true"
   const { channel, channelMember, message, user } = schema
 
   // The newest message the chat feed shows, per chat. Event lines ("created
@@ -100,6 +105,8 @@ export const listChats: AppRouteHandler<ListChatsRoute> = async (c) => {
         audience: channel.audience,
         parentId: channel.parentId,
         archivedAt: channel.archivedAt,
+        guildId: schema.channelDiscordLink.guildId,
+        discordChannelId: schema.channelDiscordLink.discordChannelId,
         memberId: channelMember.userId,
         pinnedAt: channelMember.pinnedAt,
         hiddenAt: channelMember.hiddenAt,
@@ -119,14 +126,26 @@ export const listChats: AppRouteHandler<ListChatsRoute> = async (c) => {
           eq(channelMember.userId, me)
         )
       )
+      .leftJoin(
+        schema.channelDiscordLink,
+        eq(schema.channelDiscordLink.channelId, channel.id)
+      )
       .leftJoinLateral(last, sql`true`)
       .where(
         and(
           eq(channel.workspaceId, workspace.id),
           eq(channel.type, "text"),
-          archived
-            ? isNotNull(channel.archivedAt)
-            : and(isNotNull(channelMember.userId), isNull(channel.archivedAt))
+          places
+            ? and(eq(channel.kind, "place"), isNull(channel.archivedAt))
+            : and(
+                ne(channel.kind, "place"),
+                archived
+                  ? isNotNull(channel.archivedAt)
+                  : and(
+                      isNotNull(channelMember.userId),
+                      isNull(channel.archivedAt)
+                    )
+              )
         )
       ),
     listAccessibleChannelIds(me, workspace.id),
@@ -137,6 +156,7 @@ export const listChats: AppRouteHandler<ListChatsRoute> = async (c) => {
     (row) =>
       accessible.has(row.id) &&
       (archived ||
+        places ||
         !(row.hiddenAt && row.hiddenAt >= (row.lastAt ?? row.createdAt)))
   )
   const ids = shown.map((row) => row.id)
@@ -232,6 +252,13 @@ export const listChats: AppRouteHandler<ListChatsRoute> = async (c) => {
       pinnedAt: row.pinnedAt?.toISOString() ?? null,
       archivedAt: row.archivedAt?.toISOString() ?? null,
       joined: row.memberId !== null,
+      place:
+        row.guildId && row.discordChannelId
+          ? {
+              source: "discord" as const,
+              url: discordChannelUrl(row.guildId, row.discordChannelId),
+            }
+          : null,
       lastMessage:
         row.lastId && row.lastAt && row.lastAuthorId
           ? {
@@ -313,6 +340,13 @@ async function visibleChat(userId: string, workspaceId: string, id: string) {
   if (!access.ok) return null
   const chat = access.access.channel
   if (chat.type !== "text" || chat.workspaceId !== workspaceId) return null
+  // A place (a Slack or Discord channel) has no people in Lor and is not
+  // joined, left or archived like a chat.
+  const [row] = await db
+    .select({ kind: schema.channel.kind })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, id))
+  if (row?.kind === "place") return null
   return access.access
 }
 

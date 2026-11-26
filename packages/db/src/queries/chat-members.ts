@@ -20,6 +20,8 @@ async function joinVisible(scope: SQL, executor: Executor) {
     join "user" u on u.id = wm.user_id and not u.is_bot
     left join channel p on p.id = c.parent_id
     where c.type = 'text' and c.archived_at is null
+      -- A place (a Slack or Discord channel) has agents, not people.
+      and c.kind::text <> 'place'
       and (
         coalesce(p.audience, c.audience) = 'workspace'
         or exists (

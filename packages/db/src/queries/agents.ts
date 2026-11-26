@@ -1,8 +1,9 @@
 import { agentIdentityFor } from "@repo/utils/bestiary"
-import { and, asc, eq, inArray, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm"
 import { APP_USER_ID, LOR_USER_ID, MAX_CHANNEL_AGENTS } from "../constants"
 import { db } from "../index"
 import { type Agent, agent, channelAgent } from "../schemas/agents"
+import { channel } from "../schemas/channels"
 import { type Loop, loop } from "../schemas/loops"
 import { user } from "../schemas/users"
 
@@ -152,6 +153,18 @@ export async function agentChannelIds(agentId: string): Promise<string[]> {
     .select({ id: channelAgent.channelId })
     .from(channelAgent)
     .where(eq(channelAgent.agentId, agentId))
+    .orderBy(asc(channelAgent.createdAt))
+  return rows.map((row) => row.id)
+}
+
+// The chats an agent is in: its channels without its places (Slack or
+// Discord channels), which no list in Lor shows.
+export async function agentChatIds(agentId: string): Promise<string[]> {
+  const rows = await db
+    .select({ id: channelAgent.channelId })
+    .from(channelAgent)
+    .innerJoin(channel, eq(channel.id, channelAgent.channelId))
+    .where(and(eq(channelAgent.agentId, agentId), ne(channel.kind, "place")))
     .orderBy(asc(channelAgent.createdAt))
   return rows.map((row) => row.id)
 }

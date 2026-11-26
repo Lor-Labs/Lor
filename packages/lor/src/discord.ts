@@ -1,5 +1,5 @@
-import { db, eq, inArray, LOR_USER_ID, schema, sql } from "@repo/db"
-import { loadChannelAgent } from "@repo/db/queries/agents"
+import { and, db, eq, inArray, LOR_USER_ID, schema, sql } from "@repo/db"
+import { channelAgentId } from "@repo/db/queries/agents"
 import { env } from "@repo/env/server"
 import { agentIdentityFor, type CreatureId } from "@repo/utils/bestiary"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
@@ -11,9 +11,10 @@ import {
 } from "@repo/utils/face-stills"
 import sharp from "sharp"
 
-// Lor's Discord bot over REST (reference/always-on-agents.md §10). The
-// gateway connection that hears Discord lives in the API
-// (apps/api/src/lib/discord). Everything here works without it.
+// Lor's Discord bot over REST (reference/always-on-agents.md §10;
+// reference/agents-and-chats.md, decision 51: a Discord channel an agent is
+// in is a place). The gateway connection that hears Discord lives in the
+// API (apps/api/src/lib/discord). Everything here works without it.
 
 const API = "https://discord.com/api/v10"
 
@@ -33,7 +34,8 @@ const INVITE_PERMISSIONS =
 
 export const DISCORD_ADMINISTRATOR = 1n << 3n
 export const DISCORD_MANAGE_CHANNELS = 1n << 4n
-// Text and announcement channels: the only kinds a Lor channel links to.
+export const DISCORD_MANAGE_GUILD = 1n << 5n
+// Text and announcement channels: the only kinds that become a place.
 export const LINKABLE_CHANNEL_TYPES = new Set([0, 5])
 // Discord's message length limit.
 const MESSAGE_MAX = 2000
@@ -197,15 +199,157 @@ export async function createAgentWebhook(input: {
   }
 }
 
-// What linking made in the Discord server: the webhook and the agent's role.
-export async function deleteLinkResources(link: DiscordLink) {
-  await discordRequest(`/webhooks/${link.webhookId}`, {
+async function loadAgentIdentity(agentId: string) {
+  const [agent] = await db
+    .select({
+      id: schema.agent.id,
+      name: schema.agent.name,
+      creature: schema.agent.creature,
+    })
+    .from(schema.agent)
+    .where(eq(schema.agent.id, agentId))
+  return agent ? agentIdentityFor(agent.id, agent) : null
+}
+
+export type AgentWebhook = typeof schema.discordAgentWebhook.$inferSelect
+
+// The webhook an agent posts through in a place, made the first time it is
+// needed: each agent in a Discord channel posts as itself.
+export async function agentWebhookFor(
+  link: DiscordLink,
+  agentId: string
+): Promise<AgentWebhook | null> {
+  const where = and(
+    eq(schema.discordAgentWebhook.channelId, link.channelId),
+    eq(schema.discordAgentWebhook.agentId, agentId)
+  )
+  const [known] = await db
+    .select()
+    .from(schema.discordAgentWebhook)
+    .where(where)
+  if (known) return known
+  const identity = await loadAgentIdentity(agentId)
+  if (!identity) return null
+  const hook = await createAgentWebhook({
+    discordChannelId: link.discordChannelId,
+    name: identity.name,
+    creature: identity.creature,
+  })
+  const [made] = await db
+    .insert(schema.discordAgentWebhook)
+    .values({ channelId: link.channelId, agentId, ...hook })
+    .onConflictDoNothing()
+    .returning()
+  if (made) return made
+  // Another process made one first: this one is not needed.
+  await discordRequest(`/webhooks/${hook.webhookId}`, {
     method: "DELETE",
   }).catch(() => {})
-  if (link.agentRoleId) {
-    await discordRequest(`/guilds/${link.guildId}/roles/${link.agentRoleId}`, {
+  const [winner] = await db
+    .select()
+    .from(schema.discordAgentWebhook)
+    .where(where)
+  return winner ?? null
+}
+
+// Whether a Discord webhook is one an agent posts through, and whose: its
+// posts come back over the gateway and are not mirrored, and a reply to one
+// is a reply to that agent.
+export async function agentOfWebhook(
+  webhookId: string
+): Promise<{ agentId: string; channelId: string } | null> {
+  const [row] = await db
+    .select({
+      agentId: schema.discordAgentWebhook.agentId,
+      channelId: schema.discordAgentWebhook.channelId,
+    })
+    .from(schema.discordAgentWebhook)
+    .where(eq(schema.discordAgentWebhook.webhookId, webhookId))
+  return row ?? null
+}
+
+// An agent's role in a server goes when it is in none of its channels.
+async function dropUnusedAgentRole(guildId: string, agentId: string) {
+  const [elsewhere] = await db
+    .select({ channelId: schema.channelDiscordLink.channelId })
+    .from(schema.channelDiscordLink)
+    .innerJoin(
+      schema.channelAgent,
+      eq(schema.channelAgent.channelId, schema.channelDiscordLink.channelId)
+    )
+    .where(
+      and(
+        eq(schema.channelDiscordLink.guildId, guildId),
+        eq(schema.channelAgent.agentId, agentId)
+      )
+    )
+    .limit(1)
+  if (elsewhere) return
+  const [role] = await db
+    .delete(schema.discordAgentRole)
+    .where(
+      and(
+        eq(schema.discordAgentRole.guildId, guildId),
+        eq(schema.discordAgentRole.agentId, agentId)
+      )
+    )
+    .returning({ roleId: schema.discordAgentRole.roleId })
+  if (role) {
+    await discordRequest(`/guilds/${guildId}/roles/${role.roleId}`, {
       method: "DELETE",
     }).catch(() => {})
+  }
+}
+
+// What an agent had in a place it was taken out of: its webhook there, and
+// its role when that was its last channel in the server. Run after its
+// `channel_agent` row is gone.
+export async function deleteAgentPlaceResources(
+  link: DiscordLink,
+  agentId: string
+) {
+  const [hook] = await db
+    .delete(schema.discordAgentWebhook)
+    .where(
+      and(
+        eq(schema.discordAgentWebhook.channelId, link.channelId),
+        eq(schema.discordAgentWebhook.agentId, agentId)
+      )
+    )
+    .returning({ webhookId: schema.discordAgentWebhook.webhookId })
+  if (hook) {
+    await discordRequest(`/webhooks/${hook.webhookId}`, {
+      method: "DELETE",
+    }).catch(() => {})
+  }
+  await dropUnusedAgentRole(link.guildId, agentId)
+}
+
+// What a place made in the Discord server: its agents' webhooks, and the
+// roles of agents left in no other channel there. Run after the link row is
+// gone.
+export async function deleteLinkResources(link: DiscordLink) {
+  const hooks = await db
+    .delete(schema.discordAgentWebhook)
+    .where(eq(schema.discordAgentWebhook.channelId, link.channelId))
+    .returning({
+      webhookId: schema.discordAgentWebhook.webhookId,
+      agentId: schema.discordAgentWebhook.agentId,
+    })
+  for (const id of new Set([
+    link.webhookId,
+    ...hooks.map((h) => h.webhookId),
+  ])) {
+    await discordRequest(`/webhooks/${id}`, { method: "DELETE" }).catch(
+      () => {}
+    )
+  }
+  const roles = await db
+    .select({ agentId: schema.discordAgentRole.agentId })
+    .from(schema.discordAgentRole)
+    .where(eq(schema.discordAgentRole.guildId, link.guildId))
+  for (const role of roles) {
+    await dropUnusedAgentRole(link.guildId, role.agentId)
   }
 }
 
@@ -224,46 +368,87 @@ function botUserId() {
   return botUser
 }
 
-// The role people mention the agent by in Discord (@Inky): made when the
-// channel links, given to the bot so it pings no one, renamed with the
-// agent. Mentioning the bot itself works too. Returns the role id, or null
-// when the server didn't grant Manage Roles.
-export async function syncAgentRole(channelId: string): Promise<string | null> {
+// The role people mention an agent by in a Discord server (@Inky): made
+// when the agent first has a place there, given to the bot so it pings no
+// one, renamed with the agent. Mentioning the bot itself works too, and
+// means the channel's first agent. Returns the role id, or null when the
+// server didn't grant Manage Roles.
+export async function syncAgentRole(
+  guildId: string,
+  agentId: string
+): Promise<string | null> {
   if (!discordConfigured()) return null
-  const link = await discordLinkFor(channelId)
-  if (!link) return null
-  const agent = await loadChannelAgent(channelId)
-  if (!agent) return null
-  const name = agent.name.slice(0, 100)
-  if (link.agentRoleId && link.agentRoleName === name) return link.agentRoleId
-  // A server that didn't grant Manage Roles is asked again at most every
-  // 10 minutes, not on every post.
-  const failedAt = roleFailures.get(channelId) ?? 0
-  if (!link.agentRoleId && Date.now() - failedAt < ROLE_RETRY_MS) return null
-  if (link.agentRoleId) {
-    await discordRequest(`/guilds/${link.guildId}/roles/${link.agentRoleId}`, {
+  const identity = await loadAgentIdentity(agentId)
+  if (!identity) return null
+  const name = identity.name.slice(0, 100)
+  const where = and(
+    eq(schema.discordAgentRole.guildId, guildId),
+    eq(schema.discordAgentRole.agentId, agentId)
+  )
+  const [known] = await db.select().from(schema.discordAgentRole).where(where)
+  if (known?.roleName === name) return known.roleId
+  if (known) {
+    await discordRequest(`/guilds/${guildId}/roles/${known.roleId}`, {
       method: "PATCH",
       body: { name },
     })
-  } else {
-    const role = await discordRequest<{ id: string }>(
-      `/guilds/${link.guildId}/roles`,
-      { method: "POST", body: { name, mentionable: true, permissions: "0" } }
-    ).catch((err: unknown) => {
-      roleFailures.set(channelId, Date.now())
-      throw err
-    })
-    await discordRequest(
-      `/guilds/${link.guildId}/members/${await botUserId()}/roles/${role.id}`,
-      { method: "PUT" }
-    ).catch(() => {})
-    link.agentRoleId = role.id
+    await db
+      .update(schema.discordAgentRole)
+      .set({ roleName: name })
+      .where(where)
+    return known.roleId
   }
-  await db
-    .update(schema.channelDiscordLink)
-    .set({ agentRoleId: link.agentRoleId, agentRoleName: name })
-    .where(eq(schema.channelDiscordLink.channelId, channelId))
-  return link.agentRoleId
+  // A server that didn't grant Manage Roles is asked again at most every
+  // 10 minutes, not on every post.
+  const key = `${guildId}:${agentId}`
+  if (Date.now() - (roleFailures.get(key) ?? 0) < ROLE_RETRY_MS) return null
+  const role = await discordRequest<{ id: string }>(
+    `/guilds/${guildId}/roles`,
+    { method: "POST", body: { name, mentionable: true, permissions: "0" } }
+  ).catch((err: unknown) => {
+    roleFailures.set(key, Date.now())
+    throw err
+  })
+  await discordRequest(
+    `/guilds/${guildId}/members/${await botUserId()}/roles/${role.id}`,
+    { method: "PUT" }
+  ).catch(() => {})
+  const [made] = await db
+    .insert(schema.discordAgentRole)
+    .values({ guildId, agentId, roleId: role.id, roleName: name })
+    .onConflictDoNothing()
+    .returning({ roleId: schema.discordAgentRole.roleId })
+  if (made) return made.roleId
+  // Another process made one first.
+  await discordRequest(`/guilds/${guildId}/roles/${role.id}`, {
+    method: "DELETE",
+  }).catch(() => {})
+  const [winner] = await db.select().from(schema.discordAgentRole).where(where)
+  return winner?.roleId ?? null
+}
+
+// An agent was renamed: its role in every server it is in follows.
+export async function syncAgentRoles(agentId: string) {
+  const roles = await db
+    .select({ guildId: schema.discordAgentRole.guildId })
+    .from(schema.discordAgentRole)
+    .where(eq(schema.discordAgentRole.agentId, agentId))
+  for (const role of roles) {
+    await syncAgentRole(role.guildId, agentId).catch(() => {})
+  }
+}
+
+// The agents' roles in a server, by role id: a role mention in a message
+// says which agent it names.
+export async function agentRolesIn(guildId: string) {
+  const rows = await db
+    .select({
+      roleId: schema.discordAgentRole.roleId,
+      agentId: schema.discordAgentRole.agentId,
+    })
+    .from(schema.discordAgentRole)
+    .where(eq(schema.discordAgentRole.guildId, guildId))
+  return new Map(rows.map((row) => [row.roleId, row.agentId]))
 }
 
 // Lor's text for Discord: people mentioned by id become Discord mentions
@@ -331,11 +516,13 @@ export type DiscordButton = {
 
 const BUTTON_STYLES = { primary: 1, secondary: 2, success: 3, danger: 4 }
 
-// A message the channel agent posts in its linked Discord channel, under its
-// name and creature. Null when the channel isn't linked. The Lor message it
-// mirrors maps to the first Discord message.
+// A message an agent posts in a place's Discord channel, under its own name
+// and creature. Null when the channel isn't a place. The Lor message it
+// mirrors maps to the first Discord message. With no agent given it is the
+// place's first.
 export async function postAgentToDiscord(input: {
   channelId: string
+  agentId?: string | null
   messageId: string | null
   content: string
   buttons?: DiscordButton[]
@@ -350,39 +537,46 @@ export async function postAgentToDiscord(input: {
     ? await discordThreadForRoot(input.threadRootId)
     : null
   if (input.threadRootId && !threadId) return null
-  const agent = await loadChannelAgent(input.channelId)
-  if (!agent) return null
-  // A stored creature id is one of the bestiary's; this only guards the type.
-  const identity = agentIdentityFor(agent.id, agent)
-  await syncAgentRole(input.channelId).catch(() => {})
+  const agentId = input.agentId ?? (await channelAgentId(input.channelId))
+  if (!agentId) return null
+  const identity = await loadAgentIdentity(agentId)
+  if (!identity) return null
+  const hook = await agentWebhookFor(link, agentId)
+  if (!hook) return null
+  await syncAgentRole(link.guildId, agentId).catch(() => {})
   // Discord's webhook avatar can't be set per message without a public URL,
   // so the webhook's own avatar follows the face: a change of creature, or
   // of how one is drawn, changes its key and uploads it again.
   const face = STILLS[identity.creature]
   const avatarKey = stillKey(face)
   // A failed avatar refresh never blocks the post; the old key retries it next time.
-  if (link.webhookCreature !== avatarKey) {
+  if (hook.webhookCreature !== avatarKey) {
     try {
-      await discordRequest(`/webhooks/${link.webhookId}`, {
+      await discordRequest(`/webhooks/${hook.webhookId}`, {
         method: "PATCH",
         body: { avatar: await faceAvatar(face) },
       })
       await db
-        .update(schema.channelDiscordLink)
+        .update(schema.discordAgentWebhook)
         .set({ webhookCreature: avatarKey })
-        .where(eq(schema.channelDiscordLink.channelId, link.channelId))
+        .where(
+          and(
+            eq(schema.discordAgentWebhook.channelId, link.channelId),
+            eq(schema.discordAgentWebhook.agentId, agentId)
+          )
+        )
     } catch (error) {
       console.warn("Discord webhook avatar refresh failed", error)
     }
   }
-  const token = decryptSecret(link.webhookToken, encryptionKey())
+  const token = decryptSecret(hook.webhookToken, encryptionKey())
   const { text, allowedUserIds } = await toDiscordContent(input.content)
   const parts = splitForDiscord(text || "…")
   let first: string | null = null
   for (const [index, part] of parts.entries()) {
     const last = index === parts.length - 1
     const posted = await discordRequest<{ id: string }>(
-      `/webhooks/${link.webhookId}/${token}?wait=true&with_components=true${threadId ? `&thread_id=${threadId}` : ""}`,
+      `/webhooks/${hook.webhookId}/${token}?wait=true&with_components=true${threadId ? `&thread_id=${threadId}` : ""}`,
       {
         method: "POST",
         bot: false,

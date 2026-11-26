@@ -38,6 +38,7 @@ import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSocket } from "@/context/socket-context"
 import { useAgentsById } from "@/hooks/use-agents"
 import { useCanManageChannels } from "@/hooks/use-can-manage-channels"
+import { useChannelDiscord } from "@/hooks/use-channel-discord"
 import { type Chat, chatsKey, orderChats } from "@/hooks/use-chats"
 import { apiClient } from "@/lib/api-client"
 import { patchChannelList, upsertChannel } from "@/lib/channel-list-cache"
@@ -102,9 +103,13 @@ export function ChatDetailsPanel({
   const others = (people ?? []).filter((person) => person.id !== me)
   // Only the people in a private chat can see it.
   const isPrivate = chat.audience === "members" && chat.parentId === null
+  // A Discord channel agents are in (decision 51): its name and agents are
+  // managed from the Discord connector, and it has no people in Lor.
+  const place = chat.kind === "place"
   const open = !chat.archivedAt
   // Whoever made a chat may rename it.
-  const canRename = open && (canManage || (!!me && chat.creatorId === me))
+  const canRename =
+    open && !place && (canManage || (!!me && chat.creatorId === me))
   // A chat's loops are listed in its agent's page, since that agent runs
   // them. Only a chat with no agent lists its own here.
   const loopsHere = chat.agentIds.length === 0
@@ -169,18 +174,25 @@ export function ChatDetailsPanel({
                   chat={chat}
                   editable={canRename}
                 />
-                <p className="mt-0.5 flex items-center justify-center gap-1 text-[11px] text-muted-foreground">
-                  {isPrivate && (
-                    <HugeiconsIcon
-                      icon={SquareLock02Icon}
-                      className="size-3"
-                      strokeWidth={2}
-                    />
-                  )}
-                  {isPrivate
-                    ? "Private: only the people in it can see it"
-                    : "Anyone in the workspace can find it and join"}
-                </p>
+                {place ? (
+                  <PlaceNote
+                    workspaceSlug={workspaceSlug}
+                    channelId={channelId}
+                  />
+                ) : (
+                  <p className="mt-0.5 flex items-center justify-center gap-1 text-[11px] text-muted-foreground">
+                    {isPrivate && (
+                      <HugeiconsIcon
+                        icon={SquareLock02Icon}
+                        className="size-3"
+                        strokeWidth={2}
+                      />
+                    )}
+                    {isPrivate
+                      ? "Private: only the people in it can see it"
+                      : "Anyone in the workspace can find it and join"}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -188,15 +200,17 @@ export function ChatDetailsPanel({
               workspaceSlug={workspaceSlug}
               channelId={channelId}
             />
-            <ChatPeople
-              workspaceSlug={workspaceSlug}
-              channelId={channelId}
-              people={people}
-              me={me}
-              // In a private chat the list is also who can see it.
-              canAdd={open && (!isPrivate || canManage)}
-              canRemove={canManage}
-            />
+            {!place && (
+              <ChatPeople
+                workspaceSlug={workspaceSlug}
+                channelId={channelId}
+                people={people}
+                me={me}
+                // In a private chat the list is also who can see it.
+                canAdd={open && (!isPrivate || canManage)}
+                canRemove={canManage}
+              />
+            )}
             {loopsHere && (
               <LoopsOverviewSection
                 workspaceSlug={workspaceSlug}
@@ -279,6 +293,43 @@ function ChatName({
       aria-label="Chat name"
       className="w-full truncate rounded-md bg-transparent px-1.5 py-0.5 text-center font-semibold text-[15px] outline-none transition-colors duration-150 hover:bg-foreground/[0.05] focus:bg-foreground/[0.07]"
     />
+  )
+}
+
+// Where a place is, and where its agents are managed.
+function PlaceNote({
+  workspaceSlug,
+  channelId,
+}: {
+  workspaceSlug: string
+  channelId: string
+}) {
+  const navigate = useNavigate()
+  const { data } = useChannelDiscord(workspaceSlug, channelId)
+  const link = data?.link
+  return (
+    <p className="mt-0.5 text-[11px] text-muted-foreground">
+      In Discord
+      {link?.guildName ? ` on ${link.guildName}` : ""}. Its agents are set up in{" "}
+      <button
+        type="button"
+        onClick={() =>
+          void navigate({
+            to: ".",
+            search: (prev) => ({
+              ...prev,
+              settings: "workspace",
+              tab: "connectors",
+              connector: "discord",
+            }),
+          })
+        }
+        className="cursor-pointer font-medium text-foreground underline-offset-2 hover:underline"
+      >
+        Connectors
+      </button>
+      .
+    </p>
   )
 }
 

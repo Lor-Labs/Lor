@@ -60,8 +60,12 @@ const BEFORE_PUSH = [
   "src/scripts/loop-agents.ts",
 ]
 
-// After the push, which creates their tables: one-time fills.
-const AFTER_PUSH = ["src/scripts/chat-members.ts"]
+// After the push, which creates their tables: one-time fills. Linked
+// Discord chats become places before chats nobody is in are filled.
+const AFTER_PUSH = [
+  "src/scripts/discord-places.ts",
+  "src/scripts/chat-members.ts",
+]
 
 let code = 0
 for (const script of BEFORE_PUSH) {

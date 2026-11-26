@@ -2,6 +2,8 @@ import {
   Archive02Icon,
   ArchiveRestoreIcon,
   Delete02Icon,
+  DiscordIcon,
+  FilterHorizontalIcon,
   Layers01Icon,
   Notification01Icon,
   NotificationOff01Icon,
@@ -27,12 +29,15 @@ import {
   ContextMenuTrigger,
 } from "@repo/ui/components/context-menu"
 import { MentionBadge } from "@repo/ui/components/mention-badge"
-import { Skeleton } from "@repo/ui/components/skeleton"
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@repo/ui/components/tooltip"
+  Menu,
+  MenuCheckboxItem,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuPopup,
+  MenuTrigger,
+} from "@repo/ui/components/menu"
+import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
@@ -70,6 +75,7 @@ import {
   useArchivedChats,
   useChatListUpdates,
   useChats,
+  usePlaceChats,
   useUpdateChat,
 } from "@/hooks/use-chats"
 import { apiClient } from "@/lib/api-client"
@@ -81,34 +87,43 @@ import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels-query"
 // 36): the ones this person pinned, then the rest by last message, each
 // with its code sessions under it. A chat is a text channel; its row, name
 // and agents come from the channels query, and who is in it, its last
-// message and the pin from the chats one. The archive icon at the top adds
-// the archived chats, greyed, among the rest (decision 52).
+// message and the pin from the chats one. The filter at the top adds the
+// archived chats, greyed (decision 52), and the Discord channels agents are
+// in (decision 51), among the rest.
 
-// Showing archived chats is this person's choice per workspace, kept
-// across reloads.
-const showArchivedKey = (workspaceSlug: string) =>
-  `lor:show-archived-chats:${workspaceSlug}`
+// What the list adds is this person's choice per workspace, kept across
+// reloads: archived chats, and places (the Discord channels agents are in).
+type ChatFilter = { archived: boolean; places: boolean }
+const filterKey = (workspaceSlug: string, kind: keyof ChatFilter) =>
+  kind === "archived"
+    ? `lor:show-archived-chats:${workspaceSlug}`
+    : `lor:show-places:${workspaceSlug}`
 
-function useShowArchived(workspaceSlug: string | undefined) {
-  const [shown, setShown] = useState(false)
+function useChatFilter(workspaceSlug: string | undefined) {
+  const [filter, setFilter] = useState<ChatFilter>({
+    archived: false,
+    places: false,
+  })
   useEffect(() => {
     if (!workspaceSlug) return
-    try {
-      setShown(localStorage.getItem(showArchivedKey(workspaceSlug)) === "1")
-    } catch {
-      setShown(false)
+    const read = (kind: keyof ChatFilter) => {
+      try {
+        return localStorage.getItem(filterKey(workspaceSlug, kind)) === "1"
+      } catch {
+        return false
+      }
     }
+    setFilter({ archived: read("archived"), places: read("places") })
   }, [workspaceSlug])
-  const toggle = () => {
-    const next = !shown
-    setShown(next)
+  const set = (kind: keyof ChatFilter, on: boolean) => {
+    setFilter((prev) => ({ ...prev, [kind]: on }))
     if (!workspaceSlug) return
     try {
-      if (next) localStorage.setItem(showArchivedKey(workspaceSlug), "1")
-      else localStorage.removeItem(showArchivedKey(workspaceSlug))
+      if (on) localStorage.setItem(filterKey(workspaceSlug, kind), "1")
+      else localStorage.removeItem(filterKey(workspaceSlug, kind))
     } catch {}
   }
-  return [shown, toggle] as const
+  return [filter, set] as const
 }
 
 const SPRING = { type: "spring", bounce: 0, duration: 0.4 } as const
@@ -167,8 +182,12 @@ export function ChatList({ workspaceId }: { workspaceId?: string }) {
   const me = session?.user.id
 
   const { data: chats, isPending } = useChats(workspaceSlug)
-  const [showArchived, toggleArchived] = useShowArchived(workspaceSlug)
-  const { data: archivedChats } = useArchivedChats(workspaceSlug, showArchived)
+  const [filter, setFilter] = useChatFilter(workspaceSlug)
+  const { data: archivedChats } = useArchivedChats(
+    workspaceSlug,
+    filter.archived
+  )
+  const { data: placeChats } = usePlaceChats(workspaceSlug, filter.places)
   const { unarchive } = useChatArchive(workspaceSlug ?? "")
   const { data: channelData } = useQuery(
     workspaceChannelsQueryOptions(workspaceSlug ?? "")
@@ -245,39 +264,66 @@ export function ChatList({ workspaceId }: { workspaceId?: string }) {
     () =>
       orderChats([
         ...(chats ?? []),
-        ...(showArchived ? (archivedChats ?? []) : []),
+        ...(filter.archived ? (archivedChats ?? []) : []),
+        ...(filter.places ? (placeChats ?? []) : []),
       ]),
-    [chats, archivedChats, showArchived]
+    [chats, archivedChats, placeChats, filter]
   )
 
   if (isPending || !workspaceSlug) return <ChatListSkeleton />
 
   const layout = reduced ? false : ("position" as const)
-  const archivedToggle = (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            aria-label="Show archived chats"
-            aria-pressed={showArchived}
-            onClick={toggleArchived}
-            className="relative -my-1 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-[transform,background-color,color] duration-150 ease-out after:absolute after:-inset-1.5 hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.94] aria-pressed:bg-foreground/[0.09] aria-pressed:text-foreground motion-reduce:transition-none motion-reduce:active:scale-100"
-          />
-        }
+  const filtering = filter.archived || filter.places
+  const filterMenu = (
+    <Menu>
+      <MenuTrigger
+        aria-label="Filter chats"
+        title="Filter chats"
+        data-filtering={filtering || undefined}
+        className="relative -my-1 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-[transform,background-color,color] duration-150 ease-out after:absolute after:-inset-1.5 hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.94] data-filtering:bg-foreground/[0.09] data-filtering:text-foreground data-popup-open:bg-foreground/[0.09] motion-reduce:transition-none motion-reduce:active:scale-100"
       >
         <HugeiconsIcon
-          icon={Archive02Icon}
+          icon={FilterHorizontalIcon}
           className="size-3.5"
           strokeWidth={2}
         />
-      </TooltipTrigger>
-      <TooltipContent>
-        {showArchived ? "Hide archived chats" : "Show archived chats"}
-      </TooltipContent>
-    </Tooltip>
+      </MenuTrigger>
+      <MenuPopup align="end" className="w-52">
+        <MenuGroup>
+          <MenuGroupLabel>Also show</MenuGroupLabel>
+          <MenuCheckboxItem
+            variant="switch"
+            checked={filter.archived}
+            onCheckedChange={(on) => setFilter("archived", on)}
+          >
+            <span className="flex items-center gap-2">
+              <HugeiconsIcon
+                icon={Archive02Icon}
+                className="size-4 text-muted-foreground"
+                strokeWidth={2}
+              />
+              Archived chats
+            </span>
+          </MenuCheckboxItem>
+          <MenuCheckboxItem
+            variant="switch"
+            checked={filter.places}
+            onCheckedChange={(on) => setFilter("places", on)}
+          >
+            <span className="flex items-center gap-2">
+              <HugeiconsIcon
+                icon={DiscordIcon}
+                className="size-4 text-muted-foreground"
+                strokeWidth={2}
+              />
+              Discord channels
+            </span>
+          </MenuCheckboxItem>
+        </MenuGroup>
+      </MenuPopup>
+    </Menu>
   )
-  // The list's first label carries the archive toggle.
+  // The list's first label carries the filter.
   const label = (text: string | null, first: boolean) => (
     <motion.div
       key={`label-${text ?? "none"}`}
@@ -289,7 +335,7 @@ export function ChatList({ workspaceId }: { workspaceId?: string }) {
       )}
     >
       <span>{text}</span>
-      {first && archivedToggle}
+      {first && filterMenu}
     </motion.div>
   )
   // A chat that gets a message moves to the top of Recent; a pinned one
@@ -434,9 +480,13 @@ function ChatRow({
   // Shown greyed while the list shows archived chats: nothing in it is
   // unread, pinned or running, and its menu only unarchives or deletes.
   const archived = Boolean(chat.archivedAt)
-  const mute = archived ? undefined : getMute(chat.id)
-  const unread = !archived && !active && getUnreadCount(chat.id) > 0
-  const mentionCount = active || archived ? 0 : getMentionCount(chat.id)
+  // A Discord channel agents are in: people read it in Discord, so nothing
+  // here is unread, and it has no pin, hide or mute of its own.
+  const place = chat.place
+  const quiet = archived || Boolean(place)
+  const mute = quiet ? undefined : getMute(chat.id)
+  const unread = !quiet && !active && getUnreadCount(chat.id) > 0
+  const mentionCount = active || quiet ? 0 : getMentionCount(chat.id)
   const activity = useChannelActivity(chat.id)
   const sessions = archived ? [] : (activity?.sessions ?? [])
   // An approval waiting on this person: once the chat is read nothing else
@@ -525,6 +575,14 @@ function ChatRow({
                   strokeWidth={2}
                 />
               )}
+              {place && (
+                <HugeiconsIcon
+                  icon={DiscordIcon}
+                  aria-label="In Discord"
+                  className="size-3 shrink-0 self-center text-muted-foreground"
+                  strokeWidth={2}
+                />
+              )}
               {archived && (
                 <HugeiconsIcon
                   icon={Archive02Icon}
@@ -538,7 +596,7 @@ function ChatRow({
                 className={cn(
                   "shrink-0 text-[11px] text-muted-foreground tabular-nums",
                   // The pin button takes the time's place on hover.
-                  !archived &&
+                  !quiet &&
                     "group-hover/chat:invisible group-has-[[data-pin]:focus-visible]/chat:invisible"
                 )}
               >
@@ -587,7 +645,7 @@ function ChatRow({
               !
             </button>
           )}
-          {!archived && (
+          {!quiet && (
             <button
               type="button"
               data-pin
@@ -605,7 +663,17 @@ function ChatRow({
           )}
         </ContextMenuTrigger>
         <ContextMenuPopup align="start">
-          {archived ? (
+          {place ? (
+            <ContextMenuItem
+              render={
+                // biome-ignore lint/a11y/useAnchorContent: the item renders its label inside
+                <a href={place.url} target="_blank" rel="noreferrer" />
+              }
+            >
+              <HugeiconsIcon icon={DiscordIcon} strokeWidth={2} />
+              Open in Discord
+            </ContextMenuItem>
+          ) : archived ? (
             canManage && (
               <ContextMenuItem onClick={onUnarchive}>
                 <HugeiconsIcon icon={ArchiveRestoreIcon} strokeWidth={2} />

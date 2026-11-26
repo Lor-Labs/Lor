@@ -622,6 +622,7 @@ export async function flushAgentInbox(
             .then((posted) =>
               postAgentToDiscord({
                 channelId,
+                agentId,
                 messageId: posted.messageId,
                 content: PAUSED_OUT_OF_CREDITS_MESSAGE,
                 threadRootId: null,
@@ -1229,6 +1230,7 @@ function agentHooks(
       // A thread Discord refused to start leaves the post in its chat.
       const discordError = await postAgentToDiscord({
         channelId: targetId,
+        agentId: channel.agentId,
         messageId: posted.messageId,
         content,
         threadRootId: threadNote ? null : threadRootId,
@@ -1355,6 +1357,7 @@ export async function runAgentTurnJob(
       .then((posted) =>
         postAgentToDiscord({
           channelId,
+          agentId: channel.agentId,
           messageId: posted.messageId,
           content,
           threadRootId: turnPlace.threadRootId,
@@ -1539,6 +1542,7 @@ export async function runAgentTurnJob(
       for (const approval of inserted) {
         await postAgentToDiscord({
           channelId,
+          agentId: channel.agentId,
           messageId: null,
           content: `Approval needed: ${approval.description}`,
           threadRootId: turnPlace.threadRootId,

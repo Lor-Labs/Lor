@@ -133,7 +133,11 @@ export const listChannels: AppRouteHandler<ListChannelsRoute> = async (c) => {
     db
       .select()
       .from(channel)
-      .where(eq(channel.workspaceId, workspace.id))
+      // A place (a Slack or Discord channel an agent is in) is in no list in
+      // Lor (reference/agents-and-chats.md, decision 51).
+      .where(
+        and(eq(channel.workspaceId, workspace.id), ne(channel.kind, "place"))
+      )
       .orderBy(asc(channel.position)),
     listAccessibleChannelIds(currentUser.id, workspace.id),
   ])

@@ -62,7 +62,8 @@ export function ChannelAgentsSection({
   const here = channel.agentIds.flatMap(
     (id) => agents.find((agent) => agent.id === id) ?? []
   )
-  const canChange = canManage && !channel.archivedAt
+  // A Discord channel's agents are set up from the Discord connector.
+  const canChange = canManage && !channel.archivedAt && channel.kind !== "place"
   if (here.length === 0 && !canChange) return null
   const full = here.length >= MAX_CHANNEL_AGENTS
   const remove = async (agent: WorkspaceAgent) => {

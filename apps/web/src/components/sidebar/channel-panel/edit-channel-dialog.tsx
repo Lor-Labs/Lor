@@ -39,7 +39,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { Fragment, useEffect, useState } from "react"
 import { AgentCreature } from "@/components/agent/agent-creature"
-import { DiscordChatSection } from "@/components/agent/discord-chat-section"
 import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
 import { InlineConfirmButton } from "@/components/ui/inline-confirm-button"
 import {
@@ -610,13 +609,6 @@ function AgentTab({
           </Fragment>
         ))}
         {room && add}
-        {/* Discord has one bot, which is the first agent here. */}
-        <DiscordChatSection
-          key={channel.id}
-          workspaceSlug={workspaceSlug}
-          channelId={channel.id}
-          agentName={first.name}
-        />
       </PaneBody>
     )
   }

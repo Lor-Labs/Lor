@@ -59,6 +59,11 @@ import {
   ConnectorToolSettings,
 } from "@/components/workspace/connector-tool-settings"
 import {
+  DiscordConnectorDetail,
+  DiscordConnectorRow,
+  useDiscordConnected,
+} from "@/components/workspace/discord-connector"
+import {
   IconTile,
   PILL_BUTTON,
   SettingsBackButton,
@@ -144,8 +149,8 @@ export function ConnectorsSection({
     topRef.current?.scrollIntoView({ block: "start" })
   }, [selectedId])
 
-  const openConnector = (id: ConnectorKey | null) => {
-    if (id) setReturnFocusId(id)
+  const openConnector = (id: ConnectorKey | "discord" | null) => {
+    if (id && id !== "discord") setReturnFocusId(id)
     void navigate({
       to: ".",
       search: (prev) => ({ ...prev, connector: id ?? undefined }),
@@ -227,7 +232,12 @@ export function ConnectorsSection({
 
   return (
     <div ref={topRef} className="scroll-mt-6">
-      {selected ? (
+      {selectedId === "discord" ? (
+        <DiscordConnectorDetail
+          workspaceSlug={workspaceSlug}
+          onBack={() => openConnector(null)}
+        />
+      ) : selected ? (
         <ConnectorDetail
           key={selected.id}
           workspaceSlug={workspaceSlug}
@@ -251,6 +261,8 @@ export function ConnectorsSection({
         />
       ) : (
         <ConnectorList
+          workspaceSlug={workspaceSlug}
+          onOpenDiscord={() => openConnector("discord")}
           providers={data.providers}
           query={query}
           onQueryChange={setQuery}
@@ -379,6 +391,8 @@ function ConnectorTile({
 }
 
 function ConnectorList({
+  workspaceSlug,
+  onOpenDiscord,
   providers,
   query,
   onQueryChange,
@@ -386,6 +400,8 @@ function ConnectorList({
   onOpen,
   onConnect,
 }: {
+  workspaceSlug: string
+  onOpenDiscord: () => void
   providers: IntegrationStatus[]
   query: string
   onQueryChange: (query: string) => void
@@ -417,10 +433,29 @@ function ConnectorList({
     "connectors_intro",
     !needle && !!github?.canManage && !providers.some((p) => p.connected)
   )
+  // Discord is not a registry connector: its row joins the group it
+  // belongs in (decision 51).
+  const discordConnected = useDiscordConnected(workspaceSlug)
+  const discordMatches = !needle || "discord chat".includes(needle)
+  const discordRow = discordMatches ? (
+    <DiscordConnectorRow
+      key="discord"
+      workspaceSlug={workspaceSlug}
+      onOpen={onOpenDiscord}
+    />
+  ) : null
   const groups = [
-    { title: "Connected", providers: matches.filter((p) => p.connected) },
-    { title: "Not connected", providers: matches.filter((p) => !p.connected) },
-  ].filter((group) => group.providers.length > 0)
+    {
+      title: "Connected",
+      providers: matches.filter((p) => p.connected),
+      extra: discordConnected ? discordRow : null,
+    },
+    {
+      title: "Not connected",
+      providers: matches.filter((p) => !p.connected),
+      extra: discordConnected ? null : discordRow,
+    },
+  ].filter((group) => group.providers.length > 0 || group.extra)
 
   return (
     <div ref={listRef} className="@container space-y-8">
@@ -447,10 +482,11 @@ function ConnectorList({
           <h3 className="px-2.5 text-sm font-medium">
             {group.title}
             <span className="ml-1.5 font-normal text-muted-foreground">
-              {group.providers.length}
+              {group.providers.length + (group.extra ? 1 : 0)}
             </span>
           </h3>
           <div className="grid grid-cols-1 gap-x-4 gap-y-1 @xl:grid-cols-2">
+            {group.extra}
             {group.providers.map((p) => (
               <ConnectorRow
                 key={p.id}
