@@ -14,6 +14,7 @@ import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm"
 import { emitAgentsUpdated } from "@/lib/agents"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
+import { deleteLoop } from "@/lib/loops"
 import {
   assertWorkspaceAuthority,
   hasWorkspaceAuthority,
@@ -265,6 +266,15 @@ export const deleteAgent: AppRouteHandler<DeleteAgentRoute> = async (c) => {
   const agent = await workspaceAgent(workspace.id, agentId)
   if (!agent) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
 
+  // Its Loops go with it (reference/agents-and-chats.md, decision 23), each
+  // with its card, as when a person deletes one.
+  const loops = await db
+    .select()
+    .from(schema.loop)
+    .where(eq(schema.loop.agentId, agent.id))
+  for (const loop of loops) {
+    await deleteLoop({ loop, requestedBy: c.var.user.id })
+  }
   // Its channels are left with no agent, and its conversations go with it.
   // Its bot user stays, so its messages keep their author.
   await db.delete(schema.agent).where(eq(schema.agent.id, agent.id))

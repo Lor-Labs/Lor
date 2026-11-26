@@ -314,7 +314,7 @@ function AgentDialog({
         ) : shownTab === "loops" ? (
           <PaneBody
             title="Loops"
-            description={`What ${agent.name} does on a schedule. A loop runs in the chat it was set up in.`}
+            description={`What ${agent.name} does on a schedule. Each loop is ${agent.name}'s own and reports in one chat.`}
           >
             <AgentLoops workspaceSlug={workspaceSlug} agent={agent} />
           </PaneBody>
@@ -536,11 +536,11 @@ function DeleteAgentDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete {agent.name}?</AlertDialogTitle>
           <AlertDialogDescription>
-            {agent.name}'s brief and everything it remembers are deleted for
-            good.{" "}
+            {agent.name}'s brief, its loops and everything it remembers are
+            deleted for good.{" "}
             {count > 0
-              ? `The ${count === 1 ? "channel it is in is" : `${count} channels it is in are`} left with no agent.`
-              : "It is in no channel."}
+              ? `The ${count === 1 ? "chat it is in is" : `${count} chats it is in are`} left without it.`
+              : "It is in no chat."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

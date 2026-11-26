@@ -66,6 +66,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { useNavigate } from "@tanstack/react-router"
 import { ChevronsUpDownIcon } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { AgentCreature } from "@/components/agent/agent-creature"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import {
@@ -75,11 +76,13 @@ import {
   useDeleteLoop,
   useLoopLifecycle,
   useRunLoopNow,
+  useSetLoopAgent,
   useUpdateLoop,
 } from "@/components/loops/loop-actions"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { LoopSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import { agentCreature, useAgents } from "@/hooks/use-agents"
 import {
   type ChannelLoop,
   type LoopRun,
@@ -164,6 +167,92 @@ function SectionLabel({ children }: { children: string }) {
     <p className="px-1 font-medium text-[12px] text-muted-foreground">
       {children}
     </p>
+  )
+}
+
+// Who runs the Loop: its own agent (reference/agents-and-chats.md §9), which
+// a person can change to another agent in the chat it reports in. Not shown
+// where no agent could run it: a chat with none, or a Loop that runs in its
+// own session.
+function RunBy({
+  loop,
+  workspaceSlug,
+}: {
+  loop: ChannelLoop
+  workspaceSlug: string
+}) {
+  const agents = useAgents(workspaceSlug)
+  const setAgent = useSetLoopAgent(loop)
+  const owner = agents.find((agent) => agent.id === loop.agentId) ?? null
+  const here = agents.filter((agent) =>
+    agent.channelIds.includes(loop.channelId)
+  )
+  // Still loading the agents, or nobody to show and nobody to pick.
+  if (loop.agentId ? !owner : here.length === 0) return null
+  const gone = owner !== null && !here.includes(owner)
+  const canChange =
+    loop.status !== "completed" && here.some((agent) => agent !== owner)
+  return (
+    <div className="space-y-2">
+      <SectionLabel>Run by</SectionLabel>
+      <div className="flex min-h-12 items-center justify-between gap-3 rounded-xl border bg-card px-4 py-2">
+        <div className="min-w-0">
+          {owner ? (
+            <span className="flex min-w-0 items-center gap-2 text-sm">
+              <AgentCreature creature={agentCreature(owner)} size={20} still />
+              <span className="truncate font-medium">{owner.name}</span>
+            </span>
+          ) : (
+            <span className="text-sm">Nobody yet</span>
+          )}
+          {(gone || !owner) && (
+            <p className="mt-0.5 text-muted-foreground text-xs leading-snug">
+              {gone
+                ? `${owner.name} is no longer in this chat.`
+                : "Pick the agent that does this."}
+            </p>
+          )}
+        </div>
+        {canChange && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  loading={setAgent.isPending}
+                />
+              }
+            >
+              {owner ? "Change" : "Pick an agent"}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-44">
+              {here.map((agent) => (
+                <DropdownMenuCheckboxItem
+                  key={agent.id}
+                  checked={agent === owner}
+                  onCheckedChange={() => {
+                    if (agent !== owner) setAgent.mutate(agent.id)
+                  }}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="flex size-[18px] shrink-0 items-center justify-center">
+                      <AgentCreature
+                        creature={agentCreature(agent)}
+                        size={18}
+                        still
+                      />
+                    </span>
+                    {agent.name}
+                  </span>
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -1177,6 +1266,8 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
         </div>
       ) : (
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5">
+          <RunBy loop={loop} workspaceSlug={view.workspaceSlug} />
+
           <PromptSection
             loop={effective}
             onStage={(instructions) => stage({ instructions })}

@@ -42,6 +42,7 @@ import {
 } from "@/components/agent/channel-agent"
 import { MessageItem } from "@/components/chat/message-item"
 import { isReviewedEvent, ReviewCard } from "@/components/session/review-card"
+import { useOptionalRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
 import { agentSessionQueryOptions } from "@/hooks/use-agent-session"
@@ -67,7 +68,7 @@ type RemovedPayload = { userId: string }
 type LoopPayload = {
   loopId: string
   loopName: string
-  reason?: "failures" | "out_of_credits"
+  reason?: "failures" | "out_of_credits" | "agent_left"
   via?: "proposal"
 }
 type AgentSessionStartedPayload = {
@@ -144,12 +145,23 @@ function LoopName({
   loopId: string
   children: ReactNode
 }) {
+  const { workspaceSlug } = useParams({ strict: false })
+  const sidebar = useOptionalRightSidebar()
+  // Opens the Loop's panel: where one paused because its agent left the
+  // chat is handed to another agent.
+  const open = () => {
+    if (!workspaceSlug || !sidebar) return
+    sidebar.setView({ type: "loop", workspaceSlug, channelId, loopId })
+    if (sidebar.isCollapsed) sidebar.toggleCollapsed()
+  }
   return (
     <HoverCard>
       <HoverCardTrigger
         delay={500}
         closeDelay={100}
-        render={<span className={HOVER_NAME_CLASS} />}
+        render={
+          <button type="button" onClick={open} className={HOVER_NAME_CLASS} />
+        }
       >
         {children}
       </HoverCardTrigger>
@@ -491,9 +503,11 @@ function eventText(
             {p.loopName}
           </LoopName>{" "}
           was paused
-          {p.reason === "out_of_credits"
-            ? " — out of credits"
-            : " after repeated failures"}
+          {p.reason === "agent_left"
+            ? " — its agent is no longer in this chat"
+            : p.reason === "out_of_credits"
+              ? " — out of credits"
+              : " after repeated failures"}
         </>
       )
     }
@@ -1066,7 +1080,7 @@ function AgentMessagedLine({ message }: { message: Message }) {
   const involved = ids.flatMap((id) => agents.get(id) ?? [])
   const senders = involved.filter((agent) => senderIds.includes(agent.id))
   const others = involved.filter((agent) => !senderIds.includes(agent.id))
-  // One writer posting to the whole room, naming nobody or everyone.
+  // One writer posting to the whole room, naming nobody or all agents.
   const toRoom = Boolean(payload?.room) && senders.length === 1
   const room = toRoom
     ? (payload?.roomIds ?? inChat.map((agent) => agent.id))
@@ -1087,7 +1101,7 @@ function AgentMessagedLine({ message }: { message: Message }) {
   }
   // Faces sit by their names: "Quill messaged Inky and Rusty", or past one
   // writer "Quill, Inky and Rusty talked". A post to the room shows the
-  // faces of everyone in it: "Quill messaged the room", or "everyone".
+  // faces of the agents in it: "Quill messaged the room", or "all agents".
   const names = (list: typeof involved) =>
     list.map((agent, index) => (
       <span key={agent.id} className="flex items-center gap-1">
@@ -1118,7 +1132,9 @@ function AgentMessagedLine({ message }: { message: Message }) {
         ) : toRoom ? (
           <>
             {names(senders)}
-            <span>messaged {payload?.everyone ? "everyone" : "the room"}</span>
+            <span>
+              messaged {payload?.everyone ? "all agents" : "the room"}
+            </span>
             <span
               className="flex items-center -space-x-1"
               title={room.map((agent) => agent.name).join(", ")}

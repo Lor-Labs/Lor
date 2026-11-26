@@ -655,3 +655,13 @@ apps/realtime `services/lor.ts`, card rendering in web
   the data move and a leftover one does nothing; the agent's check-in is
   `sweepCheckIns` in `apps/worker/src/lib/agent-inbox.ts`. A Loop is still
   stored on its channel.
+- 2026-11-26 — Loops on the agent (`agents-and-chats.md`, step 3,
+  decisions 15, 23 and 27). A Loop belongs to its agent (`loop.agent_id`,
+  filled once by `loop-agents.ts` before the push) and `loop.channel_id` is
+  the chat it reports in. A fire wakes that agent, whichever others are in
+  the chat. An agent taken out of the chat pauses its Loops there
+  (`paused_reason = 'agent_left'`, a line in the chat); activate and resume
+  refuse without an agent in the chat; "Run by" in the Loop's panel hands
+  it to another agent; deleting an agent deletes its Loops. Loop and
+  proposal cards are posted by the agent that proposed them. A Loop outside
+  a text chat is unchanged: no agent, its own session.

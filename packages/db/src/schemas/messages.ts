@@ -319,7 +319,7 @@ export type LoopEventPayload = {
   loopId: string
   loopName: string
   // loop_paused only
-  reason?: "failures" | "out_of_credits"
+  reason?: "failures" | "out_of_credits" | "agent_left"
   via?: "proposal"
 }
 

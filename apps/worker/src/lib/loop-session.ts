@@ -8,7 +8,9 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { ownConversation } from "@repo/db/queries/agent-conversations"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
+import { isAgentInChannel, pauseLoopsAgentLeft } from "@repo/db/queries/agents"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import type { Loop } from "@repo/db/schema"
 import type { RunLoopContext } from "@repo/lor"
@@ -62,16 +64,47 @@ export function emitLoopUpdated(
 
 type FireOutcome = "started" | "queued" | "skipped" | "failed"
 
-// A Loop's fire on a text channel wakes that channel's agent in its own
+// A Loop's fire in a chat wakes the Loop's own agent in its own
 // conversation, through its inbox (reference/always-on-agents.md §3,
-// agents-and-chats.md decision 27): the turn that reads it is the fire's run
-// and is about the Loop's channel. A fire of the same Loop still unread or
-// running skips this one.
+// agents-and-chats.md decisions 15 and 27): the turn that reads it is the
+// fire's run and is about the chat the Loop reports in. A Loop with no agent
+// runs for nobody, and one whose agent left the chat pauses. A fire of the
+// same Loop still unread or running skips this one.
 async function fireLoopToInbox(
-  deps: { agentInboxQueue: Queue<AgentQueueData> },
+  deps: LoopDeps & { agentInboxQueue: Queue<AgentQueueData> },
   loop: Loop,
   scheduledFor: Date
 ): Promise<FireOutcome> {
+  if (!loop.agentId) return "skipped"
+  if (!(await isAgentInChannel(loop.agentId, loop.channelId))) {
+    // The API pauses them when the agent is taken out; this covers one that
+    // slipped past it, with the same line in the chat.
+    for (const paused of await pauseLoopsAgentLeft(
+      loop.agentId,
+      loop.channelId
+    )) {
+      emitLoopUpdated(deps.emitter, paused)
+      await postLorMessage(deps, {
+        channelId: paused.channelId,
+        content: channelEventContent({
+          eventType: "loop_paused",
+          loopName: paused.name,
+          reason: "agent_left",
+        }),
+        type: "event",
+        eventType: "loop_paused",
+        eventPayload: {
+          loopId: paused.id,
+          loopName: paused.name,
+          reason: "agent_left",
+        },
+        silent: true,
+      }).catch((err) =>
+        logger.error({ err, loopId: paused.id }, "Loop pause note failed")
+      )
+    }
+    return "skipped"
+  }
   const [[waiting], [running], [creator]] = await Promise.all([
     db
       .select({ conversationId: schema.agentInbox.conversationId })
@@ -112,9 +145,14 @@ async function fireLoopToInbox(
   // The check-in is the agent's own now (lib/agent-inbox.ts sweepCheckIns):
   // a check-in Loop left from before does nothing.
   if (loop.kind === "check_in") return "skipped"
+  const own = await ownConversation({
+    workspaceId: loop.workspaceId,
+    agentId: loop.agentId,
+  })
   const conversationId = await addInboxNote({
     workspaceId: loop.workspaceId,
     channelId: loop.channelId,
+    conversationId: own.id,
     source: "loop",
     sourceId: loopFireSourceId(loop.id, scheduledFor),
     loopId: loop.id,
@@ -329,22 +367,22 @@ async function completeLoopByLor(
   }).catch((err) => logger.error({ err, loopId }, "Loop completed note failed"))
 }
 
-// The channel agent's complete_loop: any Loop of its channel that has an end
-// condition to judge. Date and manual ends are mechanical.
+// An agent's complete_loop: any Loop of its own that has an end condition to
+// judge. Date and manual ends are mechanical.
 export function agentCompleteLoop(
   deps: LoopDeps,
-  channelId: string
+  agentId: string
 ): CompleteAgentLoop {
   // The end conditions as the turn starts: what the agent judges. An edit
   // during the turn makes complete_loop refuse.
   const judged = db
     .select({ id: schema.loop.id, endCondition: schema.loop.endCondition })
     .from(schema.loop)
-    .where(eq(schema.loop.channelId, channelId))
+    .where(eq(schema.loop.agentId, agentId))
     .then(
       (rows) => new Map(rows.map((row) => [row.id, row.endCondition])),
       (err: unknown) => {
-        logger.warn({ err, channelId }, "Loop end condition snapshot failed")
+        logger.warn({ err, agentId }, "Loop end condition snapshot failed")
         return null
       }
     )
@@ -355,11 +393,9 @@ export function agentCompleteLoop(
         endCondition: schema.loop.endCondition,
       })
       .from(schema.loop)
-      .where(
-        and(eq(schema.loop.id, loopId), eq(schema.loop.channelId, channelId))
-      )
+      .where(and(eq(schema.loop.id, loopId), eq(schema.loop.agentId, agentId)))
     if (!loop) {
-      return { ok: false, error: "No Loop with that id in this channel" }
+      return { ok: false, error: "You have no Loop with that id" }
     }
     if (!loop.endCondition) {
       return {

@@ -298,10 +298,14 @@ people picked, not everyone. A chat's header and details panel are built
 people routes under `apps/api/src/routes/v1/chats`), and the sidebar's
 search finds chats you are not in, which you join from the chat. Agents in a
 chat talk in its agents' room with `message_agent` (decisions 39 and 44: name
-agents to wake them, name nobody and Jev picks, or everyone): saved in
+agents to wake them, name nobody and Jev picks, or `agents` for all): saved in
 `agent_message`, shown read-only in the agents' chat
 (`apps/web/src/components/chat/agents-chat-view.tsx`), one quiet line in the
-feed. Not built yet: Loops stored on the agent (the order is "What is left" in that doc's §9). The mock of the chat list is
+feed. A Loop belongs to its agent (`loop.agent_id`, filled once by
+`loop-agents.ts` before the push) and reports in one chat: a fire wakes
+that agent, taking it out of the chat pauses the Loop, and "Run by" in the
+Loop's panel hands it to another agent. Step 3 is built; what is left is
+"What is left" in that doc's §9. The mock of the chat list is
 `/prototype/chats`; `/prototype/agents` is the earlier design.
 
 ### Conventions

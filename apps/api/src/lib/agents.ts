@@ -5,6 +5,7 @@ import { syncAgentRole } from "@repo/lor/discord"
 import { workspaceRoom } from "@repo/realtime-types"
 import { getEmitter } from "@/lib/bot-messages"
 import { logger } from "@/lib/logger"
+import { pauseLoopsOfRemovedAgent } from "@/lib/loops"
 
 // Agents apart from channels (reference/agents-and-chats.md).
 
@@ -153,11 +154,15 @@ export async function afterChannelAgentsChanged(input: {
 }) {
   const { channelId } = input
   await Promise.all(
-    input.removed.map((agentId) =>
+    input.removed.flatMap((agentId) => [
       clearAgentChannelInbox(agentId, channelId).catch((err: unknown) =>
         logger.warn({ err, channelId }, "Agent inbox clear failed")
-      )
-    )
+      ),
+      // Its Loops that report here stay its own and pause.
+      pauseLoopsOfRemovedAgent(agentId, channelId).catch((err: unknown) =>
+        logger.warn({ err, channelId }, "Agent loops pause failed")
+      ),
+    ])
   )
   if (input.hasAgent) {
     void syncAgentRole(channelId).catch((err: unknown) =>

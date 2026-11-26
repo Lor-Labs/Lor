@@ -24,7 +24,7 @@ import { type LorMessageDeps, postLorMessage } from "@/lib/lor-messages"
 // The agents' room of a chat (reference/agents-and-chats.md, decisions 39
 // and 44): `message_agent` posts in it, and it works as a chat does. A post
 // that names agents wakes them. One that names nobody wakes the agent Jev
-// reads it as meant for. One for everyone wakes them all. Whoever is not
+// reads it as meant for. One for `agents` wakes them all. Whoever is not
 // woken reads it at their check-in. What is said is saved in
 // `agent_message`, and the chat's feed gets one quiet line for it. There are
 // no caps and no rules about who may message whom: prompting, and what
@@ -32,8 +32,10 @@ import { type LorMessageDeps, postLorMessage } from "@/lib/lor-messages"
 // chat that lives in Slack or Discord.
 
 const LIST = new Intl.ListFormat("en", { type: "conjunction" })
-// What an agent may write in `to` to mean every agent in the chat.
-const EVERYONE = new Set(["everyone", "all", "here", "channel", "chat"])
+// What an agent writes in `to` to mean every agent in the chat: `agents`,
+// shown as @agents. Not @everyone or @here, which in a chat mean the whole
+// workspace and whoever is online. `all` and `everyone` are read as it.
+const ALL_AGENTS = new Set(["agents", "all", "everyone"])
 
 type Deps = LorMessageDeps & {
   emitter: Emitter<ServerToClientEvents>
@@ -55,7 +57,7 @@ function lineText(
   const agentIds = line.agentIds ?? []
   if (senderIds.length > 1) return `${named(agentIds)} talked`
   if (line.room) {
-    return `${named(senderIds)} messaged ${line.everyone ? "everyone in the room" : "the room"}`
+    return `${named(senderIds)} messaged ${line.everyone ? "all agents in the room" : "the room"}`
   }
   return `${named(senderIds)} messaged ${named(agentIds.filter((id) => !senderIds.includes(id)))}`
 }
@@ -98,7 +100,7 @@ export function agentMessenger(
     const wanted = (to ?? [])
       .map((name) => name.trim().replace(/^@/, ""))
       .filter(Boolean)
-    const everyone = wanted.some((name) => EVERYONE.has(name.toLowerCase()))
+    const everyone = wanted.some((name) => ALL_AGENTS.has(name.toLowerCase()))
     const named: typeof others = []
     const unknown: string[] = []
     for (const name of everyone ? [] : wanted) {

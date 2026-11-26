@@ -41,4 +41,5 @@ export const LOOP_PAUSED_REASON_LABEL: Record<string, string> = {
   manual: "Paused by the team",
   failures: "Paused after repeated failures",
   out_of_credits: "Paused - workspace out of credits",
+  agent_left: "Paused when its agent left this chat",
 }

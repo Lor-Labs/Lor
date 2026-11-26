@@ -26,6 +26,45 @@ export function channelLoopsQueryOptions(channelId: string) {
   }
 }
 
+export const agentLoopsKey = (agentId: string) =>
+  ["agent-loops", agentId] as const
+
+// The Loops an agent runs, in every chat this person can see
+// (reference/agents-and-chats.md §9: a Loop belongs to its agent). Loop
+// events reach only the chats this client is in, so the list is also read
+// again each time it is shown.
+export function useAgentLoops(workspaceSlug: string, agentId: string) {
+  const socket = useSocket()
+  const queryClient = useQueryClient()
+  const query = useQuery({
+    queryKey: agentLoopsKey(agentId),
+    queryFn: async (): Promise<ChannelLoop[]> => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].agents[
+        ":agentId"
+      ].loops.$get({ param: { workspaceSlug, agentId } })
+      if (!res.ok) throw new Error("Failed to fetch the agent's loops")
+      return (await res.json()).loops
+    },
+    refetchOnMount: "always",
+  })
+
+  useEffect(() => {
+    if (!socket) return
+    // A Loop handed to another agent changes two lists, so every agent's
+    // list is read again.
+    const refresh = () =>
+      void queryClient.invalidateQueries({ queryKey: ["agent-loops"] })
+    socket.on("loop:updated", refresh)
+    socket.on("loop:deleted", refresh)
+    return () => {
+      socket.off("loop:updated", refresh)
+      socket.off("loop:deleted", refresh)
+    }
+  }, [socket, queryClient])
+
+  return query
+}
+
 // Channel loop list, kept live by loop:updated (channel room) — mirrors
 // useChannelPlans. One query per channel feeds every loop card.
 export function useChannelLoops(channelId: string) {

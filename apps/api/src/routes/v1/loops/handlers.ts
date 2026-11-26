@@ -1,5 +1,9 @@
 import { and, db, desc, eq, inArray, schema, sql } from "@repo/db"
-import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import { isAgentInChannel } from "@repo/db/queries/agents"
+import {
+  listAccessibleChannelIds,
+  resolveChannelAccess,
+} from "@repo/db/queries/channel-access"
 import type { Loop } from "@repo/db/schema"
 import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
 import { toRealtimeLoop } from "@repo/lor/loops"
@@ -11,6 +15,7 @@ import {
   deleteLoop as deleteLoopAction,
   discardDraftLoop as discardDraftLoopAction,
   emitLoopUpdated,
+  loopAgentProblem,
   openLoopSession,
   pauseLoop as pauseLoopAction,
   resumeLoop as resumeLoopAction,
@@ -23,6 +28,7 @@ import type {
   CompleteLoopRoute,
   DeleteLoopRoute,
   DiscardDraftLoopRoute,
+  ListAgentLoopsRoute,
   ListChannelLoopsRoute,
   ListLoopRunsRoute,
   PauseLoopRoute,
@@ -75,6 +81,36 @@ export const listChannelLoops: AppRouteHandler<ListChannelLoopsRoute> = async (
   return c.json({ loops: loops.map(toRealtimeLoop) }, HttpStatusCodes.OK)
 }
 
+// The Loops an agent runs (the Loops tab of its page), in the chats the
+// caller can see.
+export const listAgentLoops: AppRouteHandler<ListAgentLoopsRoute> = async (
+  c
+) => {
+  const { agentId } = c.req.valid("param")
+  const [loops, accessible] = await Promise.all([
+    db
+      .select()
+      .from(schema.loop)
+      .where(
+        and(
+          eq(schema.loop.agentId, agentId),
+          eq(schema.loop.workspaceId, c.var.workspace.id)
+        )
+      )
+      .orderBy(desc(schema.loop.createdAt))
+      .limit(200),
+    listAccessibleChannelIds(c.var.user.id, c.var.workspace.id),
+  ])
+  return c.json(
+    {
+      loops: loops
+        .filter((loop) => accessible.has(loop.channelId))
+        .map(toRealtimeLoop),
+    },
+    HttpStatusCodes.OK
+  )
+}
+
 export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
   const currentUser = c.var.user
   const { loopId } = c.req.valid("param")
@@ -103,6 +139,13 @@ export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
     return c.json(
       { success: false as const, message: "Loop is not a draft" },
       HttpStatusCodes.CONFLICT
+    )
+  }
+  const agentProblem = await loopAgentProblem(loop)
+  if (agentProblem) {
+    return c.json(
+      { success: false as const, message: agentProblem },
+      HttpStatusCodes.BAD_REQUEST
     )
   }
 
@@ -227,6 +270,7 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
     name,
     endAt,
     endCondition,
+    agentId,
     confirmHighFrequency,
   } = c.req.valid("json")
 
@@ -248,6 +292,23 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
   const values: Partial<typeof schema.loop.$inferInsert> = {
     ...(instructions !== undefined ? { instructions } : {}),
     ...(name !== undefined ? { name } : {}),
+  }
+
+  // Handing a Loop to another agent: one of the agents in the chat it
+  // reports in. One paused because its agent left stays paused, now for a
+  // person to resume.
+  if (agentId !== undefined && agentId !== loop.agentId) {
+    if (!(await isAgentInChannel(agentId, loop.channelId))) {
+      return c.json(
+        {
+          success: false as const,
+          message: "That agent is not in the chat this Loop reports in",
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
+    values.agentId = agentId
+    if (loop.pausedReason === "agent_left") values.pausedReason = "manual"
   }
 
   // End modes are one-per-loop: setting either clears the other (the zod
@@ -338,6 +399,11 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
     }
   }
 
+  // Naming the agent it already has changes nothing.
+  if (Object.keys(values).length === 0) {
+    return c.json({ loop: toRealtimeLoop(loop) }, HttpStatusCodes.OK)
+  }
+
   // CAS on the status this edit was computed against — a concurrent
   // pause/activate changes the recompute rules, so the loser retries.
   const updated = await db
@@ -400,6 +466,13 @@ export const resumeLoop: AppRouteHandler<ResumeLoopRoute> = async (c) => {
         success: false as const,
         message: "Channel is read-only (archived or beta access ended)",
       },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  const agentProblem = await loopAgentProblem(found.loop)
+  if (agentProblem) {
+    return c.json(
+      { success: false as const, message: agentProblem },
       HttpStatusCodes.BAD_REQUEST
     )
   }

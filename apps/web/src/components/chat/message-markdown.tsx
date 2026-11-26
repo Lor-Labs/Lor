@@ -31,7 +31,12 @@ const TIPTAP_MENTION_REGEX =
 const EVERYONE_MENTION_REGEX = /(^|\s)@everyone\b/gi
 const CHANNEL_MENTION_REGEX = /(^|\s)@channel\b/gi
 const HERE_MENTION_REGEX = /(^|\s)@here\b/gi
-const BROADCAST_MENTION_IDS = new Set(["everyone", "channel", "here"])
+const BROADCAST_MENTION_IDS = new Set(["everyone", "channel", "here", "agents"])
+// A post for every agent in a chat's agents' room starts with this
+// (reference/agents-and-chats.md, decision 44). No pattern turns typed text
+// into it: @agents is not a mention people can write in a chat.
+export const AGENTS_MENTION = '<mention data-id="agents">@agents</mention>'
+
 // Lor cites grounded sources, all verified server-side: [[/path]] (brain
 // page), [[msg:<id>]] (message), [[src:<id>|<title>|<url>]] (connected-tool
 // source, enriched with its verified title + url at grounding time), or

@@ -2,7 +2,7 @@ import { ArrowRight01Icon, Infinity01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
 import { cn } from "@repo/ui/lib/utils"
-import { useQueries, useQuery } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { sortLoops } from "@/components/loops/loop-row"
 import {
@@ -10,10 +10,7 @@ import {
   SettingsSection,
 } from "@/components/workspace/settings-group"
 import type { WorkspaceAgent } from "@/hooks/use-agents"
-import {
-  type ChannelLoop,
-  channelLoopsQueryOptions,
-} from "@/hooks/use-channel-loops"
+import { type ChannelLoop, useAgentLoops } from "@/hooks/use-channel-loops"
 import {
   openTextChannels,
   workspaceChannelsQueryOptions,
@@ -25,11 +22,16 @@ const STATUS_WORD: Partial<Record<ChannelLoop["status"], string>> = {
   completed: "Completed",
 }
 
-// An agent's loops: the loops of every channel it is in, by channel. A loop
-// is stored on its channel and each fire wakes that channel's agent
-// (reference/agents-and-chats.md, decision 21), so these are the ones this
-// agent runs. A loop opens in its channel, where it is paused, edited and
-// deleted.
+// Paused because the agent was taken out of the chat the Loop reports in.
+const statusWord = (loop: ChannelLoop) =>
+  loop.status === "paused" && loop.pausedReason === "agent_left"
+    ? "Not in this chat"
+    : STATUS_WORD[loop.status]
+
+// An agent's loops: the ones it runs, by the chat each reports in. A loop
+// belongs to its agent (reference/agents-and-chats.md, decisions 15 and 23),
+// whichever other agents are in that chat. A loop opens in its chat, where
+// it is paused, edited, handed to another agent and deleted.
 export function AgentLoops({
   workspaceSlug,
   agent,
@@ -39,29 +41,33 @@ export function AgentLoops({
 }) {
   const navigate = useNavigate()
   const { data: list } = useQuery(workspaceChannelsQueryOptions(workspaceSlug))
-  const channels = list
-    ? openTextChannels(list).filter((channel) =>
-        channel.agentIds.includes(agent.id)
-      )
-    : []
-  const results = useQueries({
-    queries: channels.map((channel) => channelLoopsQueryOptions(channel.id)),
-  })
+  const { data: loops } = useAgentLoops(workspaceSlug, agent.id)
 
-  if (!list || results.some((result) => result.isPending)) {
+  if (!list || !loops) {
     return <p className="px-4 text-muted-foreground text-sm">Loading…</p>
   }
-  const groups = channels
-    .map((channel, index) => ({
-      channel,
-      loops: sortLoops(results[index]?.data ?? []),
+  // In the order of the chat list; a chat that is put away comes last.
+  const chats = openTextChannels(list)
+  const groups = [...new Set(loops.map((loop) => loop.channelId))]
+    .map((channelId) => ({
+      channel: chats.find((chat) => chat.id === channelId) ?? {
+        id: channelId,
+        name: null,
+      },
+      loops: sortLoops(loops.filter((loop) => loop.channelId === channelId)),
     }))
-    .filter((group) => group.loops.length > 0)
+    .sort(
+      (a, b) =>
+        (chats.findIndex((chat) => chat.id === a.channel.id) + 1 ||
+          chats.length + 1) -
+        (chats.findIndex((chat) => chat.id === b.channel.id) + 1 ||
+          chats.length + 1)
+    )
   if (groups.length === 0) {
     return (
       <p className="rounded-xl bg-muted px-4 py-3 text-muted-foreground text-sm dark:bg-muted/60">
-        No loops yet. Ask {agent.name} in a channel to do something on a
-        schedule, and it sets one up there.
+        No loops yet. Ask {agent.name} in a chat to do something on a schedule,
+        and it sets one up there.
       </p>
     )
   }
@@ -79,7 +85,7 @@ export function AgentLoops({
       {groups.map(({ channel, loops }) => (
         <SettingsSection
           key={channel.id}
-          title={`#${channel.name ?? "channel"}`}
+          title={channel.name ?? "A chat that was put away"}
           count={loops.length}
         >
           <SettingsGroup>
@@ -114,9 +120,9 @@ export function AgentLoops({
                       {describeLoopSchedule(loop.schedule, null)}
                     </span>
                   </span>
-                  {STATUS_WORD[loop.status] && (
+                  {statusWord(loop) && (
                     <span className="shrink-0 text-muted-foreground text-xs">
-                      {STATUS_WORD[loop.status]}
+                      {statusWord(loop)}
                     </span>
                   )}
                   <HugeiconsIcon

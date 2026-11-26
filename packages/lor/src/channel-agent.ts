@@ -67,7 +67,7 @@ export type AgentWakeUps = {
 
 // A post in the agents' room of the chat the turn is about
 // (reference/agents-and-chats.md, decisions 39 and 44). `to` names the
-// agents it is for, or is ["everyone"]; left out, it names nobody.
+// agents it is for, or is ["agents"] (all of them); left out, it names nobody.
 // `replyTo` is the post it answers, when the agent says it is an answer:
 // nothing is taken for a reply unless the agent said so. The worker
 // implements it; it returns what the model reads.
@@ -79,7 +79,7 @@ export type MessageAgentExecutor = (input: {
   { ok: true; woke: string[]; note?: string } | { ok: false; error: string }
 >
 
-// Ends one of the channel's Loops. Returns what the model reads.
+// Ends one of the agent's own Loops. Returns what the model reads.
 export type CompleteAgentLoop = (input: {
   loopId: string
   closingNote: string
@@ -182,14 +182,14 @@ const messageAgentContext = z.object({
 export const messageAgentTool = {
   message_agent: tool({
     description:
-      "Post in the agents' room of this chat: where the agents in it talk to each other about its work. It is not posted in the chat; people can read the room, but in a place of its own. It works like any chat. Name the agent it is for in `to` and that agent is woken with it. Leave `to` out when you don't know which agent to ask: the one it reads as meant for is woken, and the others see it later. Set `to` to [\"everyone\"] to wake every agent in the chat, only when all of them need to act. Use it to ask for something another agent has (what it remembers, its tools, what it is working on) or to hand over something that is another agent's to do. They do not see your conversation, so say what you need and everything needed to act on it. To answer a post, pass its id in `replyTo`: it is shown as a reply to that post and its writer is woken with it, so `to` is not needed. An answer wakes you. Use it only when the work needs it: never to chat, to thank an agent, or to say you got its answer.",
+      "Post in the agents' room of this chat: where the agents in it talk to each other about its work. It is not posted in the chat; people can read the room, but in a place of its own. It works like any chat. Name the agent it is for in `to` and that agent is woken with it. Leave `to` out when you don't know which agent to ask: the one it reads as meant for is woken, and the others see it later. Set `to` to [\"agents\"] to wake every agent in the chat, only when all of them need to act. Use it to ask for something another agent has (what it remembers, its tools, what it is working on) or to hand over something that is another agent's to do. They do not see your conversation, so say what you need and everything needed to act on it. To answer a post, pass its id in `replyTo`: it is shown as a reply to that post and its writer is woken with it, so `to` is not needed. An answer wakes you. Use it only when the work needs it: never to chat, to thank an agent, or to say you got its answer.",
     inputSchema: z.object({
       to: z
         .array(z.string().min(1).max(100))
         .max(10)
         .optional()
         .describe(
-          'the names (or ids) of the agents it is for, or ["everyone"]; leave out when you don\'t know which agent to ask'
+          'the names (or ids) of the agents it is for, or ["agents"] for all of them; leave out when you don\'t know which agent to ask'
         ),
       replyTo: z
         .string()
@@ -334,12 +334,12 @@ export function wakeUpInboxNote(input: { setAt: Date; note: string }): string {
   return `A wake-up you set at ${input.setAt.toISOString().slice(0, 16).replace("T", " ")} UTC came due. Your note to yourself:\n${input.note}\n\nDo what it says if it still applies; things may have moved on. Speak in the chat only if there is something worth saying, as if you noticed it yourself.`
 }
 
-// The agent's complete_loop names the Loop: a channel has several, and the
+// The agent's complete_loop names the Loop: an agent has several, and the
 // tool set stays the same from turn to turn (it is part of the cached prompt).
 export const agentLoopTools = {
   complete_loop: tool({
     description:
-      "Permanently complete one of this channel's Loops so it never runs again. Only for a Loop that has an end condition, and only when that condition is verifiably met (confirm with your tools first; when unsure, let it keep running). The closing note is the Loop's permanent record: what was achieved and how you verified the end condition. If people would want to know the work stopped, say so in your own words, as a teammate would (for example: I'll stop the daily deploy summary now that it's fixed).",
+      "Permanently complete one of your Loops so it never runs again. Only for a Loop that has an end condition, and only when that condition is verifiably met (confirm with your tools first; when unsure, let it keep running). The closing note is the Loop's permanent record: what was achieved and how you verified the end condition. If people would want to know the work stopped, say so in your own words, as a teammate would (for example: I'll stop the daily deploy summary now that it's fixed).",
     inputSchema: z.object({
       loopId: z
         .string()
@@ -408,7 +408,7 @@ You are ${name}, an always-on agent for this team: one teammate the team shares,
 - ${own ? "When you speak here nobody asked just now: lead with what matters." : "Answer the person who addressed you with one send_message."} Mention a person as <@id> only when the message needs their attention.
 - You may stay quiet. When nothing needs saying, end the turn without send_message.
 - A message that names nobody can still wake you, when it reads as meant for you the way a teammate would know it was for them: from what was said before, your role and what you are working on. It is marked "not addressed to you by name". Answer when it is yours. When it is not, or it needs no answer (a thanks, an ok, people talking to each other), end the turn without send_message.
-${teammates.length > 0 ? `- Other agents work for this team too, each with a memory of its own: ${teammates.join("; ")}. In a chat you share, a message that names one of them is theirs: leave it to them and never answer for them. One that names nobody may be for any of you, so answer it only when it is clearly yours. Naming another agent in send_message does not wake it. When the work needs another agent in the chat, for something only it knows or something that is its to do, post in the chat's agents' room with message_agent: name the agent when you know which one, leave the name out when you don't and the one it fits is woken, and use everyone only when every agent must act. People can read the room. Do it only when the work needs it, and never answer an agent for the sake of answering.\n` : ""}- To follow up later, call wake_up. Never promise to come back otherwise.
+${teammates.length > 0 ? `- Other agents work for this team too, each with a memory of its own: ${teammates.join("; ")}. In a chat you share, a message that names one of them is theirs: leave it to them and never answer for them. One that names nobody may be for any of you, so answer it only when it is clearly yours. Naming another agent in send_message does not wake it. When the work needs another agent in the chat, for something only it knows or something that is its to do, post in the chat's agents' room with message_agent: name the agent when you know which one, leave the name out when you don't and the one it fits is woken, and address it to ["agents"] only when every agent must act. People can read the room. Do it only when the work needs it, and never answer an agent for the sake of answering.\n` : ""}- To follow up later, call wake_up. Never promise to come back otherwise.
 - For a back-and-forth that would crowd the chat (debugging, planning, anything long), answer with send_message's startThread: it starts a thread on the message you're answering. Keep quick answers in the chat.
 - In a thread you're part of (one under your message, or one you started or posted in), every message wakes you. Answer when you're addressed or have something useful to add; otherwise end the turn without sending.
 - You have no computer of your own yet: you can't run code, use a shell or make files yourself. Work on code goes to code sessions: start_session hands a task to a coding agent on one repository, and you are woken with its report when its turn ends. Tell people in the chat what you started and, when it reports, what came of it. People review the branch and open pull requests; you and the sessions never do.

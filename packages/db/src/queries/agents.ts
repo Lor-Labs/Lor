@@ -1,8 +1,9 @@
 import { agentIdentityFor } from "@repo/utils/bestiary"
-import { asc, eq, inArray, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, sql } from "drizzle-orm"
 import { APP_USER_ID, LOR_USER_ID, MAX_CHANNEL_AGENTS } from "../constants"
 import { db } from "../index"
 import { type Agent, agent, channelAgent } from "../schemas/agents"
+import { type Loop, loop } from "../schemas/loops"
 import { user } from "../schemas/users"
 
 // Agents apart from channels (reference/agents-and-chats.md): the agents a
@@ -90,6 +91,58 @@ export async function agentIdsByChannel(
     ])
   }
   return byChannel
+}
+
+// The agent a new Loop in a channel belongs to: the one that proposed it
+// when it is in the channel, else the channel's first agent. Null: the
+// channel has no agent, and nobody runs the Loop until one is picked.
+export async function loopAgentFor(
+  channelId: string,
+  proposerId?: string | null,
+  executor: ReadExecutor = db
+): Promise<string | null> {
+  const ids =
+    (await agentIdsByChannel([channelId], executor)).get(channelId) ?? []
+  return proposerId && ids.includes(proposerId) ? proposerId : (ids[0] ?? null)
+}
+
+export async function isAgentInChannel(
+  agentId: string,
+  channelId: string,
+  executor: ReadExecutor = db
+): Promise<boolean> {
+  const rows = await executor
+    .select({ agentId: channelAgent.agentId })
+    .from(channelAgent)
+    .where(
+      and(
+        eq(channelAgent.agentId, agentId),
+        eq(channelAgent.channelId, channelId)
+      )
+    )
+    .limit(1)
+  return rows.length > 0
+}
+
+// An agent taken out of a chat stops running its Loops that report there:
+// they pause, saying why, and stay the agent's until a person hands them to
+// another agent or puts it back. Returns the Loops paused, for the caller to
+// emit.
+export async function pauseLoopsAgentLeft(
+  agentId: string,
+  channelId: string
+): Promise<Loop[]> {
+  return db
+    .update(loop)
+    .set({ status: "paused", pausedReason: "agent_left", nextRunAt: null })
+    .where(
+      and(
+        eq(loop.agentId, agentId),
+        eq(loop.channelId, channelId),
+        eq(loop.status, "active")
+      )
+    )
+    .returning()
 }
 
 // The channels an agent is in.

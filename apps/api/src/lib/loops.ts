@@ -9,6 +9,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { isAgentInChannel, pauseLoopsAgentLeft } from "@repo/db/queries/agents"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { Loop } from "@repo/db/schema"
 import { env } from "@repo/env/server"
@@ -40,6 +41,56 @@ export async function emitLoopUpdated(row: Loop): Promise<void> {
     .emit("loop:updated", { loop: toRealtimeLoop(row) })
 }
 
+// Why a Loop in a chat can't run, or null. It runs only while its own agent
+// is in the chat it reports in (reference/agents-and-chats.md §9); outside
+// a text chat it runs in its own session and needs no agent.
+export async function loopAgentProblem(
+  loop: Pick<Loop, "agentId" | "channelId">
+): Promise<string | null> {
+  const [channel] = await db
+    .select({ type: schema.channel.type })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, loop.channelId))
+  if (channel?.type !== "text") return null
+  if (!loop.agentId) {
+    const [any] = await db
+      .select({ agentId: schema.channelAgent.agentId })
+      .from(schema.channelAgent)
+      .where(eq(schema.channelAgent.channelId, loop.channelId))
+      .limit(1)
+    return any
+      ? "No agent runs this Loop yet. Pick one under Run by."
+      : "This chat has no agent to run the Loop. Add one to the chat first."
+  }
+  if (await isAgentInChannel(loop.agentId, loop.channelId)) return null
+  const [agent] = await db
+    .select({ name: schema.agent.name })
+    .from(schema.agent)
+    .where(eq(schema.agent.id, loop.agentId))
+  const name = agent?.name ?? "Its agent"
+  return `${name} is no longer in this chat. Pick another agent to run this Loop, or add ${agent?.name ?? "it"} back.`
+}
+
+// An agent taken out of a chat: its Loops that report there pause, each
+// with a line in the chat saying why.
+export async function pauseLoopsOfRemovedAgent(
+  agentId: string,
+  channelId: string
+): Promise<void> {
+  for (const paused of await pauseLoopsAgentLeft(agentId, channelId)) {
+    await stopInFlightRuns(paused.id)
+    await emitLoopUpdated(paused).catch((err) =>
+      logger.error({ err, loopId: paused.id }, "Loop pause emit failed")
+    )
+    await postLoopChannelEvent({
+      loop: paused,
+      actorId: LOR_USER_ID,
+      eventType: "loop_paused",
+      reason: "agent_left",
+    })
+  }
+}
+
 function parseRedisUrl(url: string) {
   const parsed = new URL(url)
   const dbIndex = Number.parseInt(parsed.pathname.slice(1), 10)
@@ -67,9 +118,9 @@ function getLoopRunQueue(): Queue<LoopRunJobData> {
 
 // At activation the loop's session exists right away: the session its draft
 // card sits in, or a new one. The creator and the person who activated it
-// follow it, so it is in their sidebars before the first run. A text
-// channel's Loop has no session: its fires wake the channel's agent
-// (reference/always-on-agents.md §3).
+// follow it, so it is in their sidebars before the first run. A Loop in a
+// chat has no session: its fires wake the Loop's own agent
+// (reference/agents-and-chats.md §9).
 export async function openLoopSession(
   loop: Loop,
   activatorId: string

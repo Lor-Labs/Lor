@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto"
 import { isWorkspaceRole } from "@repo/auth/permissions"
 import { isConnectorEvent } from "@repo/connectors"
 import { and, asc, db, eq, isUniqueViolation, max, schema, sql } from "@repo/db"
+import { loopAgentFor } from "@repo/db/queries/agents"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import { joinChatAudience } from "@repo/db/queries/chat-members"
 import type {
@@ -57,6 +58,8 @@ type ApplyContext = {
   workspaceId: string
   approverId: string
   authorUserId: string | null
+  // The proposal card's author: the agent that filed it, when one did.
+  proposerId: string | null
   rationale: string
   // position → created resource id, for `created` refs in later ops.
   createdIds: Map<number, string>
@@ -307,6 +310,19 @@ async function applyOperation(
       if (spec.endCondition && spec.endAfter) {
         fail(position, "A loop can have one end mode, not both")
       }
+      // The Loop belongs to the agent that proposed it when it is in that
+      // chat, else the chat's first agent. A chat with no agent can't run
+      // one.
+      const agentId = await loopAgentFor(channelId, ctx.proposerId, ctx.tx)
+      if (!agentId) {
+        const [target] = await ctx.tx
+          .select({ type: schema.channel.type })
+          .from(schema.channel)
+          .where(eq(schema.channel.id, channelId))
+        if (target?.type === "text") {
+          fail(position, "That chat has no agent to run a Loop")
+        }
+      }
       // Approving the card IS the high-frequency consent — the schedule is
       // printed on it (mirrors the activate route's confirm round-trip).
       const highFrequency = validation.requiresConfirmation
@@ -315,6 +331,7 @@ async function applyOperation(
         .values({
           workspaceId: ctx.workspaceId,
           channelId,
+          agentId,
           creatorId: ctx.approverId,
           name: spec.name,
           instructions: spec.instructions,
@@ -795,12 +812,19 @@ export async function applyProposal(
         spec: parsed.data,
       }
     })
+    const [card] = proposal.cardMessageId
+      ? await db
+          .select({ authorId: schema.message.authorId })
+          .from(schema.message)
+          .where(eq(schema.message.id, proposal.cardMessageId))
+      : []
     const results = await db.transaction(async (tx) => {
       const ctx: ApplyContext = {
         tx,
         workspaceId: proposal.workspaceId,
         approverId,
         authorUserId: proposal.authorUserId,
+        proposerId: card?.authorId ?? null,
         rationale: proposal.rationale,
         createdIds: new Map(),
         kinds: new Map(

@@ -693,7 +693,7 @@ export async function agentLog(agentId: string): Promise<string | null> {
 
 // What is open right now, computed at each wake, across the agent's
 // conversations: its sessions still working, approvals people haven't
-// decided, the Loops of its channels and the wake-ups it set. It is the same
+// decided, its own Loops and the wake-ups it set. It is the same
 // in every conversation, so two requests don't start the same work.
 export async function openBlock(agentId: string): Promise<string | null> {
   const [working, waiting, loops, wakeUps] = await Promise.all([
@@ -760,7 +760,7 @@ export async function openBlock(agentId: string): Promise<string | null> {
       .innerJoin(schema.channel, eq(schema.channel.id, schema.loop.channelId))
       .where(
         and(
-          inArray(schema.loop.channelId, agentChannels(agentId)),
+          eq(schema.loop.agentId, agentId),
           eq(schema.loop.status, "active"),
           eq(schema.loop.kind, "custom")
         )

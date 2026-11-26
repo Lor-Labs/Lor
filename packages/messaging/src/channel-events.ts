@@ -27,7 +27,7 @@ export type ChannelEventContentInput =
   | {
       eventType: "loop_paused"
       loopName: string
-      reason: "failures" | "out_of_credits"
+      reason: "failures" | "out_of_credits" | "agent_left"
     }
   | { eventType: "loop_completed"; actorName: string; loopName: string }
   | { eventType: "loop_run"; loopName: string }
@@ -122,6 +122,9 @@ export function channelEventContent(input: ChannelEventContentInput): string {
         ? `${input.actorName} created the loop "${input.loopName}" from an approved change proposal`
         : `${input.actorName} created the loop "${input.loopName}"`
     case "loop_paused":
+      if (input.reason === "agent_left") {
+        return `The loop "${input.loopName}" was paused — its agent is no longer in this chat`
+      }
       return input.reason === "out_of_credits"
         ? `The loop "${input.loopName}" was paused — out of credits`
         : `The loop "${input.loopName}" was paused after repeated failures`

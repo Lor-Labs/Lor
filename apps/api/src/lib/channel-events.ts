@@ -94,7 +94,7 @@ export async function postLoopChannelEvent(input: {
   loop: { id: string; name: string; channelId: string }
   actorId: string
   eventType: "loop_created" | "loop_paused" | "loop_completed"
-  reason?: "failures" | "out_of_credits"
+  reason?: "failures" | "out_of_credits" | "agent_left"
 }): Promise<void> {
   try {
     const channel = await db

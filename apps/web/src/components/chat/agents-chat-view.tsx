@@ -5,7 +5,10 @@ import { cn } from "@repo/ui/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { AgentCreature } from "@/components/agent/agent-creature"
-import { MessageMarkdown } from "@/components/chat/message-markdown"
+import {
+  AGENTS_MENTION,
+  MessageMarkdown,
+} from "@/components/chat/message-markdown"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { useSocket } from "@/context/socket-context"
 import { agentCreature, useAgentsById } from "@/hooks/use-agents"
@@ -231,7 +234,7 @@ export function AgentsChatView({
               ? messages.find((item) => item.id === message.replyToId)
               : undefined
             const named = message.toEveryone
-              ? "@everyone "
+              ? `${AGENTS_MENTION} `
               : parent
                 ? ""
                 : message.toAgentIds.map((id) => `<@${id}> `).join("")

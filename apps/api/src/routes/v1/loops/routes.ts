@@ -4,14 +4,17 @@ import jsonContent from "@/lib/helpers/openapi/json-content"
 import {
   badRequestSchema,
   conflictSchema,
+  forbiddenSchema,
   internalServerErrorSchema,
   notFoundSchema,
   unauthorizedSchema,
 } from "@/lib/helpers/openapi/schemas"
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
+import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
   activateLoopBodySchema,
   activateLoopResponseSchema,
+  agentLoopsParamsSchema,
   channelLoopsParamsSchema,
   deleteLoopResponseSchema,
   listChannelLoopsResponseSchema,
@@ -48,6 +51,30 @@ export const listChannelLoops = createRoute({
 })
 
 export type ListChannelLoopsRoute = typeof listChannelLoops
+
+export const listAgentLoops = createRoute({
+  path: "/workspaces/{workspaceSlug}/agents/{agentId}/loops",
+  method: "get",
+  summary: "List an agent's loops",
+  description:
+    "The loops this agent runs, across the chats the caller can see, newest first.",
+  tags: ["Loops"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: agentLoopsParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listChannelLoopsResponseSchema,
+      description: "The agent's loops",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ListAgentLoopsRoute = typeof listAgentLoops
 
 export const activateLoop = createRoute({
   path: "/loops/{loopId}/activate",

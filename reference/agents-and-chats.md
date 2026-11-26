@@ -1,7 +1,7 @@
 # Agents and chats: agents apart from channels
 
 **Status:** Decided with Jacob from 2026-11-23 to 11-26 and built step by
-step from §9. This doc is the record: §3 lists every decision (1 to 43) with
+step from §9. This doc is the record: §3 lists every decision (1 to 44) with
 who made it and when, §9 says what each step built, how it was checked and
 what was not run, and "What is left" at the top of §9 is the order of the
 remaining work. Built so far: agents apart from channels (step 1), one
@@ -10,8 +10,8 @@ agents in a chat posting as bot users, the Jev wake for messages that name
 nobody, the sidebar's chat list with its member records, listeners (several
 agents per connector event, custom webhooks on the agent's page), the
 notification rules, New chat, the chat's header and panel, finding and
-joining a chat, and agents messaging each other. Left in step 3: Loops stored
-on the agent. Steps 4 and 5 are design only. Lint and type checks pass and each
+joining a chat, agents messaging each other, and Loops that belong to their
+agent. Step 3 is built. Steps 4 and 5 are design only. Lint and type checks pass and each
 part was run live on a throwaway database, except where its section says
 otherwise. `db:push` on the shared databases is owed (§9, rollout). It
 changes the shape built under `always-on-agents.md` (LOR-169): where a step
@@ -106,7 +106,7 @@ objected to and should confirm.
 | 41 | Notifications: a chat's message notifies the people in it; a posted event pings people only when its listener says so; what an agent says to a Lor chat pings like anyone's message; a thread's reply is unread only for the people who follow it; a chat that lives in Slack or Discord shows unread in Lor and leaves the ping to that app | Jacob, 11-26 |
 | 42 | Several agents can listen to one event, each once and each with its own chat, filter and instructions. The connector's page shows events as a plain list, one line an event with who hears it; opening an event shows its listeners as chips and one flat form for the picked one | Jacob, 11-26 |
 | 43 | A listener has no hourly or daily cap on how often it wakes its agent, shown or hidden: nothing limits it that the person cannot see. The filter turns events away and the inbox batches bursts | Jacob, 11-26 |
-| 44 | The agents' room of a chat works as a chat does. A post that names agents wakes them; one that names nobody wakes the agent it reads as meant for (Jev, as for a person's message) and the rest read it at their check-in; one for everyone wakes them all. An agent that doesn't know which agent to ask posts without a name. The only way into the room is the line in the chat's feed | Jacob, 11-26 |
+| 44 | The agents' room of a chat works as a chat does. A post that names agents wakes them; one that names nobody wakes the agent it reads as meant for (Jev, as for a person's message) and the rest read it at their check-in; one for all agents (`@agents`) wakes them all. It is not @everyone or @here: in a chat those mean the whole workspace and whoever is online, and neither is what happens here. An agent that doesn't know which agent to ask posts without a name. The only way into the room is the line in the chat's feed | Jacob, 11-26 |
 
 Considered and dropped:
 
@@ -280,11 +280,10 @@ tools all stay.
 Each step ends in something the team uses. Steps 2 to 5 are not sized.
 
 **What is left** (the order agreed with Jacob on 2026-11-26; New chat, the
-chat's header and panel, finding and joining a chat, and agents messaging
-each other were first and are built, see below):
+chat's header and panel, finding and joining a chat, agents messaging each
+other and Loops on the agent were first and are built, see below):
 
-1. Loops stored on the agent.
-2. Slack and Discord as places (steps 4 and 5 below).
+1. Slack and Discord as places (steps 4 and 5 below).
 
 **Owed: merging with the AI providers branch** (flagged 2026-11-26).
 Commit `8597867` on `lor/foghollow-320c80` (Azure OpenAI, Vertex AI and
@@ -590,9 +589,9 @@ people wait on one queue.
 - [ ] **Chats in the app:** the sidebar's chat list is built (see "The chat
   list" below). Not built: New chat, the chat's header and panel, finding
   and joining a chat, and a view of what the agent did on its own.
-- [ ] **Loops on the agent** (decision 27): a Loop is still stored on its
-  channel, which is where it posts by default. It follows the channel's
-  agent, not the agent. Events too.
+- [x] **Loops on the agent** (decisions 15, 23 and 27; built 2026-11-26,
+  see "Loops on the agent" below). Events have their agent since listeners
+  (`connector_trigger.agent_id`).
 
 Deviations and gaps:
 
@@ -838,8 +837,9 @@ Agents messaging each other (decision 39, built 2026-11-26):
   as in a chat. `to` names agents: they are woken. `to` left out: Jev
   judges which agent it is meant for (`decideInboxAddress`, the call that
   judges a person's message that names nobody) and wakes those; the tool's
-  result tells the writer who was woken. `to: ["everyone"]`: every other
-  agent is woken. Every agent not woken gets it in the wait lane of its
+  result tells the writer who was woken. `to: ["agents"]`: every other
+  agent is woken (`all` and `everyone` are read as it; `here`, `channel`
+  and `chat` are not, and fail as unknown names). Every agent not woken gets it in the wait lane of its
   own conversation and reads it at its check-in, a message for other agents
   marked as not for it.
 - **Where it is kept and where it lands.** A post is one `agent_message`
@@ -858,7 +858,7 @@ Agents messaging each other (decision 39, built 2026-11-26):
   "Quill, Inky and Rusty talked" once two of the others message each other.
   Answers to the agent that started the run don't count as messaging. A
   post to the room reads "Quill messaged the room" (no name) or "Quill
-  messaged everyone", followed by the faces of the agents in the room
+  messaged all agents", followed by the faces of the agents in the room
   (`roomIds` and `everyone` on the line's payload).
 - **The agents' chat** (`apps/web/src/components/chat/agents-chat-view.tsx`,
   `?agents=` on the chat's route, `GET …/chats/{id}/agent-messages`) is
@@ -868,8 +868,10 @@ Agents messaging each other (decision 39, built 2026-11-26):
   then a card, in the chat's details panel were both built and removed). It follows live (`agent-message:created`).
 - **Who a post is for, in the room** (Jacob, 11-26: as a chat shows it,
   not a "to" beside the name). A post that names agents starts with their
-  @mention, and one for everyone with @everyone, drawn from `to` with the
-  app's own mention chips. An answer is shown as a reply, with the line a
+  @mention, and one for all agents with @agents (Jacob, 11-26: @everyone
+  is a chat app's word; `@agents` is the word picked in its place, which
+  he has not confirmed), drawn from `to` with the app's own mention chips.
+  An answer is shown as a reply, with the line a
   reply has in a chat above it (the asker's face, name and the start of
   the post), which jumps to that post. A second look, every post starting
   with its @mention and no replies, was built beside it and dropped.
@@ -1040,6 +1042,77 @@ Listeners and notifications (decisions 40 to 42, built 2026-11-26):
   drops `hourly_run_cap` and `daily_run_cap`.
   Existing triggers keep their chat and are heard by its first agent; their
   posts stop pinging until "Notify people" is turned on.
+
+### Loops on the agent (built 2026-11-26)
+
+A Loop belongs to its agent and reports in one chat, the shape a listener
+has. Before, it was stored on the chat and woke "the chat's agent": with
+several agents that was the first one, and a Loop changed hands whenever the
+chat's agents changed.
+
+- **`loop.agent_id`** (`packages/db/src/schemas/loops.ts`): the agent that
+  runs it. `loop.channel_id` stays and is the chat it reports in: the turn a
+  fire starts is about that chat. Null agent: nobody runs it in a text chat;
+  outside a text chat a Loop still runs in its own session.
+- **A fire wakes the Loop's own agent** in its own conversation
+  (`fireLoopToInbox`, `apps/worker/src/lib/loop-session.ts`), whichever
+  other agents are in the chat. `complete_loop` and the "open right now"
+  block cover the agent's own Loops, not its chats'.
+- **Whose a new Loop is** (`loopAgentFor`,
+  `packages/db/src/queries/agents.ts`): the agent that proposed it; for one
+  a session or a change proposal makes, the proposing agent when it is in
+  that chat, else the chat's first agent. A change proposal's `create_loop`
+  for a text chat with no agent fails.
+- **Cards are posted by the agent that proposed them** (`createLoopCard`,
+  `createProposalCard`): they were posted as Lor, which a chat shows as its
+  first agent, so a second agent's draft appeared under the first one's
+  name. The Loop card shows a small face only when the Loop's agent is not
+  the card's author (it was handed over).
+- **An agent taken out of a chat** (`pauseLoopsOfRemovedAgent`, from
+  `afterChannelAgentsChanged`): its Loops that report there pause
+  (`loop_paused_reason = "agent_left"`), each with a line in the chat, and
+  stay that agent's. A fire that finds its agent gone pauses the same way.
+  Activate and Resume refuse while the Loop has no agent or its agent is
+  not in the chat, and say which.
+- **Handing a Loop over:** "Run by" at the top of the Loop's panel
+  (`loop-panel.tsx`) picks another agent in the chat (`PATCH /loops/{id}`
+  with `agentId`). One paused because its agent left stays paused for a
+  person to resume. The Loop's name in a chat line opens the panel.
+- **The agent's Loops tab** lists what the agent owns
+  (`GET /workspaces/{slug}/agents/{agentId}/loops`, `useAgentLoops`), by the
+  chat each reports in, in the chats the person can see.
+- **Deleting an agent deletes its Loops**, each with its card, and the
+  confirmation says so.
+- **The data move** (`packages/db/src/scripts/loop-agents.ts`, before the
+  push): it adds the column and gives every existing Loop to the first agent
+  of its chat, the one that ran it. It runs once per database, so a Loop
+  left with no agent later is never handed to one by a push.
+- **Choices made while building, for Jacob to confirm.** The chat stays
+  required: decision 27 says where a Loop posts is optional, but a turn is
+  always about a chat (`agent_inbox.channel_id`, `agent_run.channel_id`),
+  as for a listener. A removed agent's Loops pause instead of going to
+  another agent. An agent's Loops are deleted with it.
+- **Checked** live on a throwaway database: the move gave a seeded Loop to
+  its chat's first agent and left one in a chat with no agent alone; a Loop
+  handed to the third agent of a chat ran as that agent ("Run now"), which
+  posted in the chat; taking that agent out paused the Loop with the line,
+  Resume was refused with the reason, and handing it to another agent then
+  resuming worked; a Loop the second agent of a chat proposed was that
+  agent's, and its card was posted under its name; deleting an agent
+  removed its Loop and the card. Type checks pass for db, lor, messaging,
+  realtime, API, worker, web and mobile.
+- **Not run:** a scheduled fire from the sweep (only "Run now"), a
+  `create_loop` change proposal, a Loop outside a text chat, and the mobile
+  app.
+- **Not built:** making a Loop from the agent's page (it is still proposed
+  in a chat), moving a Loop to another chat, and Loops in the mobile app's
+  agent screens. An active Loop in a chat that never had an agent still
+  fires for nobody, as before.
+- **Rollout:** `pnpm db:push` with the workers stopped: `loop-agents.ts`
+  adds and fills `loop.agent_id`, and the push adds its foreign key, an
+  index and the `agent_left` paused reason. Then API, realtime, worker, web
+  and mobile together. Take `loop-agents.ts` out of `BEFORE_PUSH` once
+  every environment has pushed.
 
 ### Step 4: places and tools
 

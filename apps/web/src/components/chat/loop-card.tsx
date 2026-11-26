@@ -5,12 +5,15 @@ import { Button } from "@repo/ui/components/button"
 import { cn } from "@repo/ui/lib/utils"
 import { useParams } from "@tanstack/react-router"
 import { useMemo } from "react"
+import { AgentCreature } from "@/components/agent/agent-creature"
+import { useChannelAgentsContext } from "@/components/agent/channel-agent"
 import {
   LoopFrequencyDialog,
   useActivateLoop,
   useDiscardDraftLoop,
 } from "@/components/loops/loop-actions"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
+import { agentCreature } from "@/hooks/use-agents"
 import { type ChannelLoop, useLoopForCard } from "@/hooks/use-channel-loops"
 import type { Message } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/search-preview"
@@ -45,10 +48,17 @@ export function LoopCard({ message }: { message: Message }) {
       </div>
     )
   }
-  return <LoopCardBody loop={loop} />
+  return <LoopCardBody loop={loop} authorId={message.author.id} />
 }
 
-function LoopCardBody({ loop }: { loop: ChannelLoop }) {
+function LoopCardBody({
+  loop,
+  authorId,
+}: {
+  loop: ChannelLoop
+  // Who posted the card: the agent that proposed the Loop.
+  authorId: string
+}) {
   const { workspaceSlug } = useParams({ strict: false })
   const { view, setView, isCollapsed, toggleCollapsed } = useRightSidebar()
   const isOpenPanel =
@@ -63,6 +73,13 @@ function LoopCardBody({ loop }: { loop: ChannelLoop }) {
     timezone
   )
   const discardDraft = useDiscardDraftLoop(loop)
+  // Whose Loop it is, when that is not the agent the card is posted by: it
+  // was handed to another agent, or a session proposed it.
+  const agents = useChannelAgentsContext()
+  const owner =
+    agents.length > 1 && loop.agentId !== authorId
+      ? (agents.find((agent) => agent.id === loop.agentId) ?? null)
+      : null
 
   const isDraft = loop.status === "draft"
   const scheduleText = describeLoopSchedule(loop.schedule, null)
@@ -116,6 +133,14 @@ function LoopCardBody({ loop }: { loop: ChannelLoop }) {
         </span>
         <span className="shrink-0 text-muted-foreground/60">·</span>
         <span className="min-w-0 truncate font-medium">{loop.name}</span>
+        {owner && (
+          <span
+            className="flex shrink-0 items-center"
+            title={`Run by ${owner.name}`}
+          >
+            <AgentCreature creature={agentCreature(owner)} size={16} still />
+          </span>
+        )}
       </button>
 
       {isDraft && (

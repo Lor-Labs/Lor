@@ -871,7 +871,8 @@ async function setUpBy(runId: string): Promise<string | null> {
 // person started (a trigger or a Loop must not schedule more Loops).
 function agentProposeLoop(
   deps: AgentDeps,
-  channel: { id: string; workspaceId: string },
+  // `agentId`: the agent proposing it, which the Loop then belongs to.
+  channel: { id: string; workspaceId: string; agentId: string },
   askerId: string | null,
   conversationId: string
 ): ProposeLoopExecutor {
@@ -884,6 +885,7 @@ function agentProposeLoop(
     const made = await createLoopCard(deps, {
       workspaceId: channel.workspaceId,
       channelId: channel.id,
+      agentId: channel.agentId,
       threadRootId: null,
       creatorId: askerId,
       ...input,
@@ -914,7 +916,7 @@ async function linkCard(
 // only in a turn a person started.
 function agentProposeChange(
   deps: AgentDeps,
-  channel: { id: string; workspaceId: string },
+  channel: { id: string; workspaceId: string; agentId: string },
   askerId: string | null,
   conversationId: string
 ): ProposeChangeExecutor {
@@ -927,6 +929,7 @@ function agentProposeChange(
     const made = await createProposalCard(deps, {
       workspaceId: channel.workspaceId,
       channelId: channel.id,
+      agentId: channel.agentId,
       threadRootId: null,
       ...input,
     })
@@ -1071,7 +1074,7 @@ function agentHooks(
       planUserId: turn.planUserId,
       requestUserId: turn.requestUserId ?? null,
     }),
-    completeLoop: agentCompleteLoop(deps, channel.id),
+    completeLoop: agentCompleteLoop(deps, channel.agentId),
     wakeUps: agentWakeUpExecutors(deps, {
       workspaceId: channel.workspaceId,
       agentId: channel.agentId,
@@ -1407,13 +1410,13 @@ export async function runAgentTurnJob(
       turn: { model: channel.agentModel ?? AGENT_DEFAULT_MODEL },
       proposeLoop: agentProposeLoop(
         deps,
-        { id: channelId, workspaceId },
+        { id: channelId, workspaceId, agentId: channel.agentId },
         userId ?? null,
         conversationId
       ),
       proposeChange: agentProposeChange(
         deps,
-        { id: channelId, workspaceId },
+        { id: channelId, workspaceId, agentId: channel.agentId },
         userId ?? null,
         conversationId
       ),
@@ -1707,13 +1710,13 @@ export async function runAgentCompactJob(
         // Unused here, but the summary call needs the turn's exact tool set.
         proposeLoop: agentProposeLoop(
           deps,
-          { id: channelId, workspaceId },
+          { id: channelId, workspaceId, agentId: channel.agentId },
           null,
           conversationId
         ),
         proposeChange: agentProposeChange(
           deps,
-          { id: channelId, workspaceId },
+          { id: channelId, workspaceId, agentId: channel.agentId },
           null,
           conversationId
         ),

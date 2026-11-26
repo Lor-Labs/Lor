@@ -9,13 +9,17 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { agent } from "./agents"
 import { channel } from "./channels"
 import { message } from "./messages"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
-// A loop: a scheduled headless Lor run in a channel, repeating on a cron
-// schedule until an end condition is met, it's paused, or completed. Postgres
+// A loop: scheduled work an agent was told to do, repeating on a cron
+// schedule until an end condition is met, it's paused, or completed. It
+// belongs to its agent (`agentId`) and reports in a chat (`channelId`), as a
+// listener does (reference/agents-and-chats.md, decisions 15, 23 and 27).
+// Postgres
 // is the only source of truth for scheduling — a 60s worker sweep claims due
 // loops via CAS on nextRunAt; there are no per-loop BullMQ schedulers.
 // Runs ride the unattended-run rails with scopeKey = loop.id, so the
@@ -38,6 +42,8 @@ export const loopPausedReasonEnum = pgEnum("loop_paused_reason", [
   "manual",
   "failures",
   "out_of_credits",
+  // Its agent was taken out of the chat it reports in.
+  "agent_left",
 ])
 
 export const loop = pgTable(
@@ -52,9 +58,17 @@ export const loop = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
+    // The chat it reports in: the turn a fire starts is about this chat.
     channelId: uuid("channel_id")
       .notNull()
       .references(() => channel.id, { onDelete: "cascade" }),
+    // The agent that runs it: a fire wakes this agent in its own
+    // conversation. A Loop goes with its agent, never with the chat's other
+    // agents. Null: nobody runs it in a text chat (made in a chat with no
+    // agent); outside a text chat it runs in its own session.
+    agentId: uuid("agent_id").references(() => agent.id, {
+      onDelete: "cascade",
+    }),
     creatorId: uuid("creator_id").references(() => user.id, {
       onDelete: "set null",
     }),
@@ -109,6 +123,7 @@ export const loop = pgTable(
       .on(table.nextRunAt)
       .where(sql`status = 'active'`),
     index("loop_channelId_status_idx").on(table.channelId, table.status),
+    index("loop_agentId_status_idx").on(table.agentId, table.status),
     index("loop_workspaceId_createdAt_idx").on(
       table.workspaceId,
       table.createdAt
@@ -124,6 +139,10 @@ export const loopRelations = relations(loop, ({ one }) => ({
   channel: one(channel, {
     fields: [loop.channelId],
     references: [channel.id],
+  }),
+  agent: one(agent, {
+    fields: [loop.agentId],
+    references: [agent.id],
   }),
   creator: one(user, {
     fields: [loop.creatorId],

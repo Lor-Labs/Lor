@@ -48,7 +48,8 @@ function run(command, args) {
 // otherwise destroy (agents-from-channels.ts copies each channel's agent
 // settings onto `agent` rows before their columns are dropped), then a
 // column drop the push would otherwise ask a question about, then the bot
-// users the push's foreign key from `agent.id` needs.
+// users the push's foreign key from `agent.id` needs, then each Loop's agent
+// (loop-agents.ts adds and fills `loop.agent_id` once).
 const BEFORE_PUSH = [
   "src/scripts/ensure-extensions.ts",
   "src/scripts/agents-from-channels.ts",
@@ -56,6 +57,7 @@ const BEFORE_PUSH = [
   "src/scripts/agent-conversations.ts",
   "src/scripts/agent-bot-users.ts",
   "src/scripts/chat-member-table.ts",
+  "src/scripts/loop-agents.ts",
 ]
 
 // After the push, which creates their tables: one-time fills.

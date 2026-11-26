@@ -1,4 +1,5 @@
 import { db, eq, schema } from "@repo/db"
+import { loopAgentFor } from "@repo/db/queries/agents"
 import { describeLoopSchedule } from "@repo/lor/loop-schedule"
 import { toRealtimeLoop } from "@repo/lor/loops"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
@@ -25,6 +26,9 @@ export async function createLoopCard(
   input: {
     workspaceId: string
     channelId: string
+    // The agent that proposed it, which it then belongs to. Left out (a
+    // session proposed it): the chat's first agent.
+    agentId?: string | null
     // The session Lor proposed it in; the draft card posts there.
     threadRootId: string | null
     creatorId: string | null
@@ -43,26 +47,33 @@ export async function createLoopCard(
       content: `${input.name} — ${describeLoopSchedule(input.schedule, input.timezone)}`,
       type: "loop_card",
       ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
+      // The agent's own card: in a chat with several agents it is shown
+      // under the one that proposed it, not the chat's first.
+      ...(input.agentId ? { agentId: input.agentId } : {}),
     }
   )
   // Compensation: an orphan loop_card renders a benign fallback, but don't
   // leave one around when we know the insert failed (thrown or no row).
-  const loop = await db
-    .insert(schema.loop)
-    .values({
-      workspaceId: input.workspaceId,
-      channelId: input.channelId,
-      cardMessageId: cardId,
-      creatorId: input.creatorId,
-      name: input.name,
-      instructions: input.instructions,
-      schedule: input.schedule,
-      timezone: input.timezone,
-      endCondition: input.endCondition,
-      endAt: input.endAt,
-      status: "draft",
-    })
-    .returning()
+  const loop = await loopAgentFor(input.channelId, input.agentId)
+    .then((agentId) =>
+      db
+        .insert(schema.loop)
+        .values({
+          workspaceId: input.workspaceId,
+          channelId: input.channelId,
+          agentId,
+          cardMessageId: cardId,
+          creatorId: input.creatorId,
+          name: input.name,
+          instructions: input.instructions,
+          schedule: input.schedule,
+          timezone: input.timezone,
+          endCondition: input.endCondition,
+          endAt: input.endAt,
+          status: "draft",
+        })
+        .returning()
+    )
     .then((rows) => rows[0] ?? null)
     .catch(async (err) => {
       await db

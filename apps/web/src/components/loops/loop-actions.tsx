@@ -52,6 +52,36 @@ function setLoopStatus(loopId: string, status: ChannelLoop["status"]) {
     loops.map((l) => (l.id === loopId ? { ...l, status } : l))
 }
 
+// Hands a Loop to another agent in the chat it reports in ("Run by").
+export function useSetLoopAgent(loop: ChannelLoop | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (agentId: string) => {
+      if (!loop) throw new Error("Loop not loaded yet")
+      const res = await apiClient.v1.loops[":loopId"].$patch({
+        param: { loopId: loop.id },
+        json: { agentId },
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(
+          (body && "message" in body && body.message) ||
+            "Failed to change the agent"
+        )
+      }
+      return (await res.json()).loop
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData<ChannelLoop[]>(
+        loopsKey(updated.channelId),
+        (loops) => loops?.map((l) => (l.id === updated.id ? updated : l))
+      )
+      void queryClient.invalidateQueries({ queryKey: ["agent-loops"] })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+}
+
 // Activation flow shared by the loop card's quick button and the loop detail
 // panel: POST activate with the given tz; a 422 requires_confirmation parks
 // firesPerDay in state so the caller renders <LoopFrequencyDialog/>, which

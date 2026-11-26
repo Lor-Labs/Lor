@@ -40,7 +40,7 @@ type RemovedPayload = { userId: string }
 type LoopPayload = {
   loopId: string
   loopName: string
-  reason?: "failures" | "out_of_credits"
+  reason?: "failures" | "out_of_credits" | "agent_left"
 }
 type AgentSessionStartedPayload = {
   sessionId: string
@@ -206,9 +206,11 @@ function eventText(
       return (
         <>
           The loop <Name>{p.loopName}</Name> was paused
-          {p.reason === "out_of_credits"
-            ? " — out of credits"
-            : " after repeated failures"}
+          {p.reason === "agent_left"
+            ? " — its agent is no longer in this chat"
+            : p.reason === "out_of_credits"
+              ? " — out of credits"
+              : " after repeated failures"}
         </>
       )
     }

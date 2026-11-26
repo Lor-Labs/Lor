@@ -367,7 +367,7 @@ export type RealtimeChannelEventPayload =
   | {
       loopId: string
       loopName: string
-      reason?: "failures" | "out_of_credits"
+      reason?: "failures" | "out_of_credits" | "agent_left"
       via?: "proposal"
     }
   | {
@@ -1304,7 +1304,10 @@ export type RealtimeLoopStatus = "draft" | "active" | "paused" | "completed"
 export type RealtimeLoop = {
   id: string
   workspaceId: string
+  // The chat it reports in.
   channelId: string
+  // The agent that runs it; null when nobody does (agents-and-chats.md §9).
+  agentId: string | null
   cardMessageId: string | null
   creatorId: string | null
   // "check_in": the one every channel's agent comes with (decision 7).
@@ -1319,7 +1322,7 @@ export type RealtimeLoop = {
   // Hard end date (sweep-enforced); null = no date end.
   endAt: string | null
   status: RealtimeLoopStatus
-  pausedReason: "manual" | "failures" | "out_of_credits" | null
+  pausedReason: "manual" | "failures" | "out_of_credits" | "agent_left" | null
   nextRunAt: string | null
   lastRunAt: string | null
   consecutiveFailures: number

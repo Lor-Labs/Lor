@@ -25,6 +25,7 @@ export function toRealtimeLoop(row: LoopRow): RealtimeLoop {
     id: row.id,
     workspaceId: row.workspaceId,
     channelId: row.channelId,
+    agentId: row.agentId,
     cardMessageId: row.cardMessageId,
     creatorId: row.creatorId,
     kind: row.kind,
@@ -124,7 +125,7 @@ const SESSION_PROPOSE_DESCRIPTION =
 // The channel agent's wording: a fire wakes it in the channel's chat, and the
 // draft card is posted there.
 const AGENT_PROPOSE_DESCRIPTION =
-  'Set up a Loop in this channel: a schedule that wakes you with standing instructions, on a cron. Use ONLY when a person asks for genuinely recurring work ("check the support queue every morning", "post a Friday digest"), never for one-off work you can do now. This posts a DRAFT card in the chat; nothing runs until a teammate presses Create Loop on it, so point them at the card with send_message. `instructions` are the complete standing brief for every run: write them so they stand on their own, with every detail a run needs. `schedule` is a standard 5-field cron. `timezone`: pass an IANA timezone (e.g. America/New_York) ONLY when the conversation explicitly establishes one; otherwise pass null: the card shows the schedule in each viewer\'s local timezone and the activating teammate pins one. A Loop can end one of three ways: when the ask names an outcome ("until the app ships"), put that finish line in `endCondition` and a later run judges when it is met; when the ask names a duration ("for the next two weeks"), use `endAfter`; otherwise leave both null and the Loop runs until the team stops it. Set at most one of the two.'
+  'Set up a Loop of your own that reports in this chat: a schedule that wakes you with standing instructions, on a cron. Use ONLY when a person asks for genuinely recurring work ("check the support queue every morning", "post a Friday digest"), never for one-off work you can do now. This posts a DRAFT card in the chat; nothing runs until a teammate presses Create Loop on it, so point them at the card with send_message. `instructions` are the complete standing brief for every run: write them so they stand on their own, with every detail a run needs. `schedule` is a standard 5-field cron. `timezone`: pass an IANA timezone (e.g. America/New_York) ONLY when the conversation explicitly establishes one; otherwise pass null: the card shows the schedule in each viewer\'s local timezone and the activating teammate pins one. A Loop can end one of three ways: when the ask names an outcome ("until the app ships"), put that finish line in `endCondition` and a later run judges when it is met; when the ask names a duration ("for the next two weeks"), use `endAfter`; otherwise leave both null and the Loop runs until the team stops it. Set at most one of the two.'
 
 // Bound on runs a person is part of (respond() spreads it in when the
 // executor is present): a trigger or a Loop must not schedule more Loops.
