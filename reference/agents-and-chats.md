@@ -309,8 +309,15 @@ other and Loops on the agent were first and are built, see below):
    Lor and GitHub, the agent's answers move into that thread, and its
    approvals are asked there with buttons (an answer or a plan links to Lor).
    Follow-ups go through the agent, on the owner's plan. Not run against a
-   real Discord server either. Next: a Loop's "Reports in" listing places,
-   then Slack.
+   real Discord server either. Then (Jacob, 11-26): cards in Components V2
+   (`packages/lor/src/discord-ui.ts`: the hello, the session card with a
+   "Send to session" form, approvals), a mention in a channel with no agent
+   answered with an "Add an agent" button that opens a private menu of
+   agents with their roles (or "Add Rusty here" for an agent's role), and
+   agents attaching files to what they post (send_message's `files`,
+   `packages/lor/src/agent-files.ts`: a file a session shared or someone
+   posted), uploaded to Discord up to the server's limit and linked past it.
+   Next: a Loop's "Reports in" listing places, then Slack.
 Archiving a chat for everyone, and undoing it, are built (decision 52):
 `POST /chats/{id}/archive` and `/unarchive` (`apps/api/src/lib/chat-archive.ts`),
 the Archive section in the chat's settings, Undo in the toast, Unarchive on

@@ -1,5 +1,9 @@
 import { db, eq, LOR_USER_ID, schema, sql } from "@repo/db"
-import type { ChannelEventPayload, ChannelEventType } from "@repo/db/schema"
+import type {
+  Attachment,
+  ChannelEventPayload,
+  ChannelEventType,
+} from "@repo/db/schema"
 import {
   buildMessageFanout,
   loadThreadSummary,
@@ -172,6 +176,7 @@ export async function postLorMessage(
     lorTriggerMessageId?: string
     // The agent speaking, in a chat: the message's author is its bot user.
     agentId?: string
+    attachments?: Attachment[]
   }
 ): Promise<{ messageId: string }> {
   const author = await loadLorAuthor(input.agentId)
@@ -189,6 +194,7 @@ export async function postLorMessage(
       referencedMessageId: input.referencedMessageId ?? null,
       threadRootId: input.threadRootId ?? null,
       excludedFromMemory: input.type === "event",
+      attachments: input.attachments ?? [],
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
     .then((rows) => rows[0])
@@ -216,7 +222,7 @@ export async function postLorMessage(
     author: { ...author, avatarColor: null },
     mentions,
     reactions: [],
-    attachments: [],
+    attachments: input.attachments ?? [],
     embeds: [],
     referencedMessage: input.referencedMessageId
       ? {

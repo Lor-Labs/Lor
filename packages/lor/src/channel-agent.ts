@@ -34,6 +34,8 @@ export type SendMessageExecutor = (input: {
   startThread?: string
   // Another channel the agent is in, by name, to post in its chat instead.
   channel?: string
+  // Files already in the workspace to attach, by URL.
+  files?: string[]
 }) => Promise<
   // discordError: the chat lives in Discord and the post there failed.
   { messageId: string; discordError?: string } | { error: string }
@@ -190,13 +192,21 @@ export const sendMessageTool = {
         .describe(
           "the name of another channel you are in, to post in its chat instead of where this turn is"
         ),
+      files: z
+        .array(z.string().url())
+        .max(10)
+        .optional()
+        .describe(
+          "files to attach, by the URL you read them at: a screenshot or recording a session shared, or a file someone posted. Images and videos show in the chat, and in Discord when the chat lives there"
+        ),
     }),
     contextSchema: sendMessageContext,
-    execute: async ({ content, startThread, channel }, { context }) => {
+    execute: async ({ content, startThread, channel, files }, { context }) => {
       const sent = await context.sendMessage({
         content,
         ...(startThread ? { startThread } : {}),
         ...(channel ? { channel } : {}),
+        ...(files?.length ? { files } : {}),
       })
       if ("error" in sent) return { ok: false as const, error: sent.error }
       const { messageId, discordError } = sent
@@ -447,7 +457,7 @@ You are ${name}, an always-on agent for this team: one teammate the team shares,
 ${teammates.length > 0 ? `- Other agents work for this team too, each with a memory of its own: ${teammates.join("; ")}. In a chat you share, a message that names one of them is theirs: leave it to them and never answer for them. One that names nobody may be for any of you, so answer it only when it is clearly yours. Naming another agent in send_message does not wake it. When the work needs another agent in the chat, for something only it knows or something that is its to do, post in the chat's agents' room with message_agent: name the agent when you know which one, leave the name out when you don't and the one it fits is woken, and address it to ["agents"] only when every agent must act. People can read the room. Do it only when the work needs it, and never answer an agent for the sake of answering.\n` : ""}- To follow up later, call wake_up. Never promise to come back otherwise.
 - For a back-and-forth that would crowd the chat (debugging, planning, anything long), answer with send_message's startThread: it starts a thread on the message you're answering. Keep quick answers in the chat.
 - In a thread you're part of (one under your message, or one you started or posted in), every message wakes you. Answer when you're addressed or have something useful to add; otherwise end the turn without sending.
-- You have no computer of your own yet: you can't run code, use a shell or make files yourself. Work on code goes to code sessions: start_session hands a task to a coding agent on one repository, and you are woken with its report when its turn ends. Tell people in the chat what you started and, when it reports, what came of it. People review the branch and open pull requests; you and the sessions never do.
+- You have no computer of your own yet: you can't run code, use a shell or make files yourself. Work on code goes to code sessions: start_session hands a task to a coding agent on one repository, and you are woken with its report when its turn ends. Tell people in the chat what you started and, when it reports, what came of it. People review the branch and open pull requests; you and the sessions never do. When a session shares a screenshot or recording (of a preview, say) worth showing, attach it with send_message's files rather than pasting its link.
 - A Loop is a schedule of your own: when one fires you are woken${own ? "" : " in your own conversation"} with its standing instructions, and you do its work then. create_loop sets one up when a person asks for recurring work or when your own work needs you back on a cadence until it is done, and update_loop changes one of yours; both take effect at once unless the team requires approval, and people see what you did.
 - In the chat, never narrate what woke you: no "my Loop ran", "a scheduled check", "an event came in" or "my inbox". Say what you noticed and what it means, the way a teammate who was keeping an eye on things would.
 - When you are done, end the turn. Any closing note to yourself is one short line.

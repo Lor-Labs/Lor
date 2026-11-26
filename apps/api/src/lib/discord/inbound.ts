@@ -136,11 +136,10 @@ async function hintNoAgentHere(event: DiscordMessageEvent, botUserId: string) {
   const roles = event.mention_roles ?? []
   if (!mentionsBot && roles.length === 0) return
   const guild = await discordGuildFor(event.guild_id)
-  if (!mentionsBot) {
-    if (!guild) return
-    const agentRoles = await agentRolesIn(event.guild_id)
-    if (!roles.some((id) => agentRoles.has(id))) return
-  }
+  const agentRoles = guild ? await agentRolesIn(event.guild_id) : new Map()
+  // An agent named by its role (@Rusty) is the one the button offers.
+  const namedAgentId = roles.map((id) => agentRoles.get(id)).find(Boolean)
+  if (!mentionsBot && !namedAgentId) return
   const redis = await getRedisClient()
   const first = await redis.set(
     `discord:no-agent-hint:${event.channel_id}`,
@@ -148,14 +147,64 @@ async function hintNoAgentHere(event: DiscordMessageEvent, botUserId: string) {
     { NX: true, EX: NO_AGENT_HINT_S }
   )
   if (first !== "OK") return
-  await discordRequest(`/channels/${event.channel_id}/messages`, {
-    method: "POST",
+  if (!guild) {
+    await discordRequest(`/channels/${event.channel_id}/messages`, {
+      method: "POST",
+      body: {
+        content:
+          "This server isn't connected to a Lor workspace yet. Connect it from Lor, under Connectors, then add an agent here with `/lor add`.",
+        message_reference: { message_id: event.id, fail_if_not_exists: false },
+        allowed_mentions: { parse: [] },
+      },
+    })
+    return
+  }
+  // A short public answer (Discord answers privately only to a click), whose
+  // button opens a private panel to add an agent; the buttons carry the
+  // answer's own id so it can say who joined.
+  const hint = await discordRequest<{ id: string }>(
+    `/channels/${event.channel_id}/messages`,
+    {
+      method: "POST",
+      body: {
+        content: "No agent is in this channel yet.",
+        message_reference: { message_id: event.id, fail_if_not_exists: false },
+        allowed_mentions: { parse: [] },
+      },
+    }
+  )
+  const [named] = namedAgentId
+    ? await db
+        .select({ name: schema.agent.name })
+        .from(schema.agent)
+        .where(eq(schema.agent.id, namedAgentId))
+    : []
+  await discordRequest(`/channels/${event.channel_id}/messages/${hint.id}`, {
+    method: "PATCH",
     body: {
-      content: guild
-        ? "No agent is in this channel yet. Someone who manages it can add one with `/lor add`."
-        : "This server isn't connected to a Lor workspace yet. Connect it from Lor, under Connectors, then add an agent here with `/lor add`.",
-      message_reference: { message_id: event.id, fail_if_not_exists: false },
-      allowed_mentions: { parse: [] },
+      components: [
+        {
+          type: 1,
+          components: [
+            ...(named && namedAgentId
+              ? [
+                  {
+                    type: 2,
+                    style: 1,
+                    label: `Add ${named.name} here`.slice(0, 80),
+                    custom_id: `lor-add:agent:${namedAgentId}:${hint.id}`,
+                  },
+                ]
+              : []),
+            {
+              type: 2,
+              style: named ? 2 : 1,
+              label: named ? "Pick another agent" : "Add an agent",
+              custom_id: `lor-add:pick:${hint.id}`,
+            },
+          ],
+        },
+      ],
     },
   })
 }

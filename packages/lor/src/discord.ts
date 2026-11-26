@@ -68,9 +68,21 @@ export class DiscordApiError extends Error {
 }
 
 // One REST call as the bot. A rate limit waits its retry_after once.
+export type DiscordFile = {
+  filename: string
+  contentType: string
+  data: Buffer
+}
+
 export async function discordRequest<T>(
   path: string,
-  init: { method?: string; body?: unknown; bot?: boolean } = {}
+  init: {
+    method?: string
+    body?: unknown
+    bot?: boolean
+    // Uploaded with the body as multipart: `files[n]` beside `payload_json`.
+    files?: DiscordFile[]
+  } = {}
 ): Promise<T> {
   const headers: Record<string, string> = {
     "User-Agent": "DiscordBot (https://lor.chat, 1)",
@@ -79,12 +91,30 @@ export async function discordRequest<T>(
     if (!env.DISCORD_BOT_TOKEN) throw new Error("Discord is not set up")
     headers.Authorization = `Bot ${env.DISCORD_BOT_TOKEN}`
   }
-  if (init.body !== undefined) headers["Content-Type"] = "application/json"
+  const multipart = Boolean(init.files?.length)
+  if (init.body !== undefined && !multipart) {
+    headers["Content-Type"] = "application/json"
+  }
+  const body = () => {
+    if (!multipart) {
+      return init.body === undefined ? undefined : JSON.stringify(init.body)
+    }
+    const form = new FormData()
+    form.append("payload_json", JSON.stringify(init.body ?? {}))
+    for (const [index, file] of (init.files ?? []).entries()) {
+      form.append(
+        `files[${index}]`,
+        new Blob([new Uint8Array(file.data)], { type: file.contentType }),
+        file.filename
+      )
+    }
+    return form
+  }
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`${API}${path}`, {
       method: init.method ?? "GET",
       headers,
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      body: body(),
     })
     if (res.status === 429 && attempt === 0) {
       const body = (await res.json().catch(() => ({}))) as {
@@ -538,14 +568,16 @@ export function discordComponents(buttons: DiscordButton[] | undefined) {
   ]
 }
 
-// Changes a message an agent posted through its webhook in a place.
+// Changes a message an agent posted through its webhook in a place: its
+// text and buttons, or the layout of a Components V2 message.
 export async function editAgentDiscordMessage(input: {
   channelId: string
   agentId: string
   discordMessageId: string
   discordThreadId: string | null
-  content: string
+  content?: string
   buttons?: DiscordButton[]
+  components?: unknown[]
 }) {
   if (!discordConfigured()) return
   const link = await discordLinkFor(input.channelId)
@@ -553,19 +585,58 @@ export async function editAgentDiscordMessage(input: {
   const hook = await agentWebhookFor(link, input.agentId)
   if (!hook) return
   const token = decryptSecret(hook.webhookToken, encryptionKey())
-  const { text, allowedUserIds } = await toDiscordContent(input.content)
-  await discordRequest(
-    `/webhooks/${hook.webhookId}/${token}/messages/${input.discordMessageId}?with_components=true${input.discordThreadId ? `&thread_id=${input.discordThreadId}` : ""}`,
-    {
+  const path = `/webhooks/${hook.webhookId}/${token}/messages/${input.discordMessageId}?with_components=true${input.discordThreadId ? `&thread_id=${input.discordThreadId}` : ""}`
+  if (input.components) {
+    await discordRequest(path, {
       method: "PATCH",
       bot: false,
       body: {
-        content: splitForDiscord(text || "…")[0],
-        allowed_mentions: { parse: [], users: allowedUserIds },
-        components: discordComponents(input.buttons),
+        components: input.components,
+        allowed_mentions: { parse: [] },
       },
-    }
-  )
+    })
+    return
+  }
+  const { text, allowedUserIds } = await toDiscordContent(input.content ?? "")
+  await discordRequest(path, {
+    method: "PATCH",
+    bot: false,
+    body: {
+      content: splitForDiscord(text || "…")[0],
+      allowed_mentions: { parse: [], users: allowedUserIds },
+      components: discordComponents(input.buttons),
+    },
+  })
+}
+
+// Components V2: a message laid out in containers, sections and text,
+// with no plain content (decision 51's cards).
+export const DISCORD_COMPONENTS_V2 = 1 << 15
+
+const faceUrls = new Map<string, string>()
+
+// The agent's face as an image URL Discord can show (a card's thumbnail):
+// its webhook's avatar, which posts keep in step with its creature.
+export async function agentFaceUrl(
+  channelId: string,
+  agentId: string
+): Promise<string | null> {
+  const link = await discordLinkFor(channelId)
+  if (!link) return null
+  const hook = await agentWebhookFor(link, agentId)
+  if (!hook) return null
+  const key = `${hook.webhookId}:${hook.webhookCreature ?? ""}`
+  const known = faceUrls.get(key)
+  if (known) return known
+  const token = decryptSecret(hook.webhookToken, encryptionKey())
+  const found = await discordRequest<{ avatar: string | null }>(
+    `/webhooks/${hook.webhookId}/${token}`,
+    { bot: false }
+  ).catch(() => null)
+  if (!found?.avatar) return null
+  const url = `https://cdn.discordapp.com/avatars/${hook.webhookId}/${found.avatar}.png?size=128`
+  faceUrls.set(key, url)
+  return url
 }
 
 // A message an agent posts in a place's Discord channel, under its own name
@@ -578,6 +649,10 @@ export async function postAgentToDiscord(input: {
   messageId: string | null
   content: string
   buttons?: DiscordButton[]
+  // A Components V2 layout in place of the text and buttons.
+  components?: unknown[]
+  // Images and videos uploaded with the post's last part.
+  files?: DiscordFile[]
   // The Lor thread the agent answers in: the post goes to its Discord
   // thread. Skipped when that thread isn't one Discord has.
   threadRootId?: string | null
@@ -622,26 +697,48 @@ export async function postAgentToDiscord(input: {
     }
   }
   const token = decryptSecret(hook.webhookToken, encryptionKey())
-  const { text, allowedUserIds } = await toDiscordContent(input.content)
-  const parts = splitForDiscord(text || "…")
+  const target = `/webhooks/${hook.webhookId}/${token}?wait=true&with_components=true${threadId ? `&thread_id=${threadId}` : ""}`
   let first: string | null = null
+  if (input.components) {
+    const posted = await discordRequest<{ id: string }>(target, {
+      method: "POST",
+      bot: false,
+      body: {
+        flags: DISCORD_COMPONENTS_V2,
+        components: input.components,
+        username: webhookSafeName(identity.name),
+        allowed_mentions: { parse: [] },
+      },
+    })
+    first = posted.id
+  }
+  const { text, allowedUserIds } = input.components
+    ? { text: "", allowedUserIds: [] }
+    : await toDiscordContent(input.content)
+  const parts = input.components ? [] : splitForDiscord(text || "…")
   for (const [index, part] of parts.entries()) {
     const last = index === parts.length - 1
-    const posted = await discordRequest<{ id: string }>(
-      `/webhooks/${hook.webhookId}/${token}?wait=true&with_components=true${threadId ? `&thread_id=${threadId}` : ""}`,
-      {
-        method: "POST",
-        bot: false,
-        body: {
-          content: part,
-          username: webhookSafeName(identity.name),
-          allowed_mentions: { parse: [], users: allowedUserIds },
-          ...(last && input.buttons?.length
-            ? { components: discordComponents(input.buttons) }
-            : {}),
-        },
-      }
-    )
+    const posted = await discordRequest<{ id: string }>(target, {
+      method: "POST",
+      bot: false,
+      files: last ? input.files : undefined,
+      body: {
+        content: part,
+        username: webhookSafeName(identity.name),
+        allowed_mentions: { parse: [], users: allowedUserIds },
+        ...(last && input.buttons?.length
+          ? { components: discordComponents(input.buttons) }
+          : {}),
+        ...(last && input.files?.length
+          ? {
+              attachments: input.files.map((file, id) => ({
+                id,
+                filename: file.filename,
+              })),
+            }
+          : {}),
+      },
+    })
     first ??= posted.id
   }
   const messageId = input.messageId
@@ -737,4 +834,56 @@ export async function discordThreadForRoot(
 
 export function isLorMention(content: string) {
   return content.includes(`<@${LOR_USER_ID}>`)
+}
+
+const MiB = 1024 * 1024
+// Discord's per-file upload limit, which a server's boosts raise.
+const UPLOAD_LIMIT_BY_TIER = [20 * MiB, 20 * MiB, 50 * MiB, 100 * MiB]
+const MAX_FILES = 10
+const uploadLimits = new Map<string, { bytes: number; at: number }>()
+
+async function discordUploadLimit(guildId: string) {
+  const known = uploadLimits.get(guildId)
+  if (known && Date.now() - known.at < 60 * 60_000) return known.bytes
+  const guild = await discordRequest<{ premium_tier?: number }>(
+    `/guilds/${guildId}`
+  ).catch(() => null)
+  const bytes = UPLOAD_LIMIT_BY_TIER[guild?.premium_tier ?? 0] ?? 20 * MiB
+  uploadLimits.set(guildId, { bytes, at: Date.now() })
+  return bytes
+}
+
+// The files an agent attached to a post, fetched for Discord: those over the
+// server's limit (or past ten) are left out, for the post to link instead.
+export async function filesForDiscord(
+  channelId: string,
+  attachments: Array<{
+    url: string
+    filename: string
+    size: number
+    contentType: string
+  }>
+): Promise<{ files: DiscordFile[]; linked: typeof attachments }> {
+  const link = await discordLinkFor(channelId)
+  if (!link || attachments.length === 0) return { files: [], linked: [] }
+  const limit = await discordUploadLimit(link.guildId)
+  const files: DiscordFile[] = []
+  const linked: typeof attachments = []
+  for (const file of attachments) {
+    if (files.length >= MAX_FILES || file.size > limit) {
+      linked.push(file)
+      continue
+    }
+    const res = await fetch(file.url).catch(() => null)
+    if (!res?.ok) {
+      linked.push(file)
+      continue
+    }
+    files.push({
+      filename: file.filename,
+      contentType: file.contentType,
+      data: Buffer.from(await res.arrayBuffer()),
+    })
+  }
+  return { files, linked }
 }

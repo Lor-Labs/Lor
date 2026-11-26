@@ -1,7 +1,7 @@
 import { and, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import {
-  type DiscordButton,
+  agentFaceUrl,
   discordConfigured,
   discordLinkFor,
   discordThreadForRoot,
@@ -9,25 +9,29 @@ import {
   postAgentToDiscord,
   startDiscordThread,
 } from "./discord"
+import { approvalCard, type SessionCardView, sessionCard } from "./discord-ui"
 
 // A code session started from a Discord place (reference/agents-and-chats.md,
 // decision 51) shows there as a card in the thread of the request: what it
-// works on, how it is doing, and links to it in Lor and, once pushed, on
-// GitHub. Its approvals are asked in the same thread with buttons.
+// works on, how it is doing, whose it is, and links to it in Lor and, once
+// pushed, on GitHub. Its approvals are asked in the same thread.
 
-export type SessionCardState =
-  | "working"
-  | "approval"
-  | "finished"
-  | "failed"
-  | "stopped"
+export type SessionCardState = SessionCardView["state"]
 
-const STATE_LINE: Record<SessionCardState, string> = {
-  working: "Working on it. Replies here go to it through the agent.",
-  approval: "Waiting for an approval below.",
-  finished: "Finished its turn. Reply here to send it more.",
-  failed: "Failed. Open it in Lor to see why.",
-  stopped: "Stopped.",
+const HARNESS_PLAN: Record<string, string> = {
+  claude_code: "Claude Code",
+  codex: "Codex",
+}
+
+// What a report says first, for the card.
+const LATEST_MAX = 180
+function firstLine(reply: string) {
+  const line = reply
+    .split(/\n\s*\n/)[0]
+    ?.replace(/\s+/g, " ")
+    .trim()
+  if (!line) return null
+  return line.length > LATEST_MAX ? `${line.slice(0, LATEST_MAX - 1)}…` : line
 }
 
 async function sessionFor(sessionId: string) {
@@ -38,6 +42,8 @@ async function sessionFor(sessionId: string) {
       repoFullName: schema.agentSession.repoFullName,
       newBranch: schema.agentSession.newBranch,
       baseBranch: schema.agentSession.baseBranch,
+      harness: schema.agentSession.harness,
+      ownerName: schema.user.name,
       slug: schema.workspace.slug,
     })
     .from(schema.agentSession)
@@ -45,36 +51,36 @@ async function sessionFor(sessionId: string) {
       schema.workspace,
       eq(schema.workspace.id, schema.agentSession.workspaceId)
     )
+    .leftJoin(schema.user, eq(schema.user.id, schema.agentSession.creatorId))
     .where(eq(schema.agentSession.id, sessionId))
   return row ?? null
 }
 
+type Session = NonNullable<Awaited<ReturnType<typeof sessionFor>>>
 type Card = typeof schema.discordSessionCard.$inferSelect
 
-function render(
-  session: NonNullable<Awaited<ReturnType<typeof sessionFor>>>,
-  card: Pick<Card, "state" | "branchUrl" | "pullRequestUrl">
-) {
-  const branch = session.newBranch ?? session.baseBranch
-  const content = [
-    `**Code session:** ${session.title ?? "Untitled"}`,
-    [session.repoFullName, branch ? `branch \`${branch}\`` : null]
-      .filter(Boolean)
-      .join(" · "),
-    STATE_LINE[card.state as SessionCardState] ?? STATE_LINE.working,
-  ].join("\n")
-  const buttons: DiscordButton[] = [
-    {
-      label: "Open in Lor",
-      url: `${env.APP_BASE_URL}/${session.slug}/session/${session.id}`,
-    },
-  ]
-  if (card.pullRequestUrl) {
-    buttons.push({ label: "Pull request", url: card.pullRequestUrl })
-  } else if (card.branchUrl) {
-    buttons.push({ label: "View branch", url: card.branchUrl })
+const lorUrl = (session: Session) =>
+  `${env.APP_BASE_URL}/${session.slug}/session/${session.id}`
+
+function view(
+  session: Session,
+  card: Pick<Card, "state" | "latest" | "branchUrl" | "pullRequestUrl">,
+  face: string | null
+): SessionCardView {
+  return {
+    sessionId: session.id,
+    title: session.title || "Code session",
+    repo: session.repoFullName,
+    branch: session.newBranch ?? session.baseBranch,
+    state: (card.state as SessionCardState) ?? "working",
+    latest: card.latest,
+    owner: session.ownerName,
+    harness: HARNESS_PLAN[session.harness] ?? null,
+    face,
+    lorUrl: lorUrl(session),
+    branchUrl: card.branchUrl,
+    pullRequestUrl: card.pullRequestUrl,
   }
-  return { content, buttons }
 }
 
 // Posts a session's card in the place it was asked for: in the turn's
@@ -97,21 +103,28 @@ export async function postSessionCard(input: {
     const started = await startDiscordThread({
       channelId: input.channelId,
       threadRootId: input.triggerMessageId,
-      name: session.title ?? "Code session",
+      name: session.title || "Code session",
     }).catch(() => null)
     if (started) threadRootId = input.triggerMessageId
   }
-  const { content, buttons } = render(session, {
-    state: "working",
-    branchUrl: null,
-    pullRequestUrl: null,
-  })
+  const face = await agentFaceUrl(input.channelId, input.agentId)
   const posted = await postAgentToDiscord({
     channelId: input.channelId,
     agentId: input.agentId,
     messageId: null,
-    content,
-    buttons,
+    content: "",
+    components: sessionCard(
+      view(
+        session,
+        {
+          state: "working",
+          latest: null,
+          branchUrl: null,
+          pullRequestUrl: null,
+        },
+        face
+      )
+    ),
     threadRootId,
   })
   if (!posted) return null
@@ -130,7 +143,7 @@ export async function postSessionCard(input: {
   return { threadRootId }
 }
 
-async function cardFor(sessionId: string) {
+export async function sessionCardFor(sessionId: string) {
   const [card] = await db
     .select()
     .from(schema.discordSessionCard)
@@ -138,26 +151,36 @@ async function cardFor(sessionId: string) {
   return card ?? null
 }
 
-// Changes a session's card: its state, or what was pushed. A session with no
-// card (not started from Discord) is left alone.
+// Changes a session's card: its state and the start of its last report, or
+// what was pushed. A session with no card (not started from Discord) is
+// left alone.
 export async function updateSessionCard(
   sessionId: string,
   change: {
     state?: SessionCardState
+    report?: string
     branchUrl?: string
     pullRequestUrl?: string
   }
 ) {
   if (!discordConfigured()) return
-  const card = await cardFor(sessionId)
+  const card = await sessionCardFor(sessionId)
   if (!card) return
   const next = {
     state: change.state ?? card.state,
+    // Back at work, the last report no longer says where it is.
+    latest:
+      change.report !== undefined
+        ? firstLine(change.report)
+        : change.state === "working"
+          ? null
+          : card.latest,
     branchUrl: change.branchUrl ?? card.branchUrl,
     pullRequestUrl: change.pullRequestUrl ?? card.pullRequestUrl,
   }
   if (
     next.state === card.state &&
+    next.latest === card.latest &&
     next.branchUrl === card.branchUrl &&
     next.pullRequestUrl === card.pullRequestUrl
   )
@@ -168,23 +191,33 @@ export async function updateSessionCard(
     .update(schema.discordSessionCard)
     .set(next)
     .where(eq(schema.discordSessionCard.sessionId, sessionId))
-  const { content, buttons } = render(session, next)
   await editAgentDiscordMessage({
     channelId: card.channelId,
     agentId: card.agentId,
     discordMessageId: card.discordMessageId,
     discordThreadId: card.discordThreadId,
-    content,
-    buttons,
+    components: sessionCard(
+      view(session, next, await agentFaceUrl(card.channelId, card.agentId))
+    ),
   })
 }
 
+// The Lor thread a card's Discord thread mirrors.
+export async function cardThreadRoot(card: Card) {
+  if (!card.discordThreadId) return null
+  const [root] = await db
+    .select({ id: schema.discordThread.threadRootId })
+    .from(schema.discordThread)
+    .where(eq(schema.discordThread.discordThreadId, card.discordThreadId))
+  return root?.id ?? null
+}
+
 // A session run's approvals, asked in the card's thread: Approve and Reject
-// buttons for a tool call, and a link to Lor for what needs more than a
-// yes or no (a plan to read, questions to answer).
+// for a tool call, and a link to Lor for what needs more than a yes or no
+// (a plan to read, questions to answer).
 export async function postSessionApprovals(sessionId: string, runId: string) {
   if (!discordConfigured()) return
-  const card = await cardFor(sessionId)
+  const card = await sessionCardFor(sessionId)
   const session = card ? await sessionFor(sessionId) : null
   if (!card || !session) return
   const pending = await db
@@ -201,13 +234,7 @@ export async function postSessionApprovals(sessionId: string, runId: string) {
         eq(schema.approval.status, "pending")
       )
     )
-  const [root] = card.discordThreadId
-    ? await db
-        .select({ id: schema.discordThread.threadRootId })
-        .from(schema.discordThread)
-        .where(eq(schema.discordThread.discordThreadId, card.discordThreadId))
-    : []
-  const lorUrl = `${env.APP_BASE_URL}/${session.slug}/session/${session.id}`
+  const threadRootId = await cardThreadRoot(card)
   for (const approval of pending) {
     const inLor =
       approval.kind === "claude_code" &&
@@ -217,24 +244,22 @@ export async function postSessionApprovals(sessionId: string, runId: string) {
       channelId: card.channelId,
       agentId: card.agentId,
       messageId: null,
-      content: inLor
-        ? `**${session.title ?? "The session"}** needs an answer in Lor: ${approval.description}`
-        : `**${session.title ?? "The session"}** needs an approval: ${approval.description}`,
-      threadRootId: root?.id ?? null,
-      buttons: inLor
-        ? [{ label: "Answer in Lor", url: lorUrl }]
-        : [
-            {
-              customId: `lor-approval:${approval.id}:approved`,
-              label: "Approve",
-              style: "success",
-            },
-            {
-              customId: `lor-approval:${approval.id}:rejected`,
-              label: "Reject",
-              style: "danger",
-            },
-          ],
+      content: "",
+      components: approvalCard({
+        approvalId: approval.id,
+        what: inLor
+          ? `${session.title} needs an answer in Lor.`
+          : `${session.title} wants to:`,
+        description: approval.description,
+        // A Claude Code prompt is its owner's alone, as at their terminal.
+        decider:
+          approval.kind === "claude_code"
+            ? (session.ownerName ?? "the session's owner")
+            : null,
+        lorUrl: lorUrl(session),
+        inLor,
+      }),
+      threadRootId,
     }).catch((err: unknown) =>
       console.warn("Discord session approval post failed", err)
     )

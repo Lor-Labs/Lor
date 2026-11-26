@@ -623,7 +623,10 @@ export async function reportHelperTurn(
   })
   // Its card in Discord follows, and asks there for what it waits on (once:
   // a repeated report adds no note).
-  void updateSessionCard(args.session.id, { state: args.outcome })
+  void updateSessionCard(args.session.id, {
+    state: args.outcome,
+    report: reply,
+  })
     .then(() =>
       added && args.outcome === "approval"
         ? postSessionApprovals(args.session.id, args.runId)

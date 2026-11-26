@@ -178,6 +178,8 @@ export const discordSessionCard = pgTable("discord_session_card", {
   // The Discord thread it is in; null when it is in the channel itself.
   discordThreadId: text("discord_thread_id"),
   state: text("state").notNull().default("working"),
+  // The start of its last report, shown under the state.
+  latest: text("latest"),
   // Set once someone pushes the session's branch from Lor.
   branchUrl: text("branch_url"),
   pullRequestUrl: text("pull_request_url"),

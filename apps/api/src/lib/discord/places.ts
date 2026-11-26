@@ -1,6 +1,7 @@
 import { and, asc, db, eq, inArray, schema } from "@repo/db"
 import { MAX_CHANNEL_AGENTS } from "@repo/db/queries/agents"
 import {
+  agentFaceUrl,
   createAgentWebhook,
   DiscordApiError,
   deleteLinkResources,
@@ -13,6 +14,7 @@ import {
   syncAgentRole,
   withDiscordLinkLock,
 } from "@repo/lor/discord"
+import { agentCardIdentity, helloCard } from "@repo/lor/discord-ui"
 import { agentIdentityFor } from "@repo/utils/bestiary"
 import {
   afterChannelAgentsChanged,
@@ -328,11 +330,20 @@ export async function addAgentToDiscordChannel(input: {
     }
   )
   emitAgentsUpdated(input.workspaceId)
+  // Its hello: a card with its face, role and how to reach it.
+  const card = await agentCardIdentity(agent.id)
   await postAgentToDiscord({
     channelId,
     agentId: agent.id,
     messageId: null,
-    content: `Hi, I'm ${identity.name}, an agent from Lor. ${roleId ? `Mention <@&${roleId}>` : "Mention me"} or reply to me, and I'll answer here.`,
+    content: "",
+    components: helloCard({
+      name: identity.name,
+      role: card?.role ?? null,
+      accent: card?.accent ?? 0x5865f2,
+      face: await agentFaceUrl(channelId, agent.id).catch(() => null),
+      roleId,
+    }),
   }).catch((err) => logger.warn({ err, channelId }, "Discord hello failed"))
   return { ok: true, channelId, agentName: identity.name, roleId }
 }

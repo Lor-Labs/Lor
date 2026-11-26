@@ -1,14 +1,20 @@
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto"
 import { and, asc, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
+import { addInboxNote } from "@repo/lor/channel-agent"
 import {
   agentRolesIn,
   DISCORD_ADMINISTRATOR,
+  DISCORD_COMPONENTS_V2,
   DISCORD_MANAGE_CHANNELS,
   DISCORD_MANAGE_GUILD,
   discordLinkByDiscordChannel,
   discordRequest,
 } from "@repo/lor/discord"
+import { sessionCardFor } from "@repo/lor/discord-sessions"
+import { decidedApprovalCard } from "@repo/lor/discord-ui"
+import { AGENT_INBOX_BATCH_MS } from "@repo/realtime-types/queues"
+import { flushAgentInbox } from "@/lib/agent-inbox-queue"
 import {
   addAgentToDiscordChannel,
   connectDiscordGuild,
@@ -20,6 +26,7 @@ import {
   hasWorkspaceAuthority,
   resolveWorkspaceAuthority,
 } from "@/lib/permissions"
+import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import { getRedisClient } from "@/lib/redis"
 import { resolveApproval } from "@/routes/v1/approvals/handlers"
 
@@ -155,10 +162,16 @@ export type DiscordInteraction = {
     user: { id: string; username: string; global_name?: string | null }
   }
   user?: { id: string; username: string; global_name?: string | null }
-  message?: { id: string; content: string }
+  message?: { id: string; content: string; flags?: number }
   data?: {
     name?: string
     custom_id?: string
+    // A select menu's picks.
+    values?: string[]
+    // A submitted form's fields, in their rows.
+    components?: Array<{
+      components?: Array<{ custom_id: string; value?: string }>
+    }>
     options?: Array<{
       name: string
       type: number
@@ -423,12 +436,8 @@ async function handleAgents(interaction: DiscordInteraction) {
     return reply(interaction, NOT_CONNECTED)
   }
   const { agents } = await agentsHere(interaction.channel_id)
-  if (agents.length === 0) {
-    return reply(
-      interaction,
-      "No agent is in this channel. Someone who manages it can add one with `/lor add`."
-    )
-  }
+  // None here: the same private panel as the hint's button.
+  if (agents.length === 0) return agentMenu(interaction, "none")
   const roles = new Map(
     [...(await agentRolesIn(interaction.guild_id))].map(([roleId, agentId]) => [
       agentId,
@@ -458,14 +467,18 @@ async function handleAutocomplete(interaction: DiscordInteraction) {
   const guild = interaction.guild_id
     ? await discordGuildFor(interaction.guild_id)
     : null
-  let choices: { id: string; name: string }[] = []
+  let choices: { id: string; name: string; role?: string | null }[] = []
   if (guild && interaction.channel_id) {
     const here = (await agentsHere(interaction.channel_id)).agents
     if (sub?.name === "remove") {
       choices = here
     } else {
       const all = await db
-        .select({ id: schema.agent.id, name: schema.agent.name })
+        .select({
+          id: schema.agent.id,
+          name: schema.agent.name,
+          role: schema.agent.role,
+        })
         .from(schema.agent)
         .where(eq(schema.agent.workspaceId, guild.workspaceId))
         .orderBy(asc(schema.agent.createdAt))
@@ -484,7 +497,10 @@ async function handleAutocomplete(interaction: DiscordInteraction) {
             .filter((agent) => agent.name.toLowerCase().includes(typed))
             .slice(0, 25)
             .map((agent) => ({
-              name: agent.name.slice(0, 100),
+              name: (agent.role?.trim()
+                ? `${agent.name} · ${agent.role.trim()}`
+                : agent.name
+              ).slice(0, 100),
               value: agent.id,
             })),
         },
@@ -514,6 +530,11 @@ async function handleConnect(interaction: DiscordInteraction) {
 }
 
 const APPROVAL_ID = /^lor-approval:([0-9a-f-]{36}):(approved|rejected)$/
+const SEND_ID = /^lor-send:([0-9a-f-]{36})$/
+// The hint's buttons carry its message id ("none" from `/lor agents`).
+const PICK_ID = /^lor-add:pick:(\d+|none)$/
+const ADD_ID = /^lor-add:agent:([0-9a-f-]{36}):(\d+|none)$/
+const SELECT_ID = /^lor-add:select:(\d+|none)$/
 
 // Approve or reject from the buttons on the agent's approval message: the
 // clicker's linked Lor account decides, with the same checks as in Lor.
@@ -551,15 +572,279 @@ async function handleApprovalButton(
     return reply(interaction, why)
   }
   // The message with the buttons, decided: its buttons go.
+  const v2 = ((interaction.message?.flags ?? 0) & DISCORD_COMPONENTS_V2) !== 0
+  const [decided] = v2
+    ? await db
+        .select({ description: schema.approval.description })
+        .from(schema.approval)
+        .where(eq(schema.approval.id, approvalId))
+    : []
   await discordRequest(`${followUps(interaction)}/messages/@original`, {
     method: "PATCH",
     bot: false,
-    body: {
-      content: `${interaction.message?.content ?? ""}\n\n${resolution === "approved" ? "Approved" : "Rejected"} by ${account.name}.`,
-      components: [],
-      allowed_mentions: { parse: [] },
-    },
+    body: v2
+      ? {
+          components: decidedApprovalCard({
+            description: decided?.description ?? "",
+            resolution,
+            by: account.name,
+          }),
+          allowed_mentions: { parse: [] },
+        }
+      : {
+          content: `${interaction.message?.content ?? ""}\n\n${resolution === "approved" ? "Approved" : "Rejected"} by ${account.name}.`,
+          components: [],
+          allowed_mentions: { parse: [] },
+        },
   })
+}
+
+const displayName = (interaction: DiscordInteraction) =>
+  interaction.member?.nick ??
+  interaction.member?.user.global_name ??
+  interaction.member?.user.username ??
+  interaction.user?.global_name ??
+  interaction.user?.username ??
+  "Someone"
+
+// What an agent is for, under its name in a menu: its role and the start
+// of its brief.
+function agentBlurb(agent: { role: string | null; brief: string | null }) {
+  const role = agent.role?.trim() || "No role set"
+  const brief = agent.brief?.replace(/\s+/g, " ").trim()
+  const line = brief ? `${role} · ${brief}` : role
+  return line.length > 100 ? `${line.slice(0, 99)}…` : line
+}
+
+// The private panel of agents to add to a channel with none
+// (reference/agents-and-chats.md, decision 51): a menu for someone who may
+// add one, else who can and the command to pass on. `hintId` is the public
+// "No agent is in this channel yet" message, changed once one joins.
+async function agentMenu(interaction: DiscordInteraction, hintId: string) {
+  const manager = await managerOf(interaction)
+  if ("refusal" in manager) {
+    return reply(
+      interaction,
+      manager.refusal.includes("Manage Channels")
+        ? "Only someone who can manage this channel can add an agent. Ask one of them to run `/lor add`."
+        : manager.refusal
+    )
+  }
+  if (!interaction.channel_id) return
+  const here = (await agentsHere(interaction.channel_id)).agents
+  const agents = (
+    await db
+      .select({
+        id: schema.agent.id,
+        name: schema.agent.name,
+        role: schema.agent.role,
+        brief: schema.agent.brief,
+      })
+      .from(schema.agent)
+      .where(eq(schema.agent.workspaceId, manager.workspaceId))
+      .orderBy(asc(schema.agent.createdAt))
+  ).filter((agent) => !here.some((h) => h.id === agent.id))
+  if (agents.length === 0) {
+    return reply(
+      interaction,
+      "Every agent in your workspace is in this channel already. Make another in Lor."
+    )
+  }
+  const channel = interaction.channel?.name
+  return reply(
+    interaction,
+    `Pick an agent for ${channel ? `#${channel}` : "this channel"}. It reads along and answers when someone mentions it.`,
+    {
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 3,
+              custom_id: `lor-add:select:${hintId}`,
+              placeholder: "Choose an agent",
+              options: agents.slice(0, 25).map((agent) => ({
+                label: agent.name.slice(0, 100),
+                value: agent.id,
+                description: agentBlurb(agent),
+              })),
+            },
+          ],
+        },
+      ],
+    }
+  )
+}
+
+// Adds an agent picked from the panel or named by the hint's button, then
+// says so where the hint was. A private answer either way.
+async function addFromHint(
+  interaction: DiscordInteraction,
+  agentId: string,
+  hintId: string,
+  answer: (content: string) => Promise<unknown>
+) {
+  const manager = await managerOf(interaction)
+  const [agent] = await db
+    .select({ name: schema.agent.name })
+    .from(schema.agent)
+    .where(eq(schema.agent.id, agentId))
+  if ("refusal" in manager) {
+    return answer(
+      manager.refusal.includes("Manage Channels")
+        ? `Only someone who can manage this channel can add an agent. Ask one of them to run \`/lor add agent:${agent?.name ?? "name"}\`.`
+        : manager.refusal
+    )
+  }
+  if (!interaction.channel_id || !agent) return answer("That agent is gone.")
+  const added = await addAgentToDiscordChannel({
+    workspaceId: manager.workspaceId,
+    guildId: manager.guildId,
+    discordChannelId: interaction.channel_id,
+    agentId,
+    userId: manager.userId,
+  })
+  if (!added.ok) {
+    return answer(
+      {
+        no_server: NOT_CONNECTED,
+        no_agent: "That agent is gone.",
+        not_a_text_channel:
+          "Add an agent in a text channel, not a thread or forum.",
+        already_here: `${agent.name} is already in this channel.`,
+        too_many: "This channel has as many agents as one can hold.",
+        discord_refused: `Discord didn't allow it: ${added.detail ?? "unknown error"}. Check that Lor can manage webhooks in this channel.`,
+      }[added.reason]
+    )
+  }
+  if (hintId !== "none") {
+    await discordRequest(
+      `/channels/${interaction.channel_id}/messages/${hintId}`,
+      {
+        method: "PATCH",
+        body: {
+          content: `${added.agentName} joined this channel, added by ${displayName(interaction)}.`,
+          components: [],
+          allowed_mentions: { parse: [] },
+        },
+      }
+    ).catch(() => {})
+  }
+  return answer(`${added.agentName} is in this channel now.`)
+}
+
+// The private panel's menu answers by changing the panel itself.
+async function updatePanel(interaction: DiscordInteraction, content: string) {
+  await discordRequest(`${followUps(interaction)}/messages/@original`, {
+    method: "PATCH",
+    bot: false,
+    body: { content, components: [], allowed_mentions: { parse: [] } },
+  })
+}
+
+const SEND_TEXT = "text"
+
+// "Send to session" on a session's card opens a form at once: Discord takes
+// a form only as the first answer.
+async function openSendForm(
+  interaction: DiscordInteraction,
+  sessionId: string
+) {
+  const [session] = await db
+    .select({ title: schema.agentSession.title })
+    .from(schema.agentSession)
+    .where(eq(schema.agentSession.id, sessionId))
+  await discordRequest(
+    `/interactions/${interaction.id}/${interaction.token}/callback`,
+    {
+      method: "POST",
+      bot: false,
+      body: {
+        type: 9,
+        data: {
+          custom_id: `lor-send:${sessionId}`,
+          title: `Send to ${session?.title ?? "the session"}`.slice(0, 45),
+          components: [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 4,
+                  custom_id: SEND_TEXT,
+                  style: 2,
+                  label: "What should it do next?",
+                  required: true,
+                  max_length: 4000,
+                },
+              ],
+            },
+          ],
+        },
+      },
+    }
+  )
+}
+
+// The form sent: the agent that started the session hears it and passes it
+// on (on the owner's plan), and the thread shows who sent what.
+async function handleSendForm(
+  interaction: DiscordInteraction,
+  sessionId: string
+) {
+  const user = interaction.member?.user ?? interaction.user
+  const value = interaction.data?.components
+    ?.flatMap((row) => row.components ?? [])
+    .find((field) => field.custom_id === SEND_TEXT)
+    ?.value?.trim()
+  if (!user || !value) return reply(interaction, "Nothing was sent.")
+  const [account] = await db
+    .select({ userId: schema.discordAccount.userId, name: schema.user.name })
+    .from(schema.discordAccount)
+    .innerJoin(schema.user, eq(schema.user.id, schema.discordAccount.userId))
+    .where(eq(schema.discordAccount.discordUserId, user.id))
+  if (!account) {
+    return reply(
+      interaction,
+      "Link your Lor account first with `/lor connect-account`, then try again."
+    )
+  }
+  const card = await sessionCardFor(sessionId)
+  const [session] = card
+    ? await db
+        .select({
+          title: schema.agentSession.title,
+          workspaceId: schema.agentSession.workspaceId,
+          conversationId: schema.agentSession.conversationId,
+        })
+        .from(schema.agentSession)
+        .where(eq(schema.agentSession.id, sessionId))
+    : []
+  if (!card || !session) return reply(interaction, "That session is gone.")
+  if (!(await userCanAccessChannel(card.channelId, account.userId))) {
+    return reply(interaction, "Your Lor account can't reach this session.")
+  }
+  const conversationId = await addInboxNote({
+    workspaceId: session.workspaceId,
+    channelId: card.channelId,
+    conversationId: session.conversationId,
+    source: "session",
+    sourceId: `discord-send:${interaction.id}`,
+    note: `${account.name} sent this from Discord for session "${session.title}" (session ${sessionId}). Pass it on with message_session, then say so in the thread:\n${value}`,
+    lane: "wake",
+  })
+  if (conversationId) {
+    await flushAgentInbox(conversationId, AGENT_INBOX_BATCH_MS)
+  }
+  if (interaction.channel_id) {
+    await discordRequest(`/channels/${interaction.channel_id}/messages`, {
+      method: "POST",
+      body: {
+        content: `**${displayName(interaction)}** sent to the session:\n>>> ${value.slice(0, 1800)}`,
+        allowed_mentions: { parse: [] },
+      },
+    }).catch(() => {})
+  }
+  return reply(interaction, "Sent. The agent passes it to the session.")
 }
 
 export async function handleDiscordInteraction(
@@ -595,7 +880,8 @@ export async function handleDiscordInteraction(
       return
     }
     if (interaction.type === 3) {
-      const match = interaction.data?.custom_id?.match(APPROVAL_ID)
+      const id = interaction.data?.custom_id ?? ""
+      const match = id.match(APPROVAL_ID)
       if (match?.[1] && match[2]) {
         await ack(interaction, "update")
         return await handleApprovalButton(
@@ -603,6 +889,35 @@ export async function handleDiscordInteraction(
           match[1],
           match[2] as "approved" | "rejected"
         )
+      }
+      const send = id.match(SEND_ID)
+      if (send?.[1]) return await openSendForm(interaction, send[1])
+      const pick = id.match(PICK_ID)
+      if (pick?.[1]) {
+        await ack(interaction, "reply")
+        return await agentMenu(interaction, pick[1])
+      }
+      const named = id.match(ADD_ID)
+      if (named?.[1] && named[2]) {
+        await ack(interaction, "reply")
+        return await addFromHint(interaction, named[1], named[2], (content) =>
+          reply(interaction, content)
+        )
+      }
+      const select = id.match(SELECT_ID)
+      const picked = interaction.data?.values?.[0]
+      if (select?.[1] && picked && UUID.test(picked)) {
+        await ack(interaction, "update")
+        return await addFromHint(interaction, picked, select[1], (content) =>
+          updatePanel(interaction, content)
+        )
+      }
+    }
+    if (interaction.type === 5) {
+      const send = interaction.data?.custom_id?.match(SEND_ID)
+      if (send?.[1]) {
+        await ack(interaction, "reply")
+        return await handleSendForm(interaction, send[1])
       }
     }
   } catch (err) {

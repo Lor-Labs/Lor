@@ -34,6 +34,7 @@ import type { AgentConversation } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { type ModelMessage, respond } from "@repo/lor"
 import { saveHandoffNote } from "@repo/lor/act-runs"
+import { resolveAgentFiles } from "@repo/lor/agent-files"
 import {
   AGENT_DEFAULT_MODEL,
   appendSteps,
@@ -57,10 +58,12 @@ import {
 import { openBlock, profileChangeNotes } from "@repo/lor/channel-profile"
 import { CHECK_IN_MINUTES, CHECK_IN_NOTE } from "@repo/lor/check-in"
 import {
+  filesForDiscord,
   postAgentToDiscord,
   showDiscordTyping,
   startDiscordThread,
 } from "@repo/lor/discord"
+import { approvalCard } from "@repo/lor/discord-ui"
 import {
   ProposalRefusedError,
   type ProposeChangeExecutor,
@@ -1114,7 +1117,11 @@ function agentHooks(
           }),
         }
       : {}),
-    sendMessage: async ({ content, startThread, channel: named }) => {
+    sendMessage: async ({ content, startThread, channel: named, files }) => {
+      const attached = files?.length
+        ? await resolveAgentFiles(channel.workspaceId, files)
+        : { attachments: [] }
+      if ("error" in attached) return { error: attached.error }
       // Another channel the agent is in, when it names one.
       const wanted = named?.trim().replace(/^#/, "").toLowerCase()
       const elsewhere =
@@ -1218,6 +1225,9 @@ function agentHooks(
         type: "agent_post",
         agentId: channel.agentId,
         ...(threadRootId ? { threadRootId } : {}),
+        ...(attached.attachments.length
+          ? { attachments: attached.attachments }
+          : {}),
       })
       onSent()
       // A reply to, or a thread under, a request's post in the chat goes on
@@ -1229,11 +1239,20 @@ function agentHooks(
       }
       // A chat that lives in Discord gets the post there too (decision 22).
       // A thread Discord refused to start leaves the post in its chat.
+      // Images and videos upload with it; one too big for the server is
+      // linked instead.
+      const forDiscord = await filesForDiscord(
+        targetId,
+        attached.attachments
+      ).catch(() => ({ files: [], linked: attached.attachments }))
       const discordError = await postAgentToDiscord({
         channelId: targetId,
         agentId: channel.agentId,
         messageId: posted.messageId,
-        content,
+        content: forDiscord.linked.length
+          ? `${content}\n\n${forDiscord.linked.map((file) => `[${file.filename}](${file.url})`).join("\n")}`
+          : content,
+        files: forDiscord.files,
         threadRootId: threadNote ? null : threadRootId,
       }).then(
         () => undefined,
@@ -1545,20 +1564,16 @@ export async function runAgentTurnJob(
           channelId,
           agentId: channel.agentId,
           messageId: null,
-          content: `Approval needed: ${approval.description}`,
+          content: "",
+          components: approvalCard({
+            approvalId: approval.id,
+            what: `${channel.agentName} wants to:`,
+            description: approval.description,
+            decider: null,
+            lorUrl: null,
+            inLor: false,
+          }),
           threadRootId: turnPlace.threadRootId,
-          buttons: [
-            {
-              customId: `lor-approval:${approval.id}:approved`,
-              label: "Approve",
-              style: "success",
-            },
-            {
-              customId: `lor-approval:${approval.id}:rejected`,
-              label: "Reject",
-              style: "danger",
-            },
-          ],
         }).catch((err) =>
           logger.warn(
             { err, approvalId: approval.id },
