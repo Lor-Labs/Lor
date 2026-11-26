@@ -16,6 +16,7 @@ import {
 } from "react"
 import { useDropzone } from "react-dropzone"
 import { ChannelAgentProvider } from "@/components/agent/channel-agent"
+import { AgentsChatView } from "@/components/chat/agents-chat-view"
 import { ChatSkeleton } from "@/components/chat/chat-skeleton"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
@@ -96,6 +97,9 @@ type ChannelSearchParams = {
   // Opens one of the channel's loops in the right panel (the agent dialog's
   // Loops). Cleared once applied.
   loop?: string
+  // Shows the chat's agents' own chat in its place, at this agent message
+  // ("all": at the newest).
+  agents?: string
 }
 
 export const Route = createFileRoute(
@@ -123,6 +127,7 @@ export const Route = createFileRoute(
     about: typeof search.about === "string" ? search.about : undefined,
     panel: search.panel === "sessions" ? "sessions" : undefined,
     loop: typeof search.loop === "string" ? search.loop : undefined,
+    agents: typeof search.agents === "string" ? search.agents : undefined,
   }),
 })
 
@@ -131,7 +136,8 @@ export const Route = createFileRoute(
 // so its messages load alongside the channel's details.
 function ChannelRoute() {
   const { workspaceSlug, channelId } = Route.useParams()
-  const { threadId, threadMessageId, callAt } = Route.useSearch()
+  const { threadId, threadMessageId, callAt, agents } = Route.useSearch()
+  const navigate = Route.useNavigate()
   const { data, isPending, refetch } = useQuery(
     channelQueryOptions(workspaceSlug, channelId)
   )
@@ -172,6 +178,21 @@ function ChannelRoute() {
         threadId={threadId}
         threadMessageId={threadMessageId}
         callAt={callAt}
+      />
+    )
+  }
+  // The chat's agents' own chat, in the chat's place.
+  if (agents && data.type === "text") {
+    return (
+      <AgentsChatView
+        key={channelId}
+        workspaceSlug={workspaceSlug}
+        channelId={channelId}
+        chatName={data.name ?? "the chat"}
+        focusId={agents}
+        onBack={() =>
+          void navigate({ search: (prev) => ({ ...prev, agents: undefined }) })
+        }
       />
     )
   }

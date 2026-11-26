@@ -14,6 +14,7 @@ import {
   chatPeopleChangedResponseSchema,
   chatPersonParamsSchema,
   chatWorkspaceParamsSchema,
+  listAgentMessagesResponseSchema,
   listChatPeopleResponseSchema,
   listChatsResponseSchema,
   updateChatRequestSchema,
@@ -135,6 +136,27 @@ export const removeChatPerson = createRoute({
   },
 })
 
+export const listAgentMessages = createRoute({
+  path: "/workspaces/{workspaceSlug}/chats/{channelId}/agent-messages",
+  method: "get",
+  summary: "List what a chat's agents said to each other",
+  description:
+    "The agents' own chat about this chat's work: read-only, for anyone who can see the chat. The newest 200, oldest first.",
+  tags: ["Chats"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: chatParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listAgentMessagesResponseSchema,
+      description: "The messages",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export type ListAgentMessagesRoute = typeof listAgentMessages
 export type ListChatsRoute = typeof listChats
 export type ListChatPeopleRoute = typeof listChatPeople
 export type AddChatPeopleRoute = typeof addChatPeople

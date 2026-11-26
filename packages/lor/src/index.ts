@@ -132,6 +132,7 @@ import {
   agentSessionTools,
   agentWakeUpTools,
   channelAgentPromptSection,
+  messageAgentTool,
   type RunAgentContext,
   sendMessageTool,
 } from "./channel-agent"
@@ -3059,6 +3060,7 @@ async function respondImpl(
       ...(ctx.agent
         ? {
             ...sendMessageTool,
+            ...(ctx.agent.messageAgent ? messageAgentTool : {}),
             ...readAgentHistoryTool,
             ...(ctx.agent.sessions ? agentSessionTools : {}),
             ...(ctx.agent.completeLoop ? agentLoopTools : {}),
@@ -3279,6 +3281,9 @@ async function respondImpl(
       ...(ctx.agent
         ? {
             send_message: { sendMessage: ctx.agent.sendMessage },
+            ...(ctx.agent.messageAgent
+              ? { message_agent: { messageAgent: ctx.agent.messageAgent } }
+              : {}),
             read_agent_history: { agentId: ctx.agent.agentId },
             ...(ctx.agent.sessions
               ? {

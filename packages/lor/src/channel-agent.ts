@@ -65,6 +65,14 @@ export type AgentWakeUps = {
   cancel: (input: { wakeUpId: string }) => Promise<unknown>
 }
 
+// One agent messaging another that shares the chat the turn is about
+// (reference/agents-and-chats.md, decision 39). The worker implements it;
+// it returns what the model reads.
+export type MessageAgentExecutor = (input: {
+  agent: string
+  content: string
+}) => Promise<{ ok: true } | { ok: false; error: string }>
+
 // Ends one of the channel's Loops. Returns what the model reads.
 export type CompleteAgentLoop = (input: {
   loopId: string
@@ -93,6 +101,8 @@ export type RunAgentContext = {
     channels: string[]
   }[]
   sendMessage: SendMessageExecutor
+  // Set when another agent shares the chat the turn is about.
+  messageAgent?: MessageAgentExecutor
   // "compact" summarizes the conversation instead of running a turn;
   // "memory" runs the memory pass after a turn.
   mode: "turn" | "compact" | "memory"
@@ -157,6 +167,40 @@ export const sendMessageTool = {
         : { ok: true as const, messageId }
     },
   }),
+}
+
+const messageAgentContext = z.object({
+  messageAgent: z.custom<MessageAgentExecutor>(),
+})
+
+export const messageAgentTool = {
+  message_agent: tool({
+    description:
+      "Message another agent that is in this chat with you, about the work in it. It reaches that agent alone and wakes it. It is not posted in the chat: people can read what agents say to each other, but in a place of its own. Use it to ask for something only that agent has (what it remembers, its tools, what it is working on) or to hand it something that is its to do. It does not see your conversation, so say what you need and everything it needs to act on it. Its answer wakes you. Use it only when the work needs it: never to chat, to thank it, or to say you got its answer.",
+    inputSchema: z.object({
+      agent: z.string().min(1).max(100).describe("the agent's name, or its id"),
+      content: z
+        .string()
+        .min(1)
+        .max(MAX_MESSAGE_CHARS)
+        .describe("the message, in Markdown"),
+    }),
+    contextSchema: messageAgentContext,
+    execute: async (input, { context }) => context.messageAgent(input),
+  }),
+}
+
+// What an agent reads when another agent messaged it. Nobody is told in the
+// chat that it was woken this way (decision 30).
+export function agentMessageInboxNote(input: {
+  fromName: string
+  fromRole: string | null
+  channelName: string | null
+  content: string
+}): string {
+  const from = sanitizeInlineLabel(input.fromName)
+  const role = input.fromRole ? ` (${sanitizeInlineLabel(input.fromRole)})` : ""
+  return `${from}${role}, another agent on this team, messaged you about the work in #${sanitizeInlineLabel(input.channelName ?? "channel")}. It is not posted in the chat.\n\n${input.content}\n\nIf it asks you for something, answer ${from} with message_agent. If it tells you something, use it and carry on. When it needs no answer, end the turn without one: do not thank it or confirm. Speak in the chat with send_message only when people should hear it from you.`
 }
 
 const sessionContext = z.object({
@@ -323,7 +367,7 @@ You are ${name}, an always-on agent for this team: one teammate the team shares,
 - ${own ? "When you speak here nobody asked just now: lead with what matters." : "Answer the person who addressed you with one send_message."} Mention a person as <@id> only when the message needs their attention.
 - You may stay quiet. When nothing needs saying, end the turn without send_message.
 - A message that names nobody can still wake you, when it reads as meant for you the way a teammate would know it was for them: from what was said before, your role and what you are working on. It is marked "not addressed to you by name". Answer when it is yours. When it is not, or it needs no answer (a thanks, an ok, people talking to each other), end the turn without send_message.
-${teammates.length > 0 ? `- Other agents work for this team too, each with a memory of its own: ${teammates.join("; ")}. In a chat you share, a message that names one of them is theirs: leave it to them and never answer for them. One that names nobody may be for any of you, so answer it only when it is clearly yours. Naming another agent in what you send does not wake it: when something is theirs, say so and let the person ask them.\n` : ""}- To follow up later, call wake_up. Never promise to come back otherwise.
+${teammates.length > 0 ? `- Other agents work for this team too, each with a memory of its own: ${teammates.join("; ")}. In a chat you share, a message that names one of them is theirs: leave it to them and never answer for them. One that names nobody may be for any of you, so answer it only when it is clearly yours. Naming another agent in send_message does not wake it. When the work needs another agent in the chat, for something only it knows or something that is its to do, message it with message_agent: that reaches it alone, and people can read the exchange. Do it only when the work needs it, and never answer an agent for the sake of answering.\n` : ""}- To follow up later, call wake_up. Never promise to come back otherwise.
 - For a back-and-forth that would crowd the chat (debugging, planning, anything long), answer with send_message's startThread: it starts a thread on the message you're answering. Keep quick answers in the chat.
 - In a thread you're part of (one under your message, or one you started or posted in), every message wakes you. Answer when you're addressed or have something useful to add; otherwise end the turn without sending.
 - You have no computer of your own yet: you can't run code, use a shell or make files yourself. Work on code goes to code sessions: start_session hands a task to a coding agent on one repository, and you are woken with its report when its turn ends. Tell people in the chat what you started and, when it reports, what came of it. People review the branch and open pull requests; you and the sessions never do.
@@ -346,7 +390,7 @@ export async function addInboxNote(
     // The channel the item is about, where the turn posts by default.
     channelId: string
     conversationId?: string | null
-    source: "session" | "trigger" | "loop" | "wake_up" | "check_in"
+    source: "session" | "trigger" | "loop" | "wake_up" | "check_in" | "agent"
     sourceId: string
     note: string
     lane: AgentInboxLane

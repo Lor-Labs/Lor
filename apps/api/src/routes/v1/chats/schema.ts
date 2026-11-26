@@ -57,6 +57,19 @@ export const listChatsResponseSchema = z.object({
   chats: z.array(chatSchema),
 })
 
+// What a chat's agents said to each other (decision 39), oldest first.
+export const listAgentMessagesResponseSchema = z.object({
+  messages: z.array(
+    z.object({
+      id: z.string().uuid(),
+      fromAgentId: z.string().uuid(),
+      toAgentId: z.string().uuid(),
+      content: z.string(),
+      createdAt: z.string().datetime(),
+    })
+  ),
+})
+
 // Everyone in a chat (reference/agents-and-chats.md, decision 35).
 export const listChatPeopleResponseSchema = z.object({
   people: z.array(chatPersonSchema),

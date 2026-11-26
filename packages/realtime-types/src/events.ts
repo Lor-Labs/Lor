@@ -310,6 +310,15 @@ export type RealtimeMessageType =
 
 // Mirrors channel_event_type / ChannelEventPayload in @repo/db (messages.ts) —
 // hand-copied like RealtimeMessageType so clients don't pull in drizzle.
+// What one agent said to another about a chat's work.
+export type AgentChatMessage = {
+  id: string
+  fromAgentId: string
+  toAgentId: string
+  content: string
+  createdAt: string
+}
+
 export type RealtimeChannelEventType =
   | "channel_created"
   | "channel_renamed"
@@ -332,9 +341,11 @@ export type RealtimeChannelEventType =
   | "session_setup_changed"
   | "agent_task"
   | "agent_session_started"
+  | "agent_messaged"
 
 export type RealtimeChannelEventPayload =
   | { channelName: string | null }
+  | { fromAgentId: string; toAgentId: string; agentMessageId: string }
   | { sessionId: string; title: string; repoFullName: string | null }
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
   | { from: string; to: string }
@@ -1011,6 +1022,12 @@ export interface ServerToClientEvents {
   // The channel agent's wake-ups changed (set, fired or cancelled): clients
   // refetch the channel's Follow-ups.
   "agent:wake-ups:updated": (payload: { channelId: string }) => void
+  // One of a chat's agents messaged another (reference/agents-and-chats.md,
+  // decision 39): the open agents' chat adds it.
+  "agent-message:created": (payload: {
+    channelId: string
+    message: AgentChatMessage
+  }) => void
   // A channel's Discord link was made or removed: refetch its status.
   "channel:discord:updated": (payload: { channelId: string }) => void
   // An agent was made, changed or deleted, or a channel got a different

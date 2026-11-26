@@ -658,7 +658,9 @@ export async function agentLog(agentId: string): Promise<string | null> {
             ? `Your wake-up came due: ${firstLine(item.note?.split("Your note to yourself:\n")[1] ?? null)}`
             : item.source === "session"
               ? `Session report: ${firstLine(item.note)}`
-              : `${item.lane === "wake" ? "Event" : "Event (waited unread)"} from ${eventLine(item.note)}`
+              : item.source === "agent"
+                ? `Another agent messaged you: ${firstLine(item.note)}`
+                : `${item.lane === "wake" ? "Event" : "Event (waited unread)"} from ${eventLine(item.note)}`
       } (${hash(item.channelName)})`,
     })),
     ...sessions.map((session) => ({

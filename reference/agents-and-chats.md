@@ -9,8 +9,8 @@ memory per agent (step 2), and of step 3 the conversations backend, several
 agents in a chat posting as bot users, the Jev wake for messages that name
 nobody, the sidebar's chat list with its member records, listeners (several
 agents per connector event, custom webhooks on the agent's page), the
-notification rules, New chat, the chat's header and panel, and finding and
-joining a chat. Left in step 3: agents messaging each other, and Loops stored
+notification rules, New chat, the chat's header and panel, finding and
+joining a chat, and agents messaging each other. Left in step 3: Loops stored
 on the agent. Steps 4 and 5 are design only. Lint and type checks pass and each
 part was run live on a throwaway database, except where its section says
 otherwise. `db:push` on the shared databases is owed (§9, rollout). It
@@ -246,8 +246,8 @@ tools all stay.
 
 - **Two chats starting the same work.** The open block narrows it and does not
   close it.
-- **Agents messaging each other.** Not built: agents in one chat do not
-  wake each other. Shaped by Jacob on 2026-11-25 and mocked in
+- **Agents messaging each other.** Built 2026-11-26 (§9, "Agents messaging
+  each other"). Shaped by Jacob on 2026-11-25 and mocked in
   `/prototype/chats` (Launch crew): a chat has an agents' chat about its
   work, which people read and don't write in. When one agent messages
   another, a quiet centered line of its own appears in the chat's feed at
@@ -279,13 +279,35 @@ tools all stay.
 Each step ends in something the team uses. Steps 2 to 5 are not sized.
 
 **What is left** (the order agreed with Jacob on 2026-11-26; New chat, the
-chat's header and panel, and finding and joining a chat were first and are
-built, see below):
+chat's header and panel, finding and joining a chat, and agents messaging
+each other were first and are built, see below):
 
-1. Agents messaging each other (§8): the tool, the agents' chat, the
-   "messaged" line and the read-only view, in Lor only.
-2. Loops stored on the agent.
-3. Slack and Discord as places (steps 4 and 5 below).
+1. Loops stored on the agent.
+2. Slack and Discord as places (steps 4 and 5 below).
+
+**Owed: merging with the AI providers branch** (flagged 2026-11-26).
+Commit `8597867` on `lor/foghollow-320c80` (Azure OpenAI, Vertex AI and
+Bedrock as workspace AI providers, a new "AI providers" settings section,
+`workspace_inference_key.config`) is in neither dev nor this branch. Nothing
+needs doing until one of the two merges into dev; the second one resolves
+five small conflicts (confirmed by a dry-run merge, which changed nothing):
+
+1. `apps/api/src/app.ts`: keep both `agentsRouter` and `aiProvidersRouter`.
+2. `workspace-settings-dialog.tsx`: keep the "ai-providers" section; drop
+   the "ai-accounts" (Autonomous runs) entries this branch removed.
+3. `apps/web/src/components/agent/agent-runs.tsx`: take this branch's.
+4. `packages/lor/src/index.ts` (the `InferenceConfigError` text): keep this
+   branch's wording, pointing at "Workspace settings → AI providers".
+5. `reference/harness-accounts.md`: take this branch's text, and say
+   workspace API keys are set up in "AI providers", not Billing.
+
+After that merge: apply the other session's patch (model pickers grouped by
+who pays, in `agent-model-select.tsx` and the mobile agent screen); have
+`apps/worker/src/lib/agent-inbox.ts` send the person an
+`InferenceConfigError`'s own message instead of the generic failure; and do
+not bring back `channel.agentModel` or a workspace "Autonomous runs"
+setting. `db:push` then also adds the `config` column. The patch:
+https://cdn.lor.chat/artifacts/aa5b7d27-2b2f-4f9d-a0de-ba847a06b546/926da81d-a381-455e-9225-25faa84fae5b/1eb898b5-6091-427b-b7b1-6bbe643d68fb/lor-screenshots_ironwood-provider-models.patch
 
 Beside these: the chat's settings dialog
 (tools, webhooks) still says "channel"; no private chat can be made from
@@ -804,6 +826,42 @@ The chat's header and panel (built 2026-11-26):
   Join chat. Not run: a private chat, a chat inside a project, someone
   without channel:update, a second person's screen following live.
 
+Agents messaging each other (decision 39, built 2026-11-26):
+
+- **The tool.** An agent's turn in a chat it shares with another agent has
+  `message_agent` (`packages/lor/src/channel-agent.ts`): the other agent's
+  name and what to say. It is prompted to use it only when the work needs
+  the other agent, and never to answer for the sake of answering. There
+  are no caps and no rules about who may message whom.
+- **What it does** (`apps/worker/src/lib/agent-messages.ts`). The message
+  is saved in `agent_message` (a table of its own: nothing agents say to
+  each other is in the chat's feed, unread counts, search or
+  notifications). It wakes the other agent through its inbox (source
+  "agent"): a first message in that agent's own conversation, an answer in
+  the conversation the asker wrote from, so the asker reads it where it
+  has the context.
+- **In the chat's feed** one quiet centered line, "Quill messaged Inky"
+  (`message.event_type = "agent_messaged"`, no unread mark, no
+  notification). A back-and-forth is one line: a new one is posted only
+  once something else was said in the chat since.
+- **The agents' chat** (`apps/web/src/components/chat/agents-chat-view.tsx`,
+  `?agents=` on the chat's route, `GET …/chats/{id}/agent-messages`) is
+  shown in place of the chat: bubbles, the agents' faces in the header, a
+  Read-only mark where the composer would be, and a way back. The line
+  opens it at that message, and "Between agents" in the chat's details
+  panel opens it any time. It follows live (`agent-message:created`).
+- **Lor only:** nothing is posted to a chat's Discord thread.
+- **Checked live:** a person asked one agent for something only the other
+  knew. It messaged the other, which answered within fifteen seconds; the
+  first then answered the person in the chat, twenty-one seconds after it
+  asked. One line in the feed, two bubbles in the agents' chat, and no
+  further replies between them. The line and the panel row both opened the
+  view, and Back returned to the chat. Not run: three agents in a chat, an
+  agent messaging another unprompted, the view updating live while open, a
+  Discord-linked chat, the mobile app (it shows the line as plain text).
+- **Rollout:** `pnpm db:push` adds `agent_message` and two enum values
+  (`channel_event_type`, `agent_inbox_source`).
+
 Finding and joining a chat (decision 35, built 2026-11-26):
 
 - **The sidebar's search** (`workspace-command.tsx`, Cmd+K) lists chats by
@@ -827,11 +885,10 @@ Finding and joining a chat (decision 35, built 2026-11-26):
   has its mark on its row under the chat. An approval the person can
   decide keeps a "!" on its chat's row until it is decided
   (`activity.agentNeeds`, kind "approval"); pressing it opens the chat at
-  that message. Checked with one approval seeded on a throwaway database.
-  Not run: an approval an agent really asked for. The lookup
-  (`workspace-activity.ts`) needs the turn's `message_id`, which the
-  agents' chat turns on that database did not have, so whether a real one
-  reaches the row is unverified. The mobile app still has its group.
+  that message. Checked live with web search put behind approval: an
+  agent asked, the "!" appeared on the chat's row without a reload, it
+  opened the chat at the approval, and approving cleared it and let the
+  agent finish. The mobile app still has its group.
 
 Listeners and notifications (decisions 40 to 42, built 2026-11-26):
 

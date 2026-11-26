@@ -31,6 +31,8 @@ export const agentInboxSourceEnum = pgEnum("agent_inbox_source", [
   "wake_up",
   // The agent's regular check-in on its own conversation (source id: when).
   "check_in",
+  // Another agent messaged it (source id: the agent_message).
+  "agent",
 ])
 
 // "wake" starts the channel agent's next turn. "wait" sits unread until

@@ -85,6 +85,7 @@ import { creatureById, isCreatureId } from "@repo/utils/bestiary"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
+import { agentMessenger } from "@/lib/agent-messages"
 import {
   claimAgentRun,
   delayJobUntil,
@@ -1079,6 +1080,21 @@ function agentHooks(
       runId: execution.runId,
       askedById: turn.askerId,
     }),
+    // Only with another agent in the chat this turn is about.
+    ...(channel.name !== null &&
+    channel.otherAgents.some((other) =>
+      other.channels.includes(channel.name ?? "")
+    )
+      ? {
+          messageAgent: agentMessenger(deps, {
+            workspaceId: channel.workspaceId,
+            channelId: channel.id,
+            channelName: channel.name,
+            agentId: channel.agentId,
+            conversationId: conversation.id,
+          }),
+        }
+      : {}),
     sendMessage: async ({ content, startThread, channel: named }) => {
       // Another channel the agent is in, when it names one.
       const wanted = named?.trim().replace(/^#/, "").toLowerCase()

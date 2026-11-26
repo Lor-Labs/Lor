@@ -28,6 +28,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { ChannelAgentProvider } from "@/components/agent/channel-agent"
+import {
+  agentMessagesQueryOptions,
+  useAgentMessagesLive,
+} from "@/components/chat/agents-chat-view"
 import { ChatAvatar } from "@/components/sidebar/chat-panel/chat-avatar"
 import { ChannelAgentsSection } from "@/components/sidebar/right-panel/channel-agents-section"
 import { FollowUpsSection } from "@/components/sidebar/right-panel/follow-ups-section"
@@ -184,10 +188,16 @@ export function ChatDetailsPanel({
               </div>
             </div>
 
-            <ChannelAgentsSection
-              workspaceSlug={workspaceSlug}
-              channelId={channelId}
-            />
+            <div>
+              <ChannelAgentsSection
+                workspaceSlug={workspaceSlug}
+                channelId={channelId}
+              />
+              <BetweenAgentsRow
+                workspaceSlug={workspaceSlug}
+                channelId={channelId}
+              />
+            </div>
             <ChatPeople
               workspaceSlug={workspaceSlug}
               channelId={channelId}
@@ -633,5 +643,50 @@ export function JoinChatBar({
         </button>
       </div>
     </div>
+  )
+}
+
+// Always in the panel once the chat's agents have messaged each other, so
+// what they said is never lost up the feed.
+function BetweenAgentsRow({
+  workspaceSlug,
+  channelId,
+}: {
+  workspaceSlug: string
+  channelId: string
+}) {
+  const navigate = useNavigate()
+  const { data: messages } = useQuery(
+    agentMessagesQueryOptions(workspaceSlug, channelId)
+  )
+  useAgentMessagesLive(workspaceSlug, channelId)
+  if (!messages || messages.length === 0) return null
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        void navigate({
+          to: "/$workspaceSlug/$channelId",
+          params: { workspaceSlug, channelId },
+          search: { agents: "all" },
+        })
+      }
+      className={cn(
+        ROW,
+        "mt-0.5 w-full cursor-pointer text-left text-muted-foreground outline-none transition-[background-color,color,transform] duration-150 ease-out hover:bg-foreground/[0.04] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.98]"
+      )}
+    >
+      <span className="flex size-8 shrink-0 items-center justify-center">
+        <HugeiconsIcon
+          icon={SquareLock02Icon}
+          className="size-3.5"
+          strokeWidth={2}
+        />
+      </span>
+      <span className="min-w-0 flex-1 truncate text-[13px]">
+        Between agents
+      </span>
+      <span className="shrink-0 text-[11px]">Read-only</span>
+    </button>
   )
 }

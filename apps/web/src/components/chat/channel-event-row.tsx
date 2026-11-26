@@ -33,14 +33,16 @@ import {
   triggerMessageContent,
 } from "@repo/utils/trigger-message"
 import { useQuery } from "@tanstack/react-query"
-import { Link, useParams } from "@tanstack/react-router"
+import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { type ReactNode, useState } from "react"
+import { AgentCreature } from "@/components/agent/agent-creature"
 import { ChannelAgentProvider } from "@/components/agent/channel-agent"
 import { MessageItem } from "@/components/chat/message-item"
 import { isReviewedEvent, ReviewCard } from "@/components/session/review-card"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
 import { agentSessionQueryOptions } from "@/hooks/use-agent-session"
+import { agentCreature, useAgentsById } from "@/hooks/use-agents"
 import { channelLoopsQueryOptions } from "@/hooks/use-channel-loops"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
@@ -852,6 +854,9 @@ export function ChannelEventRow({
   if (first.eventType === "agent_task" && events.length === 1) {
     return <AgentTaskMessage message={first} />
   }
+  if (first.eventType === "agent_messaged") {
+    return <AgentMessagedLine message={first} />
+  }
 
   if (layout === "document" && events.length === 1 && isReviewedEvent(first)) {
     return <ReviewCard message={first} />
@@ -1025,6 +1030,58 @@ function TriggerMessage({ message }: { message: Message }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// Where one of a chat's agents messaged another
+// (reference/agents-and-chats.md, decision 39): a quiet line of its own, not
+// a message and not hung under one. It opens the agents' chat at that
+// message.
+function AgentMessagedLine({ message }: { message: Message }) {
+  const { workspaceSlug } = useParams({ strict: false })
+  const navigate = useNavigate()
+  const agents = useAgentsById(workspaceSlug)
+  const payload = message.eventPayload as {
+    fromAgentId?: string
+    toAgentId?: string
+    agentMessageId?: string
+  } | null
+  const from = agents.get(payload?.fromAgentId ?? "")
+  const to = agents.get(payload?.toAgentId ?? "")
+  // An agent since deleted: the line keeps the names it was written with.
+  if (!from || !to || !workspaceSlug) {
+    return (
+      <div className="flex justify-center py-1 text-[13px] text-muted-foreground">
+        {message.content}
+      </div>
+    )
+  }
+  return (
+    <div className="flex justify-center py-1">
+      <button
+        type="button"
+        title="See what they said"
+        onClick={() =>
+          void navigate({
+            to: "/$workspaceSlug/$channelId",
+            params: { workspaceSlug, channelId: message.channelId },
+            search: { agents: payload?.agentMessageId ?? "all" },
+          })
+        }
+        className="flex h-7 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-[13px] text-muted-foreground outline-none transition-[background-color,color,transform] duration-150 ease-out hover:bg-foreground/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100"
+      >
+        <AgentCreature creature={agentCreature(from)} size={16} still />
+        {from.name} messaged
+        <AgentCreature creature={agentCreature(to)} size={16} still />
+        {to.name}
+        <span className="pl-1 text-[11px] text-muted-foreground/70 tabular-nums">
+          {new Date(message.createdAt).toLocaleTimeString(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+          })}
+        </span>
+      </button>
     </div>
   )
 }

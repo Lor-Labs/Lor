@@ -29,6 +29,7 @@ import { hasWorkspaceAuthority } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   AddChatPeopleRoute,
+  ListAgentMessagesRoute,
   ListChatPeopleRoute,
   ListChatsRoute,
   RemoveChatPersonRoute,
@@ -307,6 +308,39 @@ function nudgeChatLists(workspaceId: string, channelId: string, ids: string[]) {
       })
     }
   }).catch((err) => logger.warn({ err, channelId }, "Chat list nudge failed"))
+}
+
+// How much of the agents' chat is sent: the newest, shown oldest first.
+const AGENT_MESSAGES_SHOWN = 200
+
+export const listAgentMessages: AppRouteHandler<
+  ListAgentMessagesRoute
+> = async (c) => {
+  const { channelId } = c.req.valid("param")
+  const { agentMessage } = schema
+  if (!(await visibleChat(c.var.user.id, c.var.workspace.id, channelId))) {
+    return c.json(notFound, HttpStatusCodes.NOT_FOUND)
+  }
+  const rows = await db
+    .select({
+      id: agentMessage.id,
+      fromAgentId: agentMessage.fromAgentId,
+      toAgentId: agentMessage.toAgentId,
+      content: agentMessage.content,
+      createdAt: agentMessage.createdAt,
+    })
+    .from(agentMessage)
+    .where(eq(agentMessage.channelId, channelId))
+    .orderBy(desc(agentMessage.createdAt))
+    .limit(AGENT_MESSAGES_SHOWN)
+  return c.json(
+    {
+      messages: rows
+        .reverse()
+        .map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
+    },
+    HttpStatusCodes.OK
+  )
 }
 
 export const listChatPeople: AppRouteHandler<ListChatPeopleRoute> = async (

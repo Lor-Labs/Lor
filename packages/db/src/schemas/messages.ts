@@ -100,6 +100,10 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   "agent_task",
   // In the channel chat: the channel's agent started a code session.
   "agent_session_started",
+  // In a chat: one of its agents messaged another
+  // (reference/agents-and-chats.md, decision 39). The line opens the agents'
+  // chat; what was said is in `agent_message`, not here.
+  "agent_messaged",
 ])
 
 // Claude Code's own permission modes, picked per message in a Claude Code
@@ -442,8 +446,16 @@ export type AgentSessionStartedPayload = {
   repoFullName: string | null
 }
 
+export type AgentMessagedPayload = {
+  fromAgentId: string
+  toAgentId: string
+  // The agent_message the line was posted for, to open the agents' chat at.
+  agentMessageId: string
+}
+
 export type ChannelEventPayload =
   | AgentTaskPayload
+  | AgentMessagedPayload
   | AgentSessionStartedPayload
   | ChannelCreatedPayload
   | ChannelRenamedPayload
