@@ -41,6 +41,7 @@ export async function emitChannelCreated(
 type ChannelEventInput =
   | { eventType: "channel_created"; payload?: ChannelCreatedPayload }
   | { eventType: "channel_renamed"; payload: ChannelRenamedPayload }
+  | { eventType: "channel_archived" }
   | { eventType: "member_added"; payload: MemberAddedPayload }
   | { eventType: "member_removed"; payload: MemberRemovedPayload }
   | { eventType: "member_left" }
@@ -160,6 +161,8 @@ async function buildEventContent(
         from: input.payload.from,
         to: input.payload.to,
       })
+    case "channel_archived":
+      return channelEventContent({ eventType: input.eventType, actorName })
     case "member_added":
       return channelEventContent({
         eventType: input.eventType,

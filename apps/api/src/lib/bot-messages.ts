@@ -91,7 +91,10 @@ export async function postBotMessage(
     .limit(1)
     .then((rows) => rows[0])
   if (!target) throw new Error("Channel not found")
-  if (target.archivedAt) throw new Error("This channel is archived")
+  // The line that says it was archived is the one message it still takes.
+  if (target.archivedAt && input.eventType !== "channel_archived") {
+    throw new Error("This channel is archived")
+  }
 
   await assertChannelActive(input.channel.id)
   const inserted = await db

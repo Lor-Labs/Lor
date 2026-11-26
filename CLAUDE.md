@@ -315,7 +315,9 @@ nullable), for an agent in no chat too; an agent sets one up without being
 asked; and `create_loop` and `update_loop` are approval gate targets, off
 by default (`AGENT_LOOP_GATE_TOOLS`). A chat's
 group mentions are `@chat` and `@here`; `@everyone` and `@channel` are plain
-text (decision 47). Step 3 is built; what is left is
+text (decision 47). Hiding a chat is each person's own; archiving is for
+everyone, from the chat's settings, and stops its agents there
+(`apps/api/src/lib/chat-archive.ts`, decision 52). Step 3 is built; what is left is
 "What is left" in that doc's §9. The mock of the chat list is
 `/prototype/chats`; `/prototype/agents` is the earlier design.
 

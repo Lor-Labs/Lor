@@ -23,12 +23,14 @@ import { extractDirectMentionUserIds } from "@repo/messaging/mentions"
 import { userRoom } from "@repo/realtime-types"
 import { publishRealtime } from "@/lib/bot-messages"
 import { postChannelEvent } from "@/lib/channel-events"
+import { stopChatAgents } from "@/lib/chat-archive"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { hasWorkspaceAuthority } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   AddChatPeopleRoute,
+  ArchiveChatRoute,
   ListAgentMessagesRoute,
   ListChatPeopleRoute,
   ListChatsRoute,
@@ -308,6 +310,60 @@ function nudgeChatLists(workspaceId: string, channelId: string, ids: string[]) {
       })
     }
   }).catch((err) => logger.warn({ err, channelId }, "Chat list nudge failed"))
+}
+
+// Archiving a chat is for everyone (reference/agents-and-chats.md, decision
+// 52): it turns read-only, its agents stop there, and it leaves every
+// sidebar. Hiding stays each person's own. Asked for from the chat's
+// settings, behind a confirmation.
+export const archiveChat: AppRouteHandler<ArchiveChatRoute> = async (c) => {
+  const workspace = c.var.workspace
+  const me = c.var.user.id
+  const { channelId } = c.req.valid("param")
+  if (!hasWorkspaceAuthority(c.var.authority, { channel: ["update"] })) {
+    return c.json(
+      {
+        success: false as const,
+        message: "Only someone who manages chats can archive one",
+      },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  const access = await visibleChat(me, workspace.id, channelId)
+  if (!access) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
+
+  const [archived] = await db
+    .update(schema.channel)
+    .set({ archivedAt: new Date() })
+    .where(
+      and(eq(schema.channel.id, channelId), isNull(schema.channel.archivedAt))
+    )
+    .returning({ id: schema.channel.id })
+  if (!archived) {
+    return c.json(
+      { success: false as const, message: "This chat is already archived" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  await postChannelEvent({
+    channel: access.channel,
+    actorId: me,
+    eventType: "channel_archived",
+  })
+  await stopChatAgents(channelId).catch((err) =>
+    logger.error({ err, channelId }, "Archived chat's agents not all stopped")
+  )
+  const people = await db
+    .select({ userId: schema.channelMember.userId })
+    .from(schema.channelMember)
+    .where(eq(schema.channelMember.channelId, channelId))
+  nudgeChatLists(
+    workspace.id,
+    channelId,
+    people.map((row) => row.userId)
+  )
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
 // How much of the agents' chat is sent: the newest, shown oldest first.

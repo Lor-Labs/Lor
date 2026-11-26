@@ -252,6 +252,31 @@ function ChannelView() {
   const { data, isPending, isError, error } = useQuery(
     channelQueryOptions(workspaceSlug, channelId)
   )
+  // Someone archived this chat for everyone: the composer gives way to the
+  // archived mark for whoever has it open.
+  useEffect(() => {
+    if (!socket) return
+    const onCreated = (message: {
+      channelId: string
+      eventType?: string | null
+    }) => {
+      if (
+        message.channelId !== channelId ||
+        message.eventType !== "channel_archived"
+      )
+        return
+      void queryClient.invalidateQueries({
+        queryKey: channelQueryOptions(workspaceSlug, channelId).queryKey,
+      })
+      void queryClient.invalidateQueries({
+        queryKey: workspaceChannelsQueryOptions(workspaceSlug).queryKey,
+      })
+    }
+    socket.on("message:created", onCreated)
+    return () => {
+      socket.off("message:created", onCreated)
+    }
+  }, [socket, queryClient, workspaceSlug, channelId])
   // The sidebar's list already knows a text channel, so its messages load
   // alongside the channel's details instead of after them. Voice channels
   // still wait: they show a lobby, not a feed.

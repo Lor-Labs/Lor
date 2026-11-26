@@ -327,6 +327,7 @@ export type AgentChatMessage = {
 export type RealtimeChannelEventType =
   | "channel_created"
   | "channel_renamed"
+  | "channel_archived"
   | "member_added"
   | "member_removed"
   | "member_left"

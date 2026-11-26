@@ -68,6 +68,30 @@ export const updateChat = createRoute({
   },
 })
 
+export const archiveChat = createRoute({
+  path: "/workspaces/{workspaceSlug}/chats/{channelId}/archive",
+  method: "post",
+  summary: "Archive a chat for everyone",
+  description:
+    "Makes the chat read-only, stops its agents there and takes it out of everyone's sidebar. Takes channel:update.",
+  tags: ["Chats"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: chatParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: chatPeopleChangedResponseSchema,
+      description: "Archived",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export type ArchiveChatRoute = typeof archiveChat
+
 export const listChatPeople = createRoute({
   path: "/workspaces/{workspaceSlug}/chats/{channelId}/people",
   method: "get",

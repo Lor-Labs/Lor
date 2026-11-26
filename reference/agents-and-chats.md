@@ -1,7 +1,7 @@
 # Agents and chats: agents apart from channels
 
 **Status:** Decided with Jacob from 2026-11-23 to 11-26 and built step by
-step from §9. This doc is the record: §3 lists every decision (1 to 50) with
+step from §9. This doc is the record: §3 lists every decision (1 to 52) with
 who made it and when, §9 says what each step built, how it was checked and
 what was not run, and "What is left" at the top of §9 is the order of the
 remaining work. Built so far: agents apart from channels (step 1), one
@@ -113,6 +113,8 @@ objected to and should confirm.
 | 48 | A Loop is a scheduled wake of its agent and nothing more. One with no chat runs whether or not its agent is in any chat: an agent may only report to Slack or Discord, or only keep its memory. Its turn is about no chat | Jacob, 11-26 |
 | 49 | An agent sets up a Loop without being asked, when work it was given needs it back on a cadence until it is done ("a launch video every Wednesday until we reach 100 followers"). It gives the Loop an end condition and completes it when that is met | Jacob, 11-26 |
 | 50 | `create_loop` and `update_loop` are approval gate targets, off by default, so a workspace that wants a person to approve an agent's Loops can require it | Jacob, 11-26 |
+| 51 | Slack and Discord channels are places on the agent (decision 24), and a Discord channel linked to a Lor chat today becomes one. A place is not in the Lor sidebar: people use it in their own chat app. Its messages go to the agent's inbox by a chat's rules (a mention wakes it, the rest waits, a message naming nobody goes to Jev), the agent posts there by naming it, a Loop's "Reports in" lists places beside chats, and approvals are asked there with buttons. Discord first, then Slack in the same shape. Reading a place's messages in Lor is left out for now (later, perhaps on the agent's page) | Jacob, 11-26 |
+| 52 | Hiding a chat stays each person's own, from the sidebar, and a new message brings it back. Archiving is for everyone, only from the chat's settings, behind a dialog that says what happens: its agents stop there (their pending items are dropped, running turns stopped, Loops that report there end, wake-ups there are cancelled, its events are switched off), it leaves everyone's sidebar, and it takes no new messages. Its messages are kept, and a line says who archived it | Jacob, 11-26 |
 
 Considered and dropped:
 
@@ -289,7 +291,11 @@ Each step ends in something the team uses. Steps 2 to 5 are not sized.
 chat's header and panel, finding and joining a chat, agents messaging each
 other and Loops on the agent were first and are built, see below):
 
-1. Slack and Discord as places (steps 4 and 5 below).
+1. Slack and Discord as places (steps 4 and 5 below, decision 51).
+Archiving a chat for everyone is built (decision 52): `POST
+/chats/{id}/archive` (`archiveChat`, `apps/api/src/lib/chat-archive.ts`),
+the Archive section in the chat's settings, and a `channel_archived` line.
+Checked live on a throwaway database. Not built: unarchiving.
 
 **Owed: merging with the AI providers branch** (flagged 2026-11-26).
 Commit `8597867` on `lor/foghollow-320c80` (Azure OpenAI, Vertex AI and
@@ -1239,8 +1245,11 @@ no chat, and could only be made when a person asked.
   was refused with the message and no approval row; after the fix a memory
   pass edited one fact and removed two. Type checks pass for db,
   connectors, lor, realtime, API, worker, web and mobile.
-- **Not run:** a scheduled fire (only "Run now"), `wake_up` set in a turn
-  about no chat, `complete_loop` on a Loop the agent set up itself, and an
+- **Checked later the same day:** the minute sweep fired a due Loop with
+  no chat for an agent in no chat (the run has no channel), and a `wake_up`
+  set in that turn was stored with no chat and woke a second turn about no
+  chat a minute later.
+- **Not run:** `complete_loop` on a Loop the agent set up itself, and an
   out-of-credits turn about no chat.
 - **Rollout:** `pnpm db:push` drops the not-null on the three `channel_id`
   columns. API, realtime and worker together.

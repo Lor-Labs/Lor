@@ -13,6 +13,15 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { MAX_CHANNEL_AGENTS } from "@repo/db/constants"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/components/alert-dialog"
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
@@ -53,6 +62,7 @@ import {
   useAgents,
   type WorkspaceAgent,
 } from "@/hooks/use-agents"
+import { chatsKey } from "@/hooks/use-chats"
 import {
   channelAgentsKey,
   loadChannelAgents,
@@ -188,6 +198,8 @@ export function EditChannelDialog({
           channel={channel}
           open={open}
           onDone={() => onOpenChange(false)}
+          // Archiving takes channel:update, like the other tabs here.
+          canArchive={isText && !overviewOnly && !channel.archivedAt}
         />
       ) : shownTab === "agent" ? (
         <AgentTab
@@ -261,11 +273,13 @@ function OverviewTab({
   channel,
   open,
   onDone,
+  canArchive,
 }: {
   workspaceSlug: string
   channel: Channel
   open: boolean
   onDone: () => void
+  canArchive: boolean
 }) {
   const queryClient = useQueryClient()
   const isCategory = channel.type === "category"
@@ -367,6 +381,13 @@ function OverviewTab({
             </div>
           )}
         </SettingsCard>
+        {canArchive && (
+          <ArchiveChat
+            workspaceSlug={workspaceSlug}
+            channel={channel}
+            onArchived={onDone}
+          />
+        )}
       </PaneBody>
       <PaneFooter>
         <Button type="button" variant="ghost" onClick={onDone}>
@@ -381,6 +402,90 @@ function OverviewTab({
         </Button>
       </PaneFooter>
     </form>
+  )
+}
+
+// Archiving is for everyone (reference/agents-and-chats.md, decision 52),
+// so it lives here behind a confirmation; hiding a chat for yourself stays
+// in the sidebar.
+function ArchiveChat({
+  workspaceSlug,
+  channel,
+  onArchived,
+}: {
+  workspaceSlug: string
+  channel: Channel
+  onArchived: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [confirming, setConfirming] = useState(false)
+  const hasAgents = (channel.agentIds?.length ?? 0) > 0
+  const archive = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].chats[
+        ":channelId"
+      ].archive.$post({ param: { workspaceSlug, channelId: channel.id } })
+      if (!res.ok) throw await errorOf(res, "Failed to archive the chat")
+    },
+    onSuccess: async () => {
+      setConfirming(false)
+      onArchived()
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: channelQueryOptions(workspaceSlug, channel.id).queryKey,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: workspaceChannelsQueryOptions(workspaceSlug).queryKey,
+        }),
+        queryClient.invalidateQueries({ queryKey: chatsKey(workspaceSlug) }),
+      ])
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  return (
+    <SettingsSection title="Archive">
+      <SettingsCard className="flex items-center justify-between gap-4 space-y-0">
+        <p className="min-w-0 text-muted-foreground text-sm">
+          Close this chat for everyone. Its messages are kept.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="shrink-0 text-destructive-foreground"
+          onClick={() => setConfirming(true)}
+        >
+          Archive chat
+        </Button>
+      </SettingsCard>
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Archive {channel.name ?? "this chat"} for everyone?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {hasAgents
+                ? "The agents in it stop: they read nothing more here, their loops that report here end, and events stop posting here. "
+                : "Events stop posting here. "}
+              It leaves everyone's sidebar and takes no new messages. Its
+              messages are kept.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              loading={archive.isPending}
+              onClick={() => archive.mutate()}
+            >
+              Archive for everyone
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </SettingsSection>
   )
 }
 
