@@ -155,6 +155,7 @@ reading is part of Lor's own turn, metered like the rest of it.
 ### 🟡 For the "proper = read + write" bar
 
 - [ ] Write side moves to code sessions (later; [code-channels.md](planned/code-channels.md) §2). Add `checks: read` to the App then, so Lor can read CI results and iterate.
+- [ ] Grant the App **Checks: read** (prod and dev; installation owners approve). `fetch_github` already reads the PR head's check runs and failure annotations, and the PR card's CI status uses them; without the grant both report checks as unavailable. Actions run logs would also need **Actions: read** and a new tool.
 
 ### ⚪ Nice-to-have / robustness
 

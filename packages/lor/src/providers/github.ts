@@ -1,7 +1,7 @@
 import { githubItemKey } from "@repo/connectors"
 import { env } from "@repo/env/server"
 import { parseGithubInstallationId } from "@repo/utils/github"
-import { App } from "octokit"
+import { App, type Octokit } from "octokit"
 import { logger } from "../logger"
 import type { SourceFetcher, SourceProvider } from "./types"
 
@@ -63,8 +63,6 @@ function getApp(): App | null {
   return cachedApp
 }
 
-const MAX_CONTENT = 8000
-const MAX_COMMENTS = 10
 // Bound each GitHub request so a hung connection can't stall the caller (Octokit
 // has no default request timeout).
 const REQUEST_TIMEOUT_MS = 10_000
@@ -244,10 +242,6 @@ export async function getInstallationOverview(
   return { repos, manageUrl }
 }
 
-function clip(s: string): string {
-  return s.length > MAX_CONTENT ? `${s.slice(0, MAX_CONTENT)}\n…(truncated)` : s
-}
-
 export type IssueSearchHit = {
   ref: string // "owner/repo#number" — pass to fetchIssueOrPr
   type: "pull_request" | "issue"
@@ -383,6 +377,127 @@ export type FetchedIssue = {
   content: string
 }
 
+// fetch_github budget. The body and each comment are clipped on their own so a
+// long PR description or bot summary can't crowd out the rest; when the
+// discussion still overflows, the oldest comments are dropped (latest kept).
+const FETCH_TOTAL_CHARS = 40_000
+const FETCH_BODY_CHARS = 8_000
+const FETCH_COMMENT_CHARS = 6_000
+const FETCH_PAGE_SIZE = 100
+const FAILED_RUNS_DETAILED = 5
+const ANNOTATIONS_PER_RUN = 10
+
+function clipTo(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max)}\n…(truncated)` : s
+}
+
+// Review bots (Greptile, CodeRabbit, CI reporters) post mostly HTML: hidden
+// comments, badge images, <details> wrappers. Strip it outside code fences so
+// the findings fit the budget.
+function stripGithubHtml(markdown: string): string {
+  return markdown
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+    .map((part, i) =>
+      i % 2 === 1
+        ? part
+        : part
+            .replace(/<!--[\s\S]*?-->/g, "")
+            .replace(/<img\b[^>]*>/gi, "")
+            .replace(/\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)/g, "")
+            .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+            .replace(
+              /<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi,
+              (_, href: string, text: string) =>
+                text.trim() ? `[${text.trim()}](${href})` : ""
+            )
+            .replace(/<\/?code\b[^>]*>/gi, "`")
+            .replace(
+              /<\/?(?:b|strong|em|i|span|sub|sup|kbd|picture|source)\b[^>]*>/gi,
+              ""
+            )
+            .replace(
+              /<br\s*\/?>|<\/?(?:details|summary|p|div|h[1-6]|table|thead|tbody|tr|td|th|ul|ol|li|blockquote)\b[^>]*>/gi,
+              "\n"
+            )
+            .replace(/[ \t]+\n/g, "\n")
+            .replace(/\n{3,}/g, "\n\n")
+    )
+    .join("")
+    .trim()
+}
+
+const forbidden = (err: unknown) => {
+  const status = (err as { status?: number }).status
+  return status === 403 || status === 404
+}
+
+// Check runs on the PR head, with failure annotations (the failing step and
+// error lines) for failed runs. Needs the App's Checks: read permission;
+// Actions logs need Actions: read and aren't fetched here.
+async function checkRunsText(
+  octokit: Octokit,
+  target: { owner: string; repo: string },
+  sha: string,
+  request: () => { signal: AbortSignal }
+): Promise<string> {
+  let runs: Awaited<
+    ReturnType<Octokit["rest"]["checks"]["listForRef"]>
+  >["data"]["check_runs"]
+  try {
+    runs = (
+      await octokit.rest.checks.listForRef({
+        ...target,
+        ref: sha,
+        per_page: FETCH_PAGE_SIZE,
+        request: request(),
+      })
+    ).data.check_runs
+  } catch (err) {
+    return forbidden(err)
+      ? "Checks: unavailable. The Lor GitHub App isn't granted Checks: read on this repository."
+      : "Checks: couldn't be read right now."
+  }
+  if (runs.length === 0) return `Checks on ${sha.slice(0, 7)}: none`
+
+  const failed = runs.filter(
+    (run) => run.conclusion && FAILED_CONCLUSIONS.has(run.conclusion)
+  )
+  const annotations = await Promise.all(
+    failed.slice(0, FAILED_RUNS_DETAILED).map((run) =>
+      run.output.annotations_count > 0
+        ? octokit.rest.checks
+            .listAnnotations({
+              ...target,
+              check_run_id: run.id,
+              per_page: ANNOTATIONS_PER_RUN,
+              request: request(),
+            })
+            .then((r) => r.data)
+            .catch(() => [])
+        : Promise.resolve([])
+    )
+  )
+  const detail = new Map(
+    failed.slice(0, FAILED_RUNS_DETAILED).map((run, i) => [run.id, i])
+  )
+
+  const lines = runs.map((run) => {
+    const result = run.status === "completed" ? run.conclusion : run.status
+    let line = `- ${run.name}: ${result ?? "unknown"}${run.details_url ? ` (${run.details_url})` : ""}`
+    const i = detail.get(run.id)
+    if (i === undefined) return line
+    const title = run.output.title?.trim()
+    const summary = run.output.summary?.trim()
+    if (title) line += `\n  ${title}`
+    if (summary) line += `\n  ${clipTo(stripGithubHtml(summary), 1_500)}`
+    for (const a of annotations[i] ?? []) {
+      line += `\n  ${a.annotation_level ?? "note"} ${a.path}:${a.start_line}: ${clipTo(a.message ?? "", 500)}`
+    }
+    return line
+  })
+  return `Checks on ${sha.slice(0, 7)}:\n${lines.join("\n")}`
+}
+
 export async function fetchIssueOrPr(
   installationId: string,
   ref: string
@@ -393,44 +508,111 @@ export async function fetchIssueOrPr(
   if (id === null) return null
   const parsed = parseRef(ref, "#")
   if (!parsed) return null
+  const request = () => ({ signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
   try {
     const octokit = await app.getInstallationOctokit(id)
+    const target = { owner: parsed.owner, repo: parsed.repo }
     const { data } = await octokit.rest.issues.get({
-      owner: parsed.owner,
-      repo: parsed.repo,
+      ...target,
       issue_number: parsed.id,
+      request: request(),
     })
     const isPr = Boolean(data.pull_request)
     const state =
       isPr && data.pull_request?.merged_at ? "merged" : (data.state ?? "open")
-    let out = `# ${data.title}\nState: ${state} · by ${data.user?.login ?? "unknown"}\n\n${data.body ?? "(no description)"}`
+    const page = { ...target, per_page: FETCH_PAGE_SIZE, request: request() }
 
-    const comments = await octokit.rest.issues
-      .listComments({
-        owner: parsed.owner,
-        repo: parsed.repo,
-        issue_number: parsed.id,
-        per_page: MAX_COMMENTS,
-      })
-      .then((r) => r.data)
-      .catch(() => [])
-    for (const cm of comments) {
-      out += `\n\n— ${cm.user?.login ?? "unknown"}: ${cm.body ?? ""}`
-    }
-    if (isPr) {
-      const reviewComments = await octokit.rest.pulls
-        .listReviewComments({
-          owner: parsed.owner,
-          repo: parsed.repo,
-          pull_number: parsed.id,
-          per_page: MAX_COMMENTS,
+    const [comments, reviews, reviewComments, checks] = await Promise.all([
+      octokit
+        .paginate(octokit.rest.issues.listComments, {
+          ...page,
+          issue_number: parsed.id,
         })
-        .then((r) => r.data)
-        .catch(() => [])
-      for (const rc of reviewComments) {
-        out += `\n\n— ${rc.user?.login ?? "unknown"} on ${rc.path}: ${rc.body ?? ""}`
-      }
+        .catch(() => []),
+      isPr
+        ? octokit
+            .paginate(octokit.rest.pulls.listReviews, {
+              ...page,
+              pull_number: parsed.id,
+            })
+            .catch(() => [])
+        : [],
+      isPr
+        ? octokit
+            .paginate(octokit.rest.pulls.listReviewComments, {
+              ...page,
+              pull_number: parsed.id,
+            })
+            .catch(() => [])
+        : [],
+      isPr
+        ? octokit.rest.pulls
+            .get({ ...target, pull_number: parsed.id, request: request() })
+            .then((r) =>
+              checkRunsText(octokit, target, r.data.head.sha, request)
+            )
+            .catch(() => "Checks: couldn't be read right now.")
+        : null,
+    ])
+
+    const entry = (at: string | null | undefined, text: string) => ({
+      at: at ?? "",
+      text: clipTo(stripGithubHtml(text), FETCH_COMMENT_CHARS),
+    })
+    const discussion = [
+      ...comments.flatMap((c) =>
+        c.body?.trim()
+          ? [
+              entry(
+                c.created_at,
+                `— ${login(c.user)} (${day(c.created_at)}): ${c.body}`
+              ),
+            ]
+          : []
+      ),
+      ...reviews.flatMap((r) => {
+        const body = r.body?.trim()
+        if (r.state === "COMMENTED" && !body) return []
+        const verdict = REVIEW_VERDICTS[r.state] ?? r.state.toLowerCase()
+        return [
+          entry(
+            r.submitted_at,
+            `— ${login(r.user)} reviewed: ${verdict} (${day(r.submitted_at)})${body ? `: ${body}` : ""}`
+          ),
+        ]
+      }),
+      ...reviewComments.map((c) =>
+        entry(
+          c.created_at,
+          `— ${login(c.user)} on ${c.path}${c.line ? `:${c.line}` : ""} (${day(c.created_at)}): ${c.body}`
+        )
+      ),
+    ].sort((a, b) => a.at.localeCompare(b.at))
+
+    const head = [
+      `# ${data.title}\nState: ${state} · by ${login(data.user)}`,
+      clipTo(
+        stripGithubHtml(data.body ?? "") || "(no description)",
+        FETCH_BODY_CHARS
+      ),
+      ...(checks ? [checks] : []),
+    ].join("\n\n")
+
+    let used = head.length
+    let keepFrom = discussion.length
+    while (keepFrom > 0) {
+      const next = (discussion[keepFrom - 1]?.text.length ?? 0) + 2
+      if (used + next > FETCH_TOTAL_CHARS) break
+      used += next
+      keepFrom -= 1
     }
+    const parts = [head]
+    if (keepFrom > 0) {
+      parts.push(
+        `(${keepFrom} earlier comment${keepFrom === 1 ? "" : "s"} omitted to fit; ${discussion.length - keepFrom} latest shown)`
+      )
+    }
+    parts.push(...discussion.slice(keepFrom).map((d) => d.text))
 
     return {
       ref: `${parsed.owner}/${parsed.repo}#${parsed.id}`,
@@ -438,7 +620,7 @@ export async function fetchIssueOrPr(
       title: data.title,
       state,
       url: data.html_url,
-      content: clip(out),
+      content: parts.join("\n\n"),
     }
   } catch (err) {
     logger.error({ err, ref }, "GitHub issue/PR fetch failed")

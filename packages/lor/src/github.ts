@@ -317,7 +317,7 @@ export const githubTools = {
   }),
   fetch_github: tool({
     description:
-      "Fetch a GitHub pull request or issue's full body and discussion (comments, plus review comments for PRs), beyond the search snippet. Pass a ref as owner/repo#number (from search_github). Reference it with a Markdown link to its url.",
+      "Fetch a GitHub pull request or issue's full body and discussion, beyond the search snippet: comments, and for PRs also reviews, inline review comments (file:line) and the head commit's check runs with failure annotations. Bot HTML is stripped; on long threads the oldest comments are dropped and the latest kept. Actions logs aren't included. Pass a ref as owner/repo#number (from search_github). Reference it with a Markdown link to its url.",
     inputSchema: z.object({
       ref: z
         .string()
