@@ -378,8 +378,6 @@ export function ChannelWebhooksTab({
       actSessionMode?: TriggerEffectsValue["actSessionMode"]
       actCode?: TriggerEffectsValue["actCode"]
       actWindowSeconds?: number
-      hourlyRunCap?: number
-      dailyRunCap?: number
     }) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
         ":channelId"
@@ -395,8 +393,6 @@ export function ChannelWebhooksTab({
           actSessionMode: input.actSessionMode,
           actCode: input.actCode,
           actWindowSeconds: input.actWindowSeconds,
-          hourlyRunCap: input.hourlyRunCap,
-          dailyRunCap: input.dailyRunCap,
         },
       })
       if (!res.ok) {
@@ -606,8 +602,6 @@ export function ChannelWebhooksTab({
                 actSessionMode: open.actSessionMode,
                 actCode: open.actCode,
                 actWindowSeconds: open.actWindowSeconds,
-                hourlyRunCap: open.hourlyRunCap,
-                dailyRunCap: open.dailyRunCap,
                 lastAct: open.lastAct,
               }}
               onPatch={(patch) =>

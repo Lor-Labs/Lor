@@ -39,8 +39,6 @@ export const listenerSchema = z.object({
   actCode: actCodeSchema,
   // Act rate shape (reference/automation-primitives.md §5).
   actWindowSeconds: z.number(),
-  hourlyRunCap: z.number(),
-  dailyRunCap: z.number(),
   // Newest Act run on this listener + the handoff note it left for the next
   // run. Read-only; null = never run.
   lastAct: z
@@ -209,8 +207,6 @@ const listenerFieldsSchema = z.object({
   // Null = chat sessions.
   actCode: actCodeSchema,
   actWindowSeconds: z.number().int().min(0).max(3600),
-  hourlyRunCap: z.number().int().min(1).max(500),
-  dailyRunCap: z.number().int().min(1).max(2000),
 })
 
 export const createListenerRequestSchema = listenerFieldsSchema
@@ -260,7 +256,7 @@ export const listenerActivityResponseSchema = z.object({
     z.object({
       id: z.string().uuid(),
       at: z.string(),
-      // "wake", "wait", "filtered", "hourly_cap", "daily_cap", "off", …
+      // "wake", "wait", "filtered", "off", "error", …
       outcome: z.string().nullable(),
       posted: z.boolean(),
       subject: z.string().nullable(),

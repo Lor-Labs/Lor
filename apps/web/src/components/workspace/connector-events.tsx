@@ -813,8 +813,6 @@ function ListenerSettings({
         actSessionMode: listener.actSessionMode,
         actCode: listener.actCode,
         actWindowSeconds: listener.actWindowSeconds,
-        hourlyRunCap: listener.hourlyRunCap,
-        dailyRunCap: listener.dailyRunCap,
         lastAct: listener.lastAct,
       }}
       lead={
@@ -865,8 +863,6 @@ const OUTCOME_LABEL: Record<string, string> = {
   wake: "Woke the agent",
   wait: "Left for the agent to read later",
   filtered: "Turned away by “Only when”",
-  hourly_cap: "Hourly limit reached, left for later",
-  daily_cap: "Daily limit reached, left for later",
   no_agent: "No agent in the chat",
   off: "Posted only",
   error: "Could not be delivered",

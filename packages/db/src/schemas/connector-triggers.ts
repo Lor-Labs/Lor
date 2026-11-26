@@ -20,8 +20,6 @@ import { user } from "./users"
 // rows and the settings UI show the same numbers a new trigger would get.
 export const ACT_DEFAULTS = {
   windowSeconds: 300,
-  hourlyRunCap: 3,
-  dailyRunCap: 20,
 } as const
 
 // Where an Act run goes (reference/act-sessions-runbook.md): a new session
@@ -92,14 +90,6 @@ export const connectorTrigger = pgTable(
     // pushes this forward as it re-arms, which is what lets the recovery sweep
     // tell "the flush job was lost" from "the batch is legitimately waiting".
     actFlushDueAt: timestamp("act_flush_due_at"),
-    // Backstops for Act, counted over rolling windows. Hourly keeps a burst
-    // from eating the whole day's budget; daily is the outer fuse.
-    hourlyRunCap: integer("hourly_run_cap")
-      .notNull()
-      .default(ACT_DEFAULTS.hourlyRunCap),
-    dailyRunCap: integer("daily_run_cap")
-      .notNull()
-      .default(ACT_DEFAULTS.dailyRunCap),
   },
   (table) => [
     // Explicit name: the auto-generated one exceeds Postgres's 63-byte limit.

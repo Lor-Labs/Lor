@@ -52,8 +52,6 @@ type WebhookRow = {
   actRepoFullName: string | null
   actBaseBranch: string | null
   actWindowSeconds: number
-  hourlyRunCap: number
-  dailyRunCap: number
 }
 
 function toResponse(
@@ -83,8 +81,6 @@ function toResponse(
     actSessionMode: row.actSessionMode,
     actCode: actCodeOf(row),
     actWindowSeconds: row.actWindowSeconds,
-    hourlyRunCap: row.hourlyRunCap,
-    dailyRunCap: row.dailyRunCap,
     lastAct,
   }
 }
@@ -104,8 +100,6 @@ const webhookSelection = {
   actRepoFullName: connectorTrigger.actRepoFullName,
   actBaseBranch: connectorTrigger.actBaseBranch,
   actWindowSeconds: connectorTrigger.actWindowSeconds,
-  hourlyRunCap: connectorTrigger.hourlyRunCap,
-  dailyRunCap: connectorTrigger.dailyRunCap,
 }
 
 // Webhooks post into the channel feed, so only text channels host them.
@@ -393,8 +387,6 @@ export const createChannelWebhook: AppRouteHandler<
           actRepoFullName: result.trigger.actRepoFullName,
           actBaseBranch: result.trigger.actBaseBranch,
           actWindowSeconds: result.trigger.actWindowSeconds,
-          hourlyRunCap: result.trigger.hourlyRunCap,
-          dailyRunCap: result.trigger.dailyRunCap,
         },
         c.var.user.name,
         key,
@@ -420,8 +412,6 @@ export const updateChannelWebhook: AppRouteHandler<
     actSessionMode,
     actCode,
     actWindowSeconds,
-    hourlyRunCap,
-    dailyRunCap,
   } = c.req.valid("json")
 
   assertWorkspaceAuthority(c.var.authority, { webhook: ["manage"] })
@@ -496,9 +486,7 @@ export const updateChannelWebhook: AppRouteHandler<
       filter !== undefined ||
       actInstructions !== undefined ||
       target ||
-      actWindowSeconds !== undefined ||
-      hourlyRunCap !== undefined ||
-      dailyRunCap !== undefined
+      actWindowSeconds !== undefined
     ) {
       await tx
         .update(connectorTrigger)
@@ -511,8 +499,6 @@ export const updateChannelWebhook: AppRouteHandler<
           ...(actSessionMode !== undefined ? { actSessionMode } : {}),
           ...(target?.ok ? target.columns : {}),
           ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
-          ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),
-          ...(dailyRunCap !== undefined ? { dailyRunCap } : {}),
         })
         .where(eq(connectorTrigger.id, existing.triggerId))
     }

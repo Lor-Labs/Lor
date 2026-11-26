@@ -318,7 +318,8 @@ refresh keeps the current selection). CRUD + discover endpoints at
      growing; a window older than an hour is abandoned and logged (a wedged run must not
      defer forever), and a window whose flush never arrived goes stale after 3× its
      length so a new delivery can re-arm it.
-  3. **Rolling caps**: `hourlyRunCap` (default 3) and `dailyRunCap` (default 20), counted
+  3. **Rolling caps** (removed 2026-11-26, reference/agents-and-chats.md decision 43;
+     kept here as history): `hourlyRunCap` (default 3) and `dailyRunCap` (default 20), counted
      over `agent_run.created_at`. Hourly exists so a burst can't eat the whole day's
      budget; daily is the outer fuse. A cap doesn't discard the batch — `actGuard` returns
      *when the rolling window frees a slot* (from the oldest run in it, clamped to

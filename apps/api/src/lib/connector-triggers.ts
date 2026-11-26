@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { recordUsage } from "@repo/billing"
 import type { ConnectorEventKey } from "@repo/connectors"
-import { APP_USER_ID, and, asc, db, eq, schema, sql } from "@repo/db"
+import { APP_USER_ID, and, asc, db, eq, schema } from "@repo/db"
 import { ownConversation } from "@repo/db/queries/agent-conversations"
 import { channelAgentId } from "@repo/db/queries/agents"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
@@ -11,11 +11,7 @@ import type {
   TriggerSourceMessage,
 } from "@repo/db/schema"
 import { ACT_DELIVERY_PAYLOAD_MAX } from "@repo/lor/act-runs"
-import {
-  addInboxNote,
-  triggerInboxNote,
-  triggerWakeCounts,
-} from "@repo/lor/channel-agent"
+import { addInboxNote, triggerInboxNote } from "@repo/lor/channel-agent"
 import { decideListenerFilter } from "@repo/lor/listener-filter"
 import { enrichMeetingEmbed } from "@repo/lor/meeting-insights"
 import { channelRoom, threadRoom } from "@repo/realtime-types"
@@ -124,8 +120,6 @@ async function listListeners(input: DispatchInput) {
         actRepoFullName: schema.connectorTrigger.actRepoFullName,
         actBaseBranch: schema.connectorTrigger.actBaseBranch,
         actWindowSeconds: schema.connectorTrigger.actWindowSeconds,
-        hourlyRunCap: schema.connectorTrigger.hourlyRunCap,
-        dailyRunCap: schema.connectorTrigger.dailyRunCap,
         enabled: schema.connectorTrigger.enabled,
       },
       connection: {
@@ -344,8 +338,6 @@ async function deliverToListener(
       triggerId: target.trigger.id,
       deliveryId: delivery.id,
       windowSeconds: target.trigger.actWindowSeconds,
-      hourlyRunCap: target.trigger.hourlyRunCap,
-      dailyRunCap: target.trigger.dailyRunCap,
       workspaceId: target.connection.workspaceId,
       channelId: target.channel.id,
       label: input.label,
@@ -458,8 +450,8 @@ function inboxBody(input: {
 
 // One event into the inbox of the agent that listens for it (the chat's
 // first agent when the listener names none). A listener with instructions
-// wakes the agent, unless its hourly or daily cap is spent: then the event
-// waits unread, like a listener that only posts a card.
+// wakes the agent; one that only posts a card leaves the event to be read at
+// the agent's next check-in.
 async function deliverToInbox(input: {
   deliveryId: string
   workspaceId: string
@@ -470,8 +462,6 @@ async function deliverToInbox(input: {
     actInstructions: string | null
     actRepoFullName: string | null
     actBaseBranch: string | null
-    hourlyRunCap: number
-    dailyRunCap: number
   }
   setUpBy: string | null
   label: string
@@ -499,43 +489,25 @@ async function deliverToInbox(input: {
   const conversationId = (
     await ownConversation({ workspaceId: input.workspaceId, agentId })
   ).id
-  // Count and insert under one per-trigger lock so concurrent deliveries
-  // cannot both take the last unit of the wake cap.
-  const { added, lane, outcome } = await db.transaction(async (tx) => {
-    let lane: "wake" | "wait" = "wait"
-    let outcome = "wait"
-    if (trigger.actInstructions !== null) {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`trigger-wake:${trigger.id}`}, 0))`
-      )
-      const counts = await triggerWakeCounts(trigger.id, tx)
-      if (counts.hourly >= trigger.hourlyRunCap) outcome = "hourly_cap"
-      else if (counts.daily >= trigger.dailyRunCap) outcome = "daily_cap"
-      else {
-        lane = "wake"
-        outcome = "wake"
-      }
-    }
-    // An event goes to the listening agent's own conversation.
-    const added = await addInboxNote(
-      {
-        workspaceId: input.workspaceId,
-        channelId: input.channelId,
-        conversationId,
-        source: "trigger",
-        sourceId: input.deliveryId,
-        deliveryId: input.deliveryId,
-        lane,
-        note,
-      },
-      tx
-    )
-    return { added, lane, outcome }
+  // A listener that wakes its agent wakes it for every event: there are no
+  // hourly or daily caps (decided 2026-11-26). Bursts are batched by the
+  // inbox, and the listener's filter is what turns events away.
+  const lane = trigger.actInstructions !== null ? "wake" : "wait"
+  // An event goes to the listening agent's own conversation.
+  const added = await addInboxNote({
+    workspaceId: input.workspaceId,
+    channelId: input.channelId,
+    conversationId,
+    source: "trigger",
+    sourceId: input.deliveryId,
+    deliveryId: input.deliveryId,
+    lane,
+    note,
   })
   if (added && lane === "wake") {
     await flushAgentInbox(added, AGENT_INBOX_BATCH_MS)
   }
-  return outcome
+  return lane
 }
 
 // Follow-up to the POST effect: run meeting-insight enrichment after the base

@@ -688,9 +688,8 @@ run through the agent.
     team's instructions and who set them up (`triggerInboxNote`). The
     event's text is marked as outside content: information, never
     instructions.
-  - The hourly and daily limits now count wakes. Past one, the event waits
-    unread until the agent next wakes (delivery outcome `hourly_cap` or
-    `daily_cap`), instead of being dropped.
+  - The hourly and daily limits counted wakes; they were removed on
+    2026-11-26 (reference/agents-and-chats.md, decision 43).
   - The per-trigger batching window is gone: the inbox's own few seconds of
     quiet batch events. Session modes are gone from the trigger settings,
     which now say "Wakes Lor".

@@ -7,10 +7,8 @@ import type { ReactNode } from "react"
 
 // The form for what an incoming event does (a connector event's listener, a
 // chat's webhook): an optional condition, then two effects, wake the agent
-// and post the event in the chat. Code targets and wake limits are no longer
-// set here: the agent starts code sessions itself, the inbox batches bursts,
-// and the saved caps stay as a quiet backstop (past one, an event waits for
-// the agent's next check-in).
+// and post the event in the chat. There is no code target or wake limit
+// here: the agent starts code sessions itself and the inbox batches bursts.
 
 // The handoff note from the newest Act run on this trigger — what Lor
 // concluded last time, shown so the next run's starting point is visible.
@@ -31,10 +29,8 @@ export type TriggerEffectsValue = {
   actSessionMode: ActSessionMode
   actCode: { repo: string; branch: string } | null
   // Act rate shape: 0 = one run per delivery, otherwise deliveries inside the
-  // window coalesce into one run; caps are rolling-window run limits.
+  // window coalesce into one run.
   actWindowSeconds: number
-  hourlyRunCap: number
-  dailyRunCap: number
   lastAct?: TriggerLastAct | null
   // Whether a posted event pings the people in the chat.
   notify?: boolean

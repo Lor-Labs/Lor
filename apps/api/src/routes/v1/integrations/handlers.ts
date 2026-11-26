@@ -212,8 +212,6 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             actRepoFullName: connectorTrigger.actRepoFullName,
             actBaseBranch: connectorTrigger.actBaseBranch,
             actWindowSeconds: connectorTrigger.actWindowSeconds,
-            hourlyRunCap: connectorTrigger.hourlyRunCap,
-            dailyRunCap: connectorTrigger.dailyRunCap,
           })
           .from(connectorTrigger)
           .where(
@@ -328,8 +326,6 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             actSessionMode: trigger.actSessionMode,
             actCode: actCodeOf(trigger),
             actWindowSeconds: trigger.actWindowSeconds,
-            hourlyRunCap: trigger.hourlyRunCap,
-            dailyRunCap: trigger.dailyRunCap,
             lastAct: lastActs.get(trigger.id) ?? null,
           })),
         })),
@@ -1101,12 +1097,6 @@ export const createListener: AppRouteHandler<CreateListenerRoute> = async (
       ...(body.actWindowSeconds !== undefined
         ? { actWindowSeconds: body.actWindowSeconds }
         : {}),
-      ...(body.hourlyRunCap !== undefined
-        ? { hourlyRunCap: body.hourlyRunCap }
-        : {}),
-      ...(body.dailyRunCap !== undefined
-        ? { dailyRunCap: body.dailyRunCap }
-        : {}),
     })
     .returning({ id: connectorTrigger.id })
   if (!created) {
@@ -1226,12 +1216,6 @@ export const updateListener: AppRouteHandler<UpdateListenerRoute> = async (
         : {}),
       ...(body.actWindowSeconds !== undefined
         ? { actWindowSeconds: body.actWindowSeconds }
-        : {}),
-      ...(body.hourlyRunCap !== undefined
-        ? { hourlyRunCap: body.hourlyRunCap }
-        : {}),
-      ...(body.dailyRunCap !== undefined
-        ? { dailyRunCap: body.dailyRunCap }
         : {}),
     })
     .where(eq(connectorTrigger.id, saved.id))

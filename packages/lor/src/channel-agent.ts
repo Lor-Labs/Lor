@@ -446,32 +446,6 @@ export function loopInboxNote(input: {
     .join("\n\n")
 }
 
-// How often a trigger's events woke the agent lately, for its hourly and
-// daily caps: over a cap, its events wait unread instead.
-export async function triggerWakeCounts(
-  triggerId: string,
-  executor: Pick<DbTransaction, "select"> = db
-): Promise<{ hourly: number; daily: number }> {
-  const [row] = await executor
-    .select({
-      hourly: sql<number>`count(*) filter (where ${schema.agentInbox.createdAt} >= now() - interval '1 hour')::int`,
-      daily: sql<number>`count(*)::int`,
-    })
-    .from(schema.agentInbox)
-    .innerJoin(
-      schema.triggerDelivery,
-      eq(schema.triggerDelivery.id, schema.agentInbox.deliveryId)
-    )
-    .where(
-      and(
-        eq(schema.triggerDelivery.triggerId, triggerId),
-        eq(schema.agentInbox.lane, "wake"),
-        sql`${schema.agentInbox.createdAt} >= now() - interval '24 hours'`
-      )
-    )
-  return { hourly: row?.hourly ?? 0, daily: row?.daily ?? 0 }
-}
-
 // Which of a chat's agents are part of a thread: each one that posted the
 // root or a reply (an agent's message has its bot user, the agent's own id,
 // as author). Messages from before agents had bot users are Lor's, and are

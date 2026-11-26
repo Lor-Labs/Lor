@@ -102,6 +102,7 @@ objected to and should confirm.
 | 40 | An incoming event is heard by an agent, not kept on a channel: it is stored for the workspace (`source`, visible to everyone for now), delivered to the agent that listens for it, and the agent says what matters in a chat. A listener is one event with the agent that hears it, the chat that agent reports in, an optional plain-language filter checked by Jev, and an optional post of the raw event into that chat. For built-in connectors it is set up on the connector's page, with the fitting agent suggested by a model; an activity list is there but out of the way. Listeners defined by agents themselves, new sources and filters as code come later | Jacob, 11-26 |
 | 41 | Notifications: a chat's message notifies the people in it; a posted event pings people only when its listener says so; what an agent says to a Lor chat pings like anyone's message; a thread's reply is unread only for the people who follow it; a chat that lives in Slack or Discord shows unread in Lor and leaves the ping to that app | Jacob, 11-26 |
 | 42 | Several agents can listen to one event, each once and each with its own chat, filter and instructions. The connector's page shows events as a plain list, one line an event with who hears it; opening an event shows its listeners as chips and one flat form for the picked one | Jacob, 11-26 |
+| 43 | A listener has no hourly or daily cap on how often it wakes its agent, shown or hidden: nothing limits it that the person cannot see. The filter turns events away and the inbox batches bursts | Jacob, 11-26 |
 
 Considered and dropped:
 
@@ -763,9 +764,9 @@ Listeners and notifications (decisions 40 to 42, built 2026-11-26):
 - **The form** (`trigger-effects.tsx`, shared with a chat's Webhooks tab)
   is one flat list: the chat it reports in, "Only when" (the filter), "Wake
   {agent}" with instructions, "Post it in {chat}" with "Notify people".
-  The code target and wake limits are no longer shown: agents start code
-  sessions themselves, and the saved caps stay as a backstop (past one, an
-  event waits for the agent's next check-in). Hovering a listener's chip
+  There is no code target (agents start code sessions themselves) and no
+  wake limit: the hourly and daily caps are removed, columns and all
+  (decision 43). Hovering a listener's chip
   puts an X over its face that removes it, with Undo in the toast; a clock
   at the end of the chips opens the last 30 deliveries.
 - **On the agent's page** "Listens to" lists its connector events. Custom
@@ -791,7 +792,8 @@ Listeners and notifications (decisions 40 to 42, built 2026-11-26):
   on a push, threads, a Discord-linked chat.
 - **Not built:** creating a custom webhook from the agent's page; listeners
   an agent proposes for itself beyond the existing change proposal.
-- **Rollout:** `pnpm db:push` adds the columns and swaps the unique index.
+- **Rollout:** `pnpm db:push` adds the columns, swaps the unique index and
+  drops `hourly_run_cap` and `daily_run_cap`.
   Existing triggers keep their chat and are heard by its first agent; their
   posts stop pinging until "Notify people" is turned on.
 

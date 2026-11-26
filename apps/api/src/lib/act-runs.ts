@@ -73,8 +73,6 @@ export async function startActRun(input: {
   triggerId: string
   deliveryId: string
   windowSeconds: number
-  hourlyRunCap: number
-  dailyRunCap: number
   workspaceId: string
   channelId: string
   label: string
@@ -158,14 +156,12 @@ async function armActFlush(
   return true
 }
 
-// One delivery, one run, right now: guards, run row, then the job. `blocked`
-// separates "a run is already going / cap spent" (queue it) from a real
-// failure (nothing more to try).
+// One delivery, one run, right now: guard, run row, then the job. `blocked`
+// separates "a run is already going" (queue it) from a real failure (nothing
+// more to try).
 async function runActNow(input: {
   triggerId: string
   deliveryId: string
-  hourlyRunCap: number
-  dailyRunCap: number
   workspaceId: string
   channelId: string
   label: string
@@ -174,7 +170,7 @@ async function runActNow(input: {
   | { kind: "started"; runId: string }
   | { kind: "skipped"; reason: string; blocked?: boolean }
 > {
-  const guard = await actGuard(input.triggerId, input)
+  const guard = await actGuard(input.triggerId)
   if (guard.verdict !== "ok") {
     return { kind: "skipped", reason: guard.verdict, blocked: true }
   }
