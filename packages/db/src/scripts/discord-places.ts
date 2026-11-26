@@ -55,11 +55,16 @@ const places = await db.execute<{ id: string }>(sql`
   from channel_discord_link l
   where l.channel_id = c.id and c.kind <> 'place'
   returning c.id`)
-// A place has agents, not people: it leaves the lists of whoever was in the
-// chat it was.
-await db.execute(sql`
-  delete from channel_member m
-  using channel c
-  where c.id = m.channel_id and c.kind = 'place'`)
+// A place has agents, not people: the chats converted in this run leave the
+// lists of whoever was in them. Only those: a private place keeps its
+// members on later runs.
+if (places.length > 0) {
+  await db.execute(sql`
+    delete from channel_member
+    where channel_id in (${sql.join(
+      places.map((row) => sql`${row.id}::uuid`),
+      sql`, `
+    )})`)
+}
 console.log(`Discord places: ${places.length} linked chat(s) became places.`)
 await closeDb()

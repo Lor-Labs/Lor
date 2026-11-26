@@ -7,14 +7,20 @@ import {
 } from "@repo/lor/discord"
 import {
   type DiscordMessageEvent,
+  deleteMirroredMessage,
   mirrorDiscordMessage,
+  updateMirroredMessage,
 } from "@/lib/discord/inbound"
 import {
   type DiscordInteraction,
   handleDiscordInteraction,
   LOR_COMMANDS,
 } from "@/lib/discord/interactions"
-import { disconnectDiscordGuild, discordGuildFor } from "@/lib/discord/places"
+import {
+  disconnectDiscordGuild,
+  discordGuildFor,
+  syncPlaceFromDiscord,
+} from "@/lib/discord/places"
 import {
   type DiscordThreadEvent,
   forgetThread,
@@ -219,6 +225,27 @@ class DiscordGateway {
     }
     if (type === "MESSAGE_CREATE") {
       void mirrorDiscordMessage(data as DiscordMessageEvent, this.botUserId)
+      return
+    }
+    // Edits and deletions in a place reach its copy in Lor.
+    if (type === "MESSAGE_UPDATE") {
+      void updateMirroredMessage(
+        data as DiscordMessageEvent,
+        this.botUserId
+      ).catch((err) => logger.warn({ err }, "Discord edit mirror failed"))
+      return
+    }
+    if (type === "MESSAGE_DELETE") {
+      void deleteMirroredMessage(
+        data as { id: string; channel_id: string }
+      ).catch((err) => logger.warn({ err }, "Discord delete mirror failed"))
+      return
+    }
+    // A place's channel renamed, or made private or public.
+    if (type === "CHANNEL_UPDATE") {
+      void syncPlaceFromDiscord(
+        data as Parameters<typeof syncPlaceFromDiscord>[0]
+      ).catch((err) => logger.warn({ err }, "Discord channel sync failed"))
       return
     }
     if (type === "INTERACTION_CREATE") {

@@ -2,6 +2,7 @@ import { and, asc, db, eq, inArray, schema } from "@repo/db"
 import { MAX_CHANNEL_AGENTS } from "@repo/db/queries/agents"
 import {
   agentFaceUrl,
+  botUserId,
   createAgentWebhook,
   DiscordApiError,
   deleteLinkResources,
@@ -9,6 +10,7 @@ import {
   discordLinkByDiscordChannel,
   discordLinkFor,
   discordRequest,
+  isPrivateDiscordChannel,
   LINKABLE_CHANNEL_TYPES,
   postAgentToDiscord,
   syncAgentRole,
@@ -22,6 +24,7 @@ import {
   setChannelAgents,
 } from "@/lib/agents"
 import { stopChatAgents } from "@/lib/chat-archive"
+import { backfillPlace } from "@/lib/discord/inbound"
 import { logger } from "@/lib/logger"
 
 // Places in Discord (reference/agents-and-chats.md, decisions 24 and 51): a
@@ -254,7 +257,12 @@ export async function addAgentToDiscordChannel(input: {
       }
     }
   } else {
-    let discordChannel: { name?: string; type: number; guild_id?: string }
+    let discordChannel: {
+      name?: string
+      type: number
+      guild_id?: string
+      permission_overwrites?: Array<{ id: string; type: number; deny: string }>
+    }
     let hook: Awaited<ReturnType<typeof createAgentWebhook>>
     try {
       discordChannel = await discordRequest(
@@ -284,7 +292,11 @@ export async function addAgentToDiscordChannel(input: {
             name,
             type: "text",
             kind: "place",
-            audience: "workspace",
+            // A private Discord channel's copy is for the people in it
+            // (`joinPrivatePlace`) and whoever put an agent there.
+            audience: isPrivateDiscordChannel(discordChannel)
+              ? "members"
+              : "workspace",
             workspaceId: input.workspaceId,
             creatorId: input.userId,
           })
@@ -309,6 +321,12 @@ export async function addAgentToDiscordChannel(input: {
           agentId: agent.id,
           addedById: input.userId,
         })
+        if (isPrivateDiscordChannel(discordChannel)) {
+          await tx
+            .insert(schema.channelMember)
+            .values({ channelId: place.id, userId: input.userId })
+            .onConflictDoNothing()
+        }
         return place.id
       })
       .catch(async (err: unknown) => {
@@ -321,6 +339,15 @@ export async function addAgentToDiscordChannel(input: {
       })
     if (!made) return { ok: false, reason: "already_here" }
     channelId = made
+    // What was said before, so the agent can read back.
+    const link = await discordLinkFor(made)
+    if (link) {
+      void botUserId()
+        .then((bot) => backfillPlace(link, bot))
+        .catch((err) =>
+          logger.warn({ err, channelId: made }, "Discord backfill failed")
+        )
+    }
   }
 
   const roleId = await syncAgentRole(input.guildId, agent.id).catch(
@@ -385,4 +412,35 @@ export async function removeAgentFromDiscordPlace(input: {
   })
   if (rest.length === 0) await removeDiscordPlace(input.channelId)
   return true
+}
+
+// A place's Discord channel changed (renamed, made private or public): its
+// copy in Lor follows. Made private, it keeps who was in it and adds whoever
+// put an agent there.
+export async function syncPlaceFromDiscord(channel: {
+  id: string
+  name?: string
+  guild_id?: string
+  permission_overwrites?: Array<{ id: string; type: number; deny: string }>
+}) {
+  const link = await discordLinkByDiscordChannel(channel.id)
+  if (!link) return
+  const audience = isPrivateDiscordChannel(channel) ? "members" : "workspace"
+  await db
+    .update(schema.channel)
+    .set({ audience, ...(channel.name ? { name: channel.name } : {}) })
+    .where(eq(schema.channel.id, link.channelId))
+  if (channel.name) {
+    await db
+      .update(schema.channelDiscordLink)
+      .set({ discordChannelName: channel.name })
+      .where(eq(schema.channelDiscordLink.channelId, link.channelId))
+  }
+  if (audience === "members" && link.linkedById) {
+    await db
+      .insert(schema.channelMember)
+      .values({ channelId: link.channelId, userId: link.linkedById })
+      .onConflictDoNothing()
+  }
+  emitAgentsUpdated(link.workspaceId)
 }

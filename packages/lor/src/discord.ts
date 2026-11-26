@@ -387,7 +387,7 @@ const ROLE_RETRY_MS = 10 * 60_000
 const roleFailures = new Map<string, number>()
 
 let botUser: Promise<string> | null = null
-function botUserId() {
+export function botUserId() {
   botUser ??= discordRequest<{ id: string }>("/users/@me").then(
     (me) => me.id,
     (err: unknown) => {
@@ -886,4 +886,18 @@ export async function filesForDiscord(
     })
   }
   return { files, linked }
+}
+
+const VIEW_CHANNEL = 1n << 10n
+
+// Whether a Discord channel is private: @everyone (the role whose id is the
+// server's) can't see it.
+export function isPrivateDiscordChannel(channel: {
+  guild_id?: string
+  permission_overwrites?: Array<{ id: string; type: number; deny: string }>
+}) {
+  const everyone = channel.permission_overwrites?.find(
+    (overwrite) => overwrite.type === 0 && overwrite.id === channel.guild_id
+  )
+  return everyone ? (BigInt(everyone.deny) & VIEW_CHANNEL) !== 0n : false
 }

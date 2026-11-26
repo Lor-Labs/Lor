@@ -26,6 +26,7 @@ import {
 import { AGENT_INBOX_BATCH_MS } from "@repo/realtime-types/queues"
 import { classifyAgentInbox, flushAgentInbox } from "@/lib/agent-inbox-queue"
 import { getEmitter } from "@/lib/bot-messages"
+import { copyDiscordFiles, type DiscordAttachment } from "@/lib/discord/files"
 import { discordGuildFor } from "@/lib/discord/places"
 import { threadInfo } from "@/lib/discord/threads"
 import { logger } from "@/lib/logger"
@@ -62,7 +63,9 @@ export type DiscordMessageEvent = {
     webhook_id?: string | null
     author?: { id: string }
   } | null
-  attachments?: Array<{ url: string; filename: string }>
+  attachments?: DiscordAttachment[]
+  // When it was written: a backfilled message keeps its own time.
+  timestamp?: string
 }
 
 function displayName(user: {
@@ -105,7 +108,7 @@ function fromDiscordContent(
   const names = new Map(
     (event.mentions ?? []).map((user) => [user.id, displayName(user)])
   )
-  let text = event.content
+  const text = event.content
     .replace(/<@!?(\d+)>/g, (_, id: string) => {
       if (id === botUserId) return `<@${LOR_USER_ID}>`
       const lorId = lorIds.get(id)
@@ -117,9 +120,6 @@ function fromDiscordContent(
     })
     .replace(/<#(\d+)>/g, "#channel")
     .replace(/<a?:(\w+):\d+>/g, ":$1:")
-  for (const file of event.attachments ?? []) {
-    text += `\n[${file.filename}](${file.url})`
-  }
   return text.trim()
 }
 
@@ -296,15 +296,23 @@ async function mirrorInto(
   link: DiscordLink,
   event: DiscordMessageEvent,
   botUserId: string,
-  threadId: string | null
+  threadId: string | null,
+  // What was said before an agent joined: stored at its own time, with no
+  // realtime and nothing in the agents' inboxes.
+  options: { backfill?: boolean } = {}
 ) {
   const discordIds = [
     event.author.id,
     ...(event.mentions ?? []).map((user) => user.id),
   ]
   const lorIds = await lorUsersFor(discordIds)
-  // A linked account posts as its person, if they can see the channel.
+  // A linked account posts as its person, if they can see the channel. In a
+  // private Discord channel, posting there shows they can: they are put in
+  // its copy in Lor.
   const linkedAuthor = lorIds.get(event.author.id)
+  if (linkedAuthor && !event.author.bot && !event.webhook_id) {
+    await joinPrivatePlace(link.channelId, linkedAuthor)
+  }
   const asPerson =
     !event.author.bot &&
     !event.webhook_id &&
@@ -312,13 +320,23 @@ async function mirrorInto(
     (await userCanAccessChannel(link.channelId, linkedAuthor))
       ? linkedAuthor
       : null
-  const content = fromDiscordContent(
+  const text = fromDiscordContent(
     event,
     botUserId,
     await agentRolesIn(link.guildId),
     lorIds
   )
-  if (!content) return
+  // Its files are copied into Lor; one that can't be is linked instead.
+  const files = event.attachments?.length
+    ? await copyDiscordFiles(link.channelId, event.attachments)
+    : { attachments: [], failed: [] }
+  const content = [
+    text,
+    ...files.failed.map((file) => `[${file.filename}](${file.url})`),
+  ]
+    .filter(Boolean)
+    .join("\n")
+  if (!content && files.attachments.length === 0) return
 
   const [channel] = await db
     .select({
@@ -404,6 +422,10 @@ async function mirrorInto(
           referencedMessageId: referenced?.id ?? null,
           threadRootId: rootId,
           clientKey: `discord:${event.id}`,
+          attachments: files.attachments,
+          ...(options.backfill && event.timestamp
+            ? { createdAt: new Date(event.timestamp) }
+            : {}),
           ...(override ?? {}),
         })
         .onConflictDoNothing()
@@ -443,6 +465,7 @@ async function mirrorInto(
   // Realtime only for a newly stored message, for whoever has the place
   // open. Nobody is notified: a place has no people in Lor, and Discord
   // already told them.
+  if (options.backfill) return
   if (inserted.fresh) {
     const io = await getEmitter()
     const message: RealtimeMessage = {
@@ -459,7 +482,7 @@ async function mirrorInto(
       overrideAvatarUrl: override?.overrideAvatarUrl ?? null,
       mentions: [],
       reactions: [],
-      attachments: [],
+      attachments: files.attachments,
       embeds: [],
       referencedMessage: referenced
         ? {
@@ -540,5 +563,118 @@ async function mirrorInto(
   }
   if (named.size === 0 && !threadRootId) {
     classifyAgentInbox(link.channelId, inserted.id)
+  }
+}
+
+// Someone in a private Discord place, by their linked account: its copy in
+// Lor is theirs to see too.
+export async function joinPrivatePlace(channelId: string, userId: string) {
+  const [place] = await db
+    .select({ audience: schema.channel.audience })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, channelId))
+  if (place?.audience !== "members") return
+  await db
+    .insert(schema.channelMember)
+    .values({ channelId, userId })
+    .onConflictDoNothing()
+}
+
+// The Discord message behind a Lor copy, when someone (not an agent) wrote
+// it and its place is still linked.
+async function mirroredCopy(discordMessageId: string) {
+  const [row] = await db
+    .select({
+      messageId: schema.message.id,
+      channelId: schema.message.channelId,
+      threadRootId: schema.message.threadRootId,
+      type: schema.message.type,
+    })
+    .from(schema.discordMessage)
+    .innerJoin(
+      schema.message,
+      eq(schema.message.id, schema.discordMessage.messageId)
+    )
+    .where(eq(schema.discordMessage.discordMessageId, discordMessageId))
+  if (!row || row.type === "agent_post" || row.type === "event") return null
+  const link = await discordLinkFor(row.channelId)
+  return link ? { ...row, link } : null
+}
+
+// A message edited in Discord: its copy in Lor follows. Discord sends edits
+// without the text for embeds being filled in; those are skipped.
+export async function updateMirroredMessage(
+  event: DiscordMessageEvent,
+  botUserId: string
+) {
+  if (typeof event.content !== "string" || !event.author) return
+  if (event.webhook_id) return
+  const copy = await mirroredCopy(event.id)
+  if (!copy) return
+  const lorIds = await lorUsersFor([
+    event.author.id,
+    ...(event.mentions ?? []).map((user) => user.id),
+  ])
+  const content = fromDiscordContent(
+    event,
+    botUserId,
+    await agentRolesIn(copy.link.guildId),
+    lorIds
+  )
+  const editedAt = new Date()
+  await db
+    .update(schema.message)
+    .set({ content, editedAt })
+    .where(eq(schema.message.id, copy.messageId))
+  const io = await getEmitter()
+  const payload = {
+    channelId: copy.channelId,
+    messageId: copy.messageId,
+    content,
+    editedAt: editedAt.toISOString(),
+    mentions: [],
+  }
+  io.to(
+    copy.threadRootId
+      ? threadRoom(copy.threadRootId)
+      : channelRoom(copy.channelId)
+  ).emit("message:updated", payload)
+}
+
+// A message deleted in Discord: its copy in Lor goes too.
+export async function deleteMirroredMessage(event: {
+  id: string
+  channel_id: string
+}) {
+  const copy = await mirroredCopy(event.id)
+  if (!copy) return
+  await db.delete(schema.message).where(eq(schema.message.id, copy.messageId))
+  const io = await getEmitter()
+  const payload = { channelId: copy.channelId, messageId: copy.messageId }
+  io.to(channelRoom(copy.channelId)).emit("message:deleted", payload)
+  if (copy.threadRootId) {
+    io.to(threadRoom(copy.threadRootId)).emit("message:deleted", payload)
+  }
+}
+
+const BACKFILL_MESSAGES = 50
+
+// A new place starts with the channel's recent history, so an agent added
+// to it can read what was said before it joined ("what do you think of the
+// above?"). People's messages only; nothing wakes an agent.
+export async function backfillPlace(link: DiscordLink, botUserId: string) {
+  const recent = await discordRequest<DiscordMessageEvent[]>(
+    `/channels/${link.discordChannelId}/messages?limit=${BACKFILL_MESSAGES}`
+  ).catch(() => [] as DiscordMessageEvent[])
+  for (const event of recent.reverse()) {
+    if (event.author.id === botUserId || event.webhook_id) continue
+    if (event.type !== 0 && event.type !== 19) continue
+    await mirrorInto(link, event, botUserId, null, { backfill: true }).catch(
+      (err) =>
+        logger.warn(
+          { err, discordMessageId: event.id },
+          "Discord backfill message failed"
+        )
+    )
   }
 }

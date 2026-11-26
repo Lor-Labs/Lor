@@ -323,7 +323,13 @@ other and Loops on the agent were first and are built, see below):
    now in a place posted there. A Loop an agent sets up from a place shows
    its card there (in the request's thread), and its changes, pauses and
    end show as lines where it reports (`packages/lor/src/discord-loops.ts`).
-   Next: Slack.
+   Files people post in a place are copied into Lor as attachments
+   (`apps/api/src/lib/discord/files.ts`), edits and deletions there follow
+   to the copy, a new place starts with the channel's last 50 messages
+   (`backfillPlace`), and a private Discord channel's copy is for the Lor
+   people in it (`channel.audience = "members"`, joined when they post there
+   with a linked account, plus whoever put an agent there; followed on
+   CHANNEL_UPDATE, which also follows a rename). Next: Slack.
 Archiving a chat for everyone, and undoing it, are built (decision 52):
 `POST /chats/{id}/archive` and `/unarchive` (`apps/api/src/lib/chat-archive.ts`),
 the Archive section in the chat's settings, Undo in the toast, Unarchive on
