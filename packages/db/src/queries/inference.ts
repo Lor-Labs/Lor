@@ -140,14 +140,14 @@ export async function currentWorkspaceInferenceCredential(
   return { keyId: row.keyId, credential }
 }
 
-// With replacesKeyId (an edit that reuses the saved secrets), writes only if
-// that key is still the saved one, so a concurrent replacement isn't
-// overwritten. Returns false when it wasn't.
+// Writes only if the saved row is still the one the edit read
+// (expectedKeyId; null: none saved), so a concurrent change or removal is
+// never overwritten or recreated. Returns false when it wasn't.
 export async function saveWorkspaceInferenceKey(input: {
   workspaceId: string
   credential: InferenceCredential
   createdById: string
-  replacesKeyId?: string
+  expectedKeyId: string | null
 }) {
   const values = {
     keyId: randomUUID(),
@@ -160,34 +160,29 @@ export async function saveWorkspaceInferenceKey(input: {
     createdById: input.createdById,
     createdAt: new Date(),
   }
-  if (input.replacesKeyId) {
+  if (input.expectedKeyId) {
     const updated = await db
       .update(schema.workspaceInferenceKey)
       .set(values)
       .where(
         and(
           keyOf(input.workspaceId, input.credential.provider),
-          eq(schema.workspaceInferenceKey.keyId, input.replacesKeyId)
+          eq(schema.workspaceInferenceKey.keyId, input.expectedKeyId)
         )
       )
       .returning({ keyId: schema.workspaceInferenceKey.keyId })
     return updated.length > 0
   }
-  await db
+  const inserted = await db
     .insert(schema.workspaceInferenceKey)
     .values({
       workspaceId: input.workspaceId,
       provider: input.credential.provider,
       ...values,
     })
-    .onConflictDoUpdate({
-      target: [
-        schema.workspaceInferenceKey.workspaceId,
-        schema.workspaceInferenceKey.provider,
-      ],
-      set: values,
-    })
-  return true
+    .onConflictDoNothing()
+    .returning({ keyId: schema.workspaceInferenceKey.keyId })
+  return inserted.length > 0
 }
 
 // Masked providers for AI provider settings and the composer's key-paid

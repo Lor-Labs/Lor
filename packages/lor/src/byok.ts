@@ -226,6 +226,8 @@ async function piAuth(
   }
 }
 
+// piAuth is built only for a Pi turn: its env guard and the Vertex key file
+// don't apply to the AI SDK models (nativeLanguageModel).
 export async function nativeInference(
   workspaceId: string,
   funding: Extract<InferenceFunding, { source: "byok" }>
@@ -234,7 +236,7 @@ export async function nativeInference(
   return {
     provider: funding.provider,
     model: funding.model,
-    auth: await piAuth(workspaceId, funding.keyId, credential),
+    piAuth: () => piAuth(workspaceId, funding.keyId, credential),
     credential,
   }
 }

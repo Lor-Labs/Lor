@@ -361,9 +361,10 @@ export async function verifyInferenceCredential(
         }
       if (!res.ok) return { error: await providerError(res, name) }
       // An API key can't list deployments. A request with max_output_tokens
-      // below the minimum is refused before it runs, but a missing
-      // deployment answers DeploymentNotFound first.
-      const missing = await Promise.all(
+      // below the minimum is refused (400) before it runs, but a missing
+      // deployment answers DeploymentNotFound first. Anything else, a
+      // timeout included, confirms neither.
+      const outcomes = await Promise.all(
         credential.deployments.map(async ({ deployment }) => {
           const probe = await fetch(`${base}/responses`, {
             method: "POST",
@@ -378,17 +379,31 @@ export async function verifyInferenceCredential(
             }),
             signal: AbortSignal.timeout(TIMEOUT_MS),
           }).catch(() => null)
-          if (probe?.status !== 404) return null
-          const body: { error?: { code?: unknown } } | null = await probe
-            .json()
-            .catch(() => null)
-          return body?.error?.code === "DeploymentNotFound" ? deployment : null
+          if (probe && (probe.ok || probe.status === 400))
+            return { deployment, outcome: "found" as const }
+          const body: { error?: { code?: unknown } } | null =
+            probe?.status === 404 ? await probe.json().catch(() => null) : null
+          return {
+            deployment,
+            outcome:
+              body?.error?.code === "DeploymentNotFound"
+                ? ("missing" as const)
+                : ("unconfirmed" as const),
+          }
         })
       )
-      const unknown = missing.filter((item) => item !== null)
-      return unknown.length > 0
+      const named = (outcome: "missing" | "unconfirmed") =>
+        outcomes
+          .filter((item) => item.outcome === outcome)
+          .map((item) => item.deployment)
+          .join(", ")
+      if (named("missing"))
+        return {
+          error: `This Azure resource has no deployment named ${named("missing")}.`,
+        }
+      return named("unconfirmed")
         ? {
-            error: `This Azure resource has no deployment named ${unknown.join(", ")}.`,
+            notice: `Saved. Azure didn't confirm the deployment ${named("unconfirmed")}, so a run on it may fail.`,
           }
         : ok
     }
@@ -404,7 +419,8 @@ export async function verifyInferenceCredential(
           ? "aiplatform.googleapis.com"
           : `${credential.location}-aiplatform.googleapis.com`
       // countTokens is free and needs the same Vertex AI access as a run. A
-      // model the region doesn't serve answers 404, so the next one is tried.
+      // 404 means the region doesn't serve that model or the project can't
+      // use it, so the next one is tried.
       const models = getBuiltinModels("google-vertex").map((model) => model.id)
       for (const model of [
         "gemini-2.5-flash",
@@ -432,7 +448,7 @@ export async function verifyInferenceCredential(
         if (res.status !== 404) return { error: await providerError(res, name) }
       }
       return {
-        error: `Vertex AI in ${credential.location} serves none of the Gemini models Lor runs. Try global or us-central1.`,
+        error: `None of the Gemini models Lor runs answered in ${credential.location}: the region doesn't serve them, or the project doesn't have access to them. Try global or us-central1, and check the project's Vertex AI model access.`,
       }
     }
     case "amazon-bedrock": {

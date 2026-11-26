@@ -4849,7 +4849,7 @@ async function respondImpl(
             },
             ...(native ? { nativeProvider: native.provider } : {}),
             ...(ctx.turn?.effort ? { thinkingLevel: ctx.turn.effort } : {}),
-            gatewayAuth: native?.auth ?? piGatewayAuth(),
+            gatewayAuth: native ? await native.piAuth() : piGatewayAuth(),
             gatewayOptions: mainGatewayOptions,
             beforeRequest: run.assertCanInfer,
             abortSignal,

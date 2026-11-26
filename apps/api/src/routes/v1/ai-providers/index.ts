@@ -130,7 +130,8 @@ const putAiProvider = createRoute({
     200: jsonContent({
       // What the provider check couldn't confirm, though the settings saved.
       schema: result.extend({ notice: z.string().nullable() }),
-      description: "Settings verified and saved",
+      description:
+        "Settings saved, with a notice if verification was incomplete",
     }),
     400: jsonContent({
       schema: z.object({ message: z.string() }),
@@ -201,13 +202,13 @@ const putHandler: AppRouteHandler<typeof putAiProvider> = async (c) => {
     workspaceId,
     credential: parsed.credential,
     createdById: c.var.user.id,
-    ...(reuses && saved ? { replacesKeyId: saved.keyId } : {}),
+    expectedKeyId: saved?.keyId ?? null,
   })
   if (!written)
     return c.json(
       {
         message:
-          "Someone changed or removed this provider while you were editing. Reopen it and try again.",
+          "Someone changed this provider while you were editing. Reopen it and try again.",
       },
       409
     )
