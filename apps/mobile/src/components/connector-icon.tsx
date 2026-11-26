@@ -12,14 +12,9 @@ import {
   BETTERSTACK_LOGO_PATHS,
   BETTERSTACK_LOGO_VIEW_BOX,
 } from "@repo/ui/lib/betterstack-logo"
-import {
-  GRANOLA_BRAND,
-  GRANOLA_INK,
-  GRANOLA_LOGO_VIEW_BOX,
-  GRANOLA_SPIRAL_PATH,
-  GRANOLA_TILE,
-} from "@repo/ui/lib/granola-logo"
-import Svg, { G, Path, Rect } from "react-native-svg"
+import { GRANOLA_ICON_DATA_URI } from "@repo/ui/lib/granola-logo"
+import { Image } from "react-native"
+import Svg, { G, Path } from "react-native-svg"
 
 export type ConnectorKey =
   | "github"
@@ -171,22 +166,11 @@ export function ConnectorIcon({
   // In color, as Granola's own app icon; ignores `color`.
   if (connector === "granola") {
     return (
-      <Svg
+      <Image
         accessibilityLabel="Granola"
-        height={size}
-        viewBox={GRANOLA_LOGO_VIEW_BOX}
-        width={size}
-      >
-        <Rect
-          fill={GRANOLA_BRAND}
-          height={GRANOLA_TILE.size}
-          rx={GRANOLA_TILE.radius}
-          width={GRANOLA_TILE.size}
-          x={GRANOLA_TILE.x}
-          y={GRANOLA_TILE.y}
-        />
-        <Path d={GRANOLA_SPIRAL_PATH} fill={GRANOLA_INK} />
-      </Svg>
+        source={{ uri: GRANOLA_ICON_DATA_URI }}
+        style={{ height: size, width: size }}
+      />
     )
   }
   if (connector === "github") {

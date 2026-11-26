@@ -104,9 +104,11 @@ Granola green. Summary and follow-ups come from the same `enrichMeetingEmbed`
 pass, now run for any embed with a `meeting`. When transcripts are turned off
 for the API, Granola's notes stand in for the transcript on the card.
 
-**Logo:** `packages/ui/src/lib/granola-logo.ts` holds the spiral from the
-wordmark SVG on granola.ai on the brand green `#b2c248`;
-`GranolaLogo` (web) and the mobile `ConnectorIcon` draw it in color.
+**Logo:** Granola's own app icon, not a redrawing: the 550 px `/icon.png`
+from granola.ai (green rounded tile, transparent corners) scaled to 128 px and
+inlined as a data URI in `packages/ui/src/lib/granola-logo.ts`, the way
+Granola's own `favicon.svg` embeds its icon. `GranolaLogo` (web) is an `<img>`
+of it and the mobile `ConnectorIcon` an `Image`.
 
 ## Rollout
 
