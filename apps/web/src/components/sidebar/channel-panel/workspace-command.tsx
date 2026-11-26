@@ -71,7 +71,7 @@ type SearchResponse = {
   sessions: SessionResult[]
 }
 
-// How many chats the person is not in the search lists at once.
+// How many chats the person is not in a search lists at once.
 const OTHER_CHATS_SHOWN = 8
 
 export function WorkspaceCommand() {
@@ -183,9 +183,13 @@ export function WorkspaceCommand() {
     (chat) => !needle || (chat.name ?? "").toLowerCase().includes(needle)
   )
   const yourChats = needle ? allChats.filter((chat) => mine.has(chat.id)) : []
-  const otherChats = myChats
-    ? allChats.filter((chat) => !mine.has(chat.id)).slice(0, OTHER_CHATS_SHOWN)
-    : []
+  // Only once something is typed: an empty search stays commands only.
+  const otherChats =
+    needle && myChats
+      ? allChats
+          .filter((chat) => !mine.has(chat.id))
+          .slice(0, OTHER_CHATS_SHOWN)
+      : []
   const goToChat = (channelId: string) => {
     if (!workspaceSlug) return
     setOpen(false)
@@ -287,9 +291,7 @@ export function WorkspaceCommand() {
 
                 {otherChats.length > 0 && (
                   <CommandGroup>
-                    <CommandGroupLabel>
-                      {needle ? "Other chats" : "Chats you're not in"}
-                    </CommandGroupLabel>
+                    <CommandGroupLabel>Other chats</CommandGroupLabel>
                     {otherChats.map(chatItem)}
                   </CommandGroup>
                 )}

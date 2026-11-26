@@ -43,15 +43,13 @@ export function ChannelMuteMenu({
     <DropdownMenu>
       <TooltipTrigger
         handle={tooltipHandle}
-        payload={mute ? mutedUntilLabel(mute.mutedUntil) : "Mute channel"}
+        payload={mute ? mutedUntilLabel(mute.mutedUntil) : "Mute chat"}
         render={
           <DropdownMenuTrigger
             render={
               <button
                 type="button"
-                aria-label={
-                  mute ? "Muted — notification options" : "Mute channel"
-                }
+                aria-label={mute ? "Muted — notification options" : "Mute chat"}
                 className="relative rounded-sm p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-1"
               />
             }

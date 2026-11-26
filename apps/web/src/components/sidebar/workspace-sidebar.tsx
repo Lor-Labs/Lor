@@ -49,7 +49,6 @@ import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
 import { ChannelActivityProvider } from "@/components/sidebar/channel-panel/channel-activity"
-import { NeedsYouGroup } from "@/components/sidebar/channel-panel/needs-you-list"
 import { VoicePresenceProvider } from "@/components/sidebar/channel-panel/voice-presence"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
 import { ChatList } from "@/components/sidebar/chat-panel/chat-list"
@@ -470,12 +469,9 @@ function WorkspaceSidebarInner() {
                 workspaceSlug={activeWorkspace?.slug}
                 workspaceId={activeWorkspace?.id}
               >
-                {/* One list: what needs you, then your chats, pinned first
-                    and the rest by last message, with their sessions under
-                    them (reference/agents-and-chats.md, decision 33). */}
-                <div className="px-2">
-                  <NeedsYouGroup />
-                </div>
+                {/* One list: your chats, pinned first and the rest by last
+                    message, with their sessions under them
+                    (reference/agents-and-chats.md, decision 33). */}
                 <ChatList workspaceId={activeWorkspace?.id} />
               </VoicePresenceProvider>
             </ChannelActivityProvider>

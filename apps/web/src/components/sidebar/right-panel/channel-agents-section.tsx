@@ -127,8 +127,8 @@ export function ChannelAgentsSection({
               {canChange && (
                 <button
                   type="button"
-                  aria-label={`Remove ${agent.name} from this channel`}
-                  title="Remove from this channel"
+                  aria-label={`Remove ${agent.name} from this chat`}
+                  title="Remove from this chat"
                   disabled={removing !== null}
                   onClick={() => void remove(agent)}
                   className="relative z-10 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none transition-[opacity,background-color,color,transform] duration-150 ease-out hover:bg-foreground/[0.06] hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.96] disabled:pointer-events-none group-hover:opacity-100"
@@ -229,7 +229,7 @@ function AgentRoster({
         viewportClassName="p-1.5"
       >
         <PopoverTitle className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">
-          Add to this channel
+          Add to this chat
         </PopoverTitle>
         {others.map((agent) => (
           <div key={agent.id} className="flex items-center gap-1">

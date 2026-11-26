@@ -13,6 +13,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { LOR_USER_ID } from "@repo/db/constants"
+import type { AgentNeed } from "@repo/realtime-types"
 import {
   ContextMenu,
   ContextMenuItem,
@@ -238,6 +239,16 @@ export function ChatList({ workspaceId }: { workspaceId?: string }) {
           })
           closeMobileSidebar(false)
         }}
+        onOpenNeed={(need) => {
+          void navigate({
+            to: "/$workspaceSlug/$channelId",
+            params: { workspaceSlug, channelId: chat.id },
+            search: need.threadRootId
+              ? { threadId: need.threadRootId, threadMessageId: need.messageId }
+              : { msgId: need.messageId },
+          })
+          closeMobileSidebar(false)
+        }}
         onPin={() =>
           updateChat.mutate({ channelId: chat.id, pinned: !chat.pinnedAt })
         }
@@ -307,6 +318,7 @@ function ChatRow({
   canDelete,
   muteControls,
   onOpen,
+  onOpenNeed,
   onPin,
   onHide,
 }: {
@@ -321,6 +333,8 @@ function ChatRow({
   canDelete: boolean
   muteControls: MuteControls
   onOpen: () => void
+  // Opens the chat at the message that waits on the person.
+  onOpenNeed: (need: AgentNeed) => void
   onPin: () => void
   onHide: () => void
 }) {
@@ -343,6 +357,11 @@ function ChatRow({
   const mentionCount = active ? 0 : getMentionCount(chat.id)
   const activity = useChannelActivity(chat.id)
   const sessions = activity?.sessions ?? []
+  // An approval waiting on this person: once the chat is read nothing else
+  // in the list says an agent is still blocked, so the row keeps a mark
+  // until it is decided (the sidebar's "Needs you" group, removed
+  // 2026-11-26, used to list these).
+  const approval = activity?.agentNeeds.find((need) => need.kind === "approval")
   const running = activity?.runningSessions ?? 0
   const runningLabel = `${running} ${running === 1 ? "session" : "sessions"} running`
 
@@ -415,7 +434,12 @@ function ChatRow({
                 {chatTime(chatActivityAt(chat))}
               </span>
             </span>
-            <span className="mt-0.5 flex items-center gap-2">
+            <span
+              className={cn(
+                "mt-0.5 flex items-center gap-2",
+                approval && "pr-6"
+              )}
+            >
               <Preview chat={chat} agent={lastAgent} me={me} unread={unread} />
               {running > 0 && (
                 <span
@@ -441,6 +465,17 @@ function ChatRow({
               )}
             </span>
           </button>
+          {approval && (
+            <button
+              type="button"
+              onClick={() => onOpenNeed(approval)}
+              aria-label={`Waiting on your approval in ${name}`}
+              title="Waiting on your approval"
+              className="absolute right-2 bottom-1.5 z-10 flex size-[18px] cursor-pointer items-center justify-center rounded-full bg-warning/15 font-semibold text-[11px] text-warning-foreground outline-none transition-[transform,background-color] duration-150 ease-out hover:bg-warning/25 focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.92]"
+            >
+              !
+            </button>
+          )}
           <button
             type="button"
             data-pin

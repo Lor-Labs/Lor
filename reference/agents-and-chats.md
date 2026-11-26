@@ -287,9 +287,7 @@ built, see below):
 2. Loops stored on the agent.
 3. Slack and Discord as places (steps 4 and 5 below).
 
-Beside these: "Needs you" in the sidebar (a group from the channel days;
-not in the mock, and proposed to Jacob on 11-26 to go, with a pending
-approval marked on its chat's row instead); the chat's settings dialog
+Beside these: the chat's settings dialog
 (tools, webhooks) still says "channel"; no private chat can be made from
 the web app (Jacob, 11-26: no switch for now); the mobile app still lists
 channels; listeners an agent
@@ -809,18 +807,31 @@ The chat's header and panel (built 2026-11-26):
 Finding and joining a chat (decision 35, built 2026-11-26):
 
 - **The sidebar's search** (`workspace-command.tsx`, Cmd+K) lists chats by
-  name as the person types: theirs, and every other chat they can see.
-  With nothing typed it lists up to eight chats they are not in, and has a
-  New chat command.
+  name as the person types: theirs, and up to eight others they can see.
+  With nothing typed it lists no chats (Jacob, 11-26), only commands, New
+  chat among them.
 - **A chat the person is not in** opens like any other. Above its composer
   a line says it isn't in their list, with Join chat (`JoinChatBar`); the
   details panel has the same button, and writing in it joins too.
 - **Removed:** `channel-list.tsx`, the old create dialog and its context,
   unused since the chat list and New chat.
-- **Checked live:** a chat left, found under "Chats you're not in" and by
-  name under "Other chats", opened, and joined from the line above the
-  composer. Not run: more than eight other chats, a private chat (not
-  listed for people outside it, as it is not in their channel list).
+- **Checked live:** a chat left, found by name under "Other chats",
+  opened, and joined from the line above the composer. Not run: more than
+  eight other chats, a private chat (not listed for people outside it, as
+  it is not in their channel list).
+- **"Needs you" is gone from the sidebar** (Jacob, 11-26;
+  `needs-you-list.tsx` deleted). It was a group from the channel days
+  (`always-on-agents.md`, decision 24) listing approvals, unanswered
+  questions and sessions waiting on the person. A question is a message,
+  so its chat already rises with an unread badge, and a waiting session
+  has its mark on its row under the chat. An approval the person can
+  decide keeps a "!" on its chat's row until it is decided
+  (`activity.agentNeeds`, kind "approval"); pressing it opens the chat at
+  that message. Checked with one approval seeded on a throwaway database.
+  Not run: an approval an agent really asked for. The lookup
+  (`workspace-activity.ts`) needs the turn's `message_id`, which the
+  agents' chat turns on that database did not have, so whether a real one
+  reaches the row is unverified. The mobile app still has its group.
 
 Listeners and notifications (decisions 40 to 42, built 2026-11-26):
 
