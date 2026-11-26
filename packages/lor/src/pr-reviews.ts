@@ -6,7 +6,11 @@ import {
   type GithubReviewAuthor,
 } from "./providers/github"
 
-export { fetchCommitChecks, reviewStartsThreads } from "./providers/github"
+export {
+  fetchBranchPullRequest,
+  fetchCommitChecks,
+  reviewStartsThreads,
+} from "./providers/github"
 
 // A code session's pull request review, read live from GitHub for the review
 // card and the Details panel's Review list (reference/planned/pr-reviews.md).

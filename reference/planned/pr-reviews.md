@@ -118,9 +118,10 @@ sidebar, and "Fix with Lor" on each comment.
   (`session-work-panel.tsx`) lists failing and running checks first, passed
   ones folded, with Fix with Lor. A `session_checks` event row (DB enum,
   `SessionChecksPayload`) is posted by `announceChecks`
-  (`apps/api/src/lib/session-reviews.ts`) on `check_suite.completed` once
-  every check run on the head commit is done: when any failed, or when all
-  pass after a failure card. A snapshot of names and links, rendered by
+  (`apps/api/src/lib/session-reviews.ts`) on `check_suite.completed` or a
+  finished `status` once every check run and commit status on the head commit
+  is done: when any failed, or when every one passed after a failure card
+  (cancelled ones mean no card). A snapshot of names and links, rendered by
   `apps/web/src/components/session/checks.tsx`; mobile shows a line. Posted as
   the GitHub app user, so Lor reads it next turn. Fix with Lor asks Lor to read
   the logs with `fetch_github` `logs: true`. `check_run.*` and `status`

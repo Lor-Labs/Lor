@@ -384,6 +384,9 @@ const FETCH_TOTAL_CHARS = 40_000
 const FETCH_BODY_CHARS = 8_000
 const FETCH_COMMENT_CHARS = 6_000
 const FETCH_PAGE_SIZE = 100
+const FETCH_CHECKS_CHARS = 10_000
+// Room for the "earlier comments omitted" line and its separators.
+const FETCH_NOTICE_CHARS = 120
 const FAILED_RUNS_DETAILED = 5
 const ANNOTATIONS_PER_RUN = 10
 
@@ -440,18 +443,9 @@ async function checkRunsText(
   sha: string,
   request: () => { signal: AbortSignal }
 ): Promise<string> {
-  let runs: Awaited<
-    ReturnType<Octokit["rest"]["checks"]["listForRef"]>
-  >["data"]["check_runs"]
+  let runs: CheckRun[]
   try {
-    runs = (
-      await octokit.rest.checks.listForRef({
-        ...target,
-        ref: sha,
-        per_page: FETCH_PAGE_SIZE,
-        request: request(),
-      })
-    ).data.check_runs
+    runs = await listCheckRuns(octokit, target, sha)
   } catch (err) {
     return forbidden(err)
       ? "Checks: unavailable. The Lor GitHub App isn't granted Checks: read on this repository."
@@ -599,10 +593,10 @@ export async function fetchIssueOrPr(
         stripGithubHtml(data.body ?? "") || "(no description)",
         FETCH_BODY_CHARS
       ),
-      ...(checks ? [checks] : []),
+      ...(checks ? [clipTo(checks, FETCH_CHECKS_CHARS)] : []),
     ].join("\n\n")
 
-    let used = head.length
+    let used = head.length + FETCH_NOTICE_CHARS
     let keepFrom = discussion.length
     while (keepFrom > 0) {
       const next = (discussion[keepFrom - 1]?.text.length ?? 0) + 2
@@ -771,6 +765,7 @@ const LOG_RUNS_MAX = 3
 const LOG_CONTEXT_LINES = 150
 const LOG_WINDOW_LINES = 300
 const LOG_RUN_CHARS = 12_000
+const LOG_ERROR_LEAD_CHARS = 2_000
 const LOG_TIMEOUT_MS = 20_000
 
 // The part of an Actions job log that explains the failure: from a little
@@ -802,7 +797,15 @@ function logExcerpt(raw: string): string {
   }
   let text = lines.slice(start, end).join("\n").trim()
   if (text.length > LOG_RUN_CHARS) {
-    text = `…${text.slice(text.length - LOG_RUN_CHARS)}`
+    // Keep the tail, unless that would drop the first error: then start a
+    // little before it.
+    const firstError = text.indexOf("##[error]")
+    const from =
+      firstError === -1 || text.length - firstError <= LOG_RUN_CHARS
+        ? text.length - LOG_RUN_CHARS
+        : Math.max(0, firstError - LOG_ERROR_LEAD_CHARS)
+    const clipped = text.slice(from, from + LOG_RUN_CHARS)
+    text = `${from > 0 ? "…" : ""}${clipped}${from + LOG_RUN_CHARS < text.length ? "\n…" : ""}`
   }
   return `(log lines ${start + 1}–${end} of ${lines.length})\n${text}`
 }

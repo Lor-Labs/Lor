@@ -158,7 +158,7 @@ export function channelEventContent(input: ChannelEventContentInput): string {
         return `All ${input.total} checks passed on ${where}`
       }
       const names = input.failed.map((check) => check.name.slice(0, 80))
-      return `Checks failed on ${where}: ${input.failed.length} of ${input.total} failed (${names.join(", ")}). fetch_github with logs: true reads their logs.`
+      return `Checks failed on ${where}: ${input.failed.length} of ${input.total} failed (${names.join(", ")}). fetch_github with logs: true reads the logs of the pull request's latest commit; if it has moved on, the failed checks' own links show these.`
     }
     // Lor reads these. The PR title is left out: it is untrusted text.
     case "session_pr_opened":

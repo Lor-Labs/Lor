@@ -376,11 +376,14 @@ function SessionChecksSection({
   const pending = checks.filter(
     (check) => check.state === "running" || check.state === "queued"
   )
+  const cancelled = checks.filter((check) => check.state === "cancelled")
+  const passed = checks.filter((check) => check.state === "passed")
+  // Passed, skipped and neutral checks fold; anything else stays in view.
   const attention = checks.filter(
     (check) =>
-      check.state === "failed" ||
-      check.state === "running" ||
-      check.state === "queued"
+      check.state !== "passed" &&
+      check.state !== "skipped" &&
+      check.state !== "neutral"
   )
   const rest = checks.length - attention.length
   const shown = showAll ? checks : attention
@@ -389,9 +392,13 @@ function SessionChecksSection({
       ? `${failed.length} failed`
       : pending.length > 0
         ? `${pending.length} running`
-        : checks.length > 0
-          ? "all passed"
-          : undefined
+        : cancelled.length > 0
+          ? `${cancelled.length} cancelled`
+          : checks.length > 0 && passed.length === checks.length
+            ? "all passed"
+            : passed.length > 0
+              ? `${passed.length} passed`
+              : undefined
   return (
     <PanelSection
       title={
@@ -453,7 +460,7 @@ function SessionChecksSection({
               className="cursor-pointer self-start px-2 text-muted-foreground text-xs hover:text-foreground"
             >
               {showAll
-                ? "Hide passed"
+                ? "Show less"
                 : attention.length === 0
                   ? `Show ${rest} checks`
                   : `Show ${rest} more`}

@@ -17,6 +17,7 @@ import {
   announceChecks,
   announcePullRequest,
   announceReview,
+  announceStatusChecks,
   broadcastReviewUpdated,
   type PullRequestRef,
   recordSessionPullRequest,
@@ -459,14 +460,26 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
   )
 
   webhooks.on("status", async ({ payload }) => {
+    const installationId = payload.installation?.id
     for (const branch of payload.branches.slice(0, 5)) {
       const session = await sessionForPullRequest({
-        installationId: payload.installation?.id,
+        installationId,
         repoFullName: payload.repository.full_name,
         headRef: branch.name,
         headRepoFullName: payload.repository.full_name,
       })
-      if (session) broadcastReviewUpdated(session)
+      if (!session) continue
+      try {
+        if (payload.state !== "pending" && installationId !== undefined) {
+          await announceStatusChecks({
+            session,
+            installationId,
+            sha: payload.sha,
+          })
+        }
+      } finally {
+        broadcastReviewUpdated(session)
+      }
     }
   })
 
