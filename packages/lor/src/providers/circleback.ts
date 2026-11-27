@@ -30,6 +30,8 @@ export type CirclebackActionItem = {
   assignee?: CirclebackPerson | null
   status?: "PENDING" | "DONE"
   completedAt?: string | null
+  // The list endpoint always sends `meetingIds`; `meetings` is optional.
+  meetingIds?: string[]
   meetings?: { id: string; name?: string | null; createdAt?: string }[]
 }
 
@@ -203,27 +205,56 @@ function clock(seconds: number): string {
 }
 
 // Consecutive lines from one speaker are joined; each turn keeps its start
-// time so an agent can point at a moment.
-export function formatCirclebackTranscript(
-  segments: readonly CirclebackTranscriptSegment[],
-  max: number
-): string {
-  const turns: { speaker: string; at: number | null; text: string }[] = []
+// time so an agent can point at a moment. `marks` is each segment's offset.
+function transcriptLines(segments: readonly CirclebackTranscriptSegment[]) {
+  let out = ""
+  let lastSpeaker: string | null = null
+  const marks: { offset: number; at: number | null }[] = []
   for (const segment of segments) {
     const text = segment.text?.trim()
     if (!text) continue
     const speaker = segment.speaker?.trim() || "Speaker"
-    const last = turns.at(-1)
-    if (last?.speaker === speaker) last.text += ` ${text}`
-    else turns.push({ speaker, at: segment.timestamp ?? null, text })
+    const at = segment.timestamp ?? null
+    if (speaker === lastSpeaker) {
+      marks.push({ offset: out.length + 1, at })
+      out += ` ${text}`
+      continue
+    }
+    if (out) out += "\n"
+    marks.push({ offset: out.length, at })
+    out += `${at === null ? "" : `[${clock(at)}] `}${speaker}: ${text}`
+    lastSpeaker = speaker
   }
-  const out = turns
-    .map(
-      (turn) =>
-        `${turn.at === null ? "" : `[${clock(turn.at)}] `}${turn.speaker}: ${turn.text}`
-    )
-    .join("\n")
+  return { out, marks }
+}
+
+export function formatCirclebackTranscript(
+  segments: readonly CirclebackTranscriptSegment[],
+  max: number
+): string {
+  const { out } = transcriptLines(segments)
   return out.length > max ? `${out.slice(0, max)}…` : out
+}
+
+// Transcript continuation: the second (for `fromSeconds`) of the segment the
+// cut at `max` fell in, so no unread text is skipped. Null when nothing was cut.
+export function circlebackTranscriptResume(
+  segments: readonly CirclebackTranscriptSegment[],
+  max: number
+): number | null {
+  const { out, marks } = transcriptLines(segments)
+  if (out.length <= max) return null
+  const start = marks.find((m) => m.at !== null)?.at ?? null
+  let resume: number | null = null
+  for (const mark of marks) {
+    if (mark.at === null) continue
+    const second = Math.floor(mark.at)
+    // Past the first second, or the same call would come back.
+    if (start !== null && second <= start) continue
+    if (mark.offset > max) return resume ?? second
+    resume = second
+  }
+  return resume
 }
 
 export function circlebackAttendees(meeting: CirclebackMeeting): string[] {

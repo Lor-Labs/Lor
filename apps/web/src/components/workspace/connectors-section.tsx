@@ -235,6 +235,8 @@ export function ConnectorsSection({
     <div ref={topRef} className="scroll-mt-6">
       {selectedId === "discord" ? (
         <DiscordConnectorDetail
+          // Remount per workspace so a link code can't show under another one.
+          key={workspaceSlug}
           workspaceSlug={workspaceSlug}
           onBack={() => openConnector(null)}
         />

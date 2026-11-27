@@ -245,6 +245,9 @@ export function ConnectorEvents({
                   post: listener.post,
                   notify: listener.notify,
                   actInstructions: listener.actInstructions,
+                  actSessionMode: listener.actSessionMode,
+                  actCode: listener.actCode,
+                  actWindowSeconds: listener.actWindowSeconds,
                 },
               })
               .then(async (res) => {

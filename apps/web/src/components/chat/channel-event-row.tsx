@@ -333,10 +333,16 @@ function LoopHoverContent({
   loopId: string
 }) {
   // By id when it is not one of this chat's (a Loop that reports elsewhere).
-  const loop = useLoop(loopId, channelId)
-  const isPending = loop === undefined
+  const { loop, failed } = useLoop(loopId, channelId)
 
-  if (isPending) {
+  if (failed) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        Couldn't load this loop.
+      </div>
+    )
+  }
+  if (loop === undefined) {
     return (
       <div className="space-y-2">
         <Skeleton className="h-4 w-36 rounded" />

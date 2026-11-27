@@ -134,11 +134,15 @@ export function agentWakeUpExecutors(
             eq(schema.agentWakeUp.status, "pending")
           )
         )
-        .returning({ id: schema.agentWakeUp.id })
+        .returning({
+          id: schema.agentWakeUp.id,
+          channelId: schema.agentWakeUp.channelId,
+        })
       if (!cancelled[0]) {
         return { ok: false, error: "You have no pending wake-up with that id." }
       }
-      emitUpdated(deps, input.channelId)
+      // The wake-up's own chat shows it, not the turn's.
+      emitUpdated(deps, cancelled[0].channelId)
       return { ok: true }
     },
   }

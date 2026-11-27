@@ -341,9 +341,20 @@ async function deliverToListener(
       channelId: target.channel.id,
       label: input.label,
       payload: actText,
+    }).catch((err) => {
+      // Caught so one listener's failure can't fail the delivery (and get
+      // its cards reposted on the provider's retry).
+      logger.error(
+        { err, triggerId: target.trigger.id, deliveryId: delivery.id },
+        "Trigger act run failed"
+      )
+      return null
     })
-    actOutcome = started.kind === "skipped" ? started.reason : started.kind
-    if (started.kind === "started") acted = started.runId
+    if (!started) actOutcome = "error"
+    else {
+      actOutcome = started.kind === "skipped" ? started.reason : started.kind
+      if (started.kind === "started") acted = started.runId
+    }
   }
 
   if (delivery) {

@@ -1,6 +1,5 @@
 import { and, asc, db, eq, isNull, schema } from "@repo/db"
 import { recordConversationPost } from "@repo/db/queries/agent-conversations"
-import { isAgentInChannel } from "@repo/db/queries/agents"
 import type { Loop } from "@repo/db/schema"
 import type { AgentLoopExecutors } from "@repo/lor/channel-agent"
 import {
@@ -311,12 +310,18 @@ export function agentLoopExecutors(
         changes.push("paused")
       } else if (input.running === true && loop.status === "paused") {
         // It can't run where it is not: a Loop paused because the agent was
-        // taken out of its chat stays paused until it has a chat it is in.
-        if (channelId && !(await isAgentInChannel(turn.agentId, channelId))) {
+        // taken out of its chat, or the chat was archived, stays paused until
+        // it has an open chat the agent is in.
+        if (
+          channelId &&
+          !(await agentChats(turn.agentId)).some(
+            (chat) => chat.id === channelId
+          )
+        ) {
           return {
             ok: false,
             error:
-              "You are no longer in the chat this Loop reports in. Give it another chat, or none, with `chat`.",
+              "You are no longer in the chat this Loop reports in, or it is archived. Give it another chat, or none, with `chat`.",
           }
         }
         values.status = "active"

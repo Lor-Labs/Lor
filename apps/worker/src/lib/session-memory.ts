@@ -1,4 +1,4 @@
-import { and, db, desc, eq, ne, schema } from "@repo/db"
+import { and, db, desc, eq, gt, inArray, ne, not, or, schema } from "@repo/db"
 import { channelAgentId } from "@repo/db/queries/agents"
 import { sessionMemoryNote } from "@repo/lor/agent-memory"
 
@@ -28,7 +28,13 @@ export async function sessionMemory(input: {
           .where(
             and(
               eq(schema.agentRun.scopeKey, input.threadRootId),
-              input.runId ? ne(schema.agentRun.id, input.runId) : undefined
+              input.runId ? ne(schema.agentRun.id, input.runId) : undefined,
+              // Only a turn that ran: one refused at the account or credit
+              // gate never sent the agent's memory.
+              or(
+                not(inArray(schema.agentRun.state, ["failed", "stopped"])),
+                gt(schema.agentRun.steps, 0)
+              )
             )
           )
           .orderBy(desc(schema.agentRun.createdAt))

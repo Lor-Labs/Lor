@@ -653,22 +653,32 @@ export const addProjectMember: AppRouteHandler<AddProjectMemberRoute> = async (
     )
   }
 
-  const insertedMember = await db
-    .insert(schema.channelMember)
-    .values({ channelId: project.categoryChannelId, userId })
-    .onConflictDoNothing()
-    .returning({ id: schema.channelMember.id })
-    .then((rows) => rows[0])
+  // One transaction: a retry after a failed chat join would find the member
+  // row and skip the join.
+  const insertedMember = await db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(schema.channelMember)
+      .values({ channelId: project.categoryChannelId, userId })
+      .onConflictDoNothing()
+      .returning({ id: schema.channelMember.id })
+      .then((rows) => rows[0])
+    // They can see the project's chats now: put them in.
+    if (inserted) {
+      await joinVisibleChats(
+        {
+          workspaceId: workspace.id,
+          userIds: [userId],
+          containerId: project.categoryChannelId,
+        },
+        tx
+      )
+    }
+    return inserted
+  })
 
   // onConflictDoNothing returns no row when the user was already a member —
   // no event for a no-op add.
   if (insertedMember) {
-    // They can see the project's chats now: put them in.
-    await joinVisibleChats({
-      workspaceId: workspace.id,
-      userIds: [userId],
-      containerId: project.categoryChannelId,
-    })
     await postMemberEventToProjectChannels({
       categoryChannelId: project.categoryChannelId,
       actorId: currentUser.id,

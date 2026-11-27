@@ -19,6 +19,7 @@ import {
 import {
   disconnectDiscordGuild,
   discordGuildFor,
+  removeDiscordPlace,
   syncPlaceFromDiscord,
 } from "@/lib/discord/places"
 import {
@@ -239,6 +240,34 @@ class DiscordGateway {
       void deleteMirroredMessage(
         data as { id: string; channel_id: string }
       ).catch((err) => logger.warn({ err }, "Discord delete mirror failed"))
+      return
+    }
+    // A moderator's purge (GUILD_MESSAGES intent).
+    if (type === "MESSAGE_DELETE_BULK") {
+      const bulk = data as { ids: string[]; channel_id: string }
+      for (const id of bulk.ids) {
+        void deleteMirroredMessage({ id, channel_id: bulk.channel_id }).catch(
+          (err) =>
+            logger.warn(
+              { err, discordMessageId: id },
+              "Discord delete mirror failed"
+            )
+        )
+      }
+      return
+    }
+    // A place's channel deleted in Discord: the place is removed (archived,
+    // its agents stopped, its history kept).
+    if (type === "CHANNEL_DELETE") {
+      const gone = data as { id: string }
+      void discordLinkByDiscordChannel(gone.id)
+        .then((link) => (link ? removeDiscordPlace(link.channelId) : null))
+        .catch((err) =>
+          logger.warn(
+            { err, discordChannelId: gone.id },
+            "Discord place cleanup failed"
+          )
+        )
       return
     }
     // A place's channel renamed, or made private or public.

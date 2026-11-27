@@ -12,15 +12,12 @@ import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { Text, View } from "react-native"
 import { ChatAvatar } from "@/components/chat-avatar"
+import { useMutePrompt } from "@/components/mute-sheet"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { PressableRow } from "@/components/ui/pressable-row"
 import { useUnread } from "@/context/unread-context"
 import { agentCreature, useAgentsById } from "@/hooks/use-agents"
-import {
-  mutedUntilLabel,
-  promptChannelMute,
-  useChannelMutes,
-} from "@/hooks/use-channel-mutes"
+import { mutedUntilLabel, useChannelMutes } from "@/hooks/use-channel-mutes"
 import type { Chat } from "@/hooks/use-chats"
 import { openExternalUrl } from "@/lib/open-url"
 
@@ -48,7 +45,8 @@ export function ChatActionsSheet({
   onOpenDetails: (chat: Chat) => void
 }) {
   const agentsById = useAgentsById(workspaceSlug)
-  const { getMute, muteChannel, unmuteChannel } = useChannelMutes()
+  const { getMute } = useChannelMutes()
+  const { promptMute, muteSheet } = useMutePrompt()
   const { getUnreadCount, getMentionCount, markChannelRead } = useUnread()
   const close = () => onOpenChange(false)
 
@@ -144,13 +142,7 @@ export function ChatActionsSheet({
                 label={mute ? "Unmute" : "Mute"}
                 onPress={() => {
                   close()
-                  promptChannelMute({
-                    channelId: chat.id,
-                    channelLabel: name,
-                    mute,
-                    muteChannel,
-                    unmuteChannel,
-                  })
+                  promptMute({ channelId: chat.id, channelLabel: name, mute })
                 }}
               />
               <Action
@@ -180,14 +172,17 @@ export function ChatActionsSheet({
   })()
 
   return (
-    <BottomSheet isOpen={chat !== null} onOpenChange={onOpenChange}>
-      <BottomSheet.Portal unstable_accessibilityContainerViewIsModal>
-        <BottomSheet.Overlay className="bg-neutral-950/50" />
-        <BottomSheet.Content>
-          <View className="pb-six">{body}</View>
-        </BottomSheet.Content>
-      </BottomSheet.Portal>
-    </BottomSheet>
+    <>
+      <BottomSheet isOpen={chat !== null} onOpenChange={onOpenChange}>
+        <BottomSheet.Portal unstable_accessibilityContainerViewIsModal>
+          <BottomSheet.Overlay className="bg-neutral-950/50" />
+          <BottomSheet.Content>
+            <View className="pb-six">{body}</View>
+          </BottomSheet.Content>
+        </BottomSheet.Portal>
+      </BottomSheet>
+      {muteSheet}
+    </>
   )
 }
 

@@ -8,9 +8,15 @@ import type { AppSocket } from "@/lib/socket"
 
 export type TypingUser = {
   userId: string
+  // Agents all type as Lor (`userId`); this says which one. Null for people
+  // and older events.
+  agentId: string | null
   name: string
   expiresAt: number
 }
+
+const sameTyper = (user: TypingUser, userId: string, agentId: string | null) =>
+  user.userId === userId && user.agentId === agentId
 
 const TYPING_THROTTLE_MS = 3000
 const TYPING_EXPIRE_MS = 5000
@@ -47,17 +53,22 @@ export function useTypingIndicator({
       if ((payload.threadRootId ?? undefined) !== threadRootId) return
       if (payload.userId === currentUserId) return
 
+      const agentId = payload.agentId ?? null
       setTypingUsers((prev) => {
         const expiresAt = Date.now() + TYPING_EXPIRE_MS
-        const existing = prev.find((user) => user.userId === payload.userId)
+        const existing = prev.find((user) =>
+          sameTyper(user, payload.userId, agentId)
+        )
         if (existing) {
           return prev.map((user) =>
-            user.userId === payload.userId ? { ...user, expiresAt } : user
+            sameTyper(user, payload.userId, agentId)
+              ? { ...user, name: payload.name, expiresAt }
+              : user
           )
         }
         return [
           ...prev,
-          { userId: payload.userId, name: payload.name, expiresAt },
+          { userId: payload.userId, agentId, name: payload.name, expiresAt },
         ]
       })
     }
@@ -68,11 +79,16 @@ export function useTypingIndicator({
       // Only a post in this scope ends typing here, as onTypingUpdate scopes.
       if ((message.threadRootId ?? undefined) !== threadRootId) return
       setTypingUsers((prev) => {
-        // An agent types as Lor and posts as its own bot user.
+        // An agent types as Lor and posts as its own bot user: only its own
+        // typing ends (and an older event that named no agent).
         const active = prev.filter(
           (user) =>
             user.userId !== message.author.id &&
-            !(message.agentId && user.userId === LOR_USER_ID)
+            !(
+              message.agentId &&
+              user.userId === LOR_USER_ID &&
+              (user.agentId === null || user.agentId === message.agentId)
+            )
         )
         return active.length === prev.length ? prev : active
       })

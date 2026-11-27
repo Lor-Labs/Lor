@@ -32,8 +32,8 @@ export async function createLoopCard(
     reportsIn?: string | null
     // Set by an agent's create_loop: the Loop starts active, next due then.
     active?: { nextRunAt: Date }
-    // The agent that proposed it, which it then belongs to. Left out (a
-    // session proposed it): the chat's first agent.
+    // The agent that made it (create_loop), which owns it as given. Left
+    // out (a session proposed it): the chat's first agent.
     agentId?: string | null
     // The session Lor proposed it in; the draft card posts there.
     threadRootId: string | null
@@ -60,7 +60,10 @@ export async function createLoopCard(
   )
   // Compensation: an orphan loop_card renders a benign fallback, but don't
   // leave one around when we know the insert failed (thrown or no row).
-  const loop = await loopAgentFor(input.channelId, input.agentId)
+  const owner = input.agentId
+    ? Promise.resolve(input.agentId)
+    : loopAgentFor(input.channelId)
+  const loop = await owner
     .then((agentId) =>
       db
         .insert(schema.loop)

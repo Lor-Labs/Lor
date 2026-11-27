@@ -9,6 +9,7 @@ import {
   type AgentInboxFlushJobData,
 } from "@repo/realtime-types/queues"
 import type { Queue } from "bullmq"
+import { logger } from "@/lib/logger"
 import { agentsNamed } from "@/services/lor-routing"
 
 // A message in a chat lands in the inbox of every agent in it
@@ -53,6 +54,7 @@ export async function addChatMessageToAgentInbox(args: {
       ? await agentsInThread(threadRootId, agentIds)
       : new Set<string>()
   const addressed: { id: string; name: string }[] = []
+  const wakeConversations: string[] = []
   for (const agent of placed) {
     const wakes = named.has(agent.id) || inThread.has(agent.id)
     // A thread reply is not chat an agent outside the thread reads later.
@@ -66,15 +68,23 @@ export async function addChatMessageToAgentInbox(args: {
       lane,
     })
     if (!conversationId) continue
-    if (lane === "wake") {
-      // A short delay, so quick messages in a row become one turn.
-      await args.queue.add(
+    if (lane === "wake") wakeConversations.push(conversationId)
+    if (named.has(agent.id)) addressed.push(agent)
+  }
+  // Every inbox row is written before any wake is queued, so a queue failure
+  // can't keep later agents from getting the message; the stranded-inbox
+  // sweep flushes a wake that failed to queue.
+  for (const conversationId of wakeConversations) {
+    // A short delay, so quick messages in a row become one turn.
+    await args.queue
+      .add(
         AGENT_INBOX_FLUSH_JOB,
         { conversationId },
         { delay: AGENT_INBOX_BATCH_MS }
       )
-    }
-    if (named.has(agent.id)) addressed.push(agent)
+      .catch((err: unknown) =>
+        logger.warn({ err, conversationId }, "Agent inbox wake flush failed")
+      )
   }
   if (named.size === 0 && !threadRootId) {
     // Best effort: without it the message waits for the check-in.

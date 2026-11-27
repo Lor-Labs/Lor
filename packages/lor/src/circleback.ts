@@ -10,6 +10,7 @@ import {
   circlebackMinutes,
   circlebackRequest,
   circlebackTitle,
+  circlebackTranscriptResume,
   formatCirclebackTranscript,
 } from "./providers/circleback"
 
@@ -72,7 +73,9 @@ function actionItem(item: CirclebackActionItem) {
     owner: item.assignee?.name ?? item.assignee?.email ?? null,
     status: item.status ?? null,
     completedAt: item.completedAt ?? null,
-    meetings: (item.meetings ?? []).map((m) => ({
+    meetings: (
+      item.meetings ?? (item.meetingIds ?? []).map((id) => ({ id, name: null }))
+    ).map((m) => ({
       id: m.id,
       title: m.name ?? null,
       url: circlebackMeetingUrl(m.id),
@@ -189,19 +192,14 @@ export const circlebackTools = {
         (s) => fromSeconds === undefined || (s.timestamp ?? 0) >= fromSeconds
       )
       const text = formatCirclebackTranscript(segments, max)
-      // The first segment the cut left out, to continue from.
-      let chars = 0
-      const next = segments.find((s) => {
-        chars += (s.text?.length ?? 0) + 20
-        return chars > max
-      })
+      const resume = circlebackTranscriptResume(segments, max)
       return {
         id: meetingId,
         url: circlebackMeetingUrl(meetingId),
         transcript: text || "(no transcript)",
-        ...(text.length >= max && typeof next?.timestamp === "number"
+        ...(resume !== null
           ? {
-              note: `Cut at ${max} characters; continue with fromSeconds ${Math.floor(next.timestamp)}`,
+              note: `Cut at ${max} characters; continue with fromSeconds ${resume}`,
             }
           : {}),
       }
@@ -210,7 +208,7 @@ export const circlebackTools = {
 
   list_circleback_action_items: tool({
     description:
-      "List action items from Circleback meetings, newest first, each with its owner, status and the meeting it came from. `owner` picks whose: the person whose key Lor uses (`me`), anyone in their Circleback workspace, people outside it, unassigned ones, or anyone.",
+      "List action items from Circleback meetings, newest first, each with its owner, status and the meeting it came from. Open ones only unless `status` says DONE. `owner` picks whose: the person whose key Lor uses (`me`), anyone in their Circleback workspace, people outside it, unassigned ones, or anyone.",
     inputSchema: z.object({
       owner: z
         .enum(["me", "workspace", "outside", "unassigned", "anyone"])
@@ -219,7 +217,7 @@ export const circlebackTools = {
       status: z
         .enum(["PENDING", "DONE"])
         .optional()
-        .describe("open (PENDING) or done; default both"),
+        .describe("open (PENDING) or done; default open"),
       cursor: z
         .string()
         .max(2048)

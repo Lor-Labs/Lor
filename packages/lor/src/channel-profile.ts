@@ -12,6 +12,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { sessionStartedByAgent } from "@repo/db/queries/agent-conversations"
 import { creatureById, isCreatureId } from "@repo/utils/bestiary"
 import { z } from "zod"
 import {
@@ -588,6 +589,7 @@ export async function agentLog(agentId: string): Promise<string | null> {
             "session",
             "loop",
             "wake_up",
+            "agent",
           ]),
           gte(schema.agentInbox.createdAt, since)
         )
@@ -609,8 +611,7 @@ export async function agentLog(agentId: string): Promise<string | null> {
       )
       .where(
         and(
-          inArray(schema.agentSession.channelId, agentChannels(agentId)),
-          eq(schema.agentSession.origin, "agent"),
+          sessionStartedByAgent(agentId),
           gte(schema.agentSession.createdAt, since)
         )
       )
@@ -626,6 +627,8 @@ export async function agentLog(agentId: string): Promise<string | null> {
         and(
           inArray(schema.message.channelId, agentChannels(agentId)),
           eq(schema.message.type, "agent_post"),
+          // Its own posts: an agent's bot user id is its agent id.
+          eq(schema.message.authorId, agentId),
           gte(schema.message.createdAt, since)
         )
       )
@@ -640,9 +643,21 @@ export async function agentLog(agentId: string): Promise<string | null> {
       .from(schema.approval)
       .innerJoin(schema.agentRun, eq(schema.agentRun.id, schema.approval.runId))
       .leftJoin(schema.user, eq(schema.user.id, schema.approval.resolvedBy))
+      // Session runs carry no conversation: those of the agent's own
+      // sessions are matched through the session.
+      .leftJoin(
+        schema.agentSession,
+        eq(schema.agentSession.threadRootId, schema.agentRun.scopeKey)
+      )
       .where(
         and(
-          inArray(schema.agentRun.conversationId, agentConversations(agentId)),
+          or(
+            inArray(
+              schema.agentRun.conversationId,
+              agentConversations(agentId)
+            ),
+            sessionStartedByAgent(agentId)
+          ),
           gte(schema.approval.createdAt, since)
         )
       )
@@ -717,8 +732,7 @@ export async function openBlock(agentId: string): Promise<string | null> {
       )
       .where(
         and(
-          inArray(schema.agentSession.channelId, agentChannels(agentId)),
-          eq(schema.agentSession.origin, "agent"),
+          sessionStartedByAgent(agentId),
           isNull(schema.agentSession.archivedAt),
           inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
         )
@@ -743,10 +757,7 @@ export async function openBlock(agentId: string): Promise<string | null> {
               schema.agentRun.conversationId,
               agentConversations(agentId)
             ),
-            and(
-              eq(schema.agentSession.origin, "agent"),
-              inArray(schema.agentRun.channelId, agentChannels(agentId))
-            )
+            sessionStartedByAgent(agentId)
           )
         )
       )

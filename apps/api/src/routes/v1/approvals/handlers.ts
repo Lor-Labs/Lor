@@ -355,9 +355,45 @@ export async function resolveApproval(
   // A channel agent's turn needs no posted resolution: its paused turn goes
   // on from the agent's inbox worker. Read before the decision commits, so a
   // failed read leaves the approval pending and retryable.
-  const agentConversationId = row.approval.runId
-    ? await agentRunConversation(row.approval.runId)
-    : null
+  const runConversation =
+    row.approval.runId && !voice
+      ? await agentRunConversation(row.approval.runId)
+      : null
+  // The request's root message was deleted, and its conversation with it:
+  // the approval expires instead of being taken for a session's.
+  if (runConversation?.kind === "gone") {
+    const expired = await db
+      .update(schema.approval)
+      .set({ status: "expired", resolvedAt: new Date() })
+      .where(
+        and(
+          eq(schema.approval.id, approvalId),
+          eq(schema.approval.status, "pending")
+        )
+      )
+      .returning()
+      .then((rows) => rows[0] ?? null)
+    if (expired) {
+      notifyWorkspaceActivity(expired.workspaceId)
+      await getEmitter()
+        .then((io) =>
+          io.to(channelRoom(scope.channelId)).emit("approval:updated", {
+            approvalId: expired.id,
+            channelId: scope.channelId,
+            planId: expired.planId,
+            status: expired.status,
+            resolvedBy: null,
+            resolvedAt: expired.resolvedAt?.toISOString() ?? null,
+          })
+        )
+        .catch((err: unknown) =>
+          logger.warn({ err, approvalId }, "Approval expiry broadcast failed")
+        )
+    }
+    return { kind: "conflict" }
+  }
+  const agentConversationId =
+    runConversation?.kind === "conversation" ? runConversation.id : null
   const agentTurn = agentConversationId !== null
 
   // CAS: only one resolver wins; a second click reads as already resolved.

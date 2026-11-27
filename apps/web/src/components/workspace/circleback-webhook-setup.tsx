@@ -5,10 +5,11 @@ import { Input } from "@repo/ui/components/input"
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
 import { formatDateTime } from "@repo/utils/date"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { SettingsSection } from "@/components/workspace/settings-group"
 import { apiClient } from "@/lib/api-client"
+import { integrationsQueryOptions } from "@/lib/integrations-query"
 
 // Circleback's webhook can't be registered through its API: people add a
 // "Send webhook request" step to an automation themselves, with this URL,
@@ -31,6 +32,12 @@ export function CirclebackWebhookSetup({
   const [copied, setCopied] = useState(false)
   const [secret, setSecret] = useState("")
   const [editing, setEditing] = useState(!webhook.secretSet)
+  // Polls the connectors list while waiting for Circleback's test request,
+  // so the status flips to received without a reload.
+  useQuery({
+    ...integrationsQueryOptions(workspaceSlug),
+    refetchInterval: webhook.secretSet && !webhook.receivedAt ? 5000 : false,
+  })
 
   const save = useMutation({
     mutationFn: async () => {

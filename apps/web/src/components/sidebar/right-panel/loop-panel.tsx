@@ -62,6 +62,7 @@ import {
   selectTriggerIconClassName,
   selectTriggerVariants,
 } from "@repo/ui/components/select"
+import { Skeleton } from "@repo/ui/components/skeleton"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { timeAgo } from "@repo/utils/date"
@@ -104,6 +105,7 @@ import { LOOP_PAUSED_REASON_LABEL, LOOP_STATUS_META } from "@/lib/loop-ui"
 import { PLAN_STATUS_META } from "@/lib/plan-ui"
 import {
   openTextChannels,
+  textChannels,
   workspaceChannelsQueryOptions,
 } from "@/lib/workspace-channels-query"
 
@@ -207,8 +209,13 @@ function RunBy({
     true
   )
   if (!list || placesPending) return null
+  // Open chats are where it can move to; its own chat is looked up among
+  // archived ones too, so a Loop paused by an archive can still be moved.
   const chats = loopSpots(openTextChannels(list), placeChats)
-  const chat = chats.find((item) => item.id === loop.channelId) ?? null
+  const chat =
+    loopSpots(textChannels(list), placeChats).find(
+      (item) => item.id === loop.channelId
+    ) ?? null
   // In a channel that is not a text chat: it runs in a session, by no agent.
   if (loop.channelId && !chat) return null
   const owner = agents.find((agent) => agent.id === loop.agentId) ?? null
@@ -223,6 +230,9 @@ function RunBy({
   const ownerChats = owner
     ? chats.filter((item) => item.agentIds.includes(owner.id))
     : chats
+  // A chat its agent has left (or an archived one) stays shown until moved.
+  const extraChat =
+    chat && !ownerChats.some((item) => item.id === chat.id) ? chat : null
   const who = owner?.name ?? "The agent"
   return (
     <div className="space-y-2">
@@ -271,12 +281,14 @@ function RunBy({
           {editable ? (
             <Select
               items={[
-                ...ownerChats.map((item) => ({
-                  value: item.id,
-                  label: item.discord
-                    ? `#${item.name ?? "channel"}`
-                    : (item.name ?? "Chat"),
-                })),
+                ...[...ownerChats, ...(extraChat ? [extraChat] : [])].map(
+                  (item) => ({
+                    value: item.id,
+                    label: item.discord
+                      ? `#${item.name ?? "channel"}`
+                      : (item.name ?? "Chat"),
+                  })
+                ),
                 { value: NO_CHAT, label: "No chat" },
               ]}
               value={loop.channelId ?? NO_CHAT}
@@ -295,10 +307,9 @@ function RunBy({
                     <SpotLabel spot={item} />
                   </SelectItem>
                 ))}
-                {/* A chat its agent has left stays shown until it is moved. */}
-                {chat && !ownerChats.includes(chat) && (
-                  <SelectItem value={chat.id}>
-                    <SpotLabel spot={chat} />
+                {extraChat && (
+                  <SelectItem value={extraChat.id}>
+                    <SpotLabel spot={extraChat} />
                   </SelectItem>
                 )}
                 <SelectItem value={NO_CHAT}>No chat</SelectItem>
@@ -1139,7 +1150,12 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
   const { setView } = useRightSidebar()
   // Read by id when it is not one of this chat's: a Loop with no chat, or
   // one opened from its agent's page beside another chat.
-  const loop = useLoop(view.loopId, view.channelId) ?? null
+  const {
+    loop: found,
+    failed: loopFailed,
+    retry: retryLoop,
+  } = useLoop(view.loopId, view.channelId)
+  const loop = found ?? null
   const { data: runHistory, isPending: runsPending } = useLoopRuns(
     loop && loop.status !== "draft" ? loop.id : null
   )
@@ -1377,7 +1393,23 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
           ) : undefined
         }
       />
-      {!loop || !effective ? (
+      {loopFailed ? (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground text-sm">
+          <p>Couldn't load this loop.</p>
+          <button
+            type="button"
+            onClick={retryLoop}
+            className="cursor-pointer rounded-sm underline outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            Try again
+          </button>
+        </div>
+      ) : found === undefined ? (
+        <div className="min-h-0 flex-1 space-y-3 px-4 py-5">
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-16 w-full rounded-xl" />
+        </div>
+      ) : !loop || !effective ? (
         <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
           <p className="text-muted-foreground text-sm">
             This loop is no longer available.

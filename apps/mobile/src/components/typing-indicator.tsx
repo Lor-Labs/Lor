@@ -19,6 +19,7 @@ import { useChannelAgent } from "@/hooks/use-channel-agent"
 
 type TypingUser = {
   userId: string
+  agentId?: string | null
   name: string
 }
 
@@ -118,7 +119,7 @@ export function DocumentTypingIndicator({
           className="flex-row items-center gap-three px-four pb-two"
           entering={lineIn}
           exiting={lineOut}
-          key={person.userId}
+          key={`${person.userId}:${person.agentId ?? ""}`}
           layout={lineLayout}
         >
           <Avatar

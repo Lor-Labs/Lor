@@ -3,6 +3,7 @@ import { type CreatureId, isCreatureId } from "@repo/utils/bestiary"
 import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo } from "react"
 import { useSocket } from "@/context/socket-context"
+import { chatsKey } from "@/hooks/use-chats"
 import { apiClient } from "@/lib/api-client"
 
 // Agents apart from channels (reference/agents-and-chats.md): a workspace's
@@ -59,6 +60,8 @@ export function useAgentsUpdates(workspaceSlug: string | undefined) {
       void queryClient.invalidateQueries({
         queryKey: ["channel", workspaceSlug],
       })
+      // Chat and Discord place rows carry their agentIds too.
+      void queryClient.invalidateQueries({ queryKey: chatsKey(workspaceSlug) })
     }
     socket.on("agents:updated", refresh)
     return () => {

@@ -14,6 +14,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { sessionStartedByAgent } from "@repo/db/queries/agent-conversations"
 import { channelAgentId } from "@repo/db/queries/agents"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import {
@@ -110,24 +111,14 @@ async function reposForChannel(
       }
 }
 
-// A session the agent started, in any channel it is in: its conversations
-// all see the same sessions under "Open right now".
+// A session one of the agent's conversations started: they all see the
+// same sessions under "Open right now". Another agent's are not its own.
 async function agentSession(agentId: string, sessionId: string) {
   const [session] = await db
     .select()
     .from(schema.agentSession)
     .where(
-      and(
-        eq(schema.agentSession.id, sessionId),
-        eq(schema.agentSession.origin, "agent"),
-        inArray(
-          schema.agentSession.channelId,
-          db
-            .select({ id: schema.channelAgent.channelId })
-            .from(schema.channelAgent)
-            .where(eq(schema.channelAgent.agentId, agentId))
-        )
-      )
+      and(eq(schema.agentSession.id, sessionId), sessionStartedByAgent(agentId))
     )
   return session ?? null
 }
@@ -410,12 +401,25 @@ export function agentSessionExecutors(
         channelName,
         task,
         route
-      ).catch((err: unknown) => {
+      ).catch(async (err: unknown) => {
         logger.warn({ err, sessionId }, "Agent session first turn failed")
-        return "failed" as const
+        // A run that took the brief before the throw may still be working.
+        const [accepted] = await db
+          .select({ id: schema.agentRun.id })
+          .from(schema.agentRun)
+          .where(eq(schema.agentRun.scopeKey, session.threadRootId))
+          .limit(1)
+        return accepted ? ("unknown" as const) : ("failed" as const)
       })
       if (started !== "started") {
         logger.warn({ sessionId, started }, "Agent session did not start")
+        // Its Discord card would say "working" forever.
+        if (started === "failed") {
+          void updateSessionCard(sessionId, { state: "failed" }).catch(
+            (err: unknown) =>
+              logger.warn({ err, sessionId }, "Session card failed")
+          )
+        }
         return {
           error:
             "The session was created but its first turn may not have started. Check it with check_session before sending the brief again with message_session.",
@@ -515,8 +519,9 @@ export function agentSessionExecutors(
             "The session is working. Wait for its report, or stop it first.",
         }
       }
-      // A session from Discord goes on on its owner's plan.
-      const payer = (await isPlace(channelId))
+      // A session from Discord goes on on its owner's plan, wherever the
+      // follow-up comes from.
+      const payer = (await isPlace(session.channelId))
         ? session.creatorId
         : args.requestUserId
       const started = await runTask(
@@ -524,7 +529,7 @@ export function agentSessionExecutors(
         session,
         channelName,
         message,
-        await taskRoute(workspaceId, channelId, session.harness, payer)
+        await taskRoute(workspaceId, session.channelId, session.harness, payer)
       )
       if (started === "started") {
         void updateSessionCard(session.id, { state: "working" }).catch(() => {})
@@ -606,12 +611,15 @@ export async function reportHelperTurn(
   const reply = args.reply.trim()
   const cut = reply.length > REPORT_REPLY_CHARS
   const note = `Session "${args.session.title}" (session ${args.session.id}${args.session.newBranch ? `, branch ${args.session.newBranch}` : ""}) ${OUTCOME_TEXT[args.outcome]}.${reply ? `\nIts reply${cut ? ` (cut short here; read_thread with message ${args.replyMessageId} reads it in full)` : ""}:\n${clip(reply, REPORT_REPLY_CHARS)}` : ""}`
-  // The conversation that started the session reads its report; a session
-  // from before conversations reports to the agent's own.
   const [started] = await db
-    .select({ conversationId: schema.agentSession.conversationId })
+    .select({
+      conversationId: schema.agentSession.conversationId,
+      threadRootId: schema.agentSession.threadRootId,
+    })
     .from(schema.agentSession)
     .where(eq(schema.agentSession.id, args.session.id))
+  // The conversation that started the session reads its report; a session
+  // from before conversations (none recorded) reports to the agent's own.
   const added = await addInboxNote({
     workspaceId: args.workspaceId,
     channelId: args.channelId,
@@ -621,20 +629,35 @@ export async function reportHelperTurn(
     note,
     lane: "wake",
   })
-  // Its card in Discord follows, and asks there for what it waits on (once:
-  // a repeated report adds no note).
-  void updateSessionCard(args.session.id, {
-    state: args.outcome,
-    report: reply,
-  })
-    .then(() =>
-      added && args.outcome === "approval"
-        ? postSessionApprovals(args.session.id, args.runId)
-        : undefined
-    )
-    .catch((err: unknown) =>
+  // Its card in Discord follows the session's latest run only: a repeated
+  // report of an older run must not undo a newer one's state.
+  const [latest] = started
+    ? await db
+        .select({ id: schema.agentRun.id })
+        .from(schema.agentRun)
+        .where(eq(schema.agentRun.scopeKey, started.threadRootId))
+        .orderBy(desc(schema.agentRun.createdAt))
+        .limit(1)
+    : []
+  if (latest?.id === args.runId) {
+    void updateSessionCard(args.session.id, {
+      state: args.outcome,
+      report: reply,
+    }).catch((err: unknown) =>
       logger.warn({ err, sessionId: args.session.id }, "Session card failed")
     )
+  }
+  // It asks there for what it waits on, once (a repeated report adds no
+  // note), whether or not the card edit worked.
+  if (added && args.outcome === "approval") {
+    void postSessionApprovals(args.session.id, args.runId).catch(
+      (err: unknown) =>
+        logger.warn(
+          { err, sessionId: args.session.id },
+          "Session approvals failed"
+        )
+    )
+  }
   // A repeated report adds no note, and the stranded-inbox sweep flushes a
   // first one whose enqueue failed.
   if (!added) {

@@ -114,9 +114,11 @@ function ChannelScreen() {
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
   const { workspace } = useWorkspace()
-  const { channelId, focusMessageId } = useLocalSearchParams<{
+  const { channelId, focusMessageId, draft } = useLocalSearchParams<{
     channelId: string
     focusMessageId?: string
+    // A new chat's first message that failed to send (chat/new.tsx).
+    draft?: string
   }>()
   const { data: session } = authClient.useSession()
   const permissions = useChannelPermissions(workspace?.id)
@@ -184,6 +186,13 @@ function ChannelScreen() {
   const isText = channelState.channel?.type === "text"
   // A Discord channel agents are in is read here and written in Discord.
   const isPlace = channelState.channel?.kind === "place"
+  // No composer (archived chat or place): reply, edit and Ask Lor are hidden.
+  const readOnly = Boolean(channelState.channel?.archivedAt) || isPlace
+  useEffect(() => {
+    if (!readOnly) return
+    setReplyingTo(null)
+    setEditingMessage(null)
+  }, [readOnly])
   const people = useChatPeople(
     workspaceSlug,
     isText && !isPlace ? (channelId ?? "") : ""
@@ -494,6 +503,7 @@ function ChannelScreen() {
                   channelName={channelName}
                   destination="channel"
                   editingMessage={editingMessage}
+                  initialDraft={draft ?? ""}
                   lorIntro
                   inputNativeID={inputNativeID}
                   isConnected={isSocketConnected}
@@ -542,11 +552,11 @@ function ChannelScreen() {
               messages={chat.messages}
               onLoadAround={chat.loadAround}
               onOpenThread={openThread}
-              onAskLor={noAgent ? undefined : askLorAbout}
+              onAskLor={noAgent || readOnly ? undefined : askLorAbout}
               onDelete={confirmDelete}
-              onEdit={startEditing}
+              onEdit={readOnly ? undefined : startEditing}
               onPressAuthor={openAuthorProfile}
-              onReply={startReply}
+              onReply={readOnly ? undefined : startReply}
               onRetry={() => void chat.reload()}
               onToggleReaction={chat.toggleReaction}
               onTogglePin={

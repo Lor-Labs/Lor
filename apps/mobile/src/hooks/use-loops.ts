@@ -38,8 +38,12 @@ export function useChannelLoops(channelId: string) {
     const handleLoopUpdated: ServerToClientEvents["loop:updated"] = (
       payload
     ) => {
-      if (payload.loop.channelId !== channelId) return
-      if (!queryClient.getQueryData(["channel-loops", channelId])) {
+      // The list holds Loops reporting here and those whose card is here; one
+      // that left both drops out.
+      const here =
+        payload.loop.channelId === channelId ||
+        payload.cardChannelId === channelId
+      if (here && !queryClient.getQueryData(["channel-loops", channelId])) {
         void queryClient.invalidateQueries({
           queryKey: ["channel-loops", channelId],
         })
@@ -49,7 +53,7 @@ export function useChannelLoops(channelId: string) {
         (existing: ChannelLoop[] | undefined) => {
           if (!existing) return existing
           const rest = existing.filter((l) => l.id !== payload.loop.id)
-          return [payload.loop, ...rest]
+          return here ? [payload.loop, ...rest] : rest
         }
       )
     }
@@ -427,31 +431,37 @@ export function useDeleteLoop(loop: ChannelLoop | null) {
       queryClient.setQueryData(key, (existing: ChannelLoop[] | undefined) =>
         existing?.filter((item) => item.id !== loop.id)
       )
+      // The agents' Loop lists it was in, so a failed delete puts it back.
+      const agentKeys = queryClient
+        .getQueriesData<ChannelLoop[]>({ queryKey: ["agent-loops"] })
+        .filter(([, list]) => list?.some((item) => item.id === loop.id))
+        .map(([agentKey]) => agentKey)
       queryClient.setQueriesData<ChannelLoop[]>(
         { queryKey: ["agent-loops"] },
         (existing) => existing?.filter((item) => item.id !== loop.id)
       )
-      return { key, deleted: loop }
+      return { key, agentKeys, deleted: loop }
     },
     onSuccess: () => {
       if (!loop) return
       queryClient.removeQueries({ queryKey: ["loop-runs", loop.id] })
       queryClient.setQueryData(loopKey(loop.id), null)
-      void queryClient.invalidateQueries({ queryKey: ["agent-loops"] })
     },
     onSettled: (_data, _err, _vars, context) => {
       if (context) void queryClient.invalidateQueries({ queryKey: context.key })
+      void queryClient.invalidateQueries({ queryKey: ["agent-loops"] })
     },
     onError: (err, _vars, context) => {
       // Only the deleted loop comes back; updates to others since stay.
       if (context) {
-        queryClient.setQueryData(
-          context.key,
-          (existing: ChannelLoop[] | undefined) =>
-            existing && !existing.some((item) => item.id === context.deleted.id)
-              ? [context.deleted, ...existing]
-              : existing
-        )
+        const restore = (existing: ChannelLoop[] | undefined) =>
+          existing && !existing.some((item) => item.id === context.deleted.id)
+            ? [context.deleted, ...existing]
+            : existing
+        queryClient.setQueryData(context.key, restore)
+        for (const agentKey of context.agentKeys) {
+          queryClient.setQueryData(agentKey, restore)
+        }
       }
       Alert.alert(
         "Couldn't delete the loop",

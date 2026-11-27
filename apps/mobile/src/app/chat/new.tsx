@@ -2,12 +2,13 @@ import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import * as Clipboard from "expo-clipboard"
 import * as Crypto from "expo-crypto"
 import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useToast } from "heroui-native/toast"
-import { type ReactNode, useState } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
 import { Text, TextInput, View } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
 import { AgentCreature } from "@/components/agent-creature"
@@ -66,6 +67,13 @@ export default function NewChatScreen() {
   const [name, setName] = useState("")
   const [text, setText] = useState("")
   const [query, setQuery] = useState("")
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const pickedAgents = agentIds.flatMap(
     (id) => agents.find((agent) => agent.id === id) ?? []
@@ -127,16 +135,11 @@ export default function NewChatScreen() {
               .then((result) => result.ok)
               .catch(() => false)
           : false
-        if (!sent) {
-          toast.show({
-            variant: "warning",
-            label: "The chat was made, but your message wasn't sent",
-          })
-        }
+        if (!sent) return { chat, unsent: first }
       }
-      return chat
+      return { chat, unsent: null }
     },
-    onSuccess: async (chat) => {
+    onSuccess: async ({ chat, unsent }) => {
       triggerHaptic("success")
       await Promise.all([
         queryClient.invalidateQueries({
@@ -145,10 +148,24 @@ export default function NewChatScreen() {
         }),
         queryClient.invalidateQueries({ queryKey: chatsKey(workspaceSlug) }),
       ])
+      // Cancelled or swiped away while it was being made: don't navigate.
+      const stillOpen = mountedRef.current
+      if (unsent) {
+        if (!stillOpen) void Clipboard.setStringAsync(unsent)
+        toast.show({
+          variant: "warning",
+          label: "The chat was made, but your message wasn't sent",
+          description: stillOpen
+            ? "It's in the composer to send again."
+            : "It was copied so you can send it again.",
+        })
+      }
+      if (!stillOpen) return
       router.dismiss()
+      // An unsent first message opens as the chat's composer draft.
       router.push({
         pathname: "/channel/[channelId]",
-        params: { channelId: chat.id },
+        params: { channelId: chat.id, ...(unsent ? { draft: unsent } : {}) },
       } as never)
     },
     onError: (error) => {

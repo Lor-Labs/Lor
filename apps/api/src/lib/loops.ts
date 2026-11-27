@@ -399,7 +399,11 @@ export async function resumeLoop(input: {
     .then((rows) => rows[0] ?? null)
   if (!resumed) return null
 
-  await emitLoopUpdated(resumed)
+  // The row is active already: a failed emit must not fail the resume (or
+  // stop an unarchive from resuming the rest).
+  await emitLoopUpdated(resumed).catch((err: unknown) =>
+    logger.warn({ err, loopId: resumed.id }, "loop:updated emit failed")
+  )
   return { ok: true, loop: resumed }
 }
 

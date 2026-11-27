@@ -17,6 +17,7 @@ import { agentCreature, useAgents } from "@/hooks/use-agents"
 import { useCanManageChannels } from "@/hooks/use-can-manage-channels"
 import { chatsKey } from "@/hooks/use-chats"
 import { apiClient } from "@/lib/api-client"
+import { composerDraftWriter } from "@/lib/composer-drafts"
 
 // Starting a chat (reference/agents-and-chats.md, decisions 31 and 35): who
 // is in it, what it is called, and a first message if there is one. It
@@ -167,8 +168,21 @@ export function NewChatView({ workspaceSlug }: { workspaceSlug: string }) {
               .then((result) => result.ok)
               .catch(() => false)
           : false
-        if (!sent)
+        if (!sent) {
+          // Kept as the new chat's composer draft, so the text isn't lost.
+          if (me) {
+            const draft = composerDraftWriter(me, `channel:${chat.id}`, () => ({
+              type: "doc",
+              content: first.split("\n").map((line) => ({
+                type: "paragraph",
+                ...(line ? { content: [{ type: "text", text: line }] } : {}),
+              })),
+            }))
+            draft.schedule()
+            draft.flush()
+          }
           toast.error("The chat was made, but your message wasn't sent")
+        }
       }
       return chat
     },

@@ -32,33 +32,44 @@ async function exists(table: string, column?: string) {
 }
 
 if (await exists("agent")) {
-  const made = await db.execute<{ id: string }>(sql`
-    insert into "user" (id, name, email, email_verified, onboarding_completed, is_bot)
-    select a.id, a.name, a.id || '@agent.lor.invalid', true, true, true
-    from agent a
-    where not exists (select 1 from "user" u where u.id = a.id)
-    returning id`)
-  let moved = 0
-  if (await exists("message", "agent_id")) {
-    const rows = await db.execute<{ id: string }>(sql`
-      update message set author_id = agent_id
-      where agent_id is not null and author_id = ${LOR_USER_ID}::uuid
+  const hasAgentIdColumn = await exists("message", "agent_id")
+  // One transaction, so the first run's re-attribution can't be skipped by a
+  // crash after the users were made.
+  const { made, moved } = await db.transaction(async (tx) => {
+    const made = await tx.execute<{ id: string }>(sql`
+      insert into "user" (id, name, email, email_verified, onboarding_completed, is_bot)
+      select a.id, a.name, a.id || '@agent.lor.invalid', true, true, true
+      from agent a
+      where not exists (select 1 from "user" u where u.id = a.id)
       returning id`)
-    moved = rows.length
-    await db.execute(sql`alter table message drop column agent_id`)
-  }
-  const earlier = await db.execute<{ id: string }>(sql`
-    update message m set author_id = f.agent_id
-    from (
-      select distinct on (channel_id) channel_id, agent_id
-      from channel_agent
-      order by channel_id, created_at, agent_id
-    ) f
-    where m.channel_id = f.channel_id
-      and m.type = 'agent_post' and m.author_id = ${LOR_USER_ID}::uuid
-    returning m.id`)
+    let moved = 0
+    if (hasAgentIdColumn) {
+      const rows = await tx.execute<{ id: string }>(sql`
+        update message set author_id = agent_id
+        where agent_id is not null and author_id = ${LOR_USER_ID}::uuid
+        returning id`)
+      moved = rows.length
+      await tx.execute(sql`alter table message drop column agent_id`)
+    }
+    // Only on the run that made the bot users: later, an agent added to a
+    // chat with no agent must not take over that chat's old Lor posts.
+    if (made.length > 0) {
+      const earlier = await tx.execute<{ id: string }>(sql`
+        update message m set author_id = f.agent_id
+        from (
+          select distinct on (channel_id) channel_id, agent_id
+          from channel_agent
+          order by channel_id, created_at, agent_id
+        ) f
+        where m.channel_id = f.channel_id
+          and m.type = 'agent_post' and m.author_id = ${LOR_USER_ID}::uuid
+        returning m.id`)
+      moved += earlier.length
+    }
+    return { made, moved }
+  })
   console.log(
-    `Agent bot users: ${made.length} made, ${moved + earlier.length} message(s) given their agent as author.`
+    `Agent bot users: ${made.length} made, ${moved} message(s) given their agent as author.`
   )
 } else {
   console.log("Agent bot users: nothing to do.")

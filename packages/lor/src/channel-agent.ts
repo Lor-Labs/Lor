@@ -798,7 +798,15 @@ export async function loadInboxBatch(
   }
   if (!wake) return null
   const place = wake.threadRootId ?? null
-  const here = pending.filter((row) => (row.threadRootId ?? null) === place)
+  // The own conversation holds wakes from every chat: only the chosen
+  // wake's chat joins its turn (it posts there). Unread items from any chat
+  // ride along.
+  const wakeChat = wake.channelId ?? null
+  const here = pending.filter(
+    (row) =>
+      (row.threadRootId ?? null) === place &&
+      (row.lane !== "wake" || (row.channelId ?? null) === wakeChat)
+  )
   const humanWake = Boolean(wake.authorId && !wake.authorIsBot)
   // Each human request gets its own payer. Autonomous wakes wait for their own turn.
   const samePayer = here.filter((row) => {

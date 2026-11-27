@@ -222,33 +222,36 @@ export const updateAgent: AppRouteHandler<UpdateAgentRoute> = async (c) => {
     (name !== undefined && name !== agent.name) ||
     (body.creature !== undefined && body.creature !== agent.creature)
   const now = new Date()
-  const [updated] = await db
-    .update(schema.agent)
-    .set({
-      ...(name !== undefined ? { name } : {}),
-      ...(body.creature !== undefined ? { creature: body.creature } : {}),
-      // The agent learns its new name or brief from a change note, in each
-      // of its channels.
-      ...(identityChanged ? { identityUpdatedAt: now } : {}),
-      ...(body.role !== undefined ? { role: body.role?.trim() || null } : {}),
-      ...(body.brief !== undefined
-        ? { brief: body.brief?.trim() || null, briefUpdatedAt: now }
-        : {}),
-      // An empty model means the default, like null.
-      ...(body.model !== undefined
-        ? { model: body.model?.trim() || null }
-        : {}),
-    })
-    .where(eq(schema.agent.id, agent.id))
-    .returning()
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(schema.agent)
+      .set({
+        ...(name !== undefined ? { name } : {}),
+        ...(body.creature !== undefined ? { creature: body.creature } : {}),
+        // The agent learns its new name or brief from a change note, in each
+        // of its channels.
+        ...(identityChanged ? { identityUpdatedAt: now } : {}),
+        ...(body.role !== undefined ? { role: body.role?.trim() || null } : {}),
+        ...(body.brief !== undefined
+          ? { brief: body.brief?.trim() || null, briefUpdatedAt: now }
+          : {}),
+        // An empty model means the default, like null.
+        ...(body.model !== undefined
+          ? { model: body.model?.trim() || null }
+          : {}),
+      })
+      .where(eq(schema.agent.id, agent.id))
+      .returning()
+    // Its bot user carries the name its messages and mentions show.
+    if (row && row.name !== agent.name) {
+      await tx
+        .update(schema.user)
+        .set({ name: row.name })
+        .where(eq(schema.user.id, agent.id))
+    }
+    return row
+  })
   if (!updated) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
-  // Its bot user carries the name its messages and mentions show.
-  if (updated.name !== agent.name) {
-    await db
-      .update(schema.user)
-      .set({ name: updated.name })
-      .where(eq(schema.user.id, agent.id))
-  }
 
   // Its @mention role in every Discord server it is in follows the new name.
   if (identityChanged) {
@@ -296,18 +299,23 @@ export const deleteAgent: AppRouteHandler<DeleteAgentRoute> = async (c) => {
     )
     .where(eq(schema.channelAgent.agentId, agent.id))
   for (const place of places) {
+    // A failure fails the delete so it can be retried.
     await removeAgentFromDiscordPlace({
       workspaceId: workspace.id,
       channelId: place.channelId,
       agentId: agent.id,
       userId: c.var.user.id,
-    }).catch((err: unknown) =>
-      logger.warn({ err, agentId: agent.id }, "Discord place cleanup failed")
-    )
+    })
   }
   // Its channels are left with no agent, and its conversations go with it.
-  // Its bot user stays, so its messages keep their author.
-  await db.delete(schema.agent).where(eq(schema.agent.id, agent.id))
+  // Its bot user stays, so its messages keep their author. Its listeners go
+  // too: a listener with no agent would wake the chat's first agent.
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(schema.connectorTrigger)
+      .where(eq(schema.connectorTrigger.agentId, agent.id))
+    await tx.delete(schema.agent).where(eq(schema.agent.id, agent.id))
+  })
   emitAgentsUpdated(workspace.id)
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }

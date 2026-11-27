@@ -53,6 +53,14 @@ export async function patchLoop(
   queryClient.setQueryData<ChannelLoop | null>(loopKey(loopId), (loop) =>
     loop ? update(loop) : loop
   )
+  // cancelQueries reverts a first fetch to pending with nothing in flight;
+  // read those again so they don't stay loading (loop:deleted, optimistic edits).
+  for (const queryKey of [...LOOP_LISTS, loopKey(loopId)]) {
+    void queryClient.invalidateQueries({
+      queryKey,
+      predicate: (query) => query.state.data === undefined,
+    })
+  }
   return snapshot
 }
 
@@ -206,11 +214,16 @@ export function useLoopForCard(
 
 // One Loop, for its panel. The panel opens beside a chat: when the Loop is
 // in that chat's list it is read from there, else (a Loop with no chat, or
-// one in another chat) by id. `undefined` while loading, null when gone.
+// one in another chat) by id. `loop` is undefined while loading and null when
+// gone (404); a failed read (5xx, network) is `failed`, not gone.
 export function useLoop(
   loopId: string,
   besideChannelId: string
-): ChannelLoop | null | undefined {
+): {
+  loop: ChannelLoop | null | undefined
+  failed: boolean
+  retry: () => void
+} {
   const list = useChannelLoops(besideChannelId)
   const listed = list.data?.find((loop) => loop.id === loopId)
   const single = useQuery({
@@ -225,9 +238,15 @@ export function useLoop(
       return (await res.json()).loop
     },
   })
-  if (listed) return listed
-  if (list.isPending || single.isPending) return undefined
-  return single.data ?? null
+  const retry = () => void single.refetch()
+  if (listed) return { loop: listed, failed: false, retry }
+  if (list.isPending || single.isPending) {
+    return { loop: undefined, failed: false, retry }
+  }
+  if (single.isError && single.data === undefined) {
+    return { loop: undefined, failed: true, retry }
+  }
+  return { loop: single.data ?? null, failed: false, retry }
 }
 
 // Run history for the loop detail panel, newest scheduled fire first.

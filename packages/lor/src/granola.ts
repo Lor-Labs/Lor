@@ -9,6 +9,7 @@ import {
   granolaMeetingAt,
   granolaMinutes,
   granolaRequest,
+  granolaTranscriptResume,
 } from "./providers/granola"
 
 // Meeting notes from a Granola workspace API key: search, read one meeting,
@@ -226,15 +227,15 @@ export const granolaTools = {
         ? (note.data.owner?.name ?? note.data.owner?.email ?? null)
         : null
       const text = formatGranolaTranscript(transcript.data, owner, max)
-      const lastEnd = transcript.data.at(-1)?.end_time ?? null
+      const resume = granolaTranscriptResume(transcript.data, owner, max)
       return {
         id: noteId,
         title: note.ok ? meetingTitle(note.data) : null,
         url: note.ok ? (note.data.web_url ?? null) : null,
         transcript: text || "(no transcript)",
-        ...(text.length >= max && lastEnd
+        ...(resume
           ? {
-              note: `Cut at ${max} characters; continue with fromTime ${lastEnd}`,
+              note: `Cut at ${max} characters; continue with fromTime ${resume}`,
             }
           : {}),
       }

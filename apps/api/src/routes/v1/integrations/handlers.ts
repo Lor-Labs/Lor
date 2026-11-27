@@ -127,6 +127,7 @@ const GRANOLA_CONNECT_ERRORS: Record<GranolaConnectError, string> = {
     "Granola's webhooks aren't available for this workspace. They need a Business or Enterprise plan.",
   webhook_failed:
     "Granola didn't register Lor's webhook. Try again in a minute.",
+  key_in_use: "This Granola key is connected to another workspace",
 }
 
 const notionRedirectUri = () =>
@@ -1039,6 +1040,66 @@ async function listenerChat(
   return !!target && (await userCanAccessChannel(channelId, userId))
 }
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+// Serializes listener writes for one event, so two requests can't both pass
+// the duplicate check.
+async function lockListenerEvent(tx: Tx, connectionId: string, event: string) {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`connector_trigger:${connectionId}:${event}`}, 0))`
+  )
+}
+
+// Why a listener can't be added or moved: another one of the event is heard
+// by the same agent. A listener that names no agent is heard by its chat's
+// first one, so nobody is woken twice; in a chat with no agent, two unnamed
+// listeners would post the event twice.
+async function duplicateListener(
+  tx: Tx,
+  input: {
+    connectionId: string
+    event: string
+    channelId: string
+    agentId: string | null
+    excludeId?: string
+  }
+): Promise<string | null> {
+  const others = (
+    await tx
+      .select({
+        id: connectorTrigger.id,
+        agentId: connectorTrigger.agentId,
+        channelId: connectorTrigger.channelId,
+      })
+      .from(connectorTrigger)
+      .where(
+        and(
+          eq(connectorTrigger.connectionId, input.connectionId),
+          eq(connectorTrigger.event, input.event)
+        )
+      )
+  ).filter((row) => row.id !== input.excludeId)
+  const firstAgents = await agentIdsByChannel(
+    [
+      input.channelId,
+      ...others.filter((row) => !row.agentId).map((row) => row.channelId),
+    ],
+    tx
+  )
+  const heardBy = (row: { agentId: string | null; channelId: string }) =>
+    row.agentId ?? firstAgents.get(row.channelId)?.[0] ?? null
+  const mine = heardBy(input)
+  if (mine) {
+    if (!others.some((row) => heardBy(row) === mine)) return null
+    return input.agentId
+      ? "That agent already listens to this event"
+      : "This chat's agent already listens to this event"
+  }
+  return others.some((row) => !row.agentId && row.channelId === input.channelId)
+    ? "This event is already posted in that chat"
+    : null
+}
+
 // Several agents can listen to one event, each once
 // (reference/agents-and-chats.md, decision 42).
 export const createListener: AppRouteHandler<CreateListenerRoute> = async (
@@ -1078,40 +1139,6 @@ export const createListener: AppRouteHandler<CreateListenerRoute> = async (
     )
   }
 
-  const existing = await db
-    .select({
-      agentId: connectorTrigger.agentId,
-      channelId: connectorTrigger.channelId,
-    })
-    .from(connectorTrigger)
-    .where(
-      and(
-        eq(connectorTrigger.connectionId, connection.id),
-        eq(connectorTrigger.event, body.event)
-      )
-    )
-  // An earlier listener that names no agent is heard by its chat's first
-  // one: count that agent as listening too, so nobody is woken twice.
-  const firstAgents = await agentIdsByChannel(
-    existing.filter((row) => !row.agentId).map((row) => row.channelId)
-  )
-  const taken = existing.some((row) =>
-    body.agentId
-      ? (row.agentId ?? firstAgents.get(row.channelId)?.[0]) === body.agentId
-      : !row.agentId && row.channelId === body.channelId
-  )
-  if (taken) {
-    return c.json(
-      {
-        success: false,
-        message: body.agentId
-          ? "That agent already listens to this event"
-          : "This event is already posted in that chat",
-      },
-      HttpStatusCodes.CONFLICT
-    )
-  }
-
   const sessionMode = body.actSessionMode ?? "per_event"
   const actTarget = await checkActTarget({
     workspaceId: workspace.id,
@@ -1127,34 +1154,51 @@ export const createListener: AppRouteHandler<CreateListenerRoute> = async (
     )
   }
 
-  const [created] = await db
-    .insert(connectorTrigger)
-    .values({
+  const created = await db.transaction(async (tx) => {
+    await lockListenerEvent(tx, connection.id, body.event)
+    const duplicate = await duplicateListener(tx, {
       connectionId: connection.id,
       event: body.event,
       channelId: body.channelId,
-      agentId: body.agentId,
-      filter: body.filter?.trim() || null,
-      // A new listener wakes its agent, which decides what to say; with no
-      // agent named, the event is only posted.
-      post: body.post ?? !body.agentId,
-      notify: body.notify ?? false,
-      actInstructions:
-        body.actInstructions !== undefined
-          ? body.actInstructions
-          : body.agentId
-            ? ""
-            : null,
-      actSessionMode: sessionMode,
-      configuredById: c.var.user.id,
-      ...actTarget.columns,
-      // Absent = keep the column default.
-      ...(body.actWindowSeconds !== undefined
-        ? { actWindowSeconds: body.actWindowSeconds }
-        : {}),
+      agentId: body.agentId ?? null,
     })
-    .returning({ id: connectorTrigger.id })
-  if (!created) {
+    if (duplicate) return { ok: false as const, message: duplicate }
+    const [row] = await tx
+      .insert(connectorTrigger)
+      .values({
+        connectionId: connection.id,
+        event: body.event,
+        channelId: body.channelId,
+        agentId: body.agentId,
+        filter: body.filter?.trim() || null,
+        // A new listener wakes its agent, which decides what to say; with no
+        // agent named, the event is only posted.
+        post: body.post ?? !body.agentId,
+        notify: body.notify ?? false,
+        actInstructions:
+          body.actInstructions !== undefined
+            ? body.actInstructions
+            : body.agentId
+              ? ""
+              : null,
+        actSessionMode: sessionMode,
+        configuredById: c.var.user.id,
+        ...actTarget.columns,
+        // Absent = keep the column default.
+        ...(body.actWindowSeconds !== undefined
+          ? { actWindowSeconds: body.actWindowSeconds }
+          : {}),
+      })
+      .returning({ id: connectorTrigger.id })
+    return { ok: true as const, id: row?.id }
+  })
+  if (!created.ok) {
+    return c.json(
+      { success: false, message: created.message },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  if (!created.id) {
     return c.json(
       { success: false, message: "Failed to add the listener" },
       HttpStatusCodes.INTERNAL_SERVER_ERROR
@@ -1176,6 +1220,8 @@ async function savedListener(
   const saved = await db
     .select({
       id: connectorTrigger.id,
+      connectionId: connectorTrigger.connectionId,
+      event: connectorTrigger.event,
       channelId: connectorTrigger.channelId,
       agentId: connectorTrigger.agentId,
       actSessionMode: connectorTrigger.actSessionMode,
@@ -1253,27 +1299,51 @@ export const updateListener: AppRouteHandler<UpdateListenerRoute> = async (
     )
   }
 
-  await db
-    .update(connectorTrigger)
-    .set({
-      channelId,
-      configuredById: c.var.user.id,
-      actSessionMode: body.actSessionMode ?? saved.actSessionMode,
-      ...actTarget.columns,
-      // An empty filter clears it.
-      ...(body.filter !== undefined
-        ? { filter: body.filter?.trim() || null }
-        : {}),
-      ...(body.post !== undefined ? { post: body.post } : {}),
-      ...(body.notify !== undefined ? { notify: body.notify } : {}),
-      ...(body.actInstructions !== undefined
-        ? { actInstructions: body.actInstructions }
-        : {}),
-      ...(body.actWindowSeconds !== undefined
-        ? { actWindowSeconds: body.actWindowSeconds }
-        : {}),
-    })
-    .where(eq(connectorTrigger.id, saved.id))
+  // Only the fields sent are written, so a filter-only edit can't undo
+  // another manager's move or Act change made since the read.
+  const duplicate = await db.transaction(async (tx) => {
+    if (moved) {
+      await lockListenerEvent(tx, saved.connectionId, saved.event)
+      const conflict = await duplicateListener(tx, {
+        connectionId: saved.connectionId,
+        event: saved.event,
+        channelId,
+        agentId: saved.agentId,
+        excludeId: saved.id,
+      })
+      if (conflict) return conflict
+    }
+    await tx
+      .update(connectorTrigger)
+      .set({
+        configuredById: c.var.user.id,
+        ...(moved ? { channelId } : {}),
+        ...(body.actSessionMode !== undefined
+          ? { actSessionMode: body.actSessionMode }
+          : {}),
+        ...(moved || body.actCode !== undefined ? actTarget.columns : {}),
+        // An empty filter clears it.
+        ...(body.filter !== undefined
+          ? { filter: body.filter?.trim() || null }
+          : {}),
+        ...(body.post !== undefined ? { post: body.post } : {}),
+        ...(body.notify !== undefined ? { notify: body.notify } : {}),
+        ...(body.actInstructions !== undefined
+          ? { actInstructions: body.actInstructions }
+          : {}),
+        ...(body.actWindowSeconds !== undefined
+          ? { actWindowSeconds: body.actWindowSeconds }
+          : {}),
+      })
+      .where(eq(connectorTrigger.id, saved.id))
+    return null
+  })
+  if (duplicate) {
+    return c.json(
+      { success: false, message: duplicate },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
@@ -1416,7 +1486,10 @@ export const listenerActivity: AppRouteHandler<ListenerActivityRoute> = async (
       and(
         eq(connectorTrigger.id, listenerId),
         eq(connectorTrigger.connectionId, connectionId),
-        eq(integrationConnection.workspaceId, workspace.id)
+        eq(integrationConnection.workspaceId, workspace.id),
+        // Channel webhooks are read under webhook:manage, as in
+        // listenerConnection.
+        ne(integrationConnection.provider, "webhook")
       )
     )
     .limit(1)
@@ -1633,14 +1706,36 @@ export const connectGranola: AppRouteHandler<ConnectGranolaRoute> = async (
     )
   const { apiKey } = c.req.valid("json")
   const targetUrlFor = granolaWebhookTargetUrl()
-  const result = await connectGranolaKey(apiKey, targetUrlFor).catch((err) => {
+  // Checked before any endpoint is touched: the webhook URL is the key's
+  // fingerprint, so another workspace's endpoint shares it.
+  const ownedElsewhere = (externalId: string) =>
+    db
+      .select({ id: integrationConnection.id })
+      .from(integrationConnection)
+      .where(
+        and(
+          eq(integrationConnection.provider, "granola"),
+          eq(integrationConnection.externalId, externalId),
+          ne(integrationConnection.workspaceId, c.var.workspace.id),
+          ne(integrationConnection.status, "revoked")
+        )
+      )
+      .limit(1)
+      .then((rows) => rows.length > 0)
+  const result = await connectGranolaKey(
+    apiKey,
+    targetUrlFor,
+    ownedElsewhere
+  ).catch((err) => {
     logger.error({ err }, "Granola connection failed")
     return "webhook_failed" as const
   })
   if (typeof result === "string")
     return c.json(
       { success: false, message: GRANOLA_CONNECT_ERRORS[result] },
-      HttpStatusCodes.BAD_REQUEST
+      result === "key_in_use"
+        ? HttpStatusCodes.CONFLICT
+        : HttpStatusCodes.BAD_REQUEST
     )
 
   // The outgoing connection's webhook is removed once the new one is saved.
@@ -1681,12 +1776,12 @@ export const connectGranola: AppRouteHandler<ConnectGranolaRoute> = async (
   if (!ok) {
     if (result.webhookId) void deleteGranolaWebhook(apiKey, result.webhookId)
     return c.json(
-      {
-        success: false,
-        message: "This Granola key is connected to another workspace",
-      },
+      { success: false, message: GRANOLA_CONNECT_ERRORS.key_in_use },
       HttpStatusCodes.CONFLICT
     )
+  }
+  for (const id of result.staleWebhookIds) {
+    void deleteGranolaWebhook(apiKey, id)
   }
   if (outgoing?.webhookId && outgoingKey) {
     void deleteGranolaWebhook(outgoingKey, outgoing.webhookId)

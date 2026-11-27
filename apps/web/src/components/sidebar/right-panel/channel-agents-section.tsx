@@ -56,7 +56,9 @@ export function ChannelAgentsSection({
   const live = useChannelAgentsContext()
   const dialog = useAgentDialog()
   const queryClient = useQueryClient()
-  const [removing, setRemoving] = useState<string | null>(null)
+  // Add and remove both send the full roster: one change at a time, so the
+  // second isn't built from the list before the first landed.
+  const [changing, setChanging] = useState(false)
   if (!channel || channel.type !== "text") return null
 
   const here = channel.agentIds.flatMap(
@@ -67,7 +69,8 @@ export function ChannelAgentsSection({
   if (here.length === 0 && !canChange) return null
   const full = here.length >= MAX_CHANNEL_AGENTS
   const remove = async (agent: WorkspaceAgent) => {
-    setRemoving(agent.id)
+    if (changing) return
+    setChanging(true)
     try {
       await setChannelAgents(
         workspaceSlug,
@@ -80,7 +83,7 @@ export function ChannelAgentsSection({
         error instanceof Error ? error.message : "Couldn't remove the agent"
       )
     } finally {
-      setRemoving(null)
+      setChanging(false)
     }
   }
 
@@ -130,7 +133,7 @@ export function ChannelAgentsSection({
                   type="button"
                   aria-label={`Remove ${agent.name} from this chat`}
                   title="Remove from this chat"
-                  disabled={removing !== null}
+                  disabled={changing}
                   onClick={() => void remove(agent)}
                   className="relative z-10 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none transition-[opacity,background-color,color,transform] duration-150 ease-out hover:bg-foreground/[0.06] hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.96] disabled:pointer-events-none group-hover:opacity-100"
                 >
@@ -150,6 +153,8 @@ export function ChannelAgentsSection({
             channelId={channelId}
             here={here}
             others={agents.filter((agent) => !here.includes(agent))}
+            busy={changing}
+            onBusyChange={setChanging}
             trigger={
               <button
                 type="button"
@@ -185,21 +190,25 @@ function AgentRoster({
   channelId,
   here,
   others,
+  busy,
+  onBusyChange,
   trigger,
 }: {
   workspaceSlug: string
   channelId: string
   here: WorkspaceAgent[]
   others: WorkspaceAgent[]
+  busy: boolean
+  onBusyChange: (busy: boolean) => void
   trigger: ReactElement
 }) {
   const queryClient = useQueryClient()
   const dialog = useAgentDialog()
   const [open, setOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
 
   const place = async (agent: WorkspaceAgent) => {
-    setBusy(true)
+    if (busy) return
+    onBusyChange(true)
     try {
       await setChannelAgents(workspaceSlug, channelId, [
         ...here.map((item) => item.id),
@@ -212,7 +221,7 @@ function AgentRoster({
         error instanceof Error ? error.message : "Couldn't add the agent"
       )
     } finally {
-      setBusy(false)
+      onBusyChange(false)
     }
   }
   const openAgent = (id: string) => {

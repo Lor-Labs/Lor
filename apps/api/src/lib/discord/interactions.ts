@@ -421,12 +421,15 @@ async function handleRemove(interaction: DiscordInteraction, value: string) {
   if (!link || !agent) {
     return reply(interaction, "No agent by that name is in this channel.")
   }
-  await removeAgentFromDiscordPlace({
+  const removed = await removeAgentFromDiscordPlace({
     workspaceId: manager.workspaceId,
     channelId: link.channelId,
     agentId: agent.id,
     userId: manager.userId,
   })
+  if (!removed) {
+    return reply(interaction, `${agent.name} couldn't be taken out. Try again.`)
+  }
   return reply(interaction, `${agent.name} is no longer in this channel.`)
 }
 
@@ -472,7 +475,9 @@ async function handleAutocomplete(interaction: DiscordInteraction) {
     const here = (await agentsHere(interaction.channel_id)).agents
     if (sub?.name === "remove") {
       choices = here
-    } else {
+    } else if (!("refusal" in (await managerOf(interaction)))) {
+      // The workspace's agents, only for someone who may add one (like the
+      // "Add an agent" menu).
       const all = await db
         .select({
           id: schema.agent.id,
@@ -832,9 +837,15 @@ async function handleSendForm(
     note: `${account.name} sent this from Discord for session "${session.title}" (session ${sessionId}). Pass it on with message_session, then say so in the thread:\n${value}`,
     lane: "wake",
   })
-  if (conversationId) {
-    await flushAgentInbox(conversationId, AGENT_INBOX_BATCH_MS)
+  // Null: no agent can take it (the sourceId is this interaction's own, so
+  // never a duplicate).
+  if (!conversationId) {
+    return reply(
+      interaction,
+      "No agent here can pass this on to the session, so nothing was sent."
+    )
   }
+  await flushAgentInbox(conversationId, AGENT_INBOX_BATCH_MS)
   if (interaction.channel_id) {
     await discordRequest(`/channels/${interaction.channel_id}/messages`, {
       method: "POST",

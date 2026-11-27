@@ -37,6 +37,7 @@ import {
   SessionStateIndicator,
 } from "@/components/channel-sessions"
 import { ChatAvatar } from "@/components/chat-avatar"
+import { useMutePrompt } from "@/components/mute-sheet"
 import { triggerHaptic, triggerToggleHaptic } from "@/components/ui/haptics"
 import { PressableRow } from "@/components/ui/pressable-row"
 import { PressableScale } from "@/components/ui/pressable-scale"
@@ -50,11 +51,7 @@ import {
   useAgentsById,
   type WorkspaceAgent,
 } from "@/hooks/use-agents"
-import {
-  type ChannelMute,
-  promptChannelMute,
-  useChannelMutes,
-} from "@/hooks/use-channel-mutes"
+import { type ChannelMute, useChannelMutes } from "@/hooks/use-channel-mutes"
 import {
   type Chat,
   type ChatFilter,
@@ -134,7 +131,8 @@ export function ChatList({
     useWorkspaceActivity(workspaceId)
   useWorkspaceSessionUpdates(workspaceId)
   const [openedId, setOpenedId] = useOpenedRow()
-  const mutes = useChannelMutes()
+  const { getMute } = useChannelMutes()
+  const { promptMute, muteSheet } = useMutePrompt()
   // One row open at a time, as in Mail: starting a swipe closes the last.
   const openRow = useRef<SwipeableMethods | null>(null)
   const activityByChat = useMemo(
@@ -168,7 +166,7 @@ export function ChatList({
         agentsById={agentsById}
         chat={chat}
         me={me}
-        mutes={mutes}
+        getMute={getMute}
         onLongPress={onLongPressChat}
         onOpen={(opened) => {
           setOpenedId(opened.id)
@@ -177,6 +175,7 @@ export function ChatList({
         onOpenNeed={onOpenNeed}
         onHide={onHide}
         onPin={onPin}
+        onPromptMute={promptMute}
         onSwipeStart={(methods) => {
           if (openRow.current && openRow.current !== methods) {
             openRow.current.close()
@@ -247,6 +246,7 @@ export function ChatList({
           ) : null}
         </View>
       </LayoutAnimationConfig>
+      {muteSheet}
     </Animated.View>
   )
 }
@@ -296,11 +296,12 @@ const UNREAD_MARK: CSSStyle<ViewStyle> = {
 const ACTION_WIDTH = 76
 
 type ChatRowProps = {
-  mutes: {
-    getMute: (channelId: string) => ChannelMute | null
-    muteChannel: (channelId: string, minutes: number | null) => Promise<void>
-    unmuteChannel: (channelId: string) => Promise<void>
-  }
+  getMute: (channelId: string) => ChannelMute | null
+  onPromptMute: (options: {
+    channelId: string
+    channelLabel: string
+    mute: ChannelMute | null
+  }) => void
   chat: Chat
   activity: ChannelActivity | undefined
   agentsById: Map<string, WorkspaceAgent>
@@ -315,7 +316,8 @@ type ChatRowProps = {
 }
 
 const ChatRow = memo(function ChatRow({
-  mutes,
+  getMute,
+  onPromptMute,
   chat,
   activity,
   agentsById,
@@ -332,7 +334,6 @@ const ChatRow = memo(function ChatRow({
   const reduced = useReducedMotion()
   const swipeable = useRef<SwipeableMethods>(null)
   const { getUnreadCount, getMentionCount } = useUnread()
-  const { getMute, muteChannel, unmuteChannel } = mutes
 
   // Greyed while the list shows archived chats: nothing in it is unread,
   // pinned or running. A Discord channel is read in Discord, so it has no
@@ -395,13 +396,7 @@ const ChatRow = memo(function ChatRow({
   const pressMute = () => {
     swipeable.current?.close()
     triggerHaptic("soft")
-    promptChannelMute({
-      channelId: chat.id,
-      channelLabel: name,
-      mute,
-      muteChannel,
-      unmuteChannel,
-    })
+    onPromptMute({ channelId: chat.id, channelLabel: name, mute })
   }
 
   const content = (

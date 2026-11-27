@@ -365,6 +365,7 @@ for (const name of Object.keys(webTools)) {
 // Writes a helper session leaves to the channel's agent (connector writes
 // are filtered from its grants by READ_ONLY_CONNECTOR_TOOLS).
 const HELPER_WRITE_TOOLS = [
+  "remember",
   "memory_write",
   "memory_edit",
   "memory_link",

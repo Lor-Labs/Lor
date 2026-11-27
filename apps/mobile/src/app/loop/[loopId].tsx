@@ -19,13 +19,16 @@ export default function LoopScreen() {
     workspaceSlug: workspace?.slug ?? "",
     channelId: loop?.channelId ?? "",
   })
-  const back = () =>
-    loop?.channelId
-      ? router.replace({
-          pathname: "/channel/[channelId]",
-          params: { channelId: loop.channelId },
-        })
-      : router.replace("/")
+  // Back to wherever it was opened from; its chat (or home) for a deep link.
+  const back = () => {
+    if (router.canGoBack()) router.back()
+    else if (loop?.channelId) {
+      router.replace({
+        pathname: "/channel/[channelId]",
+        params: { channelId: loop.channelId },
+      })
+    } else router.replace("/")
+  }
 
   return (
     <Screen className="bg-background" edges={["top", "bottom"]}>

@@ -156,6 +156,7 @@ export type GranolaConnectError =
   | "not_workspace_key"
   | "webhooks_unavailable"
   | "webhook_failed"
+  | "key_in_use"
 
 export type GranolaConnection = {
   externalId: string
@@ -163,33 +164,28 @@ export type GranolaConnection = {
   apiKey: string
   webhookId: string | null
   webhookSecret: string | null
+  // Endpoints an earlier connect pointed at the same URL. The caller deletes
+  // them only once the new connection is saved, so a failed reconnect keeps
+  // the working endpoint.
+  staleWebhookIds: string[]
 }
 
-// Remove endpoints a previous connect pointed at the same URL, so a
-// reconnect doesn't leave a second endpoint delivering with a lost secret.
-async function removeStaleEndpoints(apiKey: string, targetUrl: string) {
+async function listEndpointIds(
+  apiKey: string,
+  targetUrl: string
+): Promise<string[]> {
   try {
     const res = await call(apiKey, "/webhook-endpoints")
-    if (!res.ok) return
+    if (!res.ok) return []
     const body = (await res.json()) as {
       webhook_endpoints?: { id?: string; url?: string }[]
     }
-    const rows = body.webhook_endpoints ?? []
-    await Promise.all(
-      rows
-        .filter((row) => row.id && row.url === targetUrl)
-        .map((row) =>
-          call(
-            apiKey,
-            `/webhook-endpoints/${encodeURIComponent(row.id ?? "")}`,
-            {
-              method: "DELETE",
-            }
-          ).catch(() => null)
-        )
+    return (body.webhook_endpoints ?? []).flatMap((row) =>
+      row.id && row.url === targetUrl ? [row.id] : []
     )
   } catch (err) {
-    logger.warn({ err }, "Granola stale webhook cleanup failed")
+    logger.warn({ err }, "Granola webhook endpoint listing failed")
+    return []
   }
 }
 
@@ -199,7 +195,6 @@ async function createWebhook(
   apiKey: string,
   targetUrl: string
 ): Promise<{ id: string; secret: string } | GranolaConnectError> {
-  await removeStaleEndpoints(apiKey, targetUrl)
   const res = await call(apiKey, "/webhook-endpoints", {
     method: "POST",
     body: JSON.stringify({
@@ -234,19 +229,25 @@ export async function deleteGranolaWebhook(
 
 // The webhook needs a public HTTPS URL; in local development there is none,
 // so the key is accepted without its webhook (and without the workspace-key
-// check). `targetUrl` is null then.
+// check). `targetUrl` is null then. `ownedElsewhere` refuses a key another
+// workspace holds before any endpoint at its URL is touched.
 export async function connectGranola(
   apiKey: string,
-  targetUrlFor: ((externalId: string) => string) | null
+  targetUrlFor: ((externalId: string) => string) | null,
+  ownedElsewhere: (externalId: string) => Promise<boolean>
 ): Promise<GranolaConnection | GranolaConnectError> {
   const key = encryptionKey()
   const probe = await call(apiKey, "/notes?page_size=1").catch(() => null)
   if (!probe?.ok) return "invalid_key"
 
   const externalId = granolaFingerprint(apiKey)
+  if (await ownedElsewhere(externalId)) return "key_in_use"
   let webhook: { id: string; secret: string } | null = null
+  let staleWebhookIds: string[] = []
   if (targetUrlFor) {
-    const created = await createWebhook(apiKey, targetUrlFor(externalId))
+    const targetUrl = targetUrlFor(externalId)
+    staleWebhookIds = await listEndpointIds(apiKey, targetUrl)
+    const created = await createWebhook(apiKey, targetUrl)
     if (typeof created === "string") return created
     webhook = created
   } else {
@@ -261,6 +262,7 @@ export async function connectGranola(
       apiKey: encryptSecret(apiKey, key),
       webhookId: webhook?.id ?? null,
       webhookSecret: webhook ? encryptSecret(webhook.secret, key) : null,
+      staleWebhookIds,
     }
   } catch (err) {
     if (webhook) await deleteGranolaWebhook(apiKey, webhook.id)
@@ -288,22 +290,59 @@ function speakerName(item: GranolaTranscriptItem, owner: string | null) {
 }
 
 // Consecutive lines from one speaker are joined, so the text reads as turns.
+// `marks` is where each item starts in the text.
+function transcriptLines(
+  items: readonly GranolaTranscriptItem[],
+  owner: string | null
+) {
+  let out = ""
+  let lastSpeaker: string | null = null
+  const marks: { offset: number; item: GranolaTranscriptItem }[] = []
+  for (const item of items) {
+    const text = item.text?.trim()
+    if (!text) continue
+    const speaker = speakerName(item, owner)
+    if (speaker === lastSpeaker) {
+      marks.push({ offset: out.length + 1, item })
+      out += ` ${text}`
+      continue
+    }
+    if (out) out += "\n"
+    marks.push({ offset: out.length, item })
+    out += `${speaker}: ${text}`
+    lastSpeaker = speaker
+  }
+  return { out, marks }
+}
+
 export function formatGranolaTranscript(
   items: readonly GranolaTranscriptItem[],
   owner: string | null,
   max: number
 ): string {
-  const turns: { speaker: string; text: string }[] = []
-  for (const item of items) {
-    const text = item.text?.trim()
-    if (!text) continue
-    const speaker = speakerName(item, owner)
-    const last = turns.at(-1)
-    if (last?.speaker === speaker) last.text += ` ${text}`
-    else turns.push({ speaker, text })
-  }
-  const out = turns.map((turn) => `${turn.speaker}: ${turn.text}`).join("\n")
+  const { out } = transcriptLines(items, owner)
   return out.length > max ? `${out.slice(0, max)}…` : out
+}
+
+// Transcript continuation (`from_time` returns items ending after it): the
+// end of the last item shown whole, so the item the cut fell in comes back.
+// Null when the text fit.
+export function granolaTranscriptResume(
+  items: readonly GranolaTranscriptItem[],
+  owner: string | null,
+  max: number
+): string | null {
+  const { out, marks } = transcriptLines(items, owner)
+  if (out.length < max) return null
+  if (out.length === max) return marks.at(-1)?.item.end_time ?? null
+  let cut = marks.length - 1
+  while (cut > 0 && (marks[cut]?.offset ?? 0) > max) cut--
+  for (let i = cut - 1; i >= 0; i--) {
+    const end = marks[i]?.item.end_time
+    if (end) return end
+  }
+  // No earlier end time: skip past the cut item rather than repeat it.
+  return marks[cut]?.item.end_time ?? null
 }
 
 // Granola caps the inline transcript (413); page through the transcript
@@ -356,6 +395,8 @@ export async function fetchGranolaNote(
     fetchGranolaTranscript(externalId, noteId, transcriptMax),
   ])
   if (!plain.ok) return plain
+  // Only a missing transcript reads as none; a failed fetch is retried later.
+  if (!transcript.ok && transcript.status !== 404) return transcript
   return {
     ok: true,
     data: {

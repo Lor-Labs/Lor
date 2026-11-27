@@ -187,17 +187,30 @@ export async function updateSessionCard(
     return
   const session = await sessionFor(sessionId)
   if (!session) return
-  await db
+  // Only the fields this change sets, so an overlapping update (a report
+  // and a push) can't revert the other's; the card shows the row as saved.
+  const set: Partial<typeof next> = {}
+  if (change.state !== undefined) set.state = change.state
+  if (change.report !== undefined || change.state === "working") {
+    set.latest = next.latest
+  }
+  if (change.branchUrl !== undefined) set.branchUrl = change.branchUrl
+  if (change.pullRequestUrl !== undefined) {
+    set.pullRequestUrl = change.pullRequestUrl
+  }
+  const [saved] = await db
     .update(schema.discordSessionCard)
-    .set(next)
+    .set(set)
     .where(eq(schema.discordSessionCard.sessionId, sessionId))
+    .returning()
+  if (!saved) return
   await editAgentDiscordMessage({
     channelId: card.channelId,
     agentId: card.agentId,
     discordMessageId: card.discordMessageId,
     discordThreadId: card.discordThreadId,
     components: sessionCard(
-      view(session, next, await agentFaceUrl(card.channelId, card.agentId))
+      view(session, saved, await agentFaceUrl(card.channelId, card.agentId))
     ),
   })
 }

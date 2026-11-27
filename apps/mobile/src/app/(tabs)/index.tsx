@@ -182,9 +182,10 @@ export default function WorkspaceScreen() {
     if (searchActive) scrollRef.current?.scrollTo({ y: 0, animated: false })
   }, [searchActive, scrollRef])
   const search = useMessageSearch({ query, workspaceSlug })
+  // Archived chats and places shown by the filter are searched too.
   const matchingChats = useMemo(
-    () => findMatchingChats(chatsQuery.data, channelsQuery.data, query),
-    [chatsQuery.data, channelsQuery.data, query]
+    () => findMatchingChats(chats, channelsQuery.data, query),
+    [chats, channelsQuery.data, query]
   )
 
   if (workspaceLoading) return <LoadingScreen />

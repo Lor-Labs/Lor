@@ -38,9 +38,11 @@ export async function placeDefaultAgent(
       id: schema.channel.id,
       audience: schema.channel.audience,
       parentId: schema.channel.parentId,
+      // Qualified by hand: drizzle drops the table name in a one-table
+      // select, which would bind parent_id to p.
       parentAudience: sql<
         "workspace" | "members" | null
-      >`(select p.audience from channel p where p.id = ${schema.channel.parentId})`,
+      >`(select p.audience from channel p where p.id = "channel"."parent_id")`,
     })
     .from(schema.channel)
     .where(inArray(schema.channel.id, input.channelIds))

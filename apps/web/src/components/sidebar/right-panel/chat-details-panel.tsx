@@ -242,6 +242,9 @@ function ChatName({
   const queryClient = useQueryClient()
   const saved = chat.name ?? ""
   const [draft, setDraft] = useState(saved)
+  // The draft is used only while the field has focus, so a rename by
+  // someone else shows instead of a stale value that a blur would re-save.
+  const [editing, setEditing] = useState(false)
   const rename = useMutation({
     mutationFn: async (name: string) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
@@ -269,6 +272,7 @@ function ChatName({
     },
   })
   const commit = () => {
+    setEditing(false)
     const name = draft.trim()
     if (!name) return setDraft(saved)
     if (name !== saved) rename.mutate(name)
@@ -278,7 +282,13 @@ function ChatName({
   }
   return (
     <input
-      value={draft}
+      value={
+        editing ? draft : rename.isPending ? (rename.variables ?? saved) : saved
+      }
+      onFocus={() => {
+        setDraft(saved)
+        setEditing(true)
+      }}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {
@@ -446,20 +456,22 @@ function ChatPeople({
               <span className="min-w-0 flex-1 truncate text-[13px]">
                 {person.name}
               </span>
-              {isMe && (
-                <span className="shrink-0 text-[11px] text-muted-foreground group-hover:hidden">
-                  You
-                </span>
-              )}
               {isMe ? (
-                <button
-                  type="button"
-                  disabled={remove.isPending}
-                  onClick={() => remove.mutate(person.id)}
-                  className="hidden shrink-0 cursor-pointer rounded-md px-1.5 py-1 text-[11px] text-muted-foreground outline-none transition-colors duration-150 hover:bg-foreground/[0.06] hover:text-foreground focus-visible:block focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:block"
-                >
-                  Leave
-                </button>
+                // "You" and Leave share one spot; Leave stays focusable for
+                // keyboard users and shows on hover or focus.
+                <span className="grid shrink-0 items-center justify-items-end">
+                  <span className="text-[11px] text-muted-foreground transition-opacity duration-150 [grid-area:1/1] group-focus-within:opacity-0 group-hover:opacity-0">
+                    You
+                  </span>
+                  <button
+                    type="button"
+                    disabled={remove.isPending}
+                    onClick={() => remove.mutate(person.id)}
+                    className="cursor-pointer rounded-md px-1.5 py-1 text-[11px] text-muted-foreground opacity-0 outline-none transition-[opacity,background-color,color] duration-150 [grid-area:1/1] hover:bg-foreground/[0.06] hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100"
+                  >
+                    Leave
+                  </button>
+                </span>
               ) : (
                 canRemove && (
                   <button
@@ -585,7 +597,8 @@ function AddPeople({
         <PopoverTitle className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">
           Add to this chat
         </PopoverTitle>
-        {others.length > 8 && (
+        {/* Stays while a query filters, so it can be cleared. */}
+        {(others.length > 8 || query !== "") && (
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}

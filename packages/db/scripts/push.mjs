@@ -33,6 +33,9 @@ for (let i = 0; i < argv.length; i++) {
 const env = { ...process.env }
 if (url) env.DATABASE_URL = url
 
+// Help runs no data script.
+const wantsHelp = passthrough.some((arg) => arg === "--help" || arg === "-h")
+
 function run(command, args) {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
@@ -62,19 +65,30 @@ const BEFORE_PUSH = [
 
 // After the push, which creates their tables: one-time fills. Linked
 // Discord chats become places before chats nobody is in are filled.
-const AFTER_PUSH = [
-  "src/scripts/discord-places.ts",
-  "src/scripts/chat-members.ts",
-]
+const AFTER_PUSH = ["src/scripts/discord-places.ts"]
+
+// The chat members fill runs only on the push that brings chat lists
+// (asked before the push, which adds channel_member.hidden_at): later, a
+// chat nobody is in is one everyone left, and must stay empty.
+const CHAT_MEMBERS = "src/scripts/chat-members.ts"
+const CHAT_MEMBERS_NOT_NEEDED = 10
 
 let code = 0
-for (const script of BEFORE_PUSH) {
-  code = await run("tsx", [script])
-  if (code !== 0) break
-}
-if (code === 0) code = await run("drizzle-kit", ["push", ...passthrough])
-for (const script of AFTER_PUSH) {
-  if (code !== 0) break
-  code = await run("tsx", [script])
+if (wantsHelp) {
+  code = await run("drizzle-kit", ["push", ...passthrough])
+} else {
+  let fillChats = false
+  const check = await run("tsx", [CHAT_MEMBERS, "--needed"])
+  if (check === 0) fillChats = true
+  else if (check !== CHAT_MEMBERS_NOT_NEEDED) code = check
+  for (const script of BEFORE_PUSH) {
+    if (code !== 0) break
+    code = await run("tsx", [script])
+  }
+  if (code === 0) code = await run("drizzle-kit", ["push", ...passthrough])
+  for (const script of fillChats ? [...AFTER_PUSH, CHAT_MEMBERS] : AFTER_PUSH) {
+    if (code !== 0) break
+    code = await run("tsx", [script])
+  }
 }
 process.exitCode = code

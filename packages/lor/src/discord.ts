@@ -890,14 +890,45 @@ export async function filesForDiscord(
 
 const VIEW_CHANNEL = 1n << 10n
 
-// Whether a Discord channel is private: @everyone (the role whose id is the
-// server's) can't see it.
-export function isPrivateDiscordChannel(channel: {
+const ADMINISTRATOR = 1n << 3n
+const EVERYONE_TTL_MS = 60_000
+const everyonePerms = new Map<string, { perms: bigint; at: number }>()
+
+// The server's @everyone role permissions (the role whose id is the
+// server's), cached briefly since every channel update asks.
+async function everyonePermissions(guildId: string) {
+  const cached = everyonePerms.get(guildId)
+  if (cached && Date.now() - cached.at < EVERYONE_TTL_MS) return cached.perms
+  const roles = await discordRequest<
+    Array<{ id: string; permissions: string }>
+  >(`/guilds/${guildId}/roles`)
+  const everyone = roles.find((role) => role.id === guildId)
+  const perms = BigInt(everyone?.permissions ?? "0")
+  everyonePerms.set(guildId, { perms, at: Date.now() })
+  return perms
+}
+
+// Whether a Discord channel is private: @everyone can't see it, by the
+// server's base permissions with the channel's @everyone overwrite applied
+// (deny, then allow). Throws when the roles can't be read.
+export async function isPrivateDiscordChannel(channel: {
   guild_id?: string
-  permission_overwrites?: Array<{ id: string; type: number; deny: string }>
+  permission_overwrites?: Array<{
+    id: string
+    type: number
+    allow?: string
+    deny: string
+  }>
 }) {
+  if (!channel.guild_id) return false
+  let perms = await everyonePermissions(channel.guild_id)
+  if ((perms & ADMINISTRATOR) !== 0n) return false
   const everyone = channel.permission_overwrites?.find(
     (overwrite) => overwrite.type === 0 && overwrite.id === channel.guild_id
   )
-  return everyone ? (BigInt(everyone.deny) & VIEW_CHANNEL) !== 0n : false
+  if (everyone) {
+    perms &= ~BigInt(everyone.deny)
+    perms |= BigInt(everyone.allow ?? "0")
+  }
+  return (perms & VIEW_CHANNEL) === 0n
 }

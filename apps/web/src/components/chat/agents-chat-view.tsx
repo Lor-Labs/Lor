@@ -3,7 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import type { AgentChatMessage } from "@repo/realtime-types"
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AgentCreature } from "@/components/agent/agent-creature"
 import {
   AGENTS_MENTION,
@@ -12,6 +12,7 @@ import {
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { useSocket } from "@/context/socket-context"
 import { agentCreature, useAgentsById } from "@/hooks/use-agents"
+import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { apiClient } from "@/lib/api-client"
 import { toSearchPreviewText } from "@/lib/search-preview"
 
@@ -51,10 +52,34 @@ function agentMessagesQueryOptions(workspaceSlug: string, channelId: string) {
   }
 }
 
-// Adds what the agents say as they say it, for whoever has the chat open.
-function useAgentMessagesLive(workspaceSlug: string, channelId: string) {
+// The chat's room carries agent-message:created; joining refetches history so
+// posts made before the join are not missed.
+function useAgentMessages(workspaceSlug: string, channelId: string) {
   const socket = useSocket()
   const queryClient = useQueryClient()
+  const key = agentMessagesKey(workspaceSlug, channelId)
+  useRealtimeRoom(socket, "channel", channelId, key)
+  const query = useQuery(agentMessagesQueryOptions(workspaceSlug, channelId))
+  // Live posts are kept so one that lands while history loads (or before a
+  // racing history response) is merged in by id once the list is there.
+  const live = useRef(new Map<string, AgentChatMessage>())
+  const merge = useCallback(() => {
+    queryClient.setQueryData<AgentChatMessage[]>(
+      agentMessagesKey(workspaceSlug, channelId),
+      (messages) => {
+        if (!messages) return messages
+        const have = new Set(messages.map((item) => item.id))
+        const missing = [...live.current.values()].filter(
+          (item) => !have.has(item.id)
+        )
+        if (missing.length === 0) return messages
+        return [...messages, ...missing].sort(
+          (a, b) =>
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        )
+      }
+    )
+  }, [queryClient, workspaceSlug, channelId])
   useEffect(() => {
     if (!socket) return
     const onCreated = (payload: {
@@ -62,19 +87,18 @@ function useAgentMessagesLive(workspaceSlug: string, channelId: string) {
       message: AgentChatMessage
     }) => {
       if (payload.channelId !== channelId) return
-      queryClient.setQueryData<AgentChatMessage[]>(
-        agentMessagesKey(workspaceSlug, channelId),
-        (messages) =>
-          messages && !messages.some((item) => item.id === payload.message.id)
-            ? [...messages, payload.message]
-            : messages
-      )
+      live.current.set(payload.message.id, payload.message)
+      merge()
     }
     socket.on("agent-message:created", onCreated)
     return () => {
       socket.off("agent-message:created", onCreated)
     }
-  }, [socket, queryClient, workspaceSlug, channelId])
+  }, [socket, channelId, merge])
+  useEffect(() => {
+    if (query.data) merge()
+  }, [query.data, merge])
+  return query
 }
 
 function stamp(iso: string) {
@@ -98,26 +122,44 @@ export function AgentsChatView({
   onBack: () => void
 }) {
   const agentsById = useAgentsById(workspaceSlug)
-  const { data: messages, isPending } = useQuery(
-    agentMessagesQueryOptions(workspaceSlug, channelId)
-  )
-  useAgentMessagesLive(workspaceSlug, channelId)
+  const {
+    data: messages,
+    isPending,
+    isError,
+    refetch,
+    isRefetching,
+  } = useAgentMessages(workspaceSlug, channelId)
 
   const scroller = useRef<HTMLDivElement>(null)
   const rows = useRef(new Map<string, HTMLDivElement>())
   const count = messages?.length ?? 0
   const opened = useRef(false)
+  // Follows new posts only while the reader is at the bottom.
+  const atBottom = useRef(true)
+  const onScroll = () => {
+    const el = scroller.current
+    if (!el) return
+    atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }
   useEffect(() => {
     if (count === 0) return
     // Opens at the message asked for, else at the newest; then follows.
     const focused = focusId ? rows.current.get(focusId) : undefined
     if (!opened.current && focused) {
       focused.scrollIntoView({ block: "start" })
-    } else if (scroller.current) {
+    } else if (scroller.current && (!opened.current || atBottom.current)) {
       scroller.current.scrollTop = scroller.current.scrollHeight
     }
     opened.current = true
   }, [count, focusId])
+  // Only the newest 200 posts load (no cursor in the API): say so when the
+  // post a feed line points at is older than that.
+  const focusMissing =
+    focusId !== undefined &&
+    focusId !== "all" &&
+    messages !== undefined &&
+    messages.length > 0 &&
+    !messages.some((item) => item.id === focusId)
 
   // A reply's line jumps to the post it answers and marks it for a moment.
   const [flashId, setFlashId] = useState<string | null>(null)
@@ -204,12 +246,31 @@ export function AgentsChatView({
       </header>
       <div
         ref={scroller}
+        onScroll={onScroll}
         className="min-h-0 flex-1 overflow-y-auto px-5 pt-4 pb-24"
       >
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-1.5">
-          {isPending && (
+          {isPending && !isError && (
             <p className="py-10 text-center text-muted-foreground text-sm">
               Loading…
+            </p>
+          )}
+          {isError && !messages && (
+            <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground text-sm">
+              <p>Couldn't load the agents' chat.</p>
+              <button
+                type="button"
+                disabled={isRefetching}
+                onClick={() => void refetch()}
+                className="cursor-pointer rounded-sm underline outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-default disabled:opacity-60"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+          {focusMissing && (
+            <p className="pb-2 text-center text-[12px] text-muted-foreground">
+              That message is older than what's shown here.
             </p>
           )}
           {messages?.length === 0 && (

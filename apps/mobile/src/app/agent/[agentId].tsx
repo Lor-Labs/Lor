@@ -152,21 +152,29 @@ function AgentSettings({
   // What it will be called and look like once saved. A name can't be blank.
   const identity = { name: agentName.trim() || agent.name, creature }
 
-  const hasChanges = Object.values(edited).some(Boolean)
+  // A field edited back to the agent's current value is not sent either.
+  const changes = {
+    ...(edited.agentName && agentName.trim() && agentName.trim() !== agent.name
+      ? { name: agentName.trim() }
+      : {}),
+    ...(edited.creature && creature !== agentCreature(agent)
+      ? { creature }
+      : {}),
+    ...(canManage && edited.model && model !== agent.model ? { model } : {}),
+    ...(canManage &&
+    edited.brief &&
+    (brief.trim() || null) !== (agent.brief ?? null)
+      ? { brief: brief.trim() || null }
+      : {}),
+  }
+  const hasChanges = Object.keys(changes).length > 0
   const save = useMutation({
     mutationFn: async () => {
       const res = await api.v1.workspaces[":workspaceSlug"].agents[
         ":agentId"
       ].$patch({
         param: { workspaceSlug, agentId: agent.id },
-        json: {
-          ...(edited.agentName && agentName.trim()
-            ? { name: agentName.trim() }
-            : {}),
-          ...(edited.creature ? { creature } : {}),
-          ...(canManage && edited.model ? { model } : {}),
-          ...(canManage && edited.brief ? { brief: brief.trim() || null } : {}),
-        },
+        json: changes,
       })
       if (!res.ok) {
         throw new Error(await responseMessage(res, "Couldn't save the agent"))

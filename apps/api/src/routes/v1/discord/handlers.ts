@@ -80,17 +80,35 @@ const notSetUp = {
   message: "Discord isn't set up on this Lor server",
 }
 
+// Who manages channels sees every place; anyone else only the places they
+// can open (a private Discord channel's place is for its members).
+async function visiblePlaces(
+  workspaceId: string,
+  userId: string,
+  manager: boolean
+) {
+  const places = await listDiscordPlaces(workspaceId)
+  if (manager) return places
+  const visible = await Promise.all(
+    places.map((place) => userCanAccessChannel(place.channelId, userId))
+  )
+  return places.filter((_, index) => visible[index])
+}
+
 export const getWorkspaceDiscord: AppRouteHandler<
   GetWorkspaceDiscordRoute
 > = async (c) => {
   const workspaceId = c.var.workspace.id
+  const manager = hasWorkspaceAuthority(c.var.authority, {
+    channel: ["update"],
+  })
   const [guilds, places] = await Promise.all([
     db
       .select()
       .from(schema.discordGuild)
       .where(eq(schema.discordGuild.workspaceId, workspaceId))
       .orderBy(asc(schema.discordGuild.createdAt)),
-    listDiscordPlaces(workspaceId),
+    visiblePlaces(workspaceId, c.var.user.id, manager),
   ])
   return c.json(
     {
@@ -158,19 +176,25 @@ export const listDiscordServerChannels: AppRouteHandler<
   if (!discordConfigured()) {
     return c.json(notSetUp, HttpStatusCodes.SERVICE_UNAVAILABLE)
   }
+  const manager = hasWorkspaceAuthority(c.var.authority, {
+    channel: ["update"],
+  })
   const [channels, places] = await Promise.all([
     discordRequest<
       Array<{ id: string; name: string; type: number; position?: number }>
     >(`/guilds/${guildId}/channels`),
-    listDiscordPlaces(c.var.workspace.id),
+    visiblePlaces(c.var.workspace.id, c.var.user.id, manager),
   ])
   const agentsIn = new Map(
     places.map((place) => [place.discordChannelId, place.agentIds])
   )
   return c.json(
     {
+      // Managers pick from every channel; anyone else sees only the places
+      // they can open, read-only.
       channels: channels
         .filter((channel) => LINKABLE_CHANNEL_TYPES.has(channel.type))
+        .filter((channel) => manager || agentsIn.has(channel.id))
         .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
         .map((channel) => ({
           id: channel.id,

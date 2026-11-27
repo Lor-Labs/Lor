@@ -269,11 +269,16 @@ export function agentMessenger(
       )
     }
 
-    for (const row of others) {
+    // Each recipient on its own: the post is saved, so a failed delivery
+    // must not fail the call (a retry would save it twice and notify the
+    // others again). Notes are deduped by post id, so one retry is safe.
+    const deliver = async (row: (typeof others)[number]) => {
       const woken = wake.includes(row)
       const isNamed = named.includes(row)
+      // A woken agent gets the post where it asked from: named, or the
+      // writer of the post this answers, even when it went to everyone.
       const conversationId =
-        (woken && isNamed ? lands.get(row.id) : null) ??
+        (woken ? lands.get(row.id) : null) ??
         (
           await ownConversation({
             workspaceId: from.workspaceId,
@@ -319,6 +324,22 @@ export function agentMessenger(
             logger.warn({ err, agentMessageId: saved.id }, "Agent wake failed")
           )
       }
+    }
+    const undelivered: string[] = []
+    for (const row of others) {
+      const ok = await deliver(row)
+        .catch(() => deliver(row))
+        .then(
+          () => true,
+          (err: unknown) => {
+            logger.error(
+              { err, agentMessageId: saved.id, agentId: row.id },
+              "Agents' room delivery failed"
+            )
+            return false
+          }
+        )
+      if (!ok) undelivered.push(row.name)
     }
 
     deps.emitter.to(channelRoom(from.channelId)).emit("agent-message:created", {
@@ -379,16 +400,21 @@ export function agentMessenger(
                 }
               : {}),
           }
-          await postLorMessage(deps, {
-            channelId: from.channelId,
-            content: lineText(payload, names),
-            type: "event",
-            eventType: "agent_messaged",
-            eventPayload: payload,
-            agentId: from.agentId,
-            // A quiet line: no unread mark and no notification.
-            silent: true,
-          })
+          await postLorMessage(
+            deps,
+            {
+              channelId: from.channelId,
+              content: lineText(payload, names),
+              type: "event",
+              eventType: "agent_messaged",
+              eventPayload: payload,
+              agentId: from.agentId,
+              // A quiet line: no unread mark and no notification.
+              silent: true,
+            },
+            // Inside the lock's transaction, on its own connection.
+            tx
+          )
           return
         }
         const before = {
@@ -460,14 +486,24 @@ export function agentMessenger(
         logger.warn({ err, agentMessageId: saved.id }, "Messaged line failed")
       )
 
+    const notes = [
+      ...(wake.length === 0
+        ? [
+            "No agent was woken for it now. They will each see it at their next check-in. Name an agent in `to` if it can't wait.",
+          ]
+        : []),
+      ...(undelivered.length > 0
+        ? [
+            `It is posted in the room, but it could not reach ${undelivered.join(", ")}. Do not send it again; they can read it in the room.`,
+          ]
+        : []),
+    ]
     return {
       ok: true,
-      woke: wake.map((row) => row.name),
-      ...(wake.length === 0
-        ? {
-            note: "No agent was woken for it now. They will each see it at their next check-in. Name an agent in `to` if it can't wait.",
-          }
-        : {}),
+      woke: wake
+        .filter((row) => !undelivered.includes(row.name))
+        .map((row) => row.name),
+      ...(notes.length > 0 ? { note: notes.join(" ") } : {}),
     }
   }
 }

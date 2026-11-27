@@ -25,8 +25,11 @@ export type LorMessageDeps = {
 
 // Who a worker message is from: Lor's own user, or the bot user of the
 // agent speaking (an agent's id is its bot user's id).
-export async function loadLorAuthor(agentId?: string) {
-  return db
+export async function loadLorAuthor(
+  agentId?: string,
+  executor: Pick<typeof db, "select"> = db
+) {
+  return executor
     .select({
       id: schema.user.id,
       name: schema.user.name,
@@ -90,6 +93,8 @@ export async function fanoutLorMessage(
     // The agent that wrote it. Without one it is Lor's own message, which
     // in a chat goes by the name of the chat's first agent.
     agentId?: string
+    // A file-only post's notification preview names its files.
+    attachments?: Attachment[]
   }
 ): Promise<RealtimeMessage["mentions"]> {
   try {
@@ -117,7 +122,7 @@ export async function fanoutLorMessage(
           name: (!input.agentId && asAgent && channel.agentName) || author.name,
           image: author.image,
         },
-        attachments: [],
+        attachments: input.attachments ?? [],
         threadRootId: input.threadRootId ?? null,
       },
       redis: deps.redis,
@@ -177,12 +182,15 @@ export async function postLorMessage(
     // The agent speaking, in a chat: the message's author is its bot user.
     agentId?: string
     attachments?: Attachment[]
-  }
+  },
+  // A caller's transaction: one holding a lock must not wait on a second
+  // pooled connection (pool exhaustion deadlock).
+  executor: Pick<typeof db, "select" | "insert"> = db
 ): Promise<{ messageId: string }> {
-  const author = await loadLorAuthor(input.agentId)
+  const author = await loadLorAuthor(input.agentId, executor)
   if (!author) throw new Error("Message author missing")
 
-  const inserted = await db
+  const inserted = await executor
     .insert(schema.message)
     .values({
       channelId: input.channelId,
@@ -208,6 +216,9 @@ export async function postLorMessage(
         content: input.content,
         ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
         ...(input.agentId ? { agentId: input.agentId } : {}),
+        ...(input.attachments?.length
+          ? { attachments: input.attachments }
+          : {}),
       })
 
   const message: RealtimeMessage = {

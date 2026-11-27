@@ -1,15 +1,47 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, inArray, isNull, or, type SQL } from "drizzle-orm"
 import { db } from "../index"
 import {
   type AgentConversation,
   agentConversation,
   agentConversationPost,
 } from "../schemas/agent-conversations"
+import { agentSession } from "../schemas/agent-sessions"
+import { channelAgent } from "../schemas/agents"
 
 // An agent's conversations (reference/agents-and-chats.md, decision 28):
 // finding or making the one a piece of work belongs to.
 
 type Executor = Pick<typeof db, "select" | "insert">
+
+// The agent's conversations, for `inArray`.
+export const agentConversationIds = (agentId: string) =>
+  db
+    .select({ id: agentConversation.id })
+    .from(agentConversation)
+    .where(eq(agentConversation.agentId, agentId))
+
+// The origin "agent" sessions this agent started: those one of its
+// conversations started. A legacy session with no conversation counts for
+// the agents of its chat. With several agents in a chat, agent B never
+// steers or reports on A's sessions.
+export function sessionStartedByAgent(agentId: string): SQL {
+  return and(
+    eq(agentSession.origin, "agent"),
+    or(
+      inArray(agentSession.conversationId, agentConversationIds(agentId)),
+      and(
+        isNull(agentSession.conversationId),
+        inArray(
+          agentSession.channelId,
+          db
+            .select({ id: channelAgent.channelId })
+            .from(channelAgent)
+            .where(eq(channelAgent.agentId, agentId))
+        )
+      )
+    )
+  ) as SQL
+}
 
 export async function loadConversation(
   conversationId: string,

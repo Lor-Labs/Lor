@@ -372,13 +372,19 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
       return { ...inserted, agentIds }
     })
     .catch((err: unknown) => {
-      if (err instanceof AgentsNotPlaced) return "agents" as const
+      if (err instanceof AgentsNotPlaced) return err
       throw err
     })
 
-  if (created === "agents") {
+  if (created instanceof AgentsNotPlaced) {
     return c.json(
-      { success: false, message: "Agent not found" },
+      {
+        success: false,
+        message:
+          created.message === "too_many"
+            ? `A chat holds up to ${MAX_CHANNEL_AGENTS} agents`
+            : "Agent not found",
+      },
       HttpStatusCodes.FORBIDDEN
     )
   }
@@ -782,7 +788,19 @@ export const updateChannelAgent: AppRouteHandler<
   const { channelId, agentId } = c.req.valid("param")
   const { brief } = c.req.valid("json")
   assertWorkspaceAuthority(c.var.authority, { channel: ["update"] })
-  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+  // The authority is the URL workspace's, so the channel must belong to it.
+  const inWorkspace = await db
+    .select({ id: channel.id })
+    .from(channel)
+    .where(
+      and(
+        eq(channel.id, channelId),
+        eq(channel.workspaceId, c.var.workspace.id)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows.length > 0)
+  if (!inWorkspace || !(await userCanAccessChannel(channelId, c.var.user.id))) {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
@@ -914,6 +932,7 @@ export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
       .select({
         id: channel.id,
         type: channel.type,
+        kind: channel.kind,
         audience: channel.audience,
         agentProfileId: channel.agentProfileId,
       })
@@ -925,6 +944,9 @@ export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
       .limit(1)
       .then((rows) => rows[0])
     if (!existing) return "not_found" as const
+    // A Discord place owns Discord webhooks; it is removed from the Discord
+    // connector, which cleans those up (decision 51).
+    if (existing.kind === "place") return "is_place" as const
 
     // A project is lifecycle over its category channel and cascades away with
     // it. Deleting the category through this route would silently destroy the
@@ -1015,6 +1037,17 @@ export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
     await tx.delete(channel).where(eq(channel.id, channelId))
     return "deleted" as const
   })
+
+  if (result === "is_place") {
+    return c.json(
+      {
+        success: false,
+        message:
+          "This chat is a Discord place. Remove it from the Discord connector instead.",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
 
   if (result === "has_project") {
     return c.json(

@@ -19,13 +19,14 @@ import { router, useLocalSearchParams } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useToast } from "heroui-native/toast"
-import { type ReactNode, useEffect, useState } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
 import { Alert, Text, TextInput, View } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
 import Animated from "react-native-reanimated"
 import { AgentCreature } from "@/components/agent-creature"
 import { AgentFollowUps } from "@/components/agent-follow-ups"
 import { ChatAvatar } from "@/components/chat-avatar"
+import { useMutePrompt } from "@/components/mute-sheet"
 import { PickManySheet } from "@/components/pick-many-sheet"
 import { Avatar } from "@/components/ui/avatar"
 import { triggerHaptic } from "@/components/ui/haptics"
@@ -49,11 +50,7 @@ import {
 } from "@/hooks/use-channel-agent"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelDiscord } from "@/hooks/use-channel-discord"
-import {
-  mutedUntilLabel,
-  promptChannelMute,
-  useChannelMutes,
-} from "@/hooks/use-channel-mutes"
+import { mutedUntilLabel, useChannelMutes } from "@/hooks/use-channel-mutes"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import {
   chatsKey,
@@ -135,7 +132,8 @@ function ChatDetails({
   const people = useChatPeople(workspaceSlug, channel.id)
   const peopleChanges = useChatPeopleChanges(workspaceSlug, channel.id)
   const { archive, unarchive } = useChatArchive(workspaceSlug)
-  const { getMute, muteChannel, unmuteChannel } = useChannelMutes()
+  const { getMute } = useChannelMutes()
+  const { promptMute, muteSheet } = useMutePrompt()
   const { openAuthorProfile, profileSheet } =
     useAuthorProfileSheet(workspaceSlug)
   const [adding, setAdding] = useState<"agents" | "people" | null>(null)
@@ -158,11 +156,18 @@ function ChatDetails({
   const canAddPeople = open && !place && (!isPrivate || canManage)
   const mute = getMute(channel.id)
 
+  // Agent changes send the whole list, so each is built from the latest one
+  // and runs alone: a second removal confirmed before the first lands can't
+  // put the first back.
+  const agentIdsRef = useRef(channel.agentIds)
+  agentIdsRef.current = channel.agentIds
+  const changingAgentsRef = useRef(false)
   const changeAgents = useMutation({
     mutationFn: (agentIds: string[]) =>
       setChannelAgents(workspaceSlug, channel.id, agentIds),
     onSuccess: (updated) => {
       triggerHaptic("success")
+      agentIdsRef.current = updated.agentIds
       onChannelChanged(updated as ChannelDetail)
       setAdding(null)
       return refreshAgents(queryClient, workspaceSlug)
@@ -173,7 +178,18 @@ function ChatDetails({
     },
   })
 
+  const updateAgents = (change: (agentIds: string[]) => string[]) => {
+    if (changingAgentsRef.current) return
+    changingAgentsRef.current = true
+    changeAgents.mutate(change(agentIdsRef.current), {
+      onSettled: () => {
+        changingAgentsRef.current = false
+      },
+    })
+  }
+
   const removeAgent = (agentId: string, agentName: string) => {
+    if (changeAgents.isPending) return
     triggerHaptic("warning")
     Alert.alert(
       `Take ${agentName} out of ${name}?`,
@@ -184,9 +200,7 @@ function ChatDetails({
           style: "destructive",
           text: "Take out",
           onPress: () =>
-            changeAgents.mutate(
-              channel.agentIds.filter((id) => id !== agentId)
-            ),
+            updateAgents((ids) => ids.filter((id) => id !== agentId)),
         },
       ]
     )
@@ -541,13 +555,7 @@ function ChatDetails({
               icon={mute ? NotificationOff01Icon : Notification01Icon}
               label={mute ? "Muted" : "Mute"}
               onPress={() =>
-                promptChannelMute({
-                  channelId: channel.id,
-                  channelLabel: name,
-                  mute,
-                  muteChannel,
-                  unmuteChannel,
-                })
+                promptMute({ channelId: channel.id, channelLabel: name, mute })
               }
             />
           ) : null}
@@ -563,9 +571,10 @@ function ChatDetails({
           />
         ) : null}
 
-        {(canManage && !place) || permissions.canDeleteChannel ? (
+        {/* A place is archived and deleted from the Discord connector. */}
+        {!place && (canManage || permissions.canDeleteChannel) ? (
           <Section title="">
-            {canManage && !place ? (
+            {canManage ? (
               open ? (
                 <LinkRow
                   first
@@ -585,7 +594,7 @@ function ChatDetails({
             {permissions.canDeleteChannel ? (
               <LinkRow
                 danger
-                first={!(canManage && !place)}
+                first={!canManage}
                 icon={Delete02Icon}
                 label={deleteChat.isPending ? "Deleting…" : "Delete chat"}
                 onPress={confirmDelete}
@@ -598,7 +607,12 @@ function ChatDetails({
         busy={changeAgents.isPending}
         here={channel.agentIds}
         isOpen={adding === "agents"}
-        onAdd={(ids) => changeAgents.mutate([...channel.agentIds, ...ids])}
+        onAdd={(ids) =>
+          updateAgents((current) => [
+            ...current,
+            ...ids.filter((id) => !current.includes(id)),
+          ])
+        }
         onOpenChange={(isOpen) => setAdding(isOpen ? "agents" : null)}
         workspaceSlug={workspaceSlug}
       />
@@ -613,6 +627,7 @@ function ChatDetails({
         workspaceSlug={workspaceSlug}
       />
       {profileSheet}
+      {muteSheet}
     </Screen>
   )
 }
@@ -663,7 +678,9 @@ function ChatName({
       toast.show({ variant: "danger", label: error.message })
     },
   })
+  // Done blurs a single-line input, so blur alone commits (one PATCH).
   const commit = () => {
+    if (rename.isPending) return
     const name = draft.trim()
     if (!name) return setDraft(saved)
     if (name !== saved) rename.mutate(name)
@@ -687,7 +704,6 @@ function ChatName({
       maxLength={100}
       onBlur={commit}
       onChangeText={setDraft}
-      onSubmitEditing={commit}
       placeholder="Name this chat"
       placeholderTextColor={placeholder}
       returnKeyType="done"

@@ -59,7 +59,7 @@ export async function connectDiscordGuild(input: {
   const guild = await discordRequest<{ name: string }>(
     `/guilds/${input.guildId}`
   ).catch(() => null)
-  await db
+  const inserted = await db
     .insert(schema.discordGuild)
     .values({
       guildId: input.guildId,
@@ -68,7 +68,13 @@ export async function connectDiscordGuild(input: {
       connectedById: input.userId,
     })
     .onConflictDoNothing()
-  return "connected"
+    .returning({ guildId: schema.discordGuild.guildId })
+  if (inserted.length > 0) return "connected"
+  // Linked from another workspace (or this one) at the same moment.
+  const owner = await discordGuildFor(input.guildId)
+  return owner?.workspaceId === input.workspaceId
+    ? "already"
+    : "other_workspace"
 }
 
 // Takes a place away: its link and Discord mappings go, what the bot made
@@ -77,6 +83,8 @@ export async function connectDiscordGuild(input: {
 export async function removeDiscordPlace(channelId: string) {
   const link = await discordLinkFor(channelId)
   if (!link) return false
+  const archivedAt = new Date()
+  // Archived with the link delete, so an unlinked place is never left live.
   const removed = await withDiscordLinkLock(
     channelId,
     link.webhookId,
@@ -90,16 +98,15 @@ export async function removeDiscordPlace(channelId: string) {
       await tx
         .delete(schema.discordMessage)
         .where(eq(schema.discordMessage.channelId, channelId))
+      await tx
+        .update(schema.channel)
+        .set({ archivedAt })
+        .where(eq(schema.channel.id, channelId))
       return true
     }
   )
   if (!removed) return false
   await deleteLinkResources(link)
-  const archivedAt = new Date()
-  await db
-    .update(schema.channel)
-    .set({ archivedAt })
-    .where(eq(schema.channel.id, channelId))
   await stopChatAgents(channelId, archivedAt).catch((err) =>
     logger.warn({ err, channelId }, "Removed place's agents not all stopped")
   )
@@ -118,17 +125,44 @@ export async function disconnectDiscordGuild(
     .from(schema.channelDiscordLink)
     .where(eq(schema.channelDiscordLink.guildId, guildId))
   for (const link of links) await removeDiscordPlace(link.channelId)
+  // The bot leaves before the server's row goes, so a failed leave throws and
+  // disconnecting again retries it. 404: the bot is already out (kicked).
+  await discordRequest(`/users/@me/guilds/${guildId}`, {
+    method: "DELETE",
+  }).catch((err: unknown) => {
+    if (err instanceof DiscordApiError && err.status === 404) return
+    logger.error({ err, guildId }, "Discord leave failed")
+    throw err
+  })
   await db
     .delete(schema.discordAgentRole)
     .where(eq(schema.discordAgentRole.guildId, guildId))
   await db
     .delete(schema.discordGuild)
     .where(eq(schema.discordGuild.guildId, guildId))
-  await discordRequest(`/users/@me/guilds/${guildId}`, {
-    method: "DELETE",
-  }).catch((err) => logger.warn({ err, guildId }, "Discord leave failed"))
   emitAgentsUpdated(workspaceId)
   return true
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+// A place's agents in the order they were added, read under a lock on its
+// channel row so concurrent adds and removes don't drop each other.
+async function lockedPlaceAgents(tx: Tx, channelId: string) {
+  await tx
+    .select({ id: schema.channel.id })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, channelId))
+    .for("update")
+  const rows = await tx
+    .select({ agentId: schema.channelAgent.agentId })
+    .from(schema.channelAgent)
+    .where(eq(schema.channelAgent.channelId, channelId))
+    .orderBy(
+      asc(schema.channelAgent.createdAt),
+      asc(schema.channelAgent.agentId)
+    )
+  return rows.map((row) => row.agentId)
 }
 
 export type DiscordPlace = {
@@ -231,39 +265,45 @@ export async function addAgentToDiscordChannel(input: {
   let channelId: string
   if (existing) {
     channelId = existing.channelId
-    const current = await db
-      .select({ agentId: schema.channelAgent.agentId })
-      .from(schema.channelAgent)
-      .where(eq(schema.channelAgent.channelId, channelId))
-      .orderBy(
-        asc(schema.channelAgent.createdAt),
-        asc(schema.channelAgent.agentId)
-      )
-      .then((rows) => rows.map((row) => row.agentId))
-    if (current.includes(agent.id)) return { ok: false, reason: "already_here" }
-    if (current.length >= MAX_CHANNEL_AGENTS) {
-      return { ok: false, reason: "too_many" }
-    }
-    const placed = await setChannelAgents({
-      workspaceId: input.workspaceId,
-      channelId,
-      agentIds: [...current, agent.id],
-      userId: input.userId,
-    })
-    if (!placed.ok) {
-      return {
-        ok: false,
-        reason: placed.reason === "too_many" ? "too_many" : "no_agent",
+    const placeId = channelId
+    const failed = await db.transaction(
+      async (tx): Promise<AddPlaceAgentResult | null> => {
+        const current = await lockedPlaceAgents(tx, placeId)
+        if (current.includes(agent.id)) {
+          return { ok: false, reason: "already_here" }
+        }
+        if (current.length >= MAX_CHANNEL_AGENTS) {
+          return { ok: false, reason: "too_many" }
+        }
+        const placed = await setChannelAgents({
+          workspaceId: input.workspaceId,
+          channelId: placeId,
+          agentIds: [...current, agent.id],
+          userId: input.userId,
+          tx,
+        })
+        if (placed.ok) return null
+        return {
+          ok: false,
+          reason: placed.reason === "too_many" ? "too_many" : "no_agent",
+        }
       }
-    }
+    )
+    if (failed) return failed
   } else {
     let discordChannel: {
       name?: string
       type: number
       guild_id?: string
-      permission_overwrites?: Array<{ id: string; type: number; deny: string }>
+      permission_overwrites?: Array<{
+        id: string
+        type: number
+        allow?: string
+        deny: string
+      }>
     }
     let hook: Awaited<ReturnType<typeof createAgentWebhook>>
+    let isPrivate: boolean
     try {
       discordChannel = await discordRequest(
         `/channels/${input.discordChannelId}`
@@ -274,6 +314,7 @@ export async function addAgentToDiscordChannel(input: {
       ) {
         return { ok: false, reason: "not_a_text_channel" }
       }
+      isPrivate = await isPrivateDiscordChannel(discordChannel)
       hook = await createAgentWebhook({
         discordChannelId: input.discordChannelId,
         name: identity.name,
@@ -294,9 +335,7 @@ export async function addAgentToDiscordChannel(input: {
             kind: "place",
             // A private Discord channel's copy is for the people in it
             // (`joinPrivatePlace`) and whoever put an agent there.
-            audience: isPrivateDiscordChannel(discordChannel)
-              ? "members"
-              : "workspace",
+            audience: isPrivate ? "members" : "workspace",
             workspaceId: input.workspaceId,
             creatorId: input.userId,
           })
@@ -321,7 +360,7 @@ export async function addAgentToDiscordChannel(input: {
           agentId: agent.id,
           addedById: input.userId,
         })
-        if (isPrivateDiscordChannel(discordChannel)) {
+        if (isPrivate) {
           await tx
             .insert(schema.channelMember)
             .values({ channelId: place.id, userId: input.userId })
@@ -330,14 +369,19 @@ export async function addAgentToDiscordChannel(input: {
         return place.id
       })
       .catch(async (err: unknown) => {
-        // Someone made this channel a place at the same moment.
         await discordRequest(`/webhooks/${hook.webhookId}`, {
           method: "DELETE",
         }).catch(() => {})
         logger.warn({ err }, "Discord place not made")
         return null
       })
-    if (!made) return { ok: false, reason: "already_here" }
+    if (!made) {
+      // Someone made this channel a place at the same moment: add the agent
+      // to theirs. Any other failure is not "already here".
+      const raced = await discordLinkByDiscordChannel(input.discordChannelId)
+      if (raced) return addAgentToDiscordChannel(input)
+      return { ok: false, reason: "discord_refused", detail: "Place not made" }
+    }
     channelId = made
     // What was said before, so the agent can read back.
     const link = await discordLinkFor(made)
@@ -384,33 +428,29 @@ export async function removeAgentFromDiscordPlace(input: {
 }): Promise<boolean> {
   const link = await discordLinkFor(input.channelId)
   if (!link || link.workspaceId !== input.workspaceId) return false
-  const current = await db
-    .select({ agentId: schema.channelAgent.agentId })
-    .from(schema.channelAgent)
-    .where(eq(schema.channelAgent.channelId, input.channelId))
-    .orderBy(
-      asc(schema.channelAgent.createdAt),
-      asc(schema.channelAgent.agentId)
-    )
-    .then((rows) => rows.map((row) => row.agentId))
-  if (!current.includes(input.agentId)) return false
-  const rest = current.filter((id) => id !== input.agentId)
-  const placed = await setChannelAgents({
-    workspaceId: input.workspaceId,
-    channelId: input.channelId,
-    agentIds: rest,
-    userId: input.userId,
+  const changed = await db.transaction(async (tx) => {
+    const current = await lockedPlaceAgents(tx, input.channelId)
+    if (!current.includes(input.agentId)) return null
+    const rest = current.filter((id) => id !== input.agentId)
+    const placed = await setChannelAgents({
+      workspaceId: input.workspaceId,
+      channelId: input.channelId,
+      agentIds: rest,
+      userId: input.userId,
+      tx,
+    })
+    return placed.ok ? { rest, removed: placed.removed } : null
   })
-  if (!placed.ok) return false
+  if (!changed) return false
   // Clears its inbox, pauses its Loops that report here, and deletes its
   // webhook and, when this was its last channel in the server, its role.
   await afterChannelAgentsChanged({
     workspaceId: input.workspaceId,
     channelId: input.channelId,
-    hasAgent: rest.length > 0,
-    removed: placed.removed,
+    hasAgent: changed.rest.length > 0,
+    removed: changed.removed,
   })
-  if (rest.length === 0) await removeDiscordPlace(input.channelId)
+  if (changed.rest.length === 0) await removeDiscordPlace(input.channelId)
   return true
 }
 
@@ -421,11 +461,18 @@ export async function syncPlaceFromDiscord(channel: {
   id: string
   name?: string
   guild_id?: string
-  permission_overwrites?: Array<{ id: string; type: number; deny: string }>
+  permission_overwrites?: Array<{
+    id: string
+    type: number
+    allow?: string
+    deny: string
+  }>
 }) {
   const link = await discordLinkByDiscordChannel(channel.id)
   if (!link) return
-  const audience = isPrivateDiscordChannel(channel) ? "members" : "workspace"
+  const audience = (await isPrivateDiscordChannel(channel))
+    ? "members"
+    : "workspace"
   await db
     .update(schema.channel)
     .set({ audience, ...(channel.name ? { name: channel.name } : {}) })

@@ -168,7 +168,7 @@ type ChannelAgentsValue = {
   // its bot user's, so this tells an agent from a person by a user id.
   byId: (id: string | null | undefined) => ChannelAgent | null
   // The agent that wrote a message here (`message.agentId`), or for one of
-  // Lor's own the chat's first agent.
+  // Lor's own (no agentId) the chat's first agent. Null for an unknown id.
   of: (agentId: string | null | undefined) => ChannelAgent | null
 }
 
@@ -212,7 +212,12 @@ export function ChannelAgentProvider({
           }
         : null
     }
-    return { agents, byId, of: (agentId) => byId(agentId) ?? first }
+    // A deleted agent's posts keep their bot user's name, not the first agent's.
+    return {
+      agents,
+      byId,
+      of: (agentId) => (agentId ? byId(agentId) : first),
+    }
   }, [agents, all, channelId])
   return <ChannelAgentsContext value={value}>{children}</ChannelAgentsContext>
 }

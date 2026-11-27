@@ -556,6 +556,135 @@ async function turnChannel(
   return row && !row.archivedAt ? row : null
 }
 
+const LEFT_CHAT_REASON =
+  "You are no longer in the chat this was for, or it was archived, so it was not run."
+
+// Closes a turn paused on approvals that can't go on (its chat is gone for
+// the agent): open approvals expire, the run is stopped like a person's
+// stop, and each held call gets a denied result, so the conversation (the
+// agent's own one included) takes new turns instead of waiting forever.
+async function closeAbandonedPause(
+  deps: AgentDeps,
+  workspaceId: string,
+  conversationId: string,
+  paused: { runId: string; epoch: number },
+  channelId: string | null
+): Promise<void> {
+  const recent = await db
+    .select({
+      seq: schema.agentStep.seq,
+      kind: schema.agentStep.kind,
+      message: schema.agentStep.message,
+    })
+    .from(schema.agentStep)
+    .where(eq(schema.agentStep.conversationId, conversationId))
+    .orderBy(desc(schema.agentStep.seq))
+    .limit(4)
+  const lastSeq = recent[0]?.seq
+  const at = recent.findIndex((step) => step.kind === "model")
+  const model = recent[at]
+  if (lastSeq === undefined || !model) return
+  const partsOf = (message: unknown) => {
+    const content = (message as { content?: unknown }).content
+    return Array.isArray(content) ? (content as Record<string, unknown>[]) : []
+  }
+  const later = recent.slice(0, at).flatMap((step) => partsOf(step.message))
+  const settled = new Set(
+    later
+      .filter((part) => part.type === "tool-result")
+      .map((part) => String(part.toolCallId))
+  )
+  const answered = new Set(
+    later
+      .filter((part) => part.type === "tool-approval-response")
+      .map((part) => String(part.approvalId))
+  )
+  const parts = partsOf(model.message)
+  const toolNames = new Map(
+    parts
+      .filter((part) => part.type === "tool-call")
+      .map((part) => [String(part.toolCallId), String(part.toolName ?? "")])
+  )
+  const open = parts.filter(
+    (part) =>
+      part.type === "tool-approval-request" &&
+      !answered.has(String(part.approvalId)) &&
+      !settled.has(String(part.toolCallId))
+  )
+  const closed = await db.transaction(async (tx) => {
+    await tx
+      .select({ id: schema.agentContext.conversationId })
+      .from(schema.agentContext)
+      .where(eq(schema.agentContext.conversationId, conversationId))
+      .for("update")
+    const [still] = await tx
+      .select({ seq: sql<number>`max(${schema.agentStep.seq})` })
+      .from(schema.agentStep)
+      .where(eq(schema.agentStep.conversationId, conversationId))
+    // Another flush closed it first.
+    if (Number(still?.seq) !== Number(lastSeq)) return []
+    if (open.length > 0) {
+      await appendSteps(tx, {
+        workspaceId,
+        conversationId,
+        epoch: paused.epoch,
+        runId: paused.runId,
+        steps: [
+          {
+            kind: "tools",
+            message: {
+              role: "tool",
+              content: open.map((part) => ({
+                type: "tool-result" as const,
+                toolCallId: String(part.toolCallId),
+                toolName: toolNames.get(String(part.toolCallId)) ?? "",
+                output: {
+                  type: "execution-denied" as const,
+                  reason: LEFT_CHAT_REASON,
+                },
+              })),
+            },
+          },
+        ],
+      })
+    }
+    await tx
+      .update(schema.agentRun)
+      .set({
+        stopRequestedAt: sql`coalesce(${schema.agentRun.stopRequestedAt}, now())`,
+      })
+      .where(eq(schema.agentRun.id, paused.runId))
+    return tx
+      .update(schema.approval)
+      .set({ status: "expired", resolvedAt: new Date() })
+      .where(
+        and(
+          eq(schema.approval.runId, paused.runId),
+          eq(schema.approval.status, "pending")
+        )
+      )
+      .returning()
+  })
+  logger.info(
+    { conversationId, runId: paused.runId, closed: closed.length },
+    "Agent paused turn closed: its chat is gone"
+  )
+  if (closed.length === 0) return
+  if (channelId) {
+    for (const row of closed) {
+      deps.emitter.to(channelRoom(channelId)).emit("approval:updated", {
+        approvalId: row.id,
+        channelId,
+        planId: row.planId,
+        status: row.status,
+        resolvedBy: row.resolvedBy,
+        resolvedAt: row.resolvedAt?.toISOString() ?? null,
+      })
+    }
+  }
+  notifyWorkspaceActivity(workspaceId)
+}
+
 // Reads one conversation's inbox: starts a turn for its pending items, or
 // lets a turn paused on approvals go on once they are all decided. One turn
 // at a time in a conversation; whatever arrives meanwhile waits for the next
@@ -574,24 +703,37 @@ export async function flushAgentInbox(
   }
   if (await activeAgentRun(conversationId)) return "busy"
   const paused = await pausedAgentRun(conversationId)
-  if (paused) {
+  const pausedRun = paused
+    ? await db
+        .select({
+          channelId: schema.agentRun.channelId,
+          triggerMessageId: schema.agentRun.triggerMessageId,
+          loopId: schema.agentRun.loopId,
+          funding: schema.agentRun.inferenceFunding,
+          harnessAccount: schema.agentRun.harnessAccount,
+          hasDeliveries: sql<boolean>`exists (select 1 from trigger_delivery d where d.run_id = ${schema.agentRun.id})`,
+        })
+        .from(schema.agentRun)
+        .where(eq(schema.agentRun.id, paused.runId))
+        .then((rows) => rows[0])
+    : undefined
+  const pausedChannel = pausedRun
+    ? await turnChannel(agentId, pausedRun.channelId, workspaceId)
+    : null
+  // The agent left the chat the paused turn was about, or it was archived:
+  // the pause is closed and the conversation reads its inbox as usual.
+  if (paused && (!pausedRun || !pausedChannel)) {
+    await closeAbandonedPause(
+      deps,
+      workspaceId,
+      conversationId,
+      paused,
+      pausedRun?.channelId ?? null
+    )
+  }
+  if (paused && pausedRun && pausedChannel) {
     if (await pendingApproval(paused.runId)) return "busy"
-    const [pausedRun] = await db
-      .select({
-        channelId: schema.agentRun.channelId,
-        triggerMessageId: schema.agentRun.triggerMessageId,
-        loopId: schema.agentRun.loopId,
-        funding: schema.agentRun.inferenceFunding,
-        harnessAccount: schema.agentRun.harnessAccount,
-        hasDeliveries: sql<boolean>`exists (select 1 from trigger_delivery d where d.run_id = ${schema.agentRun.id})`,
-      })
-      .from(schema.agentRun)
-      .where(eq(schema.agentRun.id, paused.runId))
-    const channel = pausedRun
-      ? await turnChannel(agentId, pausedRun.channelId, workspaceId)
-      : null
-    // The agent left the channel the paused turn was about: it can't go on.
-    if (!pausedRun || !channel) return "skipped"
+    const channel = pausedChannel
     const channelId = channel.id
     // The continuation copies the pause's account and funding; it would meet
     // the same gate in runAgentTurn. Unfunded: say so once and keep the pause.
@@ -1192,6 +1334,17 @@ function agentHooks(
           }
         }
         turn.threadRootId = rootId
+        // A follow-up that continued a request roots its thread on the
+        // follow-up: linked, so the thread's next messages stay in that
+        // request instead of starting a new one.
+        if (
+          conversation.kind === "request" &&
+          rootId !== conversation.rootMessageId
+        ) {
+          await recordConversationPost(rootId, conversation.id).catch((err) =>
+            logger.warn({ err }, "Agent thread link failed")
+          )
+        }
         // Whoever wrote the message follows the thread started on it.
         const [root] = await db
           .select({ authorId: schema.message.authorId })
@@ -1701,8 +1854,9 @@ export async function runAgentTurnJob(
       throw err
     }
     // Said only to a person who asked: a Loop's or an event's turn fails
-    // quietly, and its run history shows it (decision 30).
-    if (!sent && userId) await notice(FAILED_MESSAGE)
+    // quietly, and its run history shows it (decision 30). So does one the
+    // classifier woke for a message that named nobody.
+    if (!sent && userId && !run.triggerInferred) await notice(FAILED_MESSAGE)
     await writer.transition("failed", { stopReason: "error" })
     execution.stop()
     await settleLoop("failed", "error")

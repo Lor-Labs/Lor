@@ -579,29 +579,6 @@ export const updateChannelWebhook: AppRouteHandler<
         HttpStatusCodes.BAD_REQUEST
       )
     }
-    const there = await db
-      .select({ value: count() })
-      .from(connectorTrigger)
-      .innerJoin(
-        integrationConnection,
-        eq(connectorTrigger.connectionId, integrationConnection.id)
-      )
-      .where(
-        and(
-          eq(connectorTrigger.channelId, moveTo),
-          eq(integrationConnection.provider, "webhook")
-        )
-      )
-      .then((rows) => rows[0]?.value ?? 0)
-    if (there >= MAX_WEBHOOKS_PER_CHANNEL) {
-      return c.json(
-        {
-          success: false,
-          message: `A channel can have at most ${MAX_WEBHOOKS_PER_CHANNEL} webhooks`,
-        },
-        HttpStatusCodes.BAD_REQUEST
-      )
-    }
   }
   const chatId = moveTo ?? channelId
   // Its agent reports in the chat, so it has to be in it.
@@ -642,7 +619,31 @@ export const updateChannelWebhook: AppRouteHandler<
   }
 
   // One transaction so a patch touching both rows can't half-apply.
-  await db.transaction(async (tx) => {
+  const full = await db.transaction(async (tx) => {
+    if (moveTo) {
+      // The destination row is locked as createWebhook does, so a move and a
+      // create can't both take the last slot.
+      await tx
+        .select({ id: channel.id })
+        .from(channel)
+        .where(eq(channel.id, moveTo))
+        .for("update")
+      const there = await tx
+        .select({ value: count() })
+        .from(connectorTrigger)
+        .innerJoin(
+          integrationConnection,
+          eq(connectorTrigger.connectionId, integrationConnection.id)
+        )
+        .where(
+          and(
+            eq(connectorTrigger.channelId, moveTo),
+            eq(integrationConnection.provider, "webhook")
+          )
+        )
+        .then((rows) => rows[0]?.value ?? 0)
+      if (there >= MAX_WEBHOOKS_PER_CHANNEL) return true
+    }
     if (name !== undefined || avatarUrl !== undefined) {
       await tx
         .update(integrationConnection)
@@ -678,7 +679,17 @@ export const updateChannelWebhook: AppRouteHandler<
         })
         .where(eq(connectorTrigger.id, existing.triggerId))
     }
+    return false
   })
+  if (full) {
+    return c.json(
+      {
+        success: false,
+        message: `A channel can have at most ${MAX_WEBHOOKS_PER_CHANNEL} webhooks`,
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
 
   const updated = await findWebhook(workspace.id, chatId, webhookId)
   if (!updated) {

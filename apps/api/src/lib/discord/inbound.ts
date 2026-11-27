@@ -7,6 +7,7 @@ import {
   LOR_USER_ID,
   schema,
 } from "@repo/db"
+import type { Attachment } from "@repo/db/schema"
 import { addInboxMessage, agentsInThread } from "@repo/lor/channel-agent"
 import {
   agentOfWebhook,
@@ -308,9 +309,15 @@ async function mirrorInto(
   const lorIds = await lorUsersFor(discordIds)
   // A linked account posts as its person, if they can see the channel. In a
   // private Discord channel, posting there shows they can: they are put in
-  // its copy in Lor.
+  // its copy in Lor. Not from backfill: an old post says nothing about access
+  // now.
   const linkedAuthor = lorIds.get(event.author.id)
-  if (linkedAuthor && !event.author.bot && !event.webhook_id) {
+  if (
+    linkedAuthor &&
+    !options.backfill &&
+    !event.author.bot &&
+    !event.webhook_id
+  ) {
     await joinPrivatePlace(link.channelId, linkedAuthor)
   }
   const asPerson =
@@ -409,6 +416,7 @@ async function mirrorInto(
         )
         .where(eq(schema.discordMessage.discordMessageId, event.id))
       if (known) return { ...known, fresh: false }
+      if (deletedInDiscord(event.id)) return null
       const rootId = threadId
         ? await threadRootFor(tx, threadId, link.channelId)
         : null
@@ -450,6 +458,11 @@ async function mirrorInto(
     ? await inThreadOrder(threadId, persist)
     : await persist()
   if (!inserted) return
+  // Deleted in Discord while this copy was being made.
+  if (inserted.fresh && deletedInDiscord(event.id)) {
+    await db.delete(schema.message).where(eq(schema.message.id, inserted.id))
+    return
+  }
   const threadRootId = inserted.threadRootId
 
   const [author] = await db
@@ -550,15 +563,23 @@ async function mirrorInto(
     const wakes = named.has(agentId) || inThread.has(agentId)
     if (threadRootId && !wakes) continue
     const lane = wakes ? "wake" : "wait"
-    const conversationId = await addInboxMessage({
-      workspaceId: channel.workspaceId,
-      channelId: link.channelId,
-      agentId,
-      messageId: inserted.id,
-      lane,
-    })
-    if (conversationId && lane === "wake") {
-      await flushAgentInbox(conversationId, AGENT_INBOX_BATCH_MS)
+    // One agent's failure doesn't keep the message from the others.
+    try {
+      const conversationId = await addInboxMessage({
+        workspaceId: channel.workspaceId,
+        channelId: link.channelId,
+        agentId,
+        messageId: inserted.id,
+        lane,
+      })
+      if (conversationId && lane === "wake") {
+        await flushAgentInbox(conversationId, AGENT_INBOX_BATCH_MS)
+      }
+    } catch (err) {
+      logger.warn(
+        { err, agentId, channelId: link.channelId, messageId: inserted.id },
+        "Discord message not delivered to agent inbox"
+      )
     }
   }
   if (named.size === 0 && !threadRootId) {
@@ -589,6 +610,7 @@ async function mirroredCopy(discordMessageId: string) {
       channelId: schema.message.channelId,
       threadRootId: schema.message.threadRootId,
       type: schema.message.type,
+      attachments: schema.message.attachments,
     })
     .from(schema.discordMessage)
     .innerJoin(
@@ -608,23 +630,56 @@ export async function updateMirroredMessage(
   botUserId: string
 ) {
   if (typeof event.content !== "string" || !event.author) return
-  if (event.webhook_id) return
+  // Agents' own webhook posts are not mirrored; other webhooks' are.
+  if (event.webhook_id && (await agentOfWebhook(event.webhook_id))) return
   const copy = await mirroredCopy(event.id)
   if (!copy) return
   const lorIds = await lorUsersFor([
     event.author.id,
     ...(event.mentions ?? []).map((user) => user.id),
   ])
-  const content = fromDiscordContent(
+  const text = fromDiscordContent(
     event,
     botUserId,
     await agentRolesIn(copy.link.guildId),
     lorIds
   )
+  // Files follow the edit: copies of files removed in Discord go (matched by
+  // the Discord filename the copy keeps), new ones are copied, and one that
+  // can't be is linked again like on create.
+  let attachments: Attachment[] | undefined
+  let failed: DiscordAttachment[] = []
+  if (Array.isArray(event.attachments)) {
+    const remaining = event.attachments.map((file) => file.filename)
+    attachments = (copy.attachments ?? []).filter((file) => {
+      const at = remaining.indexOf(file.filename)
+      if (at === -1) return false
+      remaining.splice(at, 1)
+      return true
+    })
+    const kept = attachments.map((file) => file.filename)
+    const added = event.attachments.filter((file) => {
+      const at = kept.indexOf(file.filename)
+      if (at === -1) return true
+      kept.splice(at, 1)
+      return false
+    })
+    if (added.length > 0) {
+      const copied = await copyDiscordFiles(copy.channelId, added)
+      attachments = [...attachments, ...copied.attachments]
+      failed = copied.failed
+    }
+  }
+  const content = [
+    text,
+    ...failed.map((file) => `[${file.filename}](${file.url})`),
+  ]
+    .filter(Boolean)
+    .join("\n")
   const editedAt = new Date()
   await db
     .update(schema.message)
-    .set({ content, editedAt })
+    .set({ content, editedAt, ...(attachments ? { attachments } : {}) })
     .where(eq(schema.message.id, copy.messageId))
   const io = await getEmitter()
   const payload = {
@@ -641,11 +696,30 @@ export async function updateMirroredMessage(
   ).emit("message:updated", payload)
 }
 
+// Discord messages deleted recently, so a delete that beats its slow create
+// (files still copying) leaves no copy. One gateway process hears both.
+const DELETED_TTL_MS = 10 * 60_000
+const recentlyDeleted = new Map<string, number>()
+
+function rememberDeleted(discordMessageId: string) {
+  const now = Date.now()
+  for (const [id, at] of recentlyDeleted) {
+    if (now - at > DELETED_TTL_MS) recentlyDeleted.delete(id)
+  }
+  recentlyDeleted.set(discordMessageId, now)
+}
+
+function deletedInDiscord(discordMessageId: string) {
+  const at = recentlyDeleted.get(discordMessageId)
+  return at !== undefined && Date.now() - at <= DELETED_TTL_MS
+}
+
 // A message deleted in Discord: its copy in Lor goes too.
 export async function deleteMirroredMessage(event: {
   id: string
   channel_id: string
 }) {
+  rememberDeleted(event.id)
   const copy = await mirroredCopy(event.id)
   if (!copy) return
   await db.delete(schema.message).where(eq(schema.message.id, copy.messageId))
@@ -663,16 +737,17 @@ const BACKFILL_MESSAGES = 50
 // to it can read what was said before it joined ("what do you think of the
 // above?"). People's messages only; nothing wakes an agent.
 export async function backfillPlace(link: DiscordLink, botUserId: string) {
+  // A failed history read throws to the caller, which logs it.
   const recent = await discordRequest<DiscordMessageEvent[]>(
     `/channels/${link.discordChannelId}/messages?limit=${BACKFILL_MESSAGES}`
-  ).catch(() => [] as DiscordMessageEvent[])
+  )
   for (const event of recent.reverse()) {
     if (event.author.id === botUserId || event.webhook_id) continue
     if (event.type !== 0 && event.type !== 19) continue
     await mirrorInto(link, event, botUserId, null, { backfill: true }).catch(
       (err) =>
         logger.warn(
-          { err, discordMessageId: event.id },
+          { err, channelId: link.channelId, discordMessageId: event.id },
           "Discord backfill message failed"
         )
     )

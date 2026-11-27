@@ -279,26 +279,34 @@ export async function syncMessageMentions(input: {
   content: string
   redis?: PresenceRedisClient
 }): Promise<RealtimeMessageMention[]> {
-  const [{ audience, userIds: allRecipientIds }, session] = await Promise.all([
-    listRecipientAudience(input.channel),
-    input.threadRootId
-      ? findAgentSessionByThreadRoot(input.threadRootId)
-      : null,
-  ])
+  const [{ audience, userIds: allRecipientIds, chatMemberIds }, session] =
+    await Promise.all([
+      listRecipientAudience(input.channel),
+      input.threadRootId
+        ? findAgentSessionByThreadRoot(input.threadRootId)
+        : null,
+    ])
   const broadcasts = !session
   const recipientIds = [...new Set(allRecipientIds)].filter(
     (id) => id !== input.authorId
   )
+  // @chat and @here reach only the people in the chat, as on send.
+  const inChat =
+    chatMemberIds && !input.threadRootId ? new Set(chatMemberIds) : null
+  const broadcastRecipients = inChat
+    ? recipientIds.filter((id) => inChat.has(id))
+    : recipientIds
   const onlineRecipientIds = needsPresenceLookup(
     audience,
     input.content,
     broadcasts
   )
-    ? await listOnlineRecipientIds(input.redis, recipientIds)
+    ? await listOnlineRecipientIds(input.redis, broadcastRecipients)
     : new Set<string>()
   const mentionTypeByUserId = buildMentionTargets({
     audience,
     recipients: recipientIds,
+    broadcastRecipients,
     messageContent: input.content,
     onlineRecipientIds,
     broadcasts,

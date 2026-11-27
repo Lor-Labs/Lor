@@ -106,11 +106,16 @@ export async function classifyInboxMessage(
     })
     if (!conversationId) continue
     woken.push(agentId)
-    await deps.queue.add(
-      AGENT_INBOX_FLUSH_JOB,
-      { conversationId },
-      { delay: AGENT_INBOX_BATCH_MS }
-    )
+    await deps.queue
+      .add(
+        AGENT_INBOX_FLUSH_JOB,
+        { conversationId },
+        { delay: AGENT_INBOX_BATCH_MS }
+      )
+      // The stranded-inbox sweep flushes it; the other agents still wake.
+      .catch((err) =>
+        logger.warn({ err, conversationId }, "Agent inbox wake flush failed")
+      )
   }
   logger.info(
     {

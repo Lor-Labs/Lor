@@ -444,7 +444,12 @@ function AgentChannels({
                   <InlineConfirmButton
                     label={`Remove ${agent.name} from ${channel.name}`}
                     confirmLabel="Remove"
-                    onConfirm={() => place(channel.id, [])}
+                    onConfirm={() =>
+                      place(
+                        channel.id,
+                        channel.agentIds.filter((id) => id !== agent.id)
+                      )
+                    }
                   />
                 )}
               </div>
