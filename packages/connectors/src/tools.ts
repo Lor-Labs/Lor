@@ -415,6 +415,62 @@ const CONNECTOR_TOOL_CATALOG = {
     },
   ],
   betterstack: BETTERSTACK_CATALOG,
+  granola: [
+    {
+      name: "search_granola_meetings",
+      label: "Search meetings",
+      description:
+        "Find meetings by keyword, attendee, or date, in notes or what was said.",
+      readOnlyHint: true,
+      defaultEnabled: true,
+    },
+    {
+      name: "get_granola_meeting",
+      label: "Read meeting notes",
+      description: "Read a meeting's notes, attendees, and calendar event.",
+      readOnlyHint: true,
+      defaultEnabled: true,
+    },
+    {
+      name: "get_granola_transcript",
+      label: "Read transcript",
+      description: "Read what was said in a meeting.",
+      readOnlyHint: true,
+      defaultEnabled: true,
+    },
+  ],
+  circleback: [
+    {
+      name: "search_circleback_meetings",
+      label: "Search meetings",
+      description:
+        "Find meetings by keyword in their names, notes and transcripts, or list recent ones.",
+      readOnlyHint: true,
+      defaultEnabled: true,
+    },
+    {
+      name: "get_circleback_meeting",
+      label: "Read meeting notes",
+      description: "Read a meeting's notes, attendees and action items.",
+      readOnlyHint: true,
+      defaultEnabled: true,
+    },
+    {
+      name: "get_circleback_transcript",
+      label: "Read transcript",
+      description: "Read what was said in a meeting.",
+      readOnlyHint: true,
+      defaultEnabled: true,
+    },
+    {
+      name: "list_circleback_action_items",
+      label: "List action items",
+      description:
+        "List action items from meetings, by who owns them and whether they're done.",
+      readOnlyHint: true,
+      defaultEnabled: true,
+    },
+  ],
   webhook: [],
 } as const satisfies Record<
   IntegrationProvider,

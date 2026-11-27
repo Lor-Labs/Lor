@@ -4,8 +4,10 @@ import { BETTERSTACK_TOOLS, CONNECTOR_URL_HOSTS } from "@repo/connectors"
 import { AttioLogo } from "@repo/ui/components/logos/attio"
 import { AWSCloudWatchLogo } from "@repo/ui/components/logos/aws-cloudwatch"
 import { BetterStackLogo } from "@repo/ui/components/logos/betterstack"
+import { CirclebackLogo } from "@repo/ui/components/logos/circleback"
 import { DatadogLogo } from "@repo/ui/components/logos/datadog"
 import { GitHubLogo } from "@repo/ui/components/logos/github"
+import { GranolaLogo } from "@repo/ui/components/logos/granola"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { NotionLogo } from "@repo/ui/components/logos/notion"
 import { cn } from "@repo/ui/lib/utils"
@@ -204,6 +206,29 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
     tools: BETTERSTACK_TOOLS.map((tool) => tool.name),
     linkLabel: () => "Better Stack",
   },
+  // In color: Granola's mark is its app icon.
+  granola: {
+    logo: GranolaLogo,
+    urlHost: CONNECTOR_URL_HOSTS.granola,
+    tools: [
+      "search_granola_meetings",
+      "get_granola_meeting",
+      "get_granola_transcript",
+    ],
+    linkLabel: () => "Granola",
+  },
+  // In color: Circleback's own icon.
+  circleback: {
+    logo: CirclebackLogo,
+    urlHost: CONNECTOR_URL_HOSTS.circleback,
+    tools: [
+      "search_circleback_meetings",
+      "get_circleback_meeting",
+      "get_circleback_transcript",
+      "list_circleback_action_items",
+    ],
+    linkLabel: () => "Circleback",
+  },
   // BYO inbound webhooks have no agent tools or URL host.
   webhook: {
     logo: WebhookMark,
@@ -222,6 +247,14 @@ const CONNECTOR_BRANDS: Partial<
     accent: "#24292f",
     avatarClassName:
       "bg-[#24292f]! text-white! dark:bg-[#f0f6fc]! dark:text-[#24292f]!",
+  },
+  circleback: {
+    accent: "#f24e1d",
+    avatarClassName: "bg-white!",
+  },
+  granola: {
+    accent: "#b2c248",
+    avatarClassName: "bg-[#b2c248]! text-[#1e1e1e]!",
   },
   linear: {
     accent: "#5e6ad2",
