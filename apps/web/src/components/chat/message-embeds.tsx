@@ -16,7 +16,7 @@ import { useParams } from "@tanstack/react-router"
 import { useState } from "react"
 import { EmbedCard } from "@/components/chat/embed-card"
 import {
-  isAttioRecording,
+  isMeetingCard,
   MeetingRecordingCard,
 } from "@/components/chat/meeting-recording-card"
 import { toCustomRoleMap, useWorkspaceRoles } from "@/hooks/use-workspace-roles"
@@ -137,7 +137,7 @@ export function MessageEmbeds({
     <>
       <div className="flex flex-col gap-1">
         {embeds.map((embed, index) =>
-          isAttioRecording(embed) ? (
+          isMeetingCard(embed) ? (
             <MeetingRecordingCard
               // recordingId keeps card state (transcript expand) pinned
               // to the recording if embeds reorder; eventLabel-matched

@@ -22,7 +22,7 @@ import { LorReasoning } from "@/components/lor-reasoning"
 import { LorStoppedNote } from "@/components/lor-stopped-note"
 import { LorWorkingFor, lorWorkStart } from "@/components/lor-work-time"
 import {
-  isAttioRecording,
+  isMeetingCard,
   MeetingRecordingCard,
 } from "@/components/meeting-recording-card"
 import { MessageAttachments } from "@/components/message-attachments"
@@ -190,8 +190,9 @@ function MessageRowBody({
   const isPending = isOptimisticMessage(message)
   const isStreaming = isLor && message.status === "pending"
   const isMeetingPost =
-    connectorForName(message.overrideName) === "attio" &&
-    message.embeds.some(isAttioRecording)
+    ["attio", "granola", "circleback"].includes(
+      connectorForName(message.overrideName) ?? ""
+    ) && message.embeds.some(isMeetingCard)
   const hasTimeline =
     (message.lorToolCalls?.length ?? 0) > 0 ||
     (message.lorReasoningSegments?.length ?? 0) > 0
@@ -302,7 +303,7 @@ function MessageRowBody({
         />
       ) : null}
       {message.embeds.map((embed, index) =>
-        isAttioRecording(embed) ? (
+        isMeetingCard(embed) ? (
           <MeetingRecordingCard
             embed={embed}
             // recordingId keeps card state (transcript expand) pinned to the
