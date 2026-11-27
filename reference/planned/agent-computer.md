@@ -5,7 +5,8 @@
 > pages on 2026-11-23 and 2026-11-24 unless a line says otherwise; check them
 > again at the spike, because this market moves fast. Nothing here was tested
 > live. It is the design behind "Next" item 1 in `always-on-agents.md` §13
-> (decisions 25, 29, 36 and 43).
+> (decisions 25, 29, 36 and 43). Updated 2026-11-27 with "A Mac for code
+> sessions" (Mac vendor facts checked 2026-11-26 and 2026-11-27).
 
 ## What was decided (Jacob, 2026-11-24)
 
@@ -14,7 +15,7 @@
 | Coding sessions (Claude Code, Codex) | Boat | Blaxel | Blaxel is still first today. The move is in `boat-fallback.md`, "Direction" |
 | The agent's computer | Picked by a spike on both | The other one | To build |
 | iOS and Android testing | Expo Simulators, on the team's own Expo account | – | Nothing to build |
-| A full Mac box | Namespace, NoMac as a cheaper trial | – | Only when someone asks |
+| A Mac for code sessions | NoMac, a Mac attached to the session | Namespace | Asked for 2026-11-27. Provider recommended, not confirmed; nothing built. See below |
 | A shared channel drive | Blaxel Agent Drive | – | Wait: private preview, one region |
 | A person's own computer, Lor's own servers | Another branch of the provider seam | – | Later |
 
@@ -76,6 +77,62 @@ Open: location. Boat runs only in Germany, Finland and France, so a browser
 acting for a US team gets pages in the wrong language and sign-ins flagged
 as unfamiliar. If Boat adds a US region it wins both rows above.
 
+## A Mac for code sessions (2026-11-27)
+
+Jacob wants code sessions able to run on a Mac: first so agents can build
+and test iOS and Mac apps, later so a person can pick Linux, Mac or Windows
+for any kind of app. Linux stays the default, on Boat and Blaxel. Daytona's
+Macs were ruled out at about $60 a day: a short request must not pay for a
+whole day, which also rules out every vendor with a 24-hour minimum.
+
+Recommended, not yet confirmed or built:
+
+- **Provider: NoMac's Platform API,** with Namespace as the fallback behind
+  the same seam. Per minute, one-minute minimum, $0.90 an hour ($0.60 with
+  the +50% bonus on a $1,000 credit purchase). What fits Lor:
+  - a Mac per user or session, started with our own id as its `label`;
+    `reuse: true` answers the one already running
+  - a drive per label at `~/drive` (20 GB), kept between Macs, so builds
+    keep their caches; 10 drives included, then 1¢ per GB changed at each
+    save
+  - commands over HTTPS or SSH, folder sync, screenshots and screen
+    recordings; Xcode 27.2, the iOS 27 Simulator, Node, Swift and Homebrew
+    preinstalled
+  - an embeddable screen with take-over (`POST .../view` with
+    `control: true`, `allowed_origins`) for the session's Browser tab
+  - webhooks (`mac.ready`, `mac.ended`, `credit.low`) and usage per label,
+    for credit metering
+  - iOS Simulator sessions on their own at $0.90 an hour (Expo Simulators
+    charge $6)
+- **Shape: an attached Mac first.** The session keeps its Linux sandbox;
+  the agent gets tools to start a Mac, sync the repo to it, build, run the
+  app in the simulator or on the desktop, screenshot, record and stop it,
+  while people watch the embedded screen. Running the whole session on the
+  Mac (Claude Code over SSH there) comes next and needs a macOS version of
+  the harness start-up, terminal, live view, checkpoints and Changes panel,
+  command policy (it parses bash), env files and metering. Windows comes
+  last: its PowerShell port is the expensive one. Daytona's Windows
+  sandboxes are per second ($0.0858 per vCPU-hour, on request), so they
+  stay the Windows candidate.
+- **Price:** a Mac hour costs Lor $0.60 to $0.90, so Macs need their own
+  rate, about 100 to 120 credits an hour against 10 for an 8 GB Linux hour.
+  The $30 beta pool would cover about 25 Mac hours.
+- **Later, at steady volume:** rent Mac minis by the month (about $85 to
+  $149) and run two macOS VMs on each. That beats NoMac above roughly 100
+  to 250 Mac hours a month per Mac, but Lor runs the machines.
+
+Catches: NoMac is a small, new company and does not name its chip (a
+third-party comparison says M6 or M5 Pro). An account runs one Mac at a
+time by default and up to 5 self-serve; more needs an agreement. AWS,
+Scaleway and Daytona attribute their 24-hour minimum to Apple's macOS
+licence, and NoMac does not say how per-minute billing fits it.
+
+Next: Jacob opens a NoMac account, adds `NOMAC_API_KEY` to the code
+session's environment and asks NoMac for a higher limit and about the
+licence. Then a spike of about a dollar: start a Mac through the API, sync
+a sample iOS app or `apps/mobile`, build and run it in the simulator,
+screenshot it, embed the screen in the Browser tab and time the start.
+
 ## Provider facts
 
 For a 2 vCPU / 4 GB computer. Hourly figures are worked out from each
@@ -108,11 +165,18 @@ vendor's listed rates.
   run 3 to 24 hours at most and are capped by vCPUs running at once. A
   devbox is a workstation for one developer; Lor needs a sandbox per
   session, so it fits only for Macs.
-- **Macs:** Namespace $2.40 to $3.60/h by the minute, with VNC, Xcode and
-  simulators, at most 12 to 48 macOS vCPUs at once by plan. NoMac $0.60 to
-  $0.90/h by the minute, ready in about 30 s (its own page; a small, new
-  company). AWS EC2 Mac $1.23/h with a 24-hour minimum, and a dedicated Mac
-  mini is about $149 a month (third-party pages).
+- **Macs** (checked 2026-11-26 and 2026-11-27):
+
+  | Provider | Price | Billing | Notes |
+  |---|---|---|---|
+  | NoMac | $0.90/h, $0.60 with bonus credit | Per minute | Platform API (above), ready in about 30 s |
+  | Namespace | $2.40/h (4 vCPU / 7 GB) to $3.60/h (6 vCPU / 14 GB); 1.5× past plan minutes | Per minute | M5 Max and M4 Pro, VNC, Xcode; 12, 24 or 48 macOS vCPUs at once by plan |
+  | Macswarm | $99/month for 300 Pod-hours, then $0.40 | Per second, plus 10 idle minutes | For one developer's own Claude Code or Codex: no SSH, no screen, no API to drive it, wiped after each session |
+  | Revyl, macbox | $0.05/min ($3/h) | Per minute | Revyl caps a Mac at 2 hours; macbox runs builds and tests only |
+  | InstaBox | M2 $0.225/h to M4 Pro $0.625/h ($15 a day) | 24 h minimum, then per second | No Xcode preinstalled; Pro plan $20/month |
+  | AWS EC2 Mac | M4 $1.23/h, M4 Pro $1.97/h | 24 h minimum, then per second | Dedicated host, disk extra |
+  | Daytona | About $60 a day per Mac (launch coverage); its pricing page's "$0.0082/core/h" does not match | 24 h reservations | Launched 2026-11-17: M4, M4 Pro, M5 Pro, two sandboxes per Pro Mac, Xcode and a computer-use API built in; the Mac is erased when the reservation ends |
+  | Monthly Mac mini | My Remote Mac $85, MacStadium $149, Scaleway €149 | Monthly | Third-party comparison pages |
 - **Expo Simulators** (launched 2026-11-12): cloud iOS simulators and
   Android emulators an agent drives from a Linux box, $0.10 a minute on
   Expo's paid plans, any framework, the project linked to an Expo account.
@@ -144,7 +208,14 @@ vendor's listed rates.
 - Fly Sprites: https://fly.io/sprites
 - Namespace: https://namespace.so/pricing, https://namespace.so/docs/devbox,
   https://namespace.so/docs/architecture/compute/macos
-- Macs: https://nomac.app/, https://juuz.com/cloud/mac-cloud-pricing/,
+- Macs: https://nomac.app/, https://nomac.app/llms.txt,
+  https://www.daytona.com/docs/macos-sandboxes,
+  https://www.daytona.io/dotfiles/macos-sandboxes,
+  https://www.daytona.com/docs/windows-sandboxes,
+  https://instabox.sh/docs/machines/macos, https://macswarm.com/pricing,
+  https://macswarm.com/compare/cloud-mac-pricing/,
+  https://revyl.com/compare/cloud-macs-for-ai-agents-compared/,
+  https://juuz.com/cloud/mac-cloud-pricing/,
   https://macyou.co/blog/aws-ec2-mac-pricing-explained
 - Expo Simulators: https://docs.expo.dev/eas/simulators/introduction/,
   https://expo.dev/blog/introducing-expo-simulators-cloud-simulators-built-for-agents
