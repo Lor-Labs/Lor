@@ -89,7 +89,9 @@ export function createTriggeredRunProcessor(
       .from(schema.agentRun)
       .where(eq(schema.agentRun.id, runId))
       .then((rows) => rows[0])
-    if (!run?.triggerId) {
+    // An Act run is always about its trigger's channel.
+    const channelId = run?.channelId
+    if (!run?.triggerId || !channelId) {
       logger.error({ runId }, "Triggered job without a run/trigger; skipping")
       return
     }
@@ -138,7 +140,7 @@ export function createTriggeredRunProcessor(
       {
         runId,
         workspaceId: run.workspaceId,
-        channelId: run.channelId,
+        channelId,
         triggerId: run.triggerId,
         sessionMode: trigger.sessionMode,
         windowSeconds: trigger.windowSeconds,

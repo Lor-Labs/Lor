@@ -11,6 +11,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { channelAgentId } from "@repo/db/queries/agents"
 import {
   assertHostedHarness,
   BetaAccessError,
@@ -45,6 +46,7 @@ import {
   writeBack,
 } from "@repo/lor"
 import { saveHandoffNote } from "@repo/lor/act-runs"
+import { addJournalEntry, sessionJournalText } from "@repo/lor/agent-memory"
 import type { ProposeLoopExecutor } from "@repo/lor/loops"
 import type { StartPlanInput } from "@repo/lor/plans"
 import { toRealtimePlan } from "@repo/lor/plans"
@@ -112,6 +114,7 @@ import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
 import { turnSandboxMode } from "@/lib/sandbox-mode"
 import { saveSessionCommands } from "@/lib/session-commands"
+import { sessionMemory } from "@/lib/session-memory"
 import { titleSessionOnFirstRun } from "@/lib/session-title"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
 import { briefActEvent, loadTriggerRun } from "@/lib/trigger-session"
@@ -1005,7 +1008,16 @@ export function createLorRespondProcessor(
               else {
                 try {
                   harnessAccount = await resolveHarnessAccount(
-                    { workspaceId, userId: accountUserId },
+                    {
+                      workspaceId,
+                      userId: accountUserId,
+                      // No person's plan: the settings of the channel's agent.
+                      agentId: pinnedAccount
+                        ? pinnedAccount.agentId
+                        : accountUserId
+                          ? null
+                          : await channelAgentId(channelId),
+                    },
                     session.harness === "claude_code" ? "claude" : "chatgpt",
                     { pinned: pinnedAccount }
                   )
@@ -1258,12 +1270,27 @@ export function createLorRespondProcessor(
                   ...changeInput,
                 }
               )
+            // A session in a channel with an agent shares that agent's
+            // memory (reference/agents-and-chats.md, decision 25).
+            const memory = automated
+              ? null
+              : await sessionMemory({
+                  channelId,
+                  sessionId: session.id,
+                  threadRootId,
+                  runId: job.data.runId,
+                  people: triggerUserId ? [triggerUserId] : [],
+                }).catch((err) => {
+                  logger.warn({ err, channelId }, "Session memory note failed")
+                  return null
+                })
             answer = await respond(
               {
                 workspaceId,
                 conversation,
                 backgroundConversation,
                 channelId,
+                ...(memory?.note ? { memoryNote: memory.note } : {}),
                 ...(session.origin === "agent" ? { helper: true } : {}),
                 ...(threadRootId ? { threadRootId } : {}),
                 triggerMessageId,
@@ -1493,6 +1520,25 @@ export function createLorRespondProcessor(
             )
             flushPendingText()
             closeReasoningSegment()
+
+            // The agent's own sessions report to it, and its turn notes that.
+            if (memory && session.origin !== "agent" && answer.text.trim()) {
+              await addJournalEntry({
+                workspaceId,
+                agentId: memory.agentId,
+                channelId,
+                sessionId: session.id,
+                runId: job.data.runId ?? null,
+                userId:
+                  triggerUserId && triggerUserId !== LOR_USER_ID
+                    ? triggerUserId
+                    : null,
+                text: sessionJournalText(
+                  conversation.at(-1)?.content ?? "",
+                  answer.text
+                ),
+              })
+            }
 
             const turnIds = new Set(
               conversation.flatMap((t) => (t.messageId ? [t.messageId] : []))
@@ -1966,7 +2012,9 @@ export function createLorRespondProcessor(
           // (reference/planned/session-memory.md Step 3).
           try {
             if (
-              !(await autonomousUsesSubscription(workspaceId)) &&
+              !(await autonomousUsesSubscription(
+                await channelAgentId(channelId)
+              )) &&
               !(await checkCredits(workspaceId)).allowed
             ) {
               await runWriter.close()

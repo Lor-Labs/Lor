@@ -125,12 +125,12 @@ function channelRefLabel(
   if (ref.kind === "created") {
     const target = operations.find((o) => o.position === ref.opPosition)
     if (target?.spec.op === "create_channel") {
-      return `#${target.spec.name} (new)`
+      return `${target.spec.name} (new)`
     }
-    return `the channel from step ${(ref.opPosition ?? 0) + 1}`
+    return `the chat from step ${(ref.opPosition ?? 0) + 1}`
   }
   const name = ref.id ? channelNames.get(ref.id) : undefined
-  return name ? `#${name}` : "a channel"
+  return name || "a chat"
 }
 
 function profileRefLabel(
@@ -198,7 +198,7 @@ function opView(
       return {
         title: (
           <>
-            Create channel <Name>#{spec.name}</Name>
+            Create chat <Name>{spec.name}</Name>
           </>
         ),
         details: spec.topic ? [spec.topic] : [],
@@ -226,7 +226,7 @@ function opView(
         ),
         details: [
           [
-            spec.post ? "posts to the channel" : "does not post",
+            spec.post ? "posts to the chat" : "does not post",
             spec.actInstructions && "acts on each event",
           ]
             .filter(Boolean)
@@ -471,7 +471,7 @@ function OperationItem({
               params={{ workspaceSlug, channelId: op.result.resourceId }}
               className="inline-flex items-center gap-1 font-medium text-primary text-xs hover:underline"
             >
-              Open #{spec.name}
+              Open {spec.name}
             </Link>
           )}
         {op.result?.url && (

@@ -13,10 +13,10 @@ import {
 import { connectorLookupRateLimit } from "@/middleware/rate-limit"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
-  agentFactParamsSchema,
-  agentFactSchema,
   agentWakeUpParamsSchema,
   cancelAgentWakeUpResponseSchema,
+  channelAgentParamsSchema,
+  channelAgentSchema,
   channelAudienceResponseSchema,
   channelConnectorParamsSchema,
   channelParamsSchema,
@@ -29,14 +29,13 @@ import {
   connectorSearchResponseSchema,
   createChannelRequestSchema,
   createChannelResponseSchema,
-  deleteAgentFactResponseSchema,
   deleteChannelResponseSchema,
   linearIssueParamsSchema,
   linearIssuePromptResponseSchema,
   linearIssuesQuerySchema,
   linearIssuesResponseSchema,
-  listAgentFactsResponseSchema,
   listAgentWakeUpsResponseSchema,
+  listChannelAgentsResponseSchema,
   listChannelConnectorsResponseSchema,
   listChannelsResponseSchema,
   listConnectorScopesResponseSchema,
@@ -55,7 +54,7 @@ import {
   reorderChannelsResponseSchema,
   threadReadParamsSchema,
   togglePinResponseSchema,
-  updateAgentFactRequestSchema,
+  updateChannelAgentRequestSchema,
   updateChannelRequestSchema,
   updateChannelResponseSchema,
   workspaceSlugParamsSchema,
@@ -206,67 +205,50 @@ export const updateChannel = createRoute({
   },
 })
 
-export const listAgentFacts = createRoute({
-  path: "/workspaces/{workspaceSlug}/channels/{channelId}/agent-facts",
+export const listChannelAgents = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/agents",
   method: "get",
-  summary: "List the channel agent's facts",
+  summary: "List the agents in a channel",
   description:
-    "The facts the channel's agent keeps about the channel, each with its source and date (reference/always-on-agents.md §7).",
+    "The agents in the channel, each with the team's instructions for it in this channel only (reference/agents-and-chats.md).",
   tags: ["Channels"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: channelParamsSchema },
   hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: listAgentFactsResponseSchema,
-      description: "The channel agent's facts",
+      schema: listChannelAgentsResponseSchema,
+      description: "The channel's agents",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
   },
 })
 
-export const updateAgentFact = createRoute({
-  path: "/workspaces/{workspaceSlug}/channels/{channelId}/agent-facts/{factId}",
+export const updateChannelAgent = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/agents/{agentId}",
   method: "patch",
-  summary: "Edit one of the channel agent's facts",
-  description: "Anyone who can see the channel can edit a fact.",
+  summary: "Change an agent's instructions for a channel",
+  description:
+    "Instructions for the agent in this channel only. Only the people who can see the channel can read them.",
   tags: ["Channels"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
-    params: agentFactParamsSchema,
+    params: channelAgentParamsSchema,
     body: jsonContent({
-      schema: updateAgentFactRequestSchema,
-      description: "The fact's new text",
+      schema: updateChannelAgentRequestSchema,
+      description: "The instructions; empty or null removes them",
     }),
   },
   hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: agentFactSchema,
-      description: "The edited fact",
+      schema: channelAgentSchema,
+      description: "The agent's instructions here",
     }),
     [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
-    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
-  },
-})
-
-export const deleteAgentFact = createRoute({
-  path: "/workspaces/{workspaceSlug}/channels/{channelId}/agent-facts/{factId}",
-  method: "delete",
-  summary: "Delete one of the channel agent's facts",
-  description: "Anyone who can see the channel can delete a fact.",
-  tags: ["Channels"],
-  middleware: [workspaceAuthMiddleware] as const,
-  request: { params: agentFactParamsSchema },
-  hide: true,
-  responses: {
-    [HttpStatusCodes.OK]: jsonContent({
-      schema: deleteAgentFactResponseSchema,
-      description: "The fact was deleted",
-    }),
-    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
   },
 })
@@ -715,10 +697,9 @@ export type GetMessageLocationRoute = typeof getMessageLocation
 export type ListChannelConnectorsRoute = typeof listChannelConnectors
 export type SearchChannelConnectorRoute = typeof searchChannelConnector
 export type ListConnectorScopesRoute = typeof listConnectorScopes
-export type ListAgentFactsRoute = typeof listAgentFacts
-export type UpdateAgentFactRoute = typeof updateAgentFact
-export type DeleteAgentFactRoute = typeof deleteAgentFact
 export type ListAgentWakeUpsRoute = typeof listAgentWakeUps
+export type ListChannelAgentsRoute = typeof listChannelAgents
+export type UpdateChannelAgentRoute = typeof updateChannelAgent
 export type CancelAgentWakeUpRoute = typeof cancelAgentWakeUp
 export type SearchConnectorFilesRoute = typeof searchConnectorFiles
 export type ListLinearIssuesRoute = typeof listLinearIssues

@@ -105,6 +105,14 @@ export const lorSandboxClassifierModel = gatewayTransport.decisionModel(
   LOR_SANDBOX_CLASSIFIER_MODEL
 )
 
+// Is a chat message that names no agent meant for one? (inbox-address.ts).
+// Pinned like the sandbox classifier: its threshold was sampled on this
+// version.
+export const LOR_INBOX_CLASSIFIER_MODEL = "typesafe-ai/jev-1.13.0"
+export const lorInboxClassifierModel = gatewayTransport.decisionModel(
+  LOR_INBOX_CLASSIFIER_MODEL
+)
+
 export const mainGatewayOptions = {
   caching: "auto" as const,
   models: LOR_FALLBACK_MODELS,

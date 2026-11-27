@@ -1,4 +1,6 @@
 import { db, schema } from "@repo/db"
+import { createAgent } from "@repo/db/queries/agents"
+import { joinChatAudience } from "@repo/db/queries/chat-members"
 import { isChannelFeatureEnabled } from "@repo/utils/features"
 
 type TemplateChannel = Pick<
@@ -36,14 +38,33 @@ const STARTUP_CHANNELS: TemplateChannel[] = [
 
 // No Lor intro post: Lor never writes in channel chat
 // (reference/workspace-model.md); the New session view teaches what it does.
+// A new workspace starts with one agent, in every text channel: a team adds
+// more, or takes it out of a channel, when it wants to
+// (reference/agents-and-chats.md).
 export async function seedWorkspaceTemplate(workspaceId: string) {
-  await db.insert(schema.channel).values(
-    STARTUP_CHANNELS.filter(isChannelFeatureEnabled).map(
-      (channel, position) => ({
-        ...channel,
-        workspaceId,
-        position,
-      })
-    )
-  )
+  await db.transaction(async (tx) => {
+    const agent = await createAgent({ workspaceId }, tx)
+    const channels = await tx
+      .insert(schema.channel)
+      .values(
+        STARTUP_CHANNELS.filter(isChannelFeatureEnabled).map(
+          (channel, position) => ({ ...channel, workspaceId, position })
+        )
+      )
+      .returning({ id: schema.channel.id, type: schema.channel.type })
+    const text = channels.filter((channel) => channel.type === "text")
+    if (text.length > 0) {
+      await tx
+        .insert(schema.channelAgent)
+        .values(
+          text.map((channel) => ({ channelId: channel.id, agentId: agent.id }))
+        )
+      // The starting chats are everyone's: whoever is a member already, and
+      // each person who joins (joinVisibleChats in auth.ts).
+      await joinChatAudience(
+        text.map((channel) => channel.id),
+        tx
+      )
+    }
+  })
 }

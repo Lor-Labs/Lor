@@ -1,7 +1,9 @@
 import { env } from "@repo/env/server"
 import {
+  AGENT_INBOX_CLASSIFY_JOB,
   AGENT_INBOX_FLUSH_JOB,
   AGENT_INBOX_QUEUE,
+  type AgentInboxClassifyJobData,
   type AgentInboxFlushJobData,
 } from "@repo/realtime-types/queues"
 import { Queue } from "bullmq"
@@ -21,11 +23,13 @@ function parseRedisUrl(url: string) {
 
 const FLUSH_ADD_TIMEOUT_MS = 10_000
 
-let agentInboxQueue: Queue<AgentInboxFlushJobData> | null = null
+type AgentInboxJobData = AgentInboxFlushJobData | AgentInboxClassifyJobData
+
+let agentInboxQueue: Queue<AgentInboxJobData> | null = null
 // A producer: ioredis's default retry limit fails commands sent after the
 // connection is ready; it does not bound the readiness wait itself.
-function getAgentInboxQueue(): Queue<AgentInboxFlushJobData> {
-  agentInboxQueue ??= new Queue<AgentInboxFlushJobData>(AGENT_INBOX_QUEUE, {
+function getAgentInboxQueue(): Queue<AgentInboxJobData> {
+  agentInboxQueue ??= new Queue<AgentInboxJobData>(AGENT_INBOX_QUEUE, {
     connection: parseRedisUrl(env.REDIS_URL),
     defaultJobOptions: {
       removeOnComplete: { age: 3600, count: 1000 },
@@ -35,11 +39,11 @@ function getAgentInboxQueue(): Queue<AgentInboxFlushJobData> {
   return agentInboxQueue
 }
 
-// The channel agent reads its inbox again: a decided approval set lets its
-// paused turn go on, and a trigger's event wakes it
+// One of an agent's conversations reads its inbox again: a decided approval
+// set lets its paused turn go on, and a trigger's event wakes it
 // (reference/always-on-agents.md §3, §5).
 export async function flushAgentInbox(
-  channelId: string,
+  conversationId: string,
   delayMs = 0
 ): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -55,7 +59,7 @@ export async function flushAgentInbox(
     await Promise.race([
       getAgentInboxQueue().add(
         AGENT_INBOX_FLUSH_JOB,
-        { channelId },
+        { conversationId },
         delayMs > 0 ? { delay: delayMs } : {}
       ),
       timeout,
@@ -63,4 +67,13 @@ export async function flushAgentInbox(
   } finally {
     clearTimeout(timer)
   }
+}
+
+// A chat message that named no agent: the worker judges which of the chat's
+// agents it is meant for and wakes those now (LOR-171). Best effort: without
+// it the message waits for the agents' check-in.
+export function classifyAgentInbox(channelId: string, messageId: string) {
+  void getAgentInboxQueue()
+    .add(AGENT_INBOX_CLASSIFY_JOB, { channelId, messageId })
+    .catch(() => {})
 }

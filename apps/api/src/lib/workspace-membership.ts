@@ -1,5 +1,6 @@
 import { assertBetaMemberCapacity, syncSeats } from "@repo/billing"
 import { type db, eq, schema } from "@repo/db"
+import { joinVisibleChats } from "@repo/db/queries/chat-members"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { companyEmailDomain } from "@repo/utils/domain"
 
@@ -33,6 +34,10 @@ export async function addWorkspaceMember(
     })
     .onConflictDoNothing()
     .returning({ id: schema.workspaceMember.id })
+  // A new member starts in every chat they can see.
+  if (inserted.length > 0) {
+    await joinVisibleChats({ workspaceId, userIds: [userId] }, tx)
+  }
   return inserted.length > 0
 }
 

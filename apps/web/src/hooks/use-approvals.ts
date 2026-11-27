@@ -43,7 +43,7 @@ function channelApprovalsQueryOptions(
         param: { channelId },
         query: threadRootId ? { threadRootId } : {},
       })
-      if (!res.ok) throw new Error("Failed to fetch channel approvals")
+      if (!res.ok) throw new Error("Failed to fetch the chat's approvals")
       const payload = await res.json()
       return payload.approvals
     },

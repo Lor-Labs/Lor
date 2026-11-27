@@ -34,6 +34,8 @@ export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "memory_write",
   "memory_edit",
   "memory_link",
+  "remember",
+  "recall",
   // Pi's sandbox tools (find is exposed as glob).
   "bash",
   "read",

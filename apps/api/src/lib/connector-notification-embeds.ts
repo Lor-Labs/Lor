@@ -104,3 +104,44 @@ export function attioNotificationEmbed(input: {
     color: ATTIO_BRAND,
   }
 }
+
+const GRANOLA_BRAND = "#b2c248"
+
+export function granolaNotificationEmbed(input: {
+  event: string
+  title: string
+  url?: string | null
+  body?: string | null
+  fields?: Embed["fields"]
+}): Embed {
+  const description = clipBody(input.body)
+  return {
+    type: "rich",
+    ...(input.url ? { url: input.url } : {}),
+    eventLabel: input.event,
+    title: input.title,
+    ...(description ? { description } : {}),
+    ...(input.fields?.length ? { fields: input.fields } : {}),
+    siteName: "Granola",
+    color: GRANOLA_BRAND,
+  }
+}
+
+const CIRCLEBACK_BRAND = "#f24e1d"
+
+export function circlebackNotificationEmbed(input: {
+  event: string
+  title: string
+  url?: string | null
+  fields?: Embed["fields"]
+}): Embed {
+  return {
+    type: "rich",
+    ...(input.url ? { url: input.url } : {}),
+    eventLabel: input.event,
+    title: input.title,
+    ...(input.fields?.length ? { fields: input.fields } : {}),
+    siteName: "Circleback",
+    color: CIRCLEBACK_BRAND,
+  }
+}

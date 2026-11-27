@@ -1,4 +1,5 @@
 import type {
+  RealtimeChannelEventPayload,
   RealtimeMessageMention,
   ServerToClientEvents,
 } from "@repo/realtime-types"
@@ -66,7 +67,8 @@ export function useMessageEditing({
       messageId: string,
       content: string,
       editedAt: string,
-      mentions?: RealtimeMessageMention[]
+      mentions?: RealtimeMessageMention[],
+      eventPayload?: RealtimeChannelEventPayload
     ) => {
       const update = (message: EditableMessage) =>
         message.id === messageId
@@ -75,6 +77,7 @@ export function useMessageEditing({
               content,
               editedAt,
               mentions: mentions ?? message.mentions,
+              ...(eventPayload ? { eventPayload } : {}),
             }
           : message
       const updateCache = (key: readonly unknown[]) => {
@@ -109,7 +112,8 @@ export function useMessageEditing({
         payload.messageId,
         payload.content,
         payload.editedAt,
-        payload.mentions
+        payload.mentions,
+        payload.eventPayload
       )
     }
 

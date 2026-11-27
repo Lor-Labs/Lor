@@ -638,3 +638,48 @@ apps/realtime `services/lor.ts`, card rendering in web
   channel → 400; non-active → 409. Web: "Run now" item (Refresh01Icon) at
   the top of the panel's … menu, active loops only (`useRunLoopNow` in
   loop-actions.tsx, success toast).
+- 2026-11-24 — Loops are listed per agent on web
+  (`agents-and-chats.md`, decision 21). A text channel's loops moved from
+  the overview panel's Loops section to its agent's dialog
+  (`components/agent/agent-loops.tsx`), which lists the loops of every
+  channel that agent is in. A row opens the loop's detail panel in its
+  channel through `?loop=<id>` on the channel route. The section stays in
+  the overview panel only for a channel with no agent. No schema change: a
+  loop still belongs to its channel, and its fires wake that channel's
+  agent.
+- 2026-11-24 — Conversations (`agents-and-chats.md`, step 3, decisions 26
+  to 28). A fire on a text channel wakes the own conversation of that
+  channel's agent, in a turn about the Loop's channel
+  (`fireLoopToInbox`), no longer the channel's one conversation. The
+  check-in is not a Loop any more: `kind = 'check_in'` rows are deleted by
+  the data move and a leftover one does nothing; the agent's check-in is
+  `sweepCheckIns` in `apps/worker/src/lib/agent-inbox.ts`. A Loop is still
+  stored on its channel.
+- 2026-11-26 — Loops on the agent (`agents-and-chats.md`, step 3,
+  decisions 15, 23 and 27). A Loop belongs to its agent (`loop.agent_id`,
+  filled once by `loop-agents.ts` before the push) and `loop.channel_id` is
+  the chat it reports in. A fire wakes that agent, whichever others are in
+  the chat. An agent taken out of the chat pauses its Loops there
+  (`paused_reason = 'agent_left'`, a line in the chat); activate and resume
+  refuse without an agent in the chat; "Run by" in the Loop's panel hands
+  it to another agent; deleting an agent deletes its Loops. Loop and
+  proposal cards are posted by the agent that proposed them. A Loop outside
+  a text chat is unchanged: no agent, its own session.
+- 2026-11-26 — Loops with no chat, and agents' own Loops
+  (`agents-and-chats.md`, decisions 45 and 46). `loop.channel_id` is
+  nullable: a Loop with no chat is its agent's work across its chats, and
+  its fire starts in the agent's first chat. An agent's `propose_loop` is
+  replaced by `create_loop` (active at once, no approval, timezone
+  required) and `update_loop`; a session's `propose_loop` still drafts a
+  card a person activates. `loop.changed_by_id` and `changed_at` record who
+  changed a Loop last, and a `loop_updated` line says what an agent
+  changed. `loop:updated` goes to the Loop's chat and its card's chat (for
+  one with no chat, the chats its agent is in) and carries
+  `cardChannelId`; a chat's list also holds the Loops whose card is there.
+- 2026-11-26 — Loops as a scheduled wake (`agents-and-chats.md`, decisions
+  48 to 50). A fire of a Loop with no chat starts a turn about no chat
+  (`agent_run.channel_id` and `agent_inbox.channel_id` nullable), so an
+  agent in no chat runs it too, and leaving a chat pauses only the Loops
+  that report there. An agent's `create_loop` works in any turn, asked or
+  not. `create_loop` and `update_loop` are approval gate targets, off by
+  default; a gated tool is refused in a turn about no chat.

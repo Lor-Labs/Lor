@@ -49,7 +49,7 @@ export function RightPanelHeader({
       {!hideBack && (
         <button
           type="button"
-          aria-label="Back to channel overview"
+          aria-label="Back to chat overview"
           onClick={goBack}
           className={cn(
             "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-background/40 text-muted-foreground transition-[background-color,border-color,color,transform] duration-200 hover:border-foreground/20 hover:bg-accent hover:text-foreground active:scale-[0.97]",

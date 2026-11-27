@@ -9,47 +9,48 @@ import {
 } from "@repo/ui/components/alert-dialog"
 import { Button } from "@repo/ui/components/button"
 import { toast } from "@repo/ui/components/toast"
-import {
-  type QueryClient,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
-import type { ChannelLoop } from "@/hooks/use-channel-loops"
+import {
+  type ChannelLoop,
+  patchLoop,
+  restoreLoops,
+  writeLoop,
+} from "@/hooks/use-channel-loops"
 import { apiClient } from "@/lib/api-client"
 
-const loopsKey = (channelId: string) => ["channel-loops", channelId] as const
+// Loop actions change every cached copy of the Loop before the server
+// answers (hooks/use-channel-loops.ts), and put it back if it refuses.
+const withStatus =
+  (status: ChannelLoop["status"]) =>
+  (loop: ChannelLoop): ChannelLoop => ({ ...loop, status })
 
-// Loop actions patch the channel's loop list before the server answers. The
-// returned context restores it if the server refuses; it carries the channel
-// because a removed loop is gone from the list by then.
-async function patchLoops(
-  queryClient: QueryClient,
-  channelId: string,
-  update: (loops: ChannelLoop[]) => ChannelLoop[]
-) {
-  await queryClient.cancelQueries({ queryKey: loopsKey(channelId) })
-  const previous = queryClient.getQueryData<ChannelLoop[]>(loopsKey(channelId))
-  queryClient.setQueryData<ChannelLoop[]>(loopsKey(channelId), (loops) =>
-    loops ? update(loops) : loops
-  )
-  return { channelId, previous }
-}
-
-function restoreLoops(
-  queryClient: QueryClient,
-  context:
-    | { channelId: string; previous: ChannelLoop[] | undefined }
-    | undefined
-) {
-  if (context) {
-    queryClient.setQueryData(loopsKey(context.channelId), context.previous)
-  }
-}
-
-function setLoopStatus(loopId: string, status: ChannelLoop["status"]) {
-  return (loops: ChannelLoop[]) =>
-    loops.map((l) => (l.id === loopId ? { ...l, status } : l))
+// Who runs a Loop and where it reports: hands it to another agent ("Run
+// by"), or moves it to another chat its agent is in, or to none ("Reports
+// in").
+export function useSetLoopPlace(loop: ChannelLoop | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (
+      place: { agentId: string } | { channelId: string | null }
+    ) => {
+      if (!loop) throw new Error("Loop not loaded yet")
+      const res = await apiClient.v1.loops[":loopId"].$patch({
+        param: { loopId: loop.id },
+        json: place,
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(
+          (body && "message" in body && body.message) ||
+            "Failed to change the loop"
+        )
+      }
+      return (await res.json()).loop
+    },
+    onSuccess: (updated) => writeLoop(queryClient, updated),
+    onError: (error) => toast.error(error.message),
+  })
 }
 
 // Activation flow shared by the loop card's quick button and the loop detail
@@ -87,13 +88,7 @@ export function useActivateLoop(loop: ChannelLoop | null, timezone: string) {
     // Shows active at once; a high-frequency schedule that needs confirming,
     // or a failure, puts the draft back.
     onMutate: async () =>
-      loop
-        ? patchLoops(
-            queryClient,
-            loop.channelId,
-            setLoopStatus(loop.id, "active")
-          )
-        : undefined,
+      loop ? patchLoop(queryClient, loop.id, withStatus("active")) : undefined,
     onSuccess: (result, _opts, context) => {
       if (result.kind === "needs_confirmation") {
         restoreLoops(queryClient, context)
@@ -102,14 +97,7 @@ export function useActivateLoop(loop: ChannelLoop | null, timezone: string) {
       }
       // loop:updated also lands via the socket; setting directly makes the
       // flip immediate even on a slow connection.
-      queryClient.setQueryData(
-        ["channel-loops", result.loop.channelId],
-        (existing: ChannelLoop[] | undefined) => {
-          if (!existing) return existing
-          const rest = existing.filter((l) => l.id !== result.loop.id)
-          return [result.loop, ...rest]
-        }
-      )
+      writeLoop(queryClient, result.loop)
     },
     onError: (err, _opts, context) => {
       restoreLoops(queryClient, context)
@@ -148,11 +136,7 @@ export function useDiscardDraftLoop(loop: ChannelLoop | null) {
       return res.json()
     },
     onMutate: async () =>
-      loop
-        ? patchLoops(queryClient, loop.channelId, (loops) =>
-            loops.filter((l) => l.id !== loop.id)
-          )
-        : undefined,
+      loop ? patchLoop(queryClient, loop.id, () => null) : undefined,
     onError: (err, _vars, context) => {
       restoreLoops(queryClient, context)
       toast.error(
@@ -217,58 +201,38 @@ export function useUpdateLoop(loop: ChannelLoop | null) {
       const body = await res.json()
       return { kind: "updated" as const, loop: body.loop }
     },
-    onMutate: (input) => {
-      if (!loop) return
-      queryClient.setQueryData(
-        ["channel-loops", loop.channelId],
-        (existing: ChannelLoop[] | undefined) =>
-          existing?.map((l) =>
-            l.id === loop.id
-              ? {
-                  ...l,
-                  ...(input.schedule !== undefined
-                    ? { schedule: input.schedule }
-                    : {}),
-                  ...(input.instructions !== undefined
-                    ? { instructions: input.instructions }
-                    : {}),
-                  ...(input.name !== undefined ? { name: input.name } : {}),
-                  ...(input.endAt !== undefined ? { endAt: input.endAt } : {}),
-                  ...(input.endCondition !== undefined
-                    ? { endCondition: input.endCondition }
-                    : {}),
-                }
-              : l
-          )
-      )
-    },
-    onSuccess: (result) => {
+    onMutate: async (input) =>
+      loop
+        ? patchLoop(queryClient, loop.id, (l) => ({
+            ...l,
+            ...(input.schedule !== undefined
+              ? { schedule: input.schedule }
+              : {}),
+            ...(input.instructions !== undefined
+              ? { instructions: input.instructions }
+              : {}),
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(input.endAt !== undefined ? { endAt: input.endAt } : {}),
+            ...(input.endCondition !== undefined
+              ? { endCondition: input.endCondition }
+              : {}),
+          }))
+        : undefined,
+    onSuccess: (result, _input, context) => {
       if (result.kind === "needs_confirmation") {
-        // The optimistic write showed a change the server didn't take — roll
-        // back to the truth while the confirm dialog is up.
-        if (loop) {
-          void queryClient.invalidateQueries({
-            queryKey: ["channel-loops", loop.channelId],
-          })
-        }
+        // The optimistic write showed a change the server didn't take: put
+        // the truth back while the confirm dialog is up.
+        restoreLoops(queryClient, context)
         setConfirmState({
           input: result.input,
           firesPerDay: result.firesPerDay,
         })
         return
       }
-      queryClient.setQueryData(
-        ["channel-loops", result.loop.channelId],
-        (existing: ChannelLoop[] | undefined) =>
-          existing?.map((l) => (l.id === result.loop.id ? result.loop : l))
-      )
+      writeLoop(queryClient, result.loop)
     },
-    onError: (err) => {
-      if (loop) {
-        void queryClient.invalidateQueries({
-          queryKey: ["channel-loops", loop.channelId],
-        })
-      }
+    onError: (err, _input, context) => {
+      restoreLoops(queryClient, context)
       toast.error(
         err instanceof Error ? err.message : "Failed to update the loop"
       )
@@ -327,22 +291,9 @@ export function useLoopLifecycle(loop: ChannelLoop | null) {
     },
     onMutate: async (action) =>
       loop
-        ? patchLoops(
-            queryClient,
-            loop.channelId,
-            setLoopStatus(loop.id, STATUS_AFTER[action])
-          )
+        ? patchLoop(queryClient, loop.id, withStatus(STATUS_AFTER[action]))
         : undefined,
-    onSuccess: (updated) => {
-      queryClient.setQueryData(
-        ["channel-loops", updated.channelId],
-        (existing: ChannelLoop[] | undefined) => {
-          if (!existing) return existing
-          const rest = existing.filter((l) => l.id !== updated.id)
-          return [updated, ...rest]
-        }
-      )
-    },
+    onSuccess: (updated) => writeLoop(queryClient, updated),
     onError: (err, _action, context) => {
       restoreLoops(queryClient, context)
       toast.error(err instanceof Error ? err.message : "Loop action failed")
@@ -372,11 +323,7 @@ export function useRunLoopNow(loop: ChannelLoop | null) {
       return body.loop
     },
     onSuccess: (updated) => {
-      queryClient.setQueryData(
-        ["channel-loops", updated.channelId],
-        (existing: ChannelLoop[] | undefined) =>
-          existing?.map((l) => (l.id === updated.id ? updated : l))
-      )
+      writeLoop(queryClient, updated)
       queryClient.invalidateQueries({ queryKey: ["loop-runs", updated.id] })
       toast.success("Run started")
     },
@@ -407,17 +354,10 @@ export function useDeleteLoop(loop: ChannelLoop | null) {
       return res.json()
     },
     onMutate: async () =>
-      loop
-        ? {
-            ...(await patchLoops(queryClient, loop.channelId, (loops) =>
-              loops.filter((l) => l.id !== loop.id)
-            )),
-            loopId: loop.id,
-          }
-        : undefined,
-    onSuccess: (_data, _vars, context) => {
-      if (context) {
-        queryClient.removeQueries({ queryKey: ["loop-runs", context.loopId] })
+      loop ? patchLoop(queryClient, loop.id, () => null) : undefined,
+    onSuccess: () => {
+      if (loop) {
+        queryClient.removeQueries({ queryKey: ["loop-runs", loop.id] })
       }
     },
     onError: (err, _vars, context) => {

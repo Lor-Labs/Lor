@@ -7,12 +7,13 @@ import {
   LOR_USER_ID,
   schema,
 } from "@repo/db"
+import { channelAgentId } from "@repo/db/queries/agents"
 import {
   assertHostedHarness,
   assertWorkspaceActive,
 } from "@repo/db/queries/beta-access"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
-import { getWorkspaceHarnessSettings } from "@repo/db/queries/personal-accounts"
+import { getHarnessSettings } from "@repo/db/queries/personal-accounts"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { AgentSession, Loop } from "@repo/db/schema"
 import type { RealtimeAgentSession } from "@repo/realtime-types/events"
@@ -24,7 +25,9 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 // Drift guard (see wire-guard.ts), minus deliberate omissions.
 type OffWireSessionColumns =
   // Overlap checks only (session-overlap.ts); up to a file list per session.
-  "uncommittedPaths"
+  | "uncommittedPaths"
+  // The agent's conversation that started it: the worker's routing only.
+  | "conversationId"
 const _realtimeAgentSessionMirrorsDbRow: Exact<
   Omit<SerializedDates<AgentSession>, OffWireSessionColumns>,
   RealtimeAgentSession
@@ -97,6 +100,8 @@ export type CreateSessionArgs = {
   triggerSubject?: string | null
   contextMessageIds?: string[]
   subscriberIds?: string[]
+  // Origin "agent": the agent's conversation that starts it.
+  conversationId?: string | null
 }
 
 // Anchor, session row, context and subscriptions in the caller's
@@ -128,6 +133,7 @@ export async function createSession(
       threadRootId: anchor.id,
       creatorId: args.creatorId,
       origin: args.origin,
+      conversationId: args.conversationId ?? null,
       mode: args.code ? "code" : "chat",
       harness: args.harness ?? "pi",
       repoFullName: args.code?.repoFullName ?? null,
@@ -191,9 +197,12 @@ async function findLoopSession(loopId: string) {
 }
 
 // A loop's one recurring session, created on its first fire. Archive only
-// dismisses a loop's session, so each fire brings it back.
+// dismisses a loop's session, so each fire brings it back. Only a Loop in a
+// channel that is not a text chat has one, so it always has a channel.
 export async function ensureLoopSession(
-  loop: Pick<Loop, "id" | "workspaceId" | "channelId" | "creatorId" | "name">
+  loop: Pick<Loop, "id" | "workspaceId" | "creatorId" | "name"> & {
+    channelId: string
+  }
 ): Promise<AgentSession> {
   const existing = await findLoopSession(loop.id)
   if (existing) {
@@ -206,7 +215,9 @@ export async function ensureLoopSession(
     return unarchived ?? existing
   }
 
-  const settings = await getWorkspaceHarnessSettings(loop.workspaceId)
+  const settings = await getHarnessSettings({
+    agentId: await channelAgentId(loop.channelId),
+  })
   try {
     return await db.transaction((tx) =>
       createSession(tx, {

@@ -217,7 +217,7 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
               </Link>
             ) : (
               <ContextLink
-                channelName={detail.channel.name ?? "channel"}
+                channelName={detail.channel.name ?? "chat"}
                 messages={detail.context}
               />
             )}

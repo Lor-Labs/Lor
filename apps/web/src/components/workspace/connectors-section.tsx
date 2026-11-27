@@ -53,10 +53,17 @@ import { useNavigate, useSearch } from "@tanstack/react-router"
 import { type Ref, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
+import { CirclebackWebhookSetup } from "@/components/workspace/circleback-webhook-setup"
+import { ConnectorEvents } from "@/components/workspace/connector-events"
 import {
   ConnectorToolPreview,
   ConnectorToolSettings,
 } from "@/components/workspace/connector-tool-settings"
+import {
+  DiscordConnectorDetail,
+  DiscordConnectorRow,
+  useDiscordConnected,
+} from "@/components/workspace/discord-connector"
 import {
   IconTile,
   PILL_BUTTON,
@@ -64,10 +71,6 @@ import {
   SettingsGroup,
   SettingsSection,
 } from "@/components/workspace/settings-group"
-import {
-  TriggerEffects,
-  type TriggerEffectsValue,
-} from "@/components/workspace/trigger-effects"
 import { apiClient } from "@/lib/api-client"
 import type {
   ConnectCloudwatchRequest,
@@ -86,19 +89,6 @@ const REPO_DISPLAY_LIMIT = 8
 
 // The browser callback may still be saving the connection on switch-back.
 const CONNECT_RECHECK_MS = 5000
-
-const NOTIFY_OFF = "__off__"
-
-type TriggerConfig = {
-  channelId: string | null
-  post: boolean
-  actInstructions: string | null
-  actSessionMode: TriggerEffectsValue["actSessionMode"]
-  actCode: TriggerEffectsValue["actCode"]
-  actWindowSeconds: number
-  hourlyRunCap: number
-  dailyRunCap: number
-}
 
 // Why this viewer can't connect the connector right now, or null when they can.
 function connectBlocker(p: IntegrationStatus): string | null {
@@ -160,8 +150,8 @@ export function ConnectorsSection({
     topRef.current?.scrollIntoView({ block: "start" })
   }, [selectedId])
 
-  const openConnector = (id: ConnectorKey | null) => {
-    if (id) setReturnFocusId(id)
+  const openConnector = (id: ConnectorKey | "discord" | null) => {
+    if (id && id !== "discord") setReturnFocusId(id)
     void navigate({
       to: ".",
       search: (prev) => ({ ...prev, connector: id ?? undefined }),
@@ -243,7 +233,14 @@ export function ConnectorsSection({
 
   return (
     <div ref={topRef} className="scroll-mt-6">
-      {selected ? (
+      {selectedId === "discord" ? (
+        <DiscordConnectorDetail
+          // Remount per workspace so a link code can't show under another one.
+          key={workspaceSlug}
+          workspaceSlug={workspaceSlug}
+          onBack={() => openConnector(null)}
+        />
+      ) : selected ? (
         <ConnectorDetail
           key={selected.id}
           workspaceSlug={workspaceSlug}
@@ -267,6 +264,8 @@ export function ConnectorsSection({
         />
       ) : (
         <ConnectorList
+          workspaceSlug={workspaceSlug}
+          onOpenDiscord={() => openConnector("discord")}
           providers={data.providers}
           query={query}
           onQueryChange={setQuery}
@@ -290,6 +289,22 @@ export function ConnectorsSection({
           if (!open) setKeyConnect(null)
         }}
         onConnected={() => openConnector("betterstack")}
+      />
+      <CirclebackConnectDialog
+        workspaceSlug={workspaceSlug}
+        open={keyConnect === "circleback"}
+        onOpenChange={(open) => {
+          if (!open) setKeyConnect(null)
+        }}
+        onConnected={() => openConnector("circleback")}
+      />
+      <GranolaConnectDialog
+        workspaceSlug={workspaceSlug}
+        open={keyConnect === "granola"}
+        onOpenChange={(open) => {
+          if (!open) setKeyConnect(null)
+        }}
+        onConnected={() => openConnector("granola")}
       />
       <CloudwatchConnectDialog
         workspaceSlug={workspaceSlug}
@@ -354,7 +369,7 @@ export function ConnectorsSection({
             <AlertDialogDescription>
               Lor will no longer be able to search{" "}
               {disconnectTarget?.name ?? "this connector"}, and its activity
-              posts to channels will stop. You can reconnect at any time.
+              posts to chats will stop. You can reconnect at any time.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -395,6 +410,8 @@ function ConnectorTile({
 }
 
 function ConnectorList({
+  workspaceSlug,
+  onOpenDiscord,
   providers,
   query,
   onQueryChange,
@@ -402,6 +419,8 @@ function ConnectorList({
   onOpen,
   onConnect,
 }: {
+  workspaceSlug: string
+  onOpenDiscord: () => void
   providers: IntegrationStatus[]
   query: string
   onQueryChange: (query: string) => void
@@ -433,10 +452,29 @@ function ConnectorList({
     "connectors_intro",
     !needle && !!github?.canManage && !providers.some((p) => p.connected)
   )
+  // Discord is not a registry connector: its row joins the group it
+  // belongs in (decision 51).
+  const discordConnected = useDiscordConnected(workspaceSlug)
+  const discordMatches = !needle || "discord chat".includes(needle)
+  const discordRow = discordMatches ? (
+    <DiscordConnectorRow
+      key="discord"
+      workspaceSlug={workspaceSlug}
+      onOpen={onOpenDiscord}
+    />
+  ) : null
   const groups = [
-    { title: "Connected", providers: matches.filter((p) => p.connected) },
-    { title: "Not connected", providers: matches.filter((p) => !p.connected) },
-  ].filter((group) => group.providers.length > 0)
+    {
+      title: "Connected",
+      providers: matches.filter((p) => p.connected),
+      extra: discordConnected ? discordRow : null,
+    },
+    {
+      title: "Not connected",
+      providers: matches.filter((p) => !p.connected),
+      extra: discordConnected ? null : discordRow,
+    },
+  ].filter((group) => group.providers.length > 0 || group.extra)
 
   return (
     <div ref={listRef} className="@container space-y-8">
@@ -463,10 +501,11 @@ function ConnectorList({
           <h3 className="px-2.5 text-sm font-medium">
             {group.title}
             <span className="ml-1.5 font-normal text-muted-foreground">
-              {group.providers.length}
+              {group.providers.length + (group.extra ? 1 : 0)}
             </span>
           </h3>
-          <div className="grid gap-x-4 gap-y-1 @xl:grid-cols-2">
+          <div className="grid grid-cols-1 gap-x-4 gap-y-1 @xl:grid-cols-2">
+            {group.extra}
             {group.providers.map((p) => (
               <ConnectorRow
                 key={p.id}
@@ -511,14 +550,12 @@ function ConnectorRow({
   onConnect: () => void
 }) {
   const blocker = connectBlocker(p)
-  const activeEvents = p.events.filter((ev) => ev.channelId).length
+  const activeEvents = p.events.filter((ev) => ev.listeners.length > 0).length
   const subtitle = p.connected
     ? [
         p.accountLogin ?? "Connected",
         ...(activeEvents > 0
-          ? [
-              `${activeEvents} ${activeEvents === 1 ? "event" : "events"} active`,
-            ]
+          ? [`${activeEvents} ${activeEvents === 1 ? "event" : "events"} on`]
           : []),
       ].join(" · ")
     : p.description
@@ -657,20 +694,26 @@ function ConnectorDetail({
         <ConnectorToolPreview key={p.id} tools={p.tools} />
       )}
 
+      {p.inboundWebhook && (
+        <CirclebackWebhookSetup
+          key={p.connectionId}
+          workspaceSlug={workspaceSlug}
+          webhook={p.inboundWebhook}
+        />
+      )}
+
       {p.events.length > 0 &&
         (p.connected && p.connectionId ? (
-          <EventRoutes
+          <ConnectorEvents
             workspaceSlug={workspaceSlug}
-            connectorId={p.id}
+            provider={p}
             connectionId={p.connectionId}
-            events={p.events}
-            canManage={p.canManage}
           />
         ) : (
           <SettingsSection
             title="Events"
             count={p.events.length}
-            caption={`Connect ${p.name} to send these events to a channel.`}
+            caption={`Connect ${p.name} and your agents can hear about these.`}
           >
             <SettingsGroup>
               {p.events.map((ev) => (
@@ -684,173 +727,6 @@ function ConnectorDetail({
 
       {p.connected && <Repositories provider={p} />}
     </div>
-  )
-}
-
-function EventRoutes({
-  workspaceSlug,
-  connectorId,
-  connectionId,
-  events,
-  canManage,
-}: {
-  workspaceSlug: string
-  connectorId: ConnectorKey
-  connectionId: string
-  events: IntegrationStatus["events"]
-  canManage: boolean
-}) {
-  const queryClient = useQueryClient()
-  // In-flight saves per event key: concurrent saves to different events each
-  // keep their own controls locked until their refetch lands.
-  const [pendingEvents, setPendingEvents] = useState<Record<string, number>>({})
-  const trackPending = (event: string, delta: 1 | -1) =>
-    setPendingEvents((prev) => {
-      const next = { ...prev }
-      const count = (prev[event] ?? 0) + delta
-      if (count > 0) next[event] = count
-      else delete next[event]
-      return next
-    })
-
-  const { data: channelsData } = useQuery({
-    queryKey: ["channels", workspaceSlug],
-    queryFn: async () => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels.$get(
-        { param: { workspaceSlug } }
-      )
-      if (!res.ok) throw new Error("Failed to load channels")
-      return res.json()
-    },
-  })
-  const textChannels = [
-    ...(channelsData?.uncategorized ?? []),
-    ...(channelsData?.categories ?? []).flatMap((cat) => cat.channels),
-  ].filter((ch) => ch.type === "text")
-  const notifyChannelItems = [
-    { value: NOTIFY_OFF, label: "Off" },
-    ...textChannels.map((ch) => ({ value: ch.id, label: `#${ch.name}` })),
-  ]
-
-  const updateTrigger = useMutation({
-    mutationFn: async (input: TriggerConfig & { event: string }) => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].integrations[
-        ":connectionId"
-      ].$patch({
-        param: { workspaceSlug, connectionId },
-        json: input,
-      })
-      if (!res.ok) {
-        // A refused repo or session mode says why.
-        const body = (await res.json().catch(() => null)) as {
-          message?: string
-        } | null
-        throw new Error(body?.message ?? "Failed to update event")
-      }
-    },
-    onMutate: (input) => trackPending(input.event, 1),
-    // Awaited so the event stays locked until the refetch lands — `send`
-    // composes the full trigger config from cached row data, so editing again
-    // before the refetch would overwrite the previous change with stale
-    // sibling fields.
-    onSuccess: async () => {
-      const queryKey = ["integrations", workspaceSlug]
-      await queryClient.invalidateQueries({ queryKey })
-      // Another event's save cancels this refetch for its own, which also
-      // carries this change: wait for that one.
-      if (queryClient.isFetching({ queryKey }) > 0) {
-        await queryClient.refetchQueries({ queryKey }, { cancelRefetch: false })
-      }
-    },
-    onError: (err) => toast.error(err.message),
-    onSettled: (_data, _err, input) => trackPending(input.event, -1),
-  })
-  const activeEvents = events.filter((ev) => ev.channelId).length
-
-  return (
-    <SettingsSection
-      title="Events"
-      count={events.length}
-      action={
-        activeEvents > 0 && (
-          <span className="text-xs text-muted-foreground">
-            {activeEvents} active
-          </span>
-        )
-      }
-    >
-      <SettingsGroup>
-        {events.map((ev) => {
-          const busy = ev.key in pendingEvents
-          // Each change re-sends the full trigger config so one PATCH shape
-          // covers channel moves and effect toggles alike.
-          const send = (patch: Partial<TriggerConfig>) => {
-            updateTrigger.mutate({
-              event: ev.key,
-              channelId: ev.channelId,
-              post: ev.post,
-              actInstructions: ev.actInstructions,
-              actSessionMode: ev.actSessionMode,
-              actCode: ev.actCode,
-              actWindowSeconds: ev.actWindowSeconds,
-              hourlyRunCap: ev.hourlyRunCap,
-              dailyRunCap: ev.dailyRunCap,
-              ...patch,
-            })
-          }
-          return (
-            <div key={ev.key} className="space-y-3 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="min-w-0 truncate text-sm">{ev.label}</span>
-                <Select
-                  items={notifyChannelItems}
-                  value={ev.channelId ?? NOTIFY_OFF}
-                  disabled={busy || !canManage}
-                  onValueChange={(value) => {
-                    send({ channelId: value === NOTIFY_OFF ? null : value })
-                  }}
-                >
-                  <SelectTrigger className="w-44 shrink-0" size="sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NOTIFY_OFF}>Off</SelectItem>
-                    {textChannels.map((ch) => (
-                      <SelectItem key={ch.id} value={ch.id}>
-                        #{ch.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {ev.channelId && (
-                <div className="rounded-lg bg-background">
-                  <TriggerEffects
-                    idPrefix={`${connectorId}-${ev.key}`}
-                    channelLabel={
-                      textChannels.find((ch) => ch.id === ev.channelId)?.name
-                    }
-                    disabled={busy || !canManage}
-                    codeScope={{ workspaceSlug, channelId: ev.channelId }}
-                    value={{
-                      post: ev.post,
-                      actInstructions: ev.actInstructions,
-                      actSessionMode: ev.actSessionMode,
-                      actCode: ev.actCode,
-                      actWindowSeconds: ev.actWindowSeconds,
-                      hourlyRunCap: ev.hourlyRunCap,
-                      dailyRunCap: ev.dailyRunCap,
-                      lastAct: ev.lastAct,
-                    }}
-                    onPatch={(patch) => send(patch)}
-                  />
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </SettingsGroup>
-    </SettingsSection>
   )
 }
 
@@ -1232,6 +1108,225 @@ function CloudwatchConnectDialog({
   )
 }
 
+// Circleback's own link to Settings → API access (its API docs).
+const CIRCLEBACK_API_KEYS_URL = "https://circleback.ai/settings?tab=api-access"
+
+// A read-only key: Lor never writes to Circleback. The key reads its owner's
+// meetings and those shared with them (reference/circleback-connector.md).
+function CirclebackConnectDialog({
+  workspaceSlug,
+  open,
+  onOpenChange,
+  onConnected,
+}: {
+  workspaceSlug: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onConnected: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [apiKey, setApiKey] = useState("")
+  const connect = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1.workspaces[
+        ":workspaceSlug"
+      ].integrations.circleback.connect.$post({
+        param: { workspaceSlug },
+        json: { apiKey: apiKey.trim() },
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Couldn't connect Circleback")
+      }
+    },
+    onSuccess: async () => {
+      setApiKey("")
+      await queryClient.invalidateQueries({
+        queryKey: ["integrations", workspaceSlug],
+      })
+      toast.success("Circleback connected")
+      onOpenChange(false)
+      onConnected()
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(value) => {
+        if (connect.isPending) return
+        if (!value) setApiKey("")
+        onOpenChange(value)
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Connect Circleback</DialogTitle>
+          <DialogDescription>
+            Agents can search your team's meetings, read their notes and
+            transcripts, and see who owns which action items.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Create a <strong>read-only</strong> key in{" "}
+            <a
+              href={CIRCLEBACK_API_KEYS_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-4"
+            >
+              Circleback's API settings
+            </a>
+            . Lor only reads from Circleback.
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="circleback-api-key">API key</Label>
+            <Input
+              id="circleback-api-key"
+              type="password"
+              autoComplete="off"
+              placeholder="cb_…"
+              value={apiKey}
+              disabled={connect.isPending}
+              onChange={(event) => setApiKey(event.target.value)}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            A key reads the meetings of the person who made it and those shared
+            with them, and everyone in this workspace can find them. New
+            meetings from the whole team can come in through an automation, set
+            up after you connect.
+          </p>
+        </DialogPanel>
+        <DialogFooter>
+          <Button
+            onClick={() => connect.mutate()}
+            disabled={!apiKey.trim() || connect.isPending}
+          >
+            {connect.isPending && <Spinner className="size-4" />}Connect
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// Granola's own link (its IT admin guide): opens the desktop app at Settings →
+// Connectors → Workspace API keys.
+const GRANOLA_WORKSPACE_KEYS_URL =
+  "https://grano.la/app?path=%2Fsettings%2Fintegrations%2Fworkspace-api-keys"
+
+// Workspace API keys only (reference/granola-connector.md): a personal key
+// would put one person's private notes in front of the whole workspace.
+function GranolaConnectDialog({
+  workspaceSlug,
+  open,
+  onOpenChange,
+  onConnected,
+}: {
+  workspaceSlug: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onConnected: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [apiKey, setApiKey] = useState("")
+  const connect = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1.workspaces[
+        ":workspaceSlug"
+      ].integrations.granola.connect.$post({
+        param: { workspaceSlug },
+        json: { apiKey: apiKey.trim() },
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Couldn't connect Granola")
+      }
+      return res.json()
+    },
+    onSuccess: async (result) => {
+      setApiKey("")
+      await queryClient.invalidateQueries({
+        queryKey: ["integrations", workspaceSlug],
+      })
+      toast.success(
+        result.events
+          ? "Granola connected"
+          : "Granola connected, without new-meeting events on this server"
+      )
+      onOpenChange(false)
+      onConnected()
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(value) => {
+        if (connect.isPending) return
+        if (!value) setApiKey("")
+        onOpenChange(value)
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Connect Granola</DialogTitle>
+          <DialogDescription>
+            Agents can search your team's meetings and read their notes and
+            transcripts, and hear about each new meeting as it is written up.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            A Granola admin creates one in{" "}
+            <a
+              href={GRANOLA_WORKSPACE_KEYS_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-4"
+            >
+              Granola's workspace API keys
+            </a>
+            . It needs a Business or Enterprise plan. Personal keys aren't
+            accepted.
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="granola-api-key">Workspace API key</Label>
+            <Input
+              id="granola-api-key"
+              type="password"
+              autoComplete="off"
+              placeholder="grn_…"
+              value={apiKey}
+              disabled={connect.isPending}
+              onChange={(event) => setApiKey(event.target.value)}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Lor sees the notes in the spaces the key covers, and everyone in
+            this workspace can find them. Notes in Granola are private until
+            they're in a shared space.
+          </p>
+        </DialogPanel>
+        <DialogFooter>
+          <Button
+            onClick={() => connect.mutate()}
+            disabled={!apiKey.trim() || connect.isPending}
+          >
+            {connect.isPending && <Spinner className="size-4" />}Connect
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function BetterstackConnectDialog({
   workspaceSlug,
   open,
@@ -1317,7 +1412,7 @@ function BetterstackConnectDialog({
           </div>
           <p className="text-xs text-muted-foreground">
             The selected tools will be available to workspace members through
-            their assigned agent profiles. Your existing channel alert webhook
+            their assigned agent profiles. Your existing alert webhook in a chat
             keeps delivering alerts independently.
           </p>
         </DialogPanel>

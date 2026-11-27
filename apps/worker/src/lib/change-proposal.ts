@@ -65,6 +65,9 @@ export async function createProposalCard(
   input: {
     workspaceId: string
     channelId: string
+    // The agent proposing it: the card is its own post, and a Loop the
+    // proposal creates belongs to it.
+    agentId?: string
     threadRootId: string | null
     rationale: string
     evidence: ProposalEvidence[]
@@ -79,6 +82,7 @@ export async function createProposalCard(
       content: `Proposed workspace changes:\n${lines.join("\n")}`,
       type: "proposal_card",
       ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
+      ...(input.agentId ? { agentId: input.agentId } : {}),
     }
   )
 

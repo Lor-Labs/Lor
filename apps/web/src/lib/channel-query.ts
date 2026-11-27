@@ -10,7 +10,7 @@ export function channelQueryOptions(workspaceSlug: string, channelId: string) {
       ].$get({
         param: { workspaceSlug, channelId },
       })
-      if (!res.ok) throw new Error("Failed to fetch channel")
+      if (!res.ok) throw new Error("Failed to load chat")
       return res.json()
     },
   })

@@ -9,15 +9,15 @@ import { openInNewTab } from "@/lib/open-external"
 
 // Stored message markdown for mentions and links, written and read back by
 // the nodes themselves. The server, renderer and mention extraction read
-// `<@id>` for a person and a lowercase `@channel`, `@here` or `@everyone`
-// for a broadcast (packages/messaging/src/mentions.ts).
-const BROADCAST_MENTION_IDS = new Set(["everyone", "channel", "here"])
+// `<@id>` for a person and a lowercase `@chat` or `@here` for a group
+// mention (packages/messaging/src/index.ts).
+const BROADCAST_MENTION_IDS = new Set(["chat", "here"])
 const USER_MENTION = new RegExp(`^${STORED_MENTION_REGEX.source}`, "i")
 // A broadcast counts only at the start or after whitespace, as the server
 // matches it.
-const BROADCAST_MENTION = /^@(everyone|channel|here)\b/i
+const BROADCAST_MENTION = /^@(chat|here)\b/i
 const MENTION_START = new RegExp(
-  `${STORED_MENTION_REGEX.source}|(?:^|\\s)@(?:everyone|channel|here)\\b`,
+  `${STORED_MENTION_REGEX.source}|(?:^|\\s)@(?:chat|here)\\b`,
   "i"
 )
 

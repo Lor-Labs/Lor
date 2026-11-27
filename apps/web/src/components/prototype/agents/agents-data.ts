@@ -1,124 +1,170 @@
+import type { CreatureId } from "@repo/utils/bestiary"
 import { me, type Person, people } from "../prototype-data"
 
-// Made-up data for the team-agents prototype (reference/planned/team-agents.md).
-// A channel is an agent. A thread is a conversation with that agent: it has
-// no repo, branch or mode of its own, and the agent starts code sessions
-// under it as the work needs them. The team's own chat is a room attached to
-// the agent.
+// Made-up data for the agents-and-chats prototype
+// (reference/agents-and-chats.md). An agent is a teammate for a role
+// and is added to channels. A channel is only a place where people talk. A
+// chat is one piece of work between some people and one agent, and the agent
+// starts code sessions under it.
 
-// How far the agent may go on its own for one watch. Access grows with trust.
-export type TrustLevel = "observes" | "prepares" | "acts" | "owns"
-
-export const trustLevels: Record<TrustLevel, { label: string; text: string }> =
-  {
-    observes: {
-      label: "Observes",
-      text: "Reports what it sees. Changes nothing.",
-    },
-    prepares: {
-      label: "Prepares",
-      text: "Does the work, then asks before anything leaves.",
-    },
-    acts: {
-      label: "Acts",
-      text: "Does narrow, reversible things without asking.",
-    },
-    owns: {
-      label: "Owns",
-      text: "Watches a queue and proposes what to do next.",
-    },
-  }
-
+// Something that wakes the agent with nobody asking. It names the channel
+// the agent reports in.
 export type Watch = {
   id: string
   label: string
   kind: "event" | "schedule"
   lastFired: string
-  // The person who answers for what this watch starts.
-  owner: Person
-  level: TrustLevel
+  reportsIn: string
 }
 
-// Where the team talks. One room per agent at a time.
-export type Room =
-  | { kind: "slack"; channel: string }
-  | { kind: "discord"; channel: string }
-  | { kind: "lor" }
+export type ChannelPlace = "lor" | "slack" | "discord"
 
-export function roomName(room: Room, agent: Agent) {
-  if (room.kind === "lor") return `#${agent.id} in Lor`
-  return `${room.channel} in ${room.kind === "slack" ? "Slack" : "Discord"}`
+// A long-lasting place where people talk, in Lor or in a chat app. It has
+// one agent or none.
+export type Channel = {
+  id: string
+  name: string
+  place: ChannelPlace
+  topic: string
+  agentId?: string
 }
 
-// How far the agent goes in the room.
-export type RoomLevel = "listens" | "mentioned" | "speaks"
-
-export const roomLevels: { id: RoomLevel; label: string; text: string }[] = [
+export const channels: Channel[] = [
   {
-    id: "listens",
-    label: "Listens",
-    text: "Reads the room and remembers what was decided. Never writes.",
+    id: "general",
+    name: "general",
+    place: "lor",
+    topic: "Team-wide updates.",
   },
   {
-    id: "mentioned",
-    label: "Answers when mentioned",
-    text: "Replies in a thread under the message. The same thread shows here.",
+    id: "eng",
+    name: "eng",
+    place: "lor",
+    topic: "Code, pull requests and technical decisions.",
+    agentId: "eng",
   },
   {
-    id: "speaks",
-    label: "Speaks up",
-    text: "Also replies, in a thread, when it can help and nobody asked.",
+    id: "incidents",
+    name: "incidents",
+    place: "lor",
+    topic: "Alerts and what was done about them.",
+    agentId: "eng",
+  },
+  {
+    id: "gtm",
+    name: "gtm",
+    place: "lor",
+    topic: "Signups, deals and outreach.",
+    agentId: "gtm",
+  },
+  {
+    id: "support",
+    name: "support",
+    place: "slack",
+    topic: "Customer questions. The team talks in Slack.",
+    agentId: "support",
   },
 ]
 
+export function channelById(channelId: string) {
+  return channels.find((channel) => channel.id === channelId)
+}
+
+export const placeNames: Record<ChannelPlace, string> = {
+  lor: "Lor",
+  slack: "Slack",
+  discord: "Discord",
+}
+
+// A Claude Code or ChatGPT login the agent uses for code sessions when the
+// person who asked has no plan of their own, and for work nobody asked for.
+export type CodingAccount = {
+  id: string
+  provider: "Claude Code" | "Codex"
+  label: string
+  note: string
+}
+
+export type Fact = { id: string; text: string; source: string }
+
 export type Agent = {
   id: string
+  // What the team calls it.
   name: string
+  role: string
+  creature: CreatureId
   job: string
   brief: string
+  facts: Fact[]
+  model: string
+  accounts: CodingAccount[]
   watching: Watch[]
   tools: string[]
   repos: string[]
   prompts: { name: string; text: string }[]
-  handoffs: string[]
-  room?: Room
   suggestions: string[]
 }
 
 export const agents: Agent[] = [
   {
     id: "eng",
-    name: "Eng",
+    name: "Inky",
+    role: "Eng",
+    creature: "kraken",
     job: "Errors to fixes, reviews, the weekly digest",
     brief:
-      "You look after production for Northstar. Investigate every error alert that lasts more than 10 minutes or hits more than 10 times. Find the pull request that caused it and fix it on a branch. Never touch billing code without asking Eli. Open draft pull requests only. A person merges.",
+      "You look after production for Northstar. Investigate every error alert that lasts more than 10 minutes or hits more than 10 times. Find the pull request that caused it and fix it on a branch. Never touch billing code without asking Eli. A person reviews and merges.",
+    facts: [
+      {
+        id: "f1",
+        text: "Paygrove's retry cap stays at 5.",
+        source: "Eli in #eng, today",
+      },
+      {
+        id: "f2",
+        text: "Releases go out on Thursdays.",
+        source: "Mara in a chat, Monday",
+      },
+      {
+        id: "f3",
+        text: "The worker's queue needs Redis 7 locally.",
+        source: "A code session in worker, last week",
+      },
+    ],
+    model: "Opus 5.5",
+    accounts: [
+      {
+        id: "a1",
+        provider: "Claude Code",
+        label: "Northstar Max",
+        note: "First",
+      },
+      { id: "a2", provider: "Codex", label: "Northstar Team", note: "Backup" },
+    ],
     watching: [
       {
         id: "errors",
-        owner: people.mara,
-        level: "prepares",
         label: "Better Stack errors",
         kind: "event",
         lastFired: "12 min ago",
+        reportsIn: "incidents",
       },
       {
         id: "reviews",
-        owner: people.owen,
-        level: "observes",
         label: "GitHub reviews",
         kind: "event",
         lastFired: "1 h ago",
+        reportsIn: "eng",
       },
       {
         id: "digest",
-        owner: people.mara,
-        level: "acts",
         label: "Weekly digest, Mondays 9:00",
         kind: "schedule",
         lastFired: "Monday",
+        reportsIn: "eng",
       },
     ],
-    tools: ["GitHub", "Better Stack", "Linear", "Sandbox", "Web"],
+    tools: ["GitHub", "Better Stack", "Linear", "Web"],
     repos: ["web", "api", "realtime"],
     prompts: [
       {
@@ -130,8 +176,6 @@ export const agents: Agent[] = [
         text: "Write release notes for everything merged since the last tag.",
       },
     ],
-    handoffs: ["Support may hand work to Eng"],
-    room: { kind: "slack", channel: "#eng" },
     suggestions: [
       "Look at my Linear issues and let's get started on them",
       "How are errors trending?",
@@ -140,29 +184,38 @@ export const agents: Agent[] = [
   },
   {
     id: "support",
-    name: "Support",
-    job: "Drafts replies, hands bugs to Eng",
+    name: "Fennel",
+    role: "Support",
+    creature: "fox",
+    job: "Drafts replies, finds the fix behind a ticket",
     brief:
-      "You answer customers of Northstar. Draft every reply for approval and never send without it. Use the policy pages in Notion. When a customer reports a bug, hand it to Eng and wait for the answer before replying.",
+      "You answer customers of Northstar. Draft every reply for approval and never send without it. Use the policy pages in Notion. When a customer reports a bug, check whether it is already fixed before replying.",
+    facts: [
+      {
+        id: "f4",
+        text: "Refunds over $500 need Samira's sign-off.",
+        source: "Samira in #support, yesterday",
+      },
+    ],
+    model: "Opus 5.5",
+    accounts: [],
     watching: [
       {
         id: "inbox",
-        owner: people.samira,
-        level: "prepares",
         label: "Support inbox",
         kind: "event",
         lastFired: "40 min ago",
+        reportsIn: "support",
       },
       {
         id: "bugs",
-        owner: people.samira,
-        level: "observes",
         label: "Linear bugs",
         kind: "event",
         lastFired: "Yesterday",
+        reportsIn: "support",
       },
     ],
-    tools: ["Attio", "Notion", "Linear", "Web"],
+    tools: ["Attio", "Notion", "Linear", "GitHub", "Web"],
     repos: [],
     prompts: [
       {
@@ -170,62 +223,66 @@ export const agents: Agent[] = [
         text: "Draft a reply in our voice. Two short paragraphs at most.",
       },
     ],
-    handoffs: ["Support may hand work to Eng"],
-    room: { kind: "slack", channel: "#support" },
     suggestions: ["Summarize this week's tickets"],
   },
   {
     id: "gtm",
-    name: "GTM",
+    name: "Quill",
+    role: "GTM",
+    creature: "owl",
     job: "Signups, the CRM, outreach drafts",
     brief:
       "You help Northstar find and talk to customers. Every Monday, check new signups against Attio and list the ones worth a call. Draft outreach for approval. Never send from a personal account.",
+    facts: [],
+    model: "Opus 5.5",
+    accounts: [],
     watching: [
       {
         id: "signups",
-        owner: people.samira,
-        level: "prepares",
         label: "New signups, Mondays 8:00",
         kind: "schedule",
         lastFired: "Monday",
+        reportsIn: "gtm",
       },
       {
         id: "deals",
-        owner: people.mara,
-        level: "observes",
         label: "Attio deals",
         kind: "event",
         lastFired: "3 h ago",
+        reportsIn: "gtm",
       },
     ],
     tools: ["Attio", "Web"],
     repos: [],
     prompts: [],
-    handoffs: [],
     suggestions: ["Who signed up this week?", "Which deals went quiet?"],
   },
   {
     id: "design",
-    name: "Design",
+    name: "Morel",
+    role: "Design",
+    creature: "myconid",
     job: "Not set up yet",
     brief: "",
+    facts: [],
+    model: "Opus 5.5",
+    accounts: [],
     watching: [],
     tools: [],
     repos: [],
     prompts: [],
-    handoffs: [],
     suggestions: [],
   },
 ]
 
 export type WorkState = "running" | "needs_you" | "done"
 
-// A message inside one thread. A null author is Lor.
+// A message inside one session. A null author is the coding agent.
 export type Reply = { id: string; author: Person | null; text: string }
 
 // One piece of work with its own computer. In code mode it is a code session:
 // one repo, one branch, one dev box. Otherwise it runs on the agent's own
-// computer. With a parent it was started by the agent from that thread;
+// computer. With a parent it was started by the agent from that chat;
 // without one a person started it directly.
 export type Work = {
   id: string
@@ -237,9 +294,9 @@ export type Work = {
   app?: boolean
   // What the person asked for, when they started the code session directly.
   prompt?: string
-  // Whose call it is: the person who asked, or the owner of the watch that
-  // started it. Everyone can write in the thread; the owner settles it.
-  owner: Person
+  // Who asked for it. Their own plan pays for the session before the
+  // agent's does.
+  asker: Person
   title: string
   mode: "code" | "chat"
   state: WorkState
@@ -262,7 +319,7 @@ export const initialWorks: Work[] = [
     branch: "lor/export-retry",
     diff: true,
     app: true,
-    owner: people.mara,
+    asker: people.mara,
     title: "Fix export retry",
     mode: "code",
     state: "needs_you",
@@ -295,7 +352,7 @@ export const initialWorks: Work[] = [
     parentId: "checkout-500s",
     repo: "web",
     branch: "lor/checkout-500",
-    owner: people.mara,
+    asker: people.mara,
     title: "Investigate checkout 500s",
     mode: "code",
     state: "running",
@@ -313,7 +370,7 @@ export const initialWorks: Work[] = [
     parentId: "hono-5",
     repo: "api",
     branch: "lor/hono-5-api",
-    owner: people.owen,
+    asker: people.owen,
     title: "api",
     mode: "code",
     state: "done",
@@ -328,7 +385,7 @@ export const initialWorks: Work[] = [
     parentId: "hono-5",
     repo: "realtime",
     branch: "lor/hono-5-realtime",
-    owner: people.owen,
+    asker: people.owen,
     title: "realtime",
     mode: "code",
     state: "running",
@@ -341,7 +398,7 @@ export const initialWorks: Work[] = [
     parentId: "hono-5",
     repo: "worker",
     branch: "lor/hono-5-worker",
-    owner: people.owen,
+    asker: people.owen,
     title: "worker",
     mode: "code",
     state: "running",
@@ -354,7 +411,7 @@ export const initialWorks: Work[] = [
     repo: "web",
     branch: "lor/export-button",
     app: true,
-    owner: people.eli,
+    asker: people.eli,
     title: "Export button looks idle",
     mode: "code",
     state: "done",
@@ -374,7 +431,7 @@ export const initialWorks: Work[] = [
     agentId: "eng",
     repo: "web",
     branch: "lor/invoice-dark",
-    owner: people.mara,
+    asker: people.mara,
     title: "Dark mode for the invoice page",
     mode: "code",
     state: "done",
@@ -394,7 +451,7 @@ export const initialWorks: Work[] = [
 export type Draft = {
   id: string
   agentId: string
-  threadId: string
+  chatId: string
   title: string
   to: string
   subject: string
@@ -406,7 +463,7 @@ export const initialDrafts: Draft[] = [
   {
     id: "paygrove-reply",
     agentId: "support",
-    threadId: "paygrove-export",
+    chatId: "paygrove-export",
     title: "Reply to Paygrove",
     to: "Dana Whitfield, Paygrove",
     subject: "Re: Export does nothing",
@@ -496,47 +553,44 @@ export type Block =
   | { kind: "chart"; chartId: string }
   | { kind: "leads" }
   | { kind: "draft"; draftId: string }
-  | {
-      kind: "handoff"
-      toAgentId: string
-      ask: string
-      answer: string
-      workId: string
-    }
   | { kind: "templates" }
   | { kind: "proposal" }
 
-export type ThreadItem =
+export type ChatItem =
   | { id: string; kind: "person"; author: Person; time: string; text: string }
   | {
       id: string
       kind: "agent"
       time: string
-      // What woke it when nobody asked: an alert, a schedule, another agent.
-      woke?: string
       text?: string
       blocks?: Block[]
       pending?: boolean
     }
 
-// Who or what started a thread with the agent.
+// Who or what started a chat with the agent. A chat that began in a channel
+// also shows there, as a chat under the message.
 export type Starter =
   | { kind: "person"; person: Person }
-  | { kind: "room"; person: Person; room: string }
-  | { kind: "event"; source: string }
-  | { kind: "timer"; label: string }
+  | { kind: "channel"; person: Person; channelId: string }
+  | { kind: "event"; source: string; channelId: string }
+  | { kind: "timer"; label: string; channelId: string }
 
-// A thread with a channel's agent: one piece of work, the people on it,
-// and the code sessions the agent starts for it. In Slack it is a thread.
-export type Thread = {
+// One piece of work between some people and one agent, with the code
+// sessions the agent starts for it. Anyone who can see the agent can open
+// it; only the people in it have it in their sidebar.
+export type Chat = {
   id: string
   agentId: string
   title: string
   starter: Starter
-  // Whose call it is. Everyone in the channel can open and write in it.
-  owner: Person
   people: Person[]
   time: string
+}
+
+export function chatChannel(chat: Chat) {
+  return chat.starter.kind === "person"
+    ? undefined
+    : channelById(chat.starter.channelId)
 }
 
 export function starterLine(starter: Starter) {
@@ -545,23 +599,22 @@ export function starterLine(starter: Starter) {
   switch (starter.kind) {
     case "person":
       return `${first(starter.person)} asked`
-    case "room":
-      return `${first(starter.person)} asked in ${starter.room}`
+    case "channel":
+      return `${first(starter.person)} asked in #${channelById(starter.channelId)?.name}`
+    // The chat never says what woke the agent (always-on-agents decision 30).
     case "event":
-      return `Started by ${starter.source}`
     case "timer":
-      return `On a schedule, ${starter.label}`
+      return "Started on its own"
   }
 }
 
 // Newest first.
-export const initialThreads: Thread[] = [
+export const initialChats: Chat[] = [
   {
     id: "design-setup",
     agentId: "design",
-    title: "Set up Design",
+    title: "Set up Morel",
     starter: { kind: "person", person: people.mara },
-    owner: people.mara,
     people: [people.mara],
     time: "now",
   },
@@ -569,8 +622,7 @@ export const initialThreads: Thread[] = [
     id: "hono-5",
     agentId: "eng",
     title: "Upgrade Hono to 5",
-    starter: { kind: "room", person: people.owen, room: "#eng in Slack" },
-    owner: people.owen,
+    starter: { kind: "channel", person: people.owen, channelId: "eng" },
     people: [people.owen],
     time: "9:20",
   },
@@ -578,8 +630,11 @@ export const initialThreads: Thread[] = [
     id: "paygrove-export",
     agentId: "support",
     title: "Paygrove: Export does nothing",
-    starter: { kind: "event", source: "the support inbox" },
-    owner: people.mara,
+    starter: {
+      kind: "event",
+      source: "the support inbox",
+      channelId: "support",
+    },
     people: [people.mara, people.samira],
     time: "9:05",
   },
@@ -587,8 +642,11 @@ export const initialThreads: Thread[] = [
     id: "checkout-500s",
     agentId: "eng",
     title: "Checkout 500s",
-    starter: { kind: "event", source: "a Better Stack alert" },
-    owner: people.mara,
+    starter: {
+      kind: "event",
+      source: "a Better Stack alert",
+      channelId: "incidents",
+    },
     people: [people.mara],
     time: "8:30",
   },
@@ -596,8 +654,11 @@ export const initialThreads: Thread[] = [
     id: "export-timeouts",
     agentId: "eng",
     title: "ExportJob timeouts",
-    starter: { kind: "event", source: "a Better Stack alert" },
-    owner: people.mara,
+    starter: {
+      kind: "event",
+      source: "a Better Stack alert",
+      channelId: "incidents",
+    },
     people: [people.mara, people.eli, people.owen],
     time: "2:10",
   },
@@ -605,8 +666,7 @@ export const initialThreads: Thread[] = [
     id: "digest-w46",
     agentId: "eng",
     title: "Weekly digest",
-    starter: { kind: "timer", label: "Mondays 9:00" },
-    owner: people.mara,
+    starter: { kind: "timer", label: "Mondays 9:00", channelId: "eng" },
     people: [people.mara, people.eli, people.owen],
     time: "Mon",
   },
@@ -614,21 +674,19 @@ export const initialThreads: Thread[] = [
     id: "signups-w46",
     agentId: "gtm",
     title: "New signups, week 46",
-    starter: { kind: "timer", label: "Mondays 8:00" },
-    owner: people.samira,
+    starter: { kind: "timer", label: "Mondays 8:00", channelId: "gtm" },
     people: [people.samira, people.mara],
     time: "Mon",
   },
 ]
 
-// Keyed by thread.
-export const initialTranscripts: Record<string, ThreadItem[]> = {
+// Keyed by chat.
+export const initialTranscripts: Record<string, ChatItem[]> = {
   "digest-w46": [
     {
       id: "t1",
       kind: "agent",
       time: "9:00",
-      woke: "on its Monday schedule",
       text: "Last week went well. Six fixes merged, two are still waiting on review, and errors are down by a third.",
       blocks: [
         {
@@ -647,7 +705,6 @@ export const initialTranscripts: Record<string, ThreadItem[]> = {
       id: "t2",
       kind: "agent",
       time: "2:10",
-      woke: "from a Better Stack alert",
       text: "ExportJob started timing out overnight. A retry restarts the whole batch, so large exports never finish. I started a session in api, fixed it on a branch and checked it against Paygrove's export.",
       blocks: [{ kind: "work", workId: "export-retry" }],
     },
@@ -657,7 +714,6 @@ export const initialTranscripts: Record<string, ThreadItem[]> = {
       id: "t3",
       kind: "agent",
       time: "8:30",
-      woke: "from a Better Stack alert",
       text: "Checkout is returning 500s, 22 in the last ten minutes. I started a session in web to find the cause.",
       blocks: [{ kind: "work", workId: "checkout-500" }],
     },
@@ -668,7 +724,7 @@ export const initialTranscripts: Record<string, ThreadItem[]> = {
       kind: "person",
       author: people.owen,
       time: "9:20",
-      text: "@Lor upgrade Hono to 5 before the release. api, realtime and worker",
+      text: "@Inky upgrade Hono to 5 before the release. api, realtime and worker",
     },
     {
       id: "t5",
@@ -689,24 +745,13 @@ export const initialTranscripts: Record<string, ThreadItem[]> = {
       id: "s1",
       kind: "agent",
       time: "9:05",
-      woke: "from the support inbox",
-      text: "Paygrove wrote: “We click Export and nothing happens. Is it broken?” Their exports are running, but the button shows no progress, so they click again. I asked Eng before replying.",
-      blocks: [
-        {
-          kind: "handoff",
-          toAgentId: "eng",
-          ask: "The export button gives no feedback while an export runs. Paygrove, 41,000 rows. Can you confirm and fix it?",
-          answer:
-            "Confirmed. Fixed and merged in #412: it now shows progress and blocks a second click.",
-          workId: "idle-export",
-        },
-      ],
+      text: "Paygrove wrote: “We click Export and nothing happens. Is it broken?” Their exports are running, but the button shows no progress, so they click again. I checked GitHub: that was fixed and merged in #412 this morning.",
     },
     {
       id: "s2",
       kind: "agent",
       time: "9:48",
-      text: "With that fixed, here is the reply I would send.",
+      text: "Here is the reply I would send.",
       blocks: [{ kind: "draft", draftId: "paygrove-reply" }],
     },
   ],
@@ -715,7 +760,6 @@ export const initialTranscripts: Record<string, ThreadItem[]> = {
       id: "g1",
       kind: "agent",
       time: "8:00",
-      woke: "on its Monday schedule",
       text: "14 teams signed up last week. Five look worth a call. Pick the ones you want and I'll draft the outreach.",
       blocks: [{ kind: "leads" }],
     },
@@ -725,64 +769,125 @@ export const initialTranscripts: Record<string, ThreadItem[]> = {
       id: "x1",
       kind: "agent",
       time: "now",
-      text: "I'm not set up for Design yet. Tell me what you want me to look after, or start from one of these. I'll propose what to watch, which tools to use and what needs approval, and you approve it once.",
+      text: "I'm not set up yet. Tell me what you want me to look after, or start from one of these. I'll propose what to watch, which tools to use and what needs approval, and you approve it once.",
       blocks: [{ kind: "templates" }],
     },
   ],
 }
 
-// What the agent took from the room, so people can see what it hears.
-export type Pickup = {
+// A message in a channel. People talk to people there. A mention of the
+// channel's agent gets a plain reply, or a chat once it turns into work.
+export type ChannelMessage = {
   id: string
-  author: Person
+  // A person, or the channel's agent when it posts with nobody asking.
+  author: Person | null
   time: string
   text: string
-  outcome: "thread" | "noted" | "passed"
-  note: string
-  threadId?: string
+  // The agent's plain answer to a quick question: no chat.
+  reply?: string
+  // The chat this message started. It shows here as a chat.
+  chatId?: string
 }
 
-export const pickups: Record<string, Pickup[]> = {
-  eng: [
+export const initialChannelChat: Record<string, ChannelMessage[]> = {
+  general: [
     {
-      id: "p1",
-      author: people.owen,
-      time: "9:20",
-      text: "@Lor upgrade Hono to 5 before the release. api, realtime and worker",
-      outcome: "thread",
-      note: "Mentioned. Answered in a thread",
-      threadId: "hono-5",
-    },
-    {
-      id: "p2",
-      author: people.eli,
-      time: "8:52",
-      text: "Paygrove's retry cap stays at 5, we agreed that on the call",
-      outcome: "noted",
-      note: "Saved to Eng's memory",
-    },
-    {
-      id: "p3",
+      id: "c1",
       author: people.samira,
       time: "8:40",
       text: "anyone up for lunch at 12:30?",
-      outcome: "passed",
-      note: "Not about Eng's work",
+    },
+    {
+      id: "c2",
+      author: people.owen,
+      time: "8:44",
+      text: "yes, the ramen place",
+    },
+    {
+      id: "c3",
+      author: people.eli,
+      time: "9:02",
+      text: "All-hands moved to 3pm today",
+    },
+  ],
+  eng: [
+    {
+      id: "c4",
+      author: null,
+      time: "Mon",
+      text: "Last week went well. Six fixes merged, two are still waiting on review, and errors are down by a third.",
+      chatId: "digest-w46",
+    },
+    {
+      id: "c5",
+      author: people.eli,
+      time: "8:52",
+      text: "Paygrove's retry cap stays at 5, we agreed that on the call",
+    },
+    {
+      id: "c6",
+      author: people.samira,
+      time: "9:10",
+      text: "@Inky when did the last deploy go out?",
+      reply: "At 9:02, from main. No new errors since.",
+    },
+    {
+      id: "c7",
+      author: people.owen,
+      time: "9:20",
+      text: "@Inky upgrade Hono to 5 before the release. api, realtime and worker",
+      chatId: "hono-5",
+    },
+  ],
+  incidents: [
+    {
+      id: "c8",
+      author: null,
+      time: "2:10",
+      text: "ExportJob started timing out overnight. A retry restarts the whole batch, so large exports never finish. I fixed it on a branch and checked it against Paygrove's export.",
+      chatId: "export-timeouts",
+    },
+    {
+      id: "c9",
+      author: null,
+      time: "8:30",
+      text: "Checkout is returning 500s, 22 in the last ten minutes. I started a session in web to find the cause.",
+      chatId: "checkout-500s",
+    },
+  ],
+  gtm: [
+    {
+      id: "c10",
+      author: null,
+      time: "Mon",
+      text: "14 teams signed up last week. Five look worth a call.",
+      chatId: "signups-w46",
+    },
+    {
+      id: "c11",
+      author: people.samira,
+      time: "9:15",
+      text: "Lumen asked for a call on Thursday",
     },
   ],
   support: [
     {
-      id: "p4",
+      id: "c12",
       author: people.samira,
       time: "Yesterday",
       text: "Refunds over $500 need my sign-off from now on",
-      outcome: "noted",
-      note: "Proposed as a change to the brief. Waiting for Samira",
+    },
+    {
+      id: "c13",
+      author: null,
+      time: "9:05",
+      text: "Paygrove wrote: “We click Export and nothing happens. Is it broken?” This was fixed in #412 this morning. I drafted a reply.",
+      chatId: "paygrove-export",
     },
   ],
 }
 
-// Issues the Eng agent finds for the person asking, and what it starts.
+// Issues the eng agent finds for the person asking, and what it starts.
 export const linearIssues = [
   {
     key: "LOR-173",
@@ -920,10 +1025,10 @@ export const logEvents: LogEvent[] = [
     id: "l1",
     agentId: "eng",
     time: "09:12",
-    source: "Support",
+    source: "Linear",
     text: "The export button gives no feedback",
     outcome: "worked",
-    reason: "A bug report from a linked agent.",
+    reason: "A bug Eli filed and assigned to it.",
   },
   {
     id: "l3",
@@ -941,7 +1046,7 @@ export const logEvents: LogEvent[] = [
     source: "GitHub",
     text: "Review requested on #415 from Owen",
     outcome: "passed",
-    reason: "Asked of a person, not of Lor.",
+    reason: "Asked of a person, not of Inky.",
   },
   {
     id: "l5",

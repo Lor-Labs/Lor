@@ -56,12 +56,15 @@ const LAST_PATH_KEY = "lor:last-path"
 // (e.g. the GitHub setup redirect reopens GitHub's connector detail):
 // ?settings=user|workspace&tab=<section>[&connector=<id>].
 // ?intro=true reopens the How Lor works dialog.
+// ?agent=<id|new>&agentTab=<tab> opens an agent's dialog.
 type SettingsSearch = {
   settings?: "user" | "workspace"
   tab?: string
   mcpServerId?: string
   connector?: string
   intro?: true
+  agent?: string
+  agentTab?: string
 }
 
 export const Route = createFileRoute("/_authenticated")({
@@ -77,6 +80,8 @@ export const Route = createFileRoute("/_authenticated")({
     connector:
       typeof search.connector === "string" ? search.connector : undefined,
     intro: search.intro === true ? true : undefined,
+    agent: typeof search.agent === "string" ? search.agent : undefined,
+    agentTab: typeof search.agentTab === "string" ? search.agentTab : undefined,
   }),
 })
 

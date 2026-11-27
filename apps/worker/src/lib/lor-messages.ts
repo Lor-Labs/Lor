@@ -1,5 +1,9 @@
-import { db, eq, LOR_USER_ID, schema } from "@repo/db"
-import type { ChannelEventPayload, ChannelEventType } from "@repo/db/schema"
+import { db, eq, LOR_USER_ID, schema, sql } from "@repo/db"
+import type {
+  Attachment,
+  ChannelEventPayload,
+  ChannelEventType,
+} from "@repo/db/schema"
 import {
   buildMessageFanout,
   loadThreadSummary,
@@ -8,7 +12,6 @@ import {
 import type { RealtimeMessage } from "@repo/realtime-types"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import { channelRoom, threadRoom, userRoom } from "@repo/realtime-types/rooms"
-import { channelAgentIdentity } from "@repo/utils/bestiary"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
@@ -20,15 +23,20 @@ export type LorMessageDeps = {
   redis: RedisClient
 }
 
-export async function loadLorAuthor() {
-  return db
+// Who a worker message is from: Lor's own user, or the bot user of the
+// agent speaking (an agent's id is its bot user's id).
+export async function loadLorAuthor(
+  agentId?: string,
+  executor: Pick<typeof db, "select"> = db
+) {
+  return executor
     .select({
       id: schema.user.id,
       name: schema.user.name,
       image: schema.user.image,
     })
     .from(schema.user)
-    .where(eq(schema.user.id, LOR_USER_ID))
+    .where(eq(schema.user.id, agentId ?? LOR_USER_ID))
     .limit(1)
     .then((rows) => rows[0] ?? null)
 }
@@ -40,8 +48,10 @@ async function loadChannel(channelId: string) {
       workspaceId: schema.channel.workspaceId,
       name: schema.channel.name,
       type: schema.channel.type,
-      agentName: schema.channel.agentName,
-      agentCreature: schema.channel.agentCreature,
+      // The agent that answers in the channel: the first one added.
+      agentName: sql<
+        string | null
+      >`(select a.name from channel_agent ca join agent a on a.id = ca.agent_id where ca.channel_id = ${schema.channel.id} order by ca.created_at, ca.agent_id limit 1)`,
       workspaceName: schema.workspace.name,
     })
     .from(schema.channel)
@@ -80,14 +90,19 @@ export async function fanoutLorMessage(
     messageId: string
     content: string
     threadRootId?: string
+    // The agent that wrote it. Without one it is Lor's own message, which
+    // in a chat goes by the name of the chat's first agent.
+    agentId?: string
+    // A file-only post's notification preview names its files.
+    attachments?: Attachment[]
   }
 ): Promise<RealtimeMessage["mentions"]> {
   try {
     const [channel, author] = await Promise.all([
       loadChannel(input.channelId),
-      loadLorAuthor(),
+      loadLorAuthor(input.agentId),
     ])
-    if (!channel || !author) throw new Error("Channel or Lor user missing")
+    if (!channel || !author) throw new Error("Channel or author missing")
     const asAgent = await speaksAsAgent(channel, input.threadRootId).catch(
       (err) => {
         logger.warn(
@@ -98,16 +113,16 @@ export async function fanoutLorMessage(
       }
     )
     const fanout = await buildMessageFanout({
-      authorId: LOR_USER_ID,
+      authorId: author.id,
       channel,
       message: {
         id: input.messageId,
         content: input.content,
         author: {
-          name: asAgent ? channelAgentIdentity(channel).name : author.name,
+          name: (!input.agentId && asAgent && channel.agentName) || author.name,
           image: author.image,
         },
-        attachments: [],
+        attachments: input.attachments ?? [],
         threadRootId: input.threadRootId ?? null,
       },
       redis: deps.redis,
@@ -164,16 +179,22 @@ export async function postLorMessage(
     silent?: boolean
     // A run's message: clients show the run's approval card under it.
     lorTriggerMessageId?: string
-  }
+    // The agent speaking, in a chat: the message's author is its bot user.
+    agentId?: string
+    attachments?: Attachment[]
+  },
+  // A caller's transaction: one holding a lock must not wait on a second
+  // pooled connection (pool exhaustion deadlock).
+  executor: Pick<typeof db, "select" | "insert"> = db
 ): Promise<{ messageId: string }> {
-  const author = await loadLorAuthor()
-  if (!author) throw new Error("Lor user missing")
+  const author = await loadLorAuthor(input.agentId, executor)
+  if (!author) throw new Error("Message author missing")
 
-  const inserted = await db
+  const inserted = await executor
     .insert(schema.message)
     .values({
       channelId: input.channelId,
-      authorId: LOR_USER_ID,
+      authorId: author.id,
       content: input.content,
       type: input.type ?? "default",
       eventType: input.eventType ?? null,
@@ -181,6 +202,7 @@ export async function postLorMessage(
       referencedMessageId: input.referencedMessageId ?? null,
       threadRootId: input.threadRootId ?? null,
       excludedFromMemory: input.type === "event",
+      attachments: input.attachments ?? [],
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
     .then((rows) => rows[0])
@@ -193,6 +215,10 @@ export async function postLorMessage(
         messageId: inserted.id,
         content: input.content,
         ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
+        ...(input.agentId ? { agentId: input.agentId } : {}),
+        ...(input.attachments?.length
+          ? { attachments: input.attachments }
+          : {}),
       })
 
   const message: RealtimeMessage = {
@@ -207,7 +233,7 @@ export async function postLorMessage(
     author: { ...author, avatarColor: null },
     mentions,
     reactions: [],
-    attachments: [],
+    attachments: input.attachments ?? [],
     embeds: [],
     referencedMessage: input.referencedMessageId
       ? {
@@ -221,6 +247,7 @@ export async function postLorMessage(
         }
       : null,
     threadRootId: input.threadRootId ?? null,
+    agentId: input.agentId ?? null,
     ...(input.lorTriggerMessageId
       ? { lorTriggerMessageId: input.lorTriggerMessageId }
       : {}),

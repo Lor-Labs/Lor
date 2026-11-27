@@ -433,7 +433,7 @@ function GithubSetupNote({
     )
   if (!github) return <CodeNote>Checking GitHub…</CodeNote>
   if (github.connected) {
-    return <CodeNote>Clone repository is off in this channel</CodeNote>
+    return <CodeNote>Clone repository is off in this chat</CodeNote>
   }
   if (!github.connectUrl) {
     return (

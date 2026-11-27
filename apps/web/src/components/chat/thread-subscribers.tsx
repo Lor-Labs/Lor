@@ -263,7 +263,7 @@ export function ThreadSubscribers({
                       />
                     </span>
                     <span className="min-w-0 truncate">
-                      Everyone in #{channel?.name ?? "channel"}
+                      Everyone in {channel?.name ?? "the chat"}
                     </span>
                   </button>
                 </div>

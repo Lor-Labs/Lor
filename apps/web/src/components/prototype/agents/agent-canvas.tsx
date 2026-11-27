@@ -1,16 +1,11 @@
-import {
-  ArrowUp02Icon,
-  Cancel01Icon,
-  Clock01Icon,
-  ZapIcon,
-} from "@hugeicons/core-free-icons"
+import { ArrowUp02Icon, Cancel01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { motion } from "motion/react"
 import { type ReactNode, useEffect, useState } from "react"
-import { me, type Person, people } from "../prototype-data"
+import { me, type Person } from "../prototype-data"
 import { MentionText, PersonAvatar } from "../prototype-parts"
 import { Bars, LiveSteps } from "./agent-blocks"
 import {
@@ -20,14 +15,10 @@ import {
   diffFiles,
   type LogOutcome,
   logEvents,
-  roomName,
-  trustLevels,
   type Work,
 } from "./agents-data"
 import { LorMark, PRESS, StateIcon } from "./agents-parts"
 import { type Canvas, useProto, type WorkTab } from "./agents-store"
-
-const everyone = Object.values(people)
 
 function Shell({
   title,
@@ -286,7 +277,7 @@ function Turn({
       )}
       <div className="min-w-0 flex-1">
         <div className="text-[14px] font-semibold">
-          {author ? author.name : "Lor"}
+          {author ? author.name : "Claude"}
         </div>
         {children}
       </div>
@@ -294,8 +285,9 @@ function Turn({
   )
 }
 
-// The session's own conversation: Lor's account of the work, then whoever
-// steers it or talks about it. It does not show in the agent's chat.
+// The session's own conversation: the coding agent's account of the work,
+// then whoever steers it or talks about it. It does not show in the chat
+// with the agent that started it.
 function SessionChat({ work }: { work: Work }) {
   const { reply } = useProto()
   const [text, setText] = useState("")
@@ -307,7 +299,7 @@ function SessionChat({ work }: { work: Work }) {
   return (
     <div className="flex min-h-full flex-col gap-6 p-5">
       {work.prompt && (
-        <Turn author={work.owner}>
+        <Turn author={work.asker}>
           <p className="text-[15px] leading-7">{work.prompt}</p>
         </Turn>
       )}
@@ -405,16 +397,16 @@ export function WorkCanvas({
       ? `Code session · ${work.repo ?? agent?.name} · ${work.branch ?? "branch"}`
       : `On ${agent?.name}'s own computer`
 
-  const owner =
-    work.owner.id === me.id
-      ? "you own it"
-      : `${work.owner.name.split(" ")[0]} owns it`
+  const asker =
+    work.asker.id === me.id
+      ? "you asked"
+      : `${work.asker.name.split(" ")[0]} asked`
 
   return (
     <Shell
       main={main}
       title={work.title}
-      subtitle={`${where} · ${owner} · ${work.facts ?? (work.state === "running" ? "working" : (work.result ?? "done"))}`}
+      subtitle={`${where} · ${asker} · ${work.facts ?? (work.state === "running" ? "working" : (work.result ?? "done"))}`}
       tabs={<Tabs value={shown} items={items} onChange={setActive} />}
       footer={
         work.state === "needs_you" && (
@@ -524,130 +516,6 @@ function ChartCanvas({ chartId }: { chartId: string }) {
   )
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="border-b border-border/60 px-5 py-4 last:border-b-0">
-      <h3 className="mb-2 text-[12.5px] font-medium text-muted-foreground">
-        {title}
-      </h3>
-      {children}
-    </section>
-  )
-}
-
-function SetupCanvas({ agent }: { agent: Agent }) {
-  const { configured, rooms } = useProto()
-  const room = rooms[agent.id]
-  if (!configured[agent.id]) {
-    return (
-      <Shell title={`${agent.name} setup`} subtitle="Not set up yet">
-        <p className="p-5 text-[15px] leading-7 text-muted-foreground">
-          Tell {agent.name} what to look after in the chat. Lor proposes the
-          setup and you approve it once.
-        </p>
-      </Shell>
-    )
-  }
-  return (
-    <Shell
-      title={`${agent.name} setup`}
-      subtitle="Lor's own edits wait for approval"
-    >
-      <Section title="Brief">
-        <p className="text-[15px] leading-7 text-foreground/90">
-          {agent.brief}
-        </p>
-      </Section>
-      <Section title="Watching">
-        <div className="flex flex-col gap-3">
-          {agent.watching.map((watch) => (
-            <div key={watch.id} className="flex items-center gap-3">
-              <HugeiconsIcon
-                icon={watch.kind === "schedule" ? Clock01Icon : ZapIcon}
-                className="size-4 shrink-0 text-muted-foreground"
-                strokeWidth={2}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[14px]">{watch.label}</div>
-                <div className="truncate text-[12.5px] text-muted-foreground">
-                  {trustLevels[watch.level].text}
-                </div>
-              </div>
-              <span
-                title={`${watch.owner.name} answers for this`}
-                className="shrink-0"
-              >
-                <PersonAvatar person={watch.owner} className="size-6" />
-              </span>
-              <span className="w-[74px] shrink-0 rounded-lg bg-foreground/[0.05] py-1 text-center text-[12.5px] font-medium">
-                {trustLevels[watch.level].label}
-              </span>
-            </div>
-          ))}
-        </div>
-        <p className="mt-3 text-[12.5px] leading-5 text-muted-foreground">
-          Each watch has a person who answers for it and a level. Levels go up
-          as trust does: observes, prepares, acts, owns.
-        </p>
-      </Section>
-      <Section title="Tools">
-        <div className="flex flex-wrap gap-1.5">
-          {agent.tools.map((tool) => (
-            <span
-              key={tool}
-              className="rounded-lg bg-foreground/[0.05] px-2.5 py-1 text-[13px]"
-            >
-              {tool}
-            </span>
-          ))}
-        </div>
-      </Section>
-      <Section title="Prompts">
-        {agent.prompts.length === 0 ? (
-          <p className="text-[14px] text-muted-foreground">
-            No saved prompts yet.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {agent.prompts.map((prompt) => (
-              <div key={prompt.name} className="text-[14px]">
-                <span className="font-mono text-[13px] text-agent">
-                  /{prompt.name}
-                </span>
-                <span className="ml-2 text-muted-foreground">
-                  {prompt.text}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Section>
-      <Section title="People">
-        <div className="flex items-center gap-2.5 text-[14px]">
-          <span className="flex -space-x-1.5">
-            {everyone.map((person) => (
-              <PersonAvatar
-                key={person.id}
-                person={person}
-                className="size-6 ring-2 ring-background"
-              />
-            ))}
-          </span>
-          Everyone at Northstar
-        </div>
-      </Section>
-      <Section title="Reaching people">
-        <p className="text-[14px] leading-6 text-muted-foreground">
-          {room
-            ? `In the app, by push, and in ${roomName(room, agent)}, where it answers in threads.`
-            : "In the app and by push. No chat is linked."}
-          {agent.handoffs.length > 0 && ` ${agent.handoffs.join(". ")}.`}
-        </p>
-      </Section>
-    </Shell>
-  )
-}
-
 const OUTCOME: Record<LogOutcome, { label: string; className: string }> = {
   passed: {
     label: "Passed",
@@ -721,9 +589,5 @@ export function AgentCanvas({ canvas }: { canvas: Canvas }) {
   if (canvas.kind === "chart") return <ChartCanvas chartId={canvas.chartId} />
   const agent = agentById(canvas.agentId)
   if (!agent) return null
-  return canvas.kind === "setup" ? (
-    <SetupCanvas agent={agent} />
-  ) : (
-    <LogCanvas agent={agent} />
-  )
+  return <LogCanvas agent={agent} />
 }

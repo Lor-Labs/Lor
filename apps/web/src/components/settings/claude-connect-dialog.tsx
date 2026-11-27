@@ -80,14 +80,14 @@ export function ClaudeConnectDialog({
             {replace
               ? `Replace the token for ${replace.name}`
               : workspaceSlug
-                ? "Connect a Claude Code subscription dedicated to Lor"
+                ? "Connect a Claude Code subscription for agents"
                 : "Connect a Claude account"}
           </DialogTitle>
           <DialogDescription>
             {replace
               ? "The account keeps its name, priority and settings. Only the stored token changes."
               : workspaceSlug
-                ? "Only for autonomous work Lor starts in this workspace, such as loops and events. Your direct requests use your personal subscriptions. Enable this dedicated account in Autonomous runs after connecting. Provider terms still apply."
+                ? "An account of the workspace's, for its agents: work nobody asked for, and people with no plan of their own. What you ask for uses your own subscriptions. Pick it in an agent's Runs after connecting. Provider terms still apply."
                 : "Use this subscription for requests you send to Lor and Claude Code turns you start. Set its priority for each workspace here in Settings → Linked accounts."}
           </DialogDescription>
         </DialogHeader>
@@ -102,7 +102,7 @@ export function ClaudeConnectDialog({
                 value={label}
                 onChange={(event) => setLabel(event.target.value)}
                 maxLength={80}
-                placeholder={workspaceSlug ? "Lor's account" : "Work account"}
+                placeholder={workspaceSlug ? "Agents' account" : "Work account"}
               />
             </div>
           )}

@@ -4,15 +4,15 @@ import { LoopRow, sortLoops } from "@/components/loops/loop-row"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { LoopsListSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
-import { useChannelLoops } from "@/hooks/use-channel-loops"
+import { inChat, useChannelLoops } from "@/hooks/use-channel-loops"
 
-// Full channel loops list — opened from the overview panel's Loops section
+// Every loop that reports in the chat — opened from the overview panel's Loops section
 // ("Show more"). Rows open the loop detail panel; its back button returns
 // here.
 export function LoopsListPanel({ view }: { view: LoopsListSidebarView }) {
   const { setView } = useRightSidebar()
   const { data, isPending } = useChannelLoops(view.channelId)
-  const loops = sortLoops(data ?? [])
+  const loops = sortLoops(inChat(data, view.channelId) ?? [])
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -35,10 +35,10 @@ export function LoopsListPanel({ view }: { view: LoopsListSidebarView }) {
               className="text-muted-foreground/40"
             />
             <p className="text-muted-foreground text-sm">
-              No loops in this channel yet
+              No loops in this chat yet
             </p>
             <p className="text-muted-foreground/70 text-xs">
-              Ask Lor to do something on a schedule to set one up.
+              Ask an agent here to do something on a schedule.
             </p>
           </div>
         )}

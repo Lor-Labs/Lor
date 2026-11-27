@@ -1,3 +1,4 @@
+import { recordUsage } from "@repo/billing"
 import {
   CONNECTOR_EVENTS,
   CONNECTOR_LIST,
@@ -8,27 +9,34 @@ import {
   recommendedConnectorTools,
 } from "@repo/connectors"
 import { db, schema } from "@repo/db"
+import { agentIdsByChannel } from "@repo/db/queries/agents"
 import { assertWorkspaceActive } from "@repo/db/queries/beta-access"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import {
-  ACT_DEFAULTS,
   channel,
   connectorTrigger,
   integrationConnection,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
+import { suggestListeners } from "@repo/lor/listener-suggest"
 import {
+  connectGranola as connectGranolaKey,
   deleteAttioWebhook,
+  deleteGranolaWebhook,
   connectAttio as exchangeAttioCode,
   connectLinear as exchangeLinearCode,
   connectNotion as exchangeNotionCode,
+  type GranolaConnectError,
   getAttioAccessToken,
+  getGranolaApiKey,
   getInstallationOverview,
   connectBetterstack as verifyBetterstackToken,
+  connectCircleback as verifyCirclebackKey,
   connectCloudwatch as verifyCloudwatchKeys,
   connectDatadog as verifyDatadogKeys,
 } from "@repo/lor/providers"
-import { and, eq, inArray, ne, sql } from "drizzle-orm"
+import { encryptSecret } from "@repo/utils/crypto"
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm"
 import { actCodeChanged, actCodeOf, checkActTarget } from "@/lib/act-target"
 import {
   githubAccountToken,
@@ -57,15 +65,22 @@ import type {
   CompleteGithubSetupRoute,
   ConnectAttioRoute,
   ConnectBetterstackRoute,
+  ConnectCirclebackRoute,
   ConnectCloudwatchRoute,
   ConnectDatadogRoute,
+  ConnectGranolaRoute,
   ConnectLinearRoute,
   ConnectNotionRoute,
+  CreateListenerRoute,
+  DeleteListenerRoute,
   DisconnectIntegrationRoute,
+  ListenerActivityRoute,
+  ListenerSuggestionsRoute,
   ListIntegrationsRoute,
+  SetCirclebackWebhookSecretRoute,
   StartGithubConnectRoute,
-  UpdateIntegrationRoute,
   UpdateIntegrationToolsRoute,
+  UpdateListenerRoute,
 } from "@/routes/v1/integrations/routes"
 
 // Used for both the authorize URL and the token exchange — they must match.
@@ -77,6 +92,43 @@ const attioRedirectUri = () => `${env.APP_BASE_URL}/integrations/attio/callback`
 // Where Attio delivers events — must be publicly reachable (tunnel in dev).
 const attioWebhookTargetUrl = () =>
   `${env.NEXT_PUBLIC_API_URL.replace(/\/+$/, "")}/v1/integrations/attio/webhook`
+
+// Granola accepts only a public HTTPS URL, so local development connects
+// without a webhook. The path names the connection by its key fingerprint.
+function granolaWebhookTargetUrl(): ((externalId: string) => string) | null {
+  const base = env.NEXT_PUBLIC_API_URL.replace(/\/+$/, "")
+  let url: URL
+  try {
+    url = new URL(base)
+  } catch {
+    return null
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.hostname === "localhost" ||
+    url.hostname.endsWith(".localhost") ||
+    /^(127\.|10\.|192\.168\.|0\.0\.0\.0$)/.test(url.hostname)
+  ) {
+    return null
+  }
+  return (externalId) => `${base}/v1/integrations/granola/webhook/${externalId}`
+}
+
+// Pasted into a Circleback automation's "Send webhook request" step.
+const circlebackWebhookUrl = (connectionId: string) =>
+  `${env.NEXT_PUBLIC_API_URL.replace(/\/+$/, "")}/v1/integrations/circleback/webhook/${connectionId}`
+
+const GRANOLA_CONNECT_ERRORS: Record<GranolaConnectError, string> = {
+  invalid_key:
+    "Granola didn't accept this API key. Check that it was copied whole and hasn't been revoked.",
+  not_workspace_key:
+    "This looks like a personal Granola key. Lor needs a workspace API key: a Granola admin creates one in Settings → Connectors → Workspace API keys.",
+  webhooks_unavailable:
+    "Granola's webhooks aren't available for this workspace. They need a Business or Enterprise plan.",
+  webhook_failed:
+    "Granola didn't register Lor's webhook. Try again in a minute.",
+  key_in_use: "This Granola key is connected to another workspace",
+}
 
 const notionRedirectUri = () =>
   `${env.APP_BASE_URL}/integrations/notion/callback`
@@ -179,6 +231,8 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
       accountLogin: integrationConnection.accountLogin,
       enabledTools: integrationConnection.enabledTools,
       externalId: integrationConnection.externalId,
+      webhookSecret: integrationConnection.webhookSecret,
+      webhookReceivedAt: integrationConnection.webhookReceivedAt,
     })
     .from(integrationConnection)
     .where(
@@ -197,14 +251,15 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             connectionId: connectorTrigger.connectionId,
             event: connectorTrigger.event,
             channelId: connectorTrigger.channelId,
+            agentId: connectorTrigger.agentId,
+            filter: connectorTrigger.filter,
             post: connectorTrigger.post,
+            notify: connectorTrigger.notify,
             actInstructions: connectorTrigger.actInstructions,
             actSessionMode: connectorTrigger.actSessionMode,
             actRepoFullName: connectorTrigger.actRepoFullName,
             actBaseBranch: connectorTrigger.actBaseBranch,
             actWindowSeconds: connectorTrigger.actWindowSeconds,
-            hourlyRunCap: connectorTrigger.hourlyRunCap,
-            dailyRunCap: connectorTrigger.dailyRunCap,
           })
           .from(connectorTrigger)
           .where(
@@ -213,6 +268,7 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
               connections.map((r) => r.id)
             )
           )
+          .orderBy(asc(connectorTrigger.createdAt))
       : []
   const accessibleChannels = await listAccessibleChannelIds(
     c.var.user.id,
@@ -221,9 +277,16 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
   const visibleTriggers = triggers.filter((trigger) =>
     accessibleChannels.has(trigger.channelId)
   )
-  const triggerByEvent = new Map(
-    visibleTriggers.map((t) => [`${t.connectionId}:${t.event}`, t])
-  )
+  // Oldest first, so an event's listeners keep the order they were added in.
+  const triggersByEvent = new Map<string, typeof visibleTriggers>()
+  for (const trigger of visibleTriggers) {
+    const key = `${trigger.connectionId}:${trigger.event}`
+    triggersByEvent.set(key, [...(triggersByEvent.get(key) ?? []), trigger])
+  }
+  // A listener that names no agent is heard by its chat's first one.
+  const chatAgents = await agentIdsByChannel([
+    ...new Set(visibleTriggers.map((t) => t.channelId)),
+  ])
 
   // Newest agent_run per trigger in one query — one per event would fan out
   // across every connector.
@@ -293,26 +356,35 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
         repos,
         repoCount,
         manageUrl,
-        events: CONNECTOR_EVENTS[descriptor.id].map((e) => {
-          const trigger = conn
-            ? triggerByEvent.get(`${conn.id}:${e.key}`)
-            : undefined
-          return {
-            key: e.key,
-            label: e.label,
-            channelId: trigger?.channelId ?? null,
-            post: trigger?.post ?? true,
-            actInstructions: trigger?.actInstructions ?? null,
-            actSessionMode: trigger?.actSessionMode ?? "per_event",
-            actCode: trigger ? actCodeOf(trigger) : null,
-            // Unconfigured events show the same defaults a new trigger gets.
-            actWindowSeconds:
-              trigger?.actWindowSeconds ?? ACT_DEFAULTS.windowSeconds,
-            hourlyRunCap: trigger?.hourlyRunCap ?? ACT_DEFAULTS.hourlyRunCap,
-            dailyRunCap: trigger?.dailyRunCap ?? ACT_DEFAULTS.dailyRunCap,
-            lastAct: trigger ? (lastActs.get(trigger.id) ?? null) : null,
-          }
-        }),
+        inboundWebhook:
+          descriptor.id === "circleback" && conn && canManage
+            ? {
+                url: circlebackWebhookUrl(conn.id),
+                secretSet: conn.webhookSecret !== null,
+                receivedAt: conn.webhookReceivedAt?.toISOString() ?? null,
+              }
+            : null,
+        events: CONNECTOR_EVENTS[descriptor.id].map((e) => ({
+          key: e.key,
+          label: e.label,
+          listeners: (conn
+            ? (triggersByEvent.get(`${conn.id}:${e.key}`) ?? [])
+            : []
+          ).map((trigger) => ({
+            id: trigger.id,
+            channelId: trigger.channelId,
+            agentId:
+              trigger.agentId ?? chatAgents.get(trigger.channelId)?.[0] ?? null,
+            filter: trigger.filter,
+            post: trigger.post,
+            notify: trigger.notify,
+            actInstructions: trigger.actInstructions,
+            actSessionMode: trigger.actSessionMode,
+            actCode: actCodeOf(trigger),
+            actWindowSeconds: trigger.actWindowSeconds,
+            lastAct: lastActs.get(trigger.id) ?? null,
+          })),
+        })),
       }
     })
   )
@@ -925,24 +997,387 @@ export const connectNotion: AppRouteHandler<ConnectNotionRoute> = async (c) => {
   )
 }
 
-export const updateIntegration: AppRouteHandler<
-  UpdateIntegrationRoute
+// The connection a listener route names, when it is this workspace's and
+// has events of its own. Channel webhooks are managed under webhook:manage.
+async function listenerConnection(workspaceId: string, connectionId: string) {
+  const connection = await db
+    .select({
+      id: integrationConnection.id,
+      provider: integrationConnection.provider,
+    })
+    .from(integrationConnection)
+    .where(
+      and(
+        eq(integrationConnection.id, connectionId),
+        eq(integrationConnection.workspaceId, workspaceId)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  return connection && connection.provider !== "webhook" ? connection : null
+}
+
+// A chat a listener can be anchored to: a text chat of this workspace the
+// caller can see. Pointing one at a chat they can't see would let an admin
+// read a private chat's replies.
+async function listenerChat(
+  workspaceId: string,
+  channelId: string,
+  userId: string
+): Promise<boolean> {
+  const target = await db
+    .select({ id: channel.id })
+    .from(channel)
+    .where(
+      and(
+        eq(channel.id, channelId),
+        eq(channel.workspaceId, workspaceId),
+        eq(channel.type, "text")
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  return !!target && (await userCanAccessChannel(channelId, userId))
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+// Serializes listener writes for one event, so two requests can't both pass
+// the duplicate check.
+async function lockListenerEvent(tx: Tx, connectionId: string, event: string) {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`connector_trigger:${connectionId}:${event}`}, 0))`
+  )
+}
+
+// Why a listener can't be added or moved: another one of the event is heard
+// by the same agent. A listener that names no agent is heard by its chat's
+// first one, so nobody is woken twice; in a chat with no agent, two unnamed
+// listeners would post the event twice.
+async function duplicateListener(
+  tx: Tx,
+  input: {
+    connectionId: string
+    event: string
+    channelId: string
+    agentId: string | null
+    excludeId?: string
+  }
+): Promise<string | null> {
+  const others = (
+    await tx
+      .select({
+        id: connectorTrigger.id,
+        agentId: connectorTrigger.agentId,
+        channelId: connectorTrigger.channelId,
+      })
+      .from(connectorTrigger)
+      .where(
+        and(
+          eq(connectorTrigger.connectionId, input.connectionId),
+          eq(connectorTrigger.event, input.event)
+        )
+      )
+  ).filter((row) => row.id !== input.excludeId)
+  const firstAgents = await agentIdsByChannel(
+    [
+      input.channelId,
+      ...others.filter((row) => !row.agentId).map((row) => row.channelId),
+    ],
+    tx
+  )
+  const heardBy = (row: { agentId: string | null; channelId: string }) =>
+    row.agentId ?? firstAgents.get(row.channelId)?.[0] ?? null
+  const mine = heardBy(input)
+  if (mine) {
+    if (!others.some((row) => heardBy(row) === mine)) return null
+    return input.agentId
+      ? "That agent already listens to this event"
+      : "This chat's agent already listens to this event"
+  }
+  return others.some((row) => !row.agentId && row.channelId === input.channelId)
+    ? "This event is already posted in that chat"
+    : null
+}
+
+// Several agents can listen to one event, each once
+// (reference/agents-and-chats.md, decision 42).
+export const createListener: AppRouteHandler<CreateListenerRoute> = async (
+  c
+) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
+  const workspace = c.var.workspace
+  const { connectionId } = c.req.valid("param")
+  const body = c.req.valid("json")
+
+  const connection = await listenerConnection(workspace.id, connectionId)
+  if (!connection) {
+    return c.json(
+      { success: false, message: "Connection not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!isConnectorEvent(connection.provider, body.event)) {
+    return c.json(
+      { success: false, message: "Unknown event for this connector" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  if (!(await listenerChat(workspace.id, body.channelId, c.var.user.id))) {
+    return c.json(
+      { success: false, message: "Chat not found in this workspace" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  // The agent that listens reports in this chat, so it has to be in it.
+  const inChat =
+    (await agentIdsByChannel([body.channelId])).get(body.channelId) ?? []
+  if (body.agentId && !inChat.includes(body.agentId)) {
+    return c.json(
+      { success: false, message: "That agent is not in this chat" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const sessionMode = body.actSessionMode ?? "per_event"
+  const actTarget = await checkActTarget({
+    workspaceId: workspace.id,
+    channelId: body.channelId,
+    sessionMode,
+    code: body.actCode ?? null,
+    recheck: true,
+  })
+  if (!actTarget.ok) {
+    return c.json(
+      { success: false, message: actTarget.message },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const created = await db.transaction(async (tx) => {
+    await lockListenerEvent(tx, connection.id, body.event)
+    const duplicate = await duplicateListener(tx, {
+      connectionId: connection.id,
+      event: body.event,
+      channelId: body.channelId,
+      agentId: body.agentId ?? null,
+    })
+    if (duplicate) return { ok: false as const, message: duplicate }
+    const [row] = await tx
+      .insert(connectorTrigger)
+      .values({
+        connectionId: connection.id,
+        event: body.event,
+        channelId: body.channelId,
+        agentId: body.agentId,
+        filter: body.filter?.trim() || null,
+        // A new listener wakes its agent, which decides what to say; with no
+        // agent named, the event is only posted.
+        post: body.post ?? !body.agentId,
+        notify: body.notify ?? false,
+        actInstructions:
+          body.actInstructions !== undefined
+            ? body.actInstructions
+            : body.agentId
+              ? ""
+              : null,
+        actSessionMode: sessionMode,
+        configuredById: c.var.user.id,
+        ...actTarget.columns,
+        // Absent = keep the column default.
+        ...(body.actWindowSeconds !== undefined
+          ? { actWindowSeconds: body.actWindowSeconds }
+          : {}),
+      })
+      .returning({ id: connectorTrigger.id })
+    return { ok: true as const, id: row?.id }
+  })
+  if (!created.ok) {
+    return c.json(
+      { success: false, message: created.message },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  if (!created.id) {
+    return c.json(
+      { success: false, message: "Failed to add the listener" },
+      HttpStatusCodes.INTERNAL_SERVER_ERROR
+    )
+  }
+  return c.json({ success: true as const, id: created.id }, HttpStatusCodes.OK)
+}
+
+// The listener a route names, when the caller can see the chat it is
+// anchored to: a manager can't move or remove a private chat's listener.
+async function savedListener(
+  workspaceId: string,
+  connectionId: string,
+  listenerId: string,
+  userId: string
+) {
+  const connection = await listenerConnection(workspaceId, connectionId)
+  if (!connection) return null
+  const saved = await db
+    .select({
+      id: connectorTrigger.id,
+      connectionId: connectorTrigger.connectionId,
+      event: connectorTrigger.event,
+      channelId: connectorTrigger.channelId,
+      agentId: connectorTrigger.agentId,
+      actSessionMode: connectorTrigger.actSessionMode,
+      actRepoFullName: connectorTrigger.actRepoFullName,
+      actBaseBranch: connectorTrigger.actBaseBranch,
+    })
+    .from(connectorTrigger)
+    .where(
+      and(
+        eq(connectorTrigger.id, listenerId),
+        eq(connectorTrigger.connectionId, connection.id)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!saved || !(await userCanAccessChannel(saved.channelId, userId))) {
+    return null
+  }
+  return saved
+}
+
+export const updateListener: AppRouteHandler<UpdateListenerRoute> = async (
+  c
+) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
+  const workspace = c.var.workspace
+  const { connectionId, listenerId } = c.req.valid("param")
+  const body = c.req.valid("json")
+
+  const saved = await savedListener(
+    workspace.id,
+    connectionId,
+    listenerId,
+    c.var.user.id
+  )
+  if (!saved) {
+    return c.json(
+      { success: false, message: "Listener not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  const channelId = body.channelId ?? saved.channelId
+  const moved = channelId !== saved.channelId
+  if (moved) {
+    if (!(await listenerChat(workspace.id, channelId, c.var.user.id))) {
+      return c.json(
+        { success: false, message: "Chat not found in this workspace" },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
+    // Its agent reports in the chat, so it has to be in the new one.
+    const inChat = (await agentIdsByChannel([channelId])).get(channelId) ?? []
+    if (saved.agentId && !inChat.includes(saved.agentId)) {
+      return c.json(
+        { success: false, message: "That agent is not in this chat" },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
+  }
+
+  const savedCode = actCodeOf(saved)
+  const actTarget = await checkActTarget({
+    workspaceId: workspace.id,
+    channelId,
+    sessionMode: body.actSessionMode ?? saved.actSessionMode,
+    code: body.actCode !== undefined ? body.actCode : savedCode,
+    // A moved listener needs the repo checked against its new chat.
+    recheck: moved || actCodeChanged(body.actCode, savedCode),
+  })
+  if (!actTarget.ok) {
+    return c.json(
+      { success: false, message: actTarget.message },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  // Only the fields sent are written, so a filter-only edit can't undo
+  // another manager's move or Act change made since the read.
+  const duplicate = await db.transaction(async (tx) => {
+    if (moved) {
+      await lockListenerEvent(tx, saved.connectionId, saved.event)
+      const conflict = await duplicateListener(tx, {
+        connectionId: saved.connectionId,
+        event: saved.event,
+        channelId,
+        agentId: saved.agentId,
+        excludeId: saved.id,
+      })
+      if (conflict) return conflict
+    }
+    await tx
+      .update(connectorTrigger)
+      .set({
+        configuredById: c.var.user.id,
+        ...(moved ? { channelId } : {}),
+        ...(body.actSessionMode !== undefined
+          ? { actSessionMode: body.actSessionMode }
+          : {}),
+        ...(moved || body.actCode !== undefined ? actTarget.columns : {}),
+        // An empty filter clears it.
+        ...(body.filter !== undefined
+          ? { filter: body.filter?.trim() || null }
+          : {}),
+        ...(body.post !== undefined ? { post: body.post } : {}),
+        ...(body.notify !== undefined ? { notify: body.notify } : {}),
+        ...(body.actInstructions !== undefined
+          ? { actInstructions: body.actInstructions }
+          : {}),
+        ...(body.actWindowSeconds !== undefined
+          ? { actWindowSeconds: body.actWindowSeconds }
+          : {}),
+      })
+      .where(eq(connectorTrigger.id, saved.id))
+    return null
+  })
+  if (duplicate) {
+    return c.json(
+      { success: false, message: duplicate },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
+
+export const deleteListener: AppRouteHandler<DeleteListenerRoute> = async (
+  c
+) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
+  const { connectionId, listenerId } = c.req.valid("param")
+  const saved = await savedListener(
+    c.var.workspace.id,
+    connectionId,
+    listenerId,
+    c.var.user.id
+  )
+  if (!saved) {
+    return c.json(
+      { success: false, message: "Listener not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  await db.delete(connectorTrigger).where(eq(connectorTrigger.id, saved.id))
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
+
+// Which agent fits each event nobody listens to yet, so connecting a service
+// needs no picking by hand (reference/agents-and-chats.md, decision 40). The
+// chat is the first one the agent is in that the caller can see.
+export const listenerSuggestions: AppRouteHandler<
+  ListenerSuggestionsRoute
 > = async (c) => {
   assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
   const workspace = c.var.workspace
   const { connectionId } = c.req.valid("param")
-  const {
-    event,
-    channelId,
-    post,
-    actInstructions,
-    actSessionMode,
-    actCode,
-    actWindowSeconds,
-    hourlyRunCap,
-    dailyRunCap,
-  } = c.req.valid("json")
-
   const connection = await db
     .select({
       id: integrationConnection.id,
@@ -957,131 +1392,140 @@ export const updateIntegration: AppRouteHandler<
     )
     .limit(1)
     .then((rows) => rows[0])
-  // Channel webhooks are managed under webhook:manage, not connector:manage.
-  if (!connection || connection.provider === "webhook") {
+  const descriptor = CONNECTOR_LIST.find(
+    (item) => item.id === connection?.provider
+  )
+  if (!connection || !descriptor) {
     return c.json(
       { success: false, message: "Connection not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
-
-  if (!isConnectorEvent(connection.provider, event)) {
-    return c.json(
-      { success: false, message: "Unknown event for this connector" },
-      HttpStatusCodes.BAD_REQUEST
-    )
+  const [listened, placed, accessible] = await Promise.all([
+    db
+      .select({ event: connectorTrigger.event })
+      .from(connectorTrigger)
+      .where(eq(connectorTrigger.connectionId, connection.id))
+      .then((rows) => new Set(rows.map((row) => row.event))),
+    db
+      .select({
+        id: schema.agent.id,
+        name: schema.agent.name,
+        role: schema.agent.role,
+        brief: schema.agent.brief,
+        channelId: schema.channelAgent.channelId,
+      })
+      .from(schema.channelAgent)
+      .innerJoin(schema.agent, eq(schema.agent.id, schema.channelAgent.agentId))
+      .innerJoin(channel, eq(channel.id, schema.channelAgent.channelId))
+      .where(
+        and(
+          eq(schema.agent.workspaceId, workspace.id),
+          eq(channel.type, "text"),
+          sql`${channel.archivedAt} is null`
+        )
+      )
+      .orderBy(asc(schema.channelAgent.createdAt)),
+    listAccessibleChannelIds(c.var.user.id, workspace.id),
+  ])
+  // Each agent once, with the first chat it is in that the caller can see.
+  const agents = new Map<string, (typeof placed)[number]>()
+  for (const row of placed) {
+    if (accessible.has(row.channelId) && !agents.has(row.id)) {
+      agents.set(row.id, row)
+    }
   }
+  const events = CONNECTOR_EVENTS[descriptor.id].filter(
+    (event) => !listened.has(event.key)
+  )
+  const picks = await suggestListeners(
+    {
+      workspaceId: workspace.id,
+      connector: {
+        name: descriptor.label,
+        description: descriptor.description,
+      },
+      events: events.map((event) => ({ key: event.key, label: event.label })),
+      agents: [...agents.values()],
+    },
+    (usage) => {
+      void recordUsage(usage).catch((err) =>
+        logger.warn({ err }, "Listener suggestion usage recording failed")
+      )
+    }
+  )
+  return c.json(
+    {
+      suggestions: Object.entries(picks).flatMap(([event, agentId]) => {
+        const agent = agents.get(agentId)
+        return agent ? [{ event, agentId, channelId: agent.channelId }] : []
+      }),
+    },
+    HttpStatusCodes.OK
+  )
+}
 
-  const saved = await db
+// What arrived for one listener and what became of it. Kept out of the way
+// in the app: a place to look when someone wonders what is going on.
+export const listenerActivity: AppRouteHandler<ListenerActivityRoute> = async (
+  c
+) => {
+  const workspace = c.var.workspace
+  const { connectionId, listenerId } = c.req.valid("param")
+  const [trigger] = await db
     .select({
+      id: connectorTrigger.id,
       channelId: connectorTrigger.channelId,
-      actSessionMode: connectorTrigger.actSessionMode,
-      actRepoFullName: connectorTrigger.actRepoFullName,
-      actBaseBranch: connectorTrigger.actBaseBranch,
     })
     .from(connectorTrigger)
+    .innerJoin(
+      integrationConnection,
+      eq(integrationConnection.id, connectorTrigger.connectionId)
+    )
     .where(
       and(
-        eq(connectorTrigger.connectionId, connection.id),
-        eq(connectorTrigger.event, event)
+        eq(connectorTrigger.id, listenerId),
+        eq(connectorTrigger.connectionId, connectionId),
+        eq(integrationConnection.workspaceId, workspace.id),
+        // Channel webhooks are read under webhook:manage, as in
+        // listenerConnection.
+        ne(integrationConnection.provider, "webhook")
       )
     )
     .limit(1)
-    .then((rows) => rows[0])
-  // Moving or clearing a trigger needs access to its current channel too, so
-  // a manager can't reroute a private channel's events away from it.
-  if (saved && !(await userCanAccessChannel(saved.channelId, c.var.user.id))) {
+  if (
+    !trigger ||
+    !(await userCanAccessChannel(trigger.channelId, c.var.user.id))
+  ) {
     return c.json(
-      { success: false, message: "Trigger not found" },
+      { success: false, message: "Listener not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
-
-  if (channelId === null) {
-    await db
-      .delete(connectorTrigger)
-      .where(
-        and(
-          eq(connectorTrigger.connectionId, connection.id),
-          eq(connectorTrigger.event, event)
-        )
-      )
-    return c.json({ success: true as const }, HttpStatusCodes.OK)
-  }
-
-  const target = await db
-    .select({ id: channel.id })
-    .from(channel)
-    .where(
-      and(
-        eq(channel.id, channelId),
-        eq(channel.workspaceId, workspace.id),
-        eq(channel.type, "text")
-      )
-    )
-    .limit(1)
-    .then((rows) => rows[0])
-  // A trigger must not be pointed at a channel the configuring user can't
-  // see — that would let an admin exfiltrate a private channel's replies.
-  if (!target || !(await userCanAccessChannel(channelId, c.var.user.id))) {
-    return c.json(
-      { success: false, message: "Channel not found in this workspace" },
-      HttpStatusCodes.BAD_REQUEST
-    )
-  }
-
-  const sessionMode = actSessionMode ?? saved?.actSessionMode ?? "per_event"
-  const code = actCode !== undefined ? actCode : saved ? actCodeOf(saved) : null
-  const actTarget = await checkActTarget({
-    workspaceId: workspace.id,
-    channelId,
-    sessionMode,
-    code,
-    // A moved trigger needs the repo checked against its new channel.
-    recheck:
-      saved?.channelId !== channelId ||
-      actCodeChanged(actCode, saved ? actCodeOf(saved) : null),
-  })
-  if (!actTarget.ok) {
-    return c.json(
-      { success: false, message: actTarget.message },
-      HttpStatusCodes.BAD_REQUEST
-    )
-  }
-
-  await db
-    .insert(connectorTrigger)
-    .values({
-      connectionId: connection.id,
-      event,
-      channelId,
-      post,
-      actInstructions,
-      actSessionMode: sessionMode,
-      configuredById: c.var.user.id,
-      ...actTarget.columns,
-      // Absent = keep the column default on create.
-      ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
-      ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),
-      ...(dailyRunCap !== undefined ? { dailyRunCap } : {}),
+  const deliveries = await db
+    .select({
+      id: schema.triggerDelivery.id,
+      createdAt: schema.triggerDelivery.createdAt,
+      outcome: schema.triggerDelivery.outcome,
+      posted: schema.triggerDelivery.posted,
+      subject: schema.triggerDelivery.subject,
     })
-    .onConflictDoUpdate({
-      target: [connectorTrigger.connectionId, connectorTrigger.event],
-      set: {
-        channelId,
-        post,
-        actInstructions,
-        actSessionMode: sessionMode,
-        configuredById: c.var.user.id,
-        ...actTarget.columns,
-        // Absent = leave the configured limits alone.
-        ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
-        ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),
-        ...(dailyRunCap !== undefined ? { dailyRunCap } : {}),
-      },
-    })
-
-  return c.json({ success: true as const }, HttpStatusCodes.OK)
+    .from(schema.triggerDelivery)
+    .where(eq(schema.triggerDelivery.triggerId, trigger.id))
+    .orderBy(desc(schema.triggerDelivery.createdAt))
+    .limit(30)
+  return c.json(
+    {
+      deliveries: deliveries.map((row) => ({
+        id: row.id,
+        at: row.createdAt.toISOString(),
+        outcome: row.outcome,
+        posted: row.posted,
+        subject: row.subject,
+      })),
+    },
+    HttpStatusCodes.OK
+  )
 }
 
 export const disconnectIntegration: AppRouteHandler<
@@ -1120,6 +1564,10 @@ export const disconnectIntegration: AppRouteHandler<
     connection.provider === "attio" && connection.webhookId
       ? await getAttioAccessToken(connection.externalId).catch(() => null)
       : null
+  const granolaKey =
+    connection.provider === "granola" && connection.webhookId
+      ? await getGranolaApiKey(connection.externalId).catch(() => null)
+      : null
 
   const deleted = await db
     .delete(integrationConnection)
@@ -1149,6 +1597,10 @@ export const disconnectIntegration: AppRouteHandler<
   if (deleted.provider === "attio" && attioToken && connection.webhookId) {
     // Best effort — a leftover webhook just degrades on Attio's side.
     void deleteAttioWebhook(attioToken, connection.webhookId)
+  }
+  if (deleted.provider === "granola" && granolaKey && connection.webhookId) {
+    // Best effort — Granola disables an endpoint that keeps failing.
+    void deleteGranolaWebhook(granolaKey, connection.webhookId)
   }
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)
@@ -1241,4 +1693,180 @@ export const connectBetterstack: AppRouteHandler<
     { success: true as const, accountLogin: result.accountLabel },
     HttpStatusCodes.OK
   )
+}
+
+export const connectGranola: AppRouteHandler<ConnectGranolaRoute> = async (
+  c
+) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
+  if (!env.INTEGRATION_ENCRYPTION_KEY)
+    return c.json(
+      { success: false, message: "Granola isn't available on this server" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  const { apiKey } = c.req.valid("json")
+  const targetUrlFor = granolaWebhookTargetUrl()
+  // Checked before any endpoint is touched: the webhook URL is the key's
+  // fingerprint, so another workspace's endpoint shares it.
+  const ownedElsewhere = (externalId: string) =>
+    db
+      .select({ id: integrationConnection.id })
+      .from(integrationConnection)
+      .where(
+        and(
+          eq(integrationConnection.provider, "granola"),
+          eq(integrationConnection.externalId, externalId),
+          ne(integrationConnection.workspaceId, c.var.workspace.id),
+          ne(integrationConnection.status, "revoked")
+        )
+      )
+      .limit(1)
+      .then((rows) => rows.length > 0)
+  const result = await connectGranolaKey(
+    apiKey,
+    targetUrlFor,
+    ownedElsewhere
+  ).catch((err) => {
+    logger.error({ err }, "Granola connection failed")
+    return "webhook_failed" as const
+  })
+  if (typeof result === "string")
+    return c.json(
+      { success: false, message: GRANOLA_CONNECT_ERRORS[result] },
+      result === "key_in_use"
+        ? HttpStatusCodes.CONFLICT
+        : HttpStatusCodes.BAD_REQUEST
+    )
+
+  // The outgoing connection's webhook is removed once the new one is saved.
+  const outgoing = await db
+    .select({
+      externalId: integrationConnection.externalId,
+      webhookId: integrationConnection.webhookId,
+    })
+    .from(integrationConnection)
+    .where(
+      and(
+        eq(integrationConnection.workspaceId, c.var.workspace.id),
+        eq(integrationConnection.provider, "granola"),
+        eq(integrationConnection.status, "active"),
+        ne(integrationConnection.externalId, result.externalId)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  const outgoingKey = outgoing?.webhookId
+    ? await getGranolaApiKey(outgoing.externalId).catch(() => null)
+    : null
+
+  const ok = await replaceActiveConnection({
+    workspaceId: c.var.workspace.id,
+    provider: "granola",
+    connectedById: c.var.user.id,
+    externalId: result.externalId,
+    reclaimRevoked: true,
+    clearOnRevoke: { apiKey: null, webhookId: null, webhookSecret: null },
+    values: {
+      accountLogin: result.accountLabel,
+      apiKey: result.apiKey,
+      webhookId: result.webhookId,
+      webhookSecret: result.webhookSecret,
+    },
+  })
+  if (!ok) {
+    if (result.webhookId) void deleteGranolaWebhook(apiKey, result.webhookId)
+    return c.json(
+      { success: false, message: GRANOLA_CONNECT_ERRORS.key_in_use },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  for (const id of result.staleWebhookIds) {
+    void deleteGranolaWebhook(apiKey, id)
+  }
+  if (outgoing?.webhookId && outgoingKey) {
+    void deleteGranolaWebhook(outgoingKey, outgoing.webhookId)
+  }
+  return c.json(
+    {
+      success: true as const,
+      accountLogin: result.accountLabel,
+      events: result.webhookId !== null,
+    },
+    HttpStatusCodes.OK
+  )
+}
+
+export const connectCircleback: AppRouteHandler<
+  ConnectCirclebackRoute
+> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
+  if (!env.INTEGRATION_ENCRYPTION_KEY)
+    return c.json(
+      { success: false, message: "Circleback isn't available on this server" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  const { apiKey } = c.req.valid("json")
+  const result = await verifyCirclebackKey(apiKey).catch(() => null)
+  if (!result)
+    return c.json(
+      {
+        success: false,
+        message:
+          "Circleback didn't accept this API key. Check that it was copied whole and hasn't been revoked.",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  // A new key keeps nothing of the old connection's webhook: its secret
+  // belongs to an automation step that still points at the old URL.
+  const ok = await replaceActiveConnection({
+    workspaceId: c.var.workspace.id,
+    provider: "circleback",
+    connectedById: c.var.user.id,
+    externalId: result.externalId,
+    reclaimRevoked: true,
+    clearOnRevoke: { apiKey: null, webhookSecret: null },
+    values: { accountLogin: result.accountLabel, apiKey: result.apiKey },
+  })
+  if (!ok)
+    return c.json(
+      {
+        success: false,
+        message: "This Circleback key is connected to another workspace",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  return c.json(
+    { success: true as const, accountLogin: result.accountLabel },
+    HttpStatusCodes.OK
+  )
+}
+
+export const setCirclebackWebhookSecret: AppRouteHandler<
+  SetCirclebackWebhookSecretRoute
+> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
+  const key = env.INTEGRATION_ENCRYPTION_KEY
+  if (!key)
+    return c.json(
+      { success: false, message: "Circleback isn't available on this server" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  const { secret } = c.req.valid("json")
+  const updated = await db
+    .update(integrationConnection)
+    .set({ webhookSecret: encryptSecret(secret, key) })
+    .where(
+      and(
+        eq(integrationConnection.workspaceId, c.var.workspace.id),
+        eq(integrationConnection.provider, "circleback"),
+        eq(integrationConnection.status, "active")
+      )
+    )
+    .returning({ id: integrationConnection.id })
+  if (updated.length === 0)
+    return c.json(
+      { success: false, message: "Circleback isn't connected" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
 }

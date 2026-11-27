@@ -62,64 +62,29 @@ const BRIEFING_MESSAGE_MAX = 300
 // A run's closing note, stored for its successor.
 export const HANDOFF_NOTE_MAX = 2000
 
-export type ActLimits = { hourlyRunCap: number; dailyRunCap: number }
-
-// Blocked is never "dropped": a cap verdict carries when to look again.
-export type ActGuard =
-  | { verdict: "ok" }
-  | { verdict: "in_flight" }
-  | { verdict: "hourly_cap" | "daily_cap"; retryAfterMs: number }
+export type ActGuard = { verdict: "ok" } | { verdict: "in_flight" }
 
 function clampRearm(ms: number): number {
   return Math.min(Math.max(ms, MIN_REARM_MS), MAX_REARM_MS)
 }
 
-// One active Act run per trigger, then the rolling caps. The in-flight check
-// is advisory (the partial unique index on agent_run.triggerId is the real
-// arbiter) — it exists so a burst doesn't spend cap slots on runs that would
-// be rejected anyway.
-export async function actGuard(
-  triggerId: string,
-  limits: ActLimits
-): Promise<ActGuard> {
+// One active Act run per trigger. Advisory (the partial unique index on
+// agent_run.triggerId is the real arbiter): it saves a run insert that would
+// be rejected anyway. There are no run caps (decided 2026-11-26).
+export async function actGuard(triggerId: string): Promise<ActGuard> {
   const row = await db
     .select({
-      active: sql<number>`count(*) filter (where ${schema.agentRun.state} in ('queued','working','finalizing'))::int`,
-      hourly: sql<number>`count(*) filter (where ${schema.agentRun.createdAt} >= now() - interval '1 hour')::int`,
-      daily: sql<number>`count(*) filter (where ${schema.agentRun.createdAt} >= now() - interval '24 hours')::int`,
-      // When the rolling windows free up a slot.
-      oldestHourly: sql<Date | null>`min(${schema.agentRun.createdAt}) filter (where ${schema.agentRun.createdAt} >= now() - interval '1 hour')`,
-      oldestDaily: sql<Date | null>`min(${schema.agentRun.createdAt}) filter (where ${schema.agentRun.createdAt} >= now() - interval '24 hours')`,
+      active: sql<number>`count(*)::int`,
     })
     .from(schema.agentRun)
     .where(
       and(
         eq(schema.agentRun.triggerId, triggerId),
-        sql`(${schema.agentRun.createdAt} >= now() - interval '24 hours' or ${schema.agentRun.state} in ('queued','working','finalizing'))`
+        sql`${schema.agentRun.state} in ('queued','working','finalizing')`
       )
     )
     .then((rows) => rows[0])
-  if (!row) return { verdict: "ok" }
-  if (row.active > 0) return { verdict: "in_flight" }
-  if (row.hourly >= limits.hourlyRunCap) {
-    const freesAt = row.oldestHourly
-      ? new Date(row.oldestHourly).getTime() + 60 * 60 * 1000
-      : Date.now()
-    return {
-      verdict: "hourly_cap",
-      retryAfterMs: clampRearm(freesAt - Date.now()),
-    }
-  }
-  if (row.daily >= limits.dailyRunCap) {
-    const freesAt = row.oldestDaily
-      ? new Date(row.oldestDaily).getTime() + 24 * 60 * 60 * 1000
-      : Date.now()
-    return {
-      verdict: "daily_cap",
-      retryAfterMs: clampRearm(freesAt - Date.now()),
-    }
-  }
-  return { verdict: "ok" }
+  return row && row.active > 0 ? { verdict: "in_flight" } : { verdict: "ok" }
 }
 
 // The partial unique index on active triggerId makes "one Act run per trigger
@@ -596,8 +561,6 @@ export async function flushActWindow(
       actInstructions: schema.connectorTrigger.actInstructions,
       windowSeconds: schema.connectorTrigger.actWindowSeconds,
       openedAt: schema.connectorTrigger.actWindowOpenedAt,
-      hourlyRunCap: schema.connectorTrigger.hourlyRunCap,
-      dailyRunCap: schema.connectorTrigger.dailyRunCap,
       sessionMode: schema.connectorTrigger.actSessionMode,
       channelId: schema.channel.id,
       workspaceId: schema.channel.workspaceId,
@@ -675,7 +638,7 @@ export async function flushActWindow(
       "Act batch has been waiting over an hour"
     )
   }
-  const guard = await actGuard(triggerId, trigger)
+  const guard = await actGuard(triggerId)
   // Blocked, never dropped: keep the window open (deliveries keep
   // accumulating) and look again when the blocker should have cleared.
   if (guard.verdict === "in_flight") {
@@ -683,15 +646,6 @@ export async function flushActWindow(
     await setActFlushDue(triggerId, delayMs)
     return { kind: "retry", delayMs }
   }
-  if (guard.verdict !== "ok") {
-    logger.info(
-      { triggerId, verdict: guard.verdict, pending },
-      "Act batch waiting on a cap"
-    )
-    await setActFlushDue(triggerId, guard.retryAfterMs)
-    return { kind: "retry", delayMs: guard.retryAfterMs }
-  }
-
   const run = await createActRun({
     triggerId,
     workspaceId,

@@ -1,20 +1,28 @@
 import {
+  BotIcon,
+  BubbleChatIcon,
+  BubbleChatLockIcon,
   Copy01Icon,
-  Layers01Icon,
+  Folder01Icon,
+  PlusSignIcon,
   Settings01Icon,
   Tick02Icon,
+  VolumeHighIcon,
   WebhookIcon,
+  Wrench01Icon,
 } from "@hugeicons/core-free-icons"
-import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
-import { Button } from "@repo/ui/components/button"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { MAX_CHANNEL_AGENTS } from "@repo/db/constants"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/components/dialog"
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/components/alert-dialog"
+import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import {
@@ -27,69 +35,73 @@ import {
 import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
-import {
-  AGENT_NAME_MAX,
-  CREATURES,
-  type CreatureId,
-  channelAgentIdentity,
-  isCreatureId,
-} from "@repo/utils/bestiary"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { useEffect, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import { AgentCreature } from "@/components/agent/agent-creature"
-import { DiscordChatSection } from "@/components/agent/discord-chat-section"
-import { AgentFactsList } from "@/components/sidebar/channel-panel/agent-facts-list"
-import { AgentModelSelect } from "@/components/sidebar/channel-panel/agent-model-select"
 import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
-import { MorphText } from "@/components/ui/morph-text"
+import { InlineConfirmButton } from "@/components/ui/inline-confirm-button"
+import {
+  PaneBody,
+  PaneDialog,
+  PaneFooter,
+  type PaneTab,
+} from "@/components/ui/pane-dialog"
 import { GrantedChips } from "@/components/workspace/agent-profiles-section"
+import {
+  SETTINGS_SURFACE,
+  SettingsCard,
+  SettingsGroup,
+  SettingsSection,
+} from "@/components/workspace/settings-group"
+import { useAgentDialog } from "@/hooks/use-agent-dialog"
+import { useAgentState } from "@/hooks/use-agent-state"
+import {
+  agentCreature,
+  useAgents,
+  type WorkspaceAgent,
+} from "@/hooks/use-agents"
+import { useChatArchive } from "@/hooks/use-chat-archive"
+import {
+  channelAgentsKey,
+  loadChannelAgents,
+  refreshAgents,
+  saveChannelBrief,
+  setChannelAgents,
+} from "@/lib/agent-api"
 import { apiClient } from "@/lib/api-client"
-import type {
-  AgentProfile,
-  AgentProfilesResponse,
-  Channel,
-} from "@/lib/api-types"
+import type { Channel } from "@/lib/api-types"
 import {
   patchChannelList,
   restoreChannelList,
   upsertChannel,
 } from "@/lib/channel-list-cache"
 import { channelQueryOptions } from "@/lib/channel-query"
+import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels-query"
 
 const INHERIT = "__inherit__"
 
-// When the channel's agent takes a turn (reference/always-on-agents.md §3).
-const WAKE_MODES = [
-  { value: "mention", label: "When mentioned or replied to" },
-  { value: "every_message", label: "To every message" },
-] as const
-
-export type EditChannelTab = "overview" | "profile" | "webhooks"
+export type EditChannelTab = "overview" | "agent" | "tools" | "webhooks"
 type Tab = EditChannelTab
-const TABS: { id: Tab; label: string; icon: IconSvgElement }[] = [
+
+const TABS: PaneTab<Tab>[] = [
   { id: "overview", label: "Overview", icon: Settings01Icon },
-  { id: "profile", label: "Agent", icon: Layers01Icon },
+  { id: "agent", label: "Agent", icon: BotIcon },
+  { id: "tools", label: "Tools", icon: Wrench01Icon },
   { id: "webhooks", label: "Webhooks", icon: WebhookIcon },
 ]
 
-function ProfileCapabilities({
-  profile,
-  groups,
-}: {
-  profile: AgentProfile
-  groups: AgentProfilesResponse["availableToolGroups"]
-}) {
-  return (
-    <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
-      <div className="text-xs font-medium text-muted-foreground">
-        Lor can use
-      </div>
-      <GrantedChips profile={profile} groups={groups} />
-    </div>
-  )
+async function errorOf(res: Response, fallback: string) {
+  const body = (await res.json().catch(() => null)) as {
+    message?: string
+  } | null
+  return new Error(body?.message ?? fallback)
 }
 
+// A channel's settings: its name and topic, the agent in it, the tools that
+// agent may use here, and its webhooks. The agent's own settings are the
+// agent's (agent-dialog.tsx): this only says which agent is here and what
+// the team wants from it in this channel.
 export function EditChannelDialog({
   channel,
   open,
@@ -102,137 +114,205 @@ export function EditChannelDialog({
   onOpenChange: (open: boolean) => void
   /** The channel's creator without channel:update: name and topic only. */
   overviewOnly?: boolean
-  // The tab it opens on (the channel menu's Agent Settings and Webhooks).
+  // The tab it opens on (the channel menu's Agent and Webhooks).
   initialTab?: Tab
 }) {
   const { workspaceSlug } = useParams({ strict: false })
+  const isCategory = channel.type === "category"
+  const isText = channel.type === "text"
+  const isPrivate = channel.audience === "members" && channel.parentId === null
+  const kind = isCategory ? "category" : "chat"
+
+  // Agents and webhooks are a text channel's. Tools also sit on a category,
+  // for the channels in it to inherit.
+  const tabs = TABS.filter((item) =>
+    item.id === "overview"
+      ? true
+      : overviewOnly
+        ? false
+        : item.id === "tools"
+          ? true
+          : isText
+  )
+  const [tab, setTab] = useState<Tab>("overview")
+  useEffect(() => {
+    if (open) setTab(initialTab)
+  }, [open, initialTab])
+  const shownTab = tabs.some((item) => item.id === tab) ? tab : "overview"
+
+  return (
+    <PaneDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={`${isCategory ? "Category" : "Chat"} settings`}
+      description={`Manage this ${kind}'s settings.`}
+      identity={
+        <div className="flex items-center gap-3 sm:flex-col sm:items-start">
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground">
+            {isCategory ? (
+              <HugeiconsIcon
+                icon={Folder01Icon}
+                className="size-5"
+                strokeWidth={2}
+              />
+            ) : channel.type === "voice" ? (
+              <HugeiconsIcon
+                icon={VolumeHighIcon}
+                className="size-5"
+                strokeWidth={2}
+              />
+            ) : (
+              // A chat, not a "#channel": no hash.
+              <HugeiconsIcon
+                icon={isPrivate ? BubbleChatLockIcon : BubbleChatIcon}
+                className="size-5"
+                strokeWidth={2}
+              />
+            )}
+          </span>
+          <div className="min-w-0">
+            <div className="truncate font-semibold text-[15px] leading-5">
+              {channel.name}
+            </div>
+            <div className="truncate text-muted-foreground text-xs">
+              {isCategory
+                ? "Category"
+                : isPrivate
+                  ? "Private chat"
+                  : channel.type === "voice"
+                    ? "Voice channel"
+                    : "Chat"}
+            </div>
+          </div>
+        </div>
+      }
+      tabs={tabs}
+      tab={shownTab}
+      onTabChange={setTab}
+      aside={!isCategory && <CopyId channelId={channel.id} />}
+    >
+      {!workspaceSlug ? null : shownTab === "overview" ? (
+        <OverviewTab
+          workspaceSlug={workspaceSlug}
+          channel={channel}
+          open={open}
+          onDone={() => onOpenChange(false)}
+          // Archiving takes channel:update, like the other tabs here.
+          canArchive={isText && !overviewOnly}
+        />
+      ) : shownTab === "agent" ? (
+        <AgentTab
+          workspaceSlug={workspaceSlug}
+          channel={channel}
+          onLeave={() => onOpenChange(false)}
+        />
+      ) : shownTab === "tools" ? (
+        <ToolsTab workspaceSlug={workspaceSlug} channel={channel} />
+      ) : (
+        <PaneBody
+          title="Webhooks"
+          description={`Events from your other tools, posted in ${channel.name}.`}
+        >
+          <ChannelWebhooksTab
+            workspaceSlug={workspaceSlug}
+            channelId={channel.id}
+            channelName={channel.name}
+          />
+        </PaneBody>
+      )}
+    </PaneDialog>
+  )
+}
+
+function CopyId({ channelId }: { channelId: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="w-full justify-start text-muted-foreground"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(channelId)
+        } catch {
+          toast.error("Failed to copy chat ID")
+          return
+        }
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      }}
+    >
+      <HugeiconsIcon
+        icon={copied ? Tick02Icon : Copy01Icon}
+        className="size-3.5"
+        strokeWidth={2}
+      />
+      {copied ? "Copied" : "Copy chat ID"}
+    </Button>
+  )
+}
+
+// Writes a saved channel into the caches that show it.
+function useChannelSaved(workspaceSlug: string, channelId: string) {
+  const queryClient = useQueryClient()
+  return (updated: Channel) => {
+    queryClient.setQueryData(
+      channelQueryOptions(workspaceSlug, channelId).queryKey,
+      updated
+    )
+    void patchChannelList(queryClient, workspaceSlug, (list) =>
+      upsertChannel(list, updated)
+    )
+  }
+}
+
+function OverviewTab({
+  workspaceSlug,
+  channel,
+  open,
+  onDone,
+  canArchive,
+}: {
+  workspaceSlug: string
+  channel: Channel
+  open: boolean
+  onDone: () => void
+  canArchive: boolean
+}) {
   const queryClient = useQueryClient()
   const isCategory = channel.type === "category"
-
-  const [tab, setTab] = useState<Tab>("overview")
-  const [idCopied, setIdCopied] = useState(false)
+  const kind = isCategory ? "category" : "chat"
   const [name, setName] = useState(channel.name ?? "")
   const [topic, setTopic] = useState(channel.topic ?? "")
-  const [profileId, setProfileId] = useState(channel.agentProfileId ?? INHERIT)
-  const [agentModel, setAgentModel] = useState(channel.agentModel ?? null)
-  const [wakeMode, setWakeMode] = useState(channel.agentWakeMode ?? "mention")
-  const [brief, setBrief] = useState(channel.agentBrief ?? "")
-  const [agentName, setAgentName] = useState(channel.agentName ?? "")
-  const [agentCreature, setAgentCreature] = useState<CreatureId | null>(
-    isCreatureId(channel.agentCreature) ? channel.agentCreature : null
-  )
-  // Only edited agent fields are sent, so a stale draft never overwrites a
-  // change someone else saved while the dialog was open.
-  const [edited, setEdited] = useState<{
-    model?: boolean
-    wakeMode?: boolean
-    brief?: boolean
-    agentName?: boolean
-    agentCreature?: boolean
-  }>({})
-
   // Drafts start from the channel when the dialog opens or switches channel,
   // not on every cache update, so an unsaved edit survives a rename's
   // optimistic update or its rollback.
   useEffect(() => {
     if (open) {
-      setTab(
-        overviewOnly && !(initialTab === "profile" && channel.type === "text")
-          ? "overview"
-          : initialTab
-      )
       setName(channel.name ?? "")
       setTopic(channel.topic ?? "")
-      setProfileId(channel.agentProfileId ?? INHERIT)
-      setAgentModel(channel.agentModel ?? null)
-      setWakeMode(channel.agentWakeMode ?? "mention")
-      setBrief(channel.agentBrief ?? "")
-      setAgentName(channel.agentName ?? "")
-      setAgentCreature(
-        isCreatureId(channel.agentCreature) ? channel.agentCreature : null
-      )
-      setEdited({})
     }
   }, [open, channel.id])
+  const saved = useChannelSaved(workspaceSlug, channel.id)
 
-  const { data: profilesData } = useQuery({
-    queryKey: ["agent-profiles", workspaceSlug],
-    enabled: open && !!workspaceSlug && !overviewOnly,
-    queryFn: async () => {
-      if (!workspaceSlug) throw new Error("Missing workspace slug")
-      const res = await apiClient.v1.workspaces[":workspaceSlug"][
-        "agent-profiles"
-      ].$get({ param: { workspaceSlug } })
-      if (!res.ok) throw new Error("Failed to load profiles")
-      return res.json()
-    },
-  })
-
-  const updateMutation = useMutation({
+  const save = useMutation({
     mutationFn: async () => {
-      if (!workspaceSlug) {
-        throw new Error("Missing workspace slug")
-      }
-
-      const validatedWorkspaceSlug = workspaceSlug
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
         ":channelId"
       ].$patch({
-        param: { workspaceSlug: validatedWorkspaceSlug, channelId: channel.id },
-        json: {
-          name,
-          ...(isCategory ? {} : { topic: topic || undefined }),
-          ...(overviewOnly
-            ? {}
-            : { agentProfileId: profileId === INHERIT ? null : profileId }),
-          ...(overviewOnly || isCategory
-            ? {}
-            : {
-                ...(edited.model ? { agentModel } : {}),
-                ...(edited.wakeMode ? { agentWakeMode: wakeMode } : {}),
-                ...(edited.brief ? { agentBrief: brief.trim() || null } : {}),
-              }),
-          // The channel's creator may name its agent too.
-          ...(channel.type === "text" && edited.agentName
-            ? { agentName: agentName.trim() || null }
-            : {}),
-          ...(channel.type === "text" && edited.agentCreature
-            ? { agentCreature }
-            : {}),
-        },
+        param: { workspaceSlug, channelId: channel.id },
+        json: { name, ...(isCategory ? {} : { topic: topic || undefined }) },
       })
-      if (!res.ok) {
-        const label = isCategory ? "category" : "channel"
-        let message = `Failed to update ${label}`
-        const responseText = await res.text()
-
-        if (responseText) {
-          try {
-            const parsed = JSON.parse(responseText) as { message?: string }
-            message =
-              typeof parsed.message === "string" ? parsed.message : responseText
-          } catch {
-            message = responseText
-          }
-        }
-
-        throw new Error(message)
-      }
-      return {
-        workspaceSlug: validatedWorkspaceSlug,
-        channel: await res.json(),
-      }
+      if (!res.ok) throw await errorOf(res, `Failed to update ${kind}`)
+      return res.json()
     },
     // The sidebar and the channel header show the new name and topic at
     // once; the server's row replaces them with no refetch, and a failure
     // restores both.
     onMutate: async () => {
-      if (!workspaceSlug) return undefined
       const detailKey = channelQueryOptions(workspaceSlug, channel.id).queryKey
-      const change = {
-        name,
-        ...(isCategory ? {} : { topic: topic || null }),
-      }
+      const change = { name, ...(isCategory ? {} : { topic: topic || null }) }
       await queryClient.cancelQueries({ queryKey: detailKey })
       const previousDetail = queryClient.getQueryData(detailKey)
       queryClient.setQueryData(detailKey, (current) =>
@@ -243,426 +323,545 @@ export function EditChannelDialog({
         workspaceSlug,
         (list) => upsertChannel(list, { ...channel, ...change })
       )
-      return { workspaceSlug, detailKey, previousDetail, previousList }
+      return { detailKey, previousDetail, previousList }
     },
-    onSuccess: ({
-      workspaceSlug: validatedWorkspaceSlug,
-      channel: updated,
-    }) => {
-      queryClient.setQueryData(
-        channelQueryOptions(validatedWorkspaceSlug, channel.id).queryKey,
-        updated
-      )
-      void patchChannelList(queryClient, validatedWorkspaceSlug, (list) =>
-        upsertChannel(list, updated)
-      )
-      onOpenChange(false)
+    onSuccess: (updated) => {
+      saved(updated)
+      onDone()
     },
     onError: (error, _vars, context) => {
       if (context) {
         queryClient.setQueryData(context.detailKey, context.previousDetail)
-        restoreChannelList(
-          queryClient,
-          context.workspaceSlug,
-          context.previousList
-        )
+        restoreChannelList(queryClient, workspaceSlug, context.previousList)
       }
-      const label = isCategory ? "category" : "channel"
-      toast.error(
-        error instanceof Error ? error.message : `Failed to update ${label}`
-      )
+      toast.error(error.message)
     },
   })
 
-  const hasChanges =
+  const changed =
     name !== (channel.name ?? "") ||
-    (!isCategory && topic !== (channel.topic ?? "")) ||
-    profileId !== (channel.agentProfileId ?? INHERIT) ||
-    agentModel !== (channel.agentModel ?? null) ||
-    wakeMode !== (channel.agentWakeMode ?? "mention") ||
-    brief !== (channel.agentBrief ?? "") ||
-    agentName !== (channel.agentName ?? "") ||
-    agentCreature !== (channel.agentCreature ?? null)
-  const isValid = name.trim().length > 0
-  // What the agent will be called and look like once saved: a blank name
-  // takes the creature's default (reference/always-on-agents.md, decision 32).
-  const identity = channelAgentIdentity({
-    id: channel.id,
-    agentName: agentName.trim() || null,
-    agentCreature,
-  })
-  const defaultName = channelAgentIdentity({
-    id: channel.id,
-    agentCreature,
-  }).name
-
-  const selectedProfile =
-    profileId === INHERIT
-      ? null
-      : (profilesData?.profiles.find((p) => p.id === profileId) ?? null)
-  const defaultProfile = profilesData?.profiles.find((p) => p.isDefault) ?? null
-  const previewProfile = selectedProfile ?? defaultProfile
-  const customProfiles =
-    profilesData?.profiles.filter((p) => !p.isDefault) ?? []
-
-  // Webhooks post into the channel feed — text channels only.
-  // A creator without channel:update sees the Agent tab for its name and
-  // creature only.
-  const visibleTabs = overviewOnly
-    ? TABS.filter(
-        (t) =>
-          t.id === "overview" || (t.id === "profile" && channel.type === "text")
-      )
-    : channel.type === "text"
-      ? TABS
-      : TABS.filter((t) => t.id !== "webhooks")
+    (!isCategory && topic !== (channel.topic ?? ""))
+  const valid = name.trim().length > 0
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-2xl md:max-w-3xl lg:max-w-5xl">
-        <DialogHeader className="flex-row items-center gap-2 border-border border-b px-5 py-3 text-left">
-          <DialogTitle>
-            {isCategory ? "Edit Category" : "Edit Channel"}
-          </DialogTitle>
+    <form
+      className="flex min-h-0 flex-1 flex-col"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (changed && valid && !save.isPending) save.mutate()
+      }}
+    >
+      <PaneBody title="Overview">
+        <SettingsCard>
+          <div className="space-y-2">
+            <Label htmlFor="channel-name">Name</Label>
+            <Input
+              id="channel-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              maxLength={100}
+              className="bg-background"
+            />
+          </div>
           {!isCategory && (
+            <div className="space-y-2">
+              <Label htmlFor="channel-topic">Topic</Label>
+              <Textarea
+                id="channel-topic"
+                value={topic}
+                onChange={(event) => setTopic(event.target.value)}
+                maxLength={1024}
+                rows={3}
+                placeholder="What this chat is for"
+              />
+              <p className="text-muted-foreground text-xs">
+                Shown in the chat's header. The agent in it reads it too.
+              </p>
+            </div>
+          )}
+        </SettingsCard>
+        {canArchive && (
+          <ArchiveChat
+            workspaceSlug={workspaceSlug}
+            channel={channel}
+            onArchived={onDone}
+          />
+        )}
+      </PaneBody>
+      <PaneFooter>
+        <Button type="button" variant="ghost" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          disabled={!changed || !valid}
+          loading={save.isPending}
+        >
+          Save
+        </Button>
+      </PaneFooter>
+    </form>
+  )
+}
+
+// Archiving is for everyone (reference/agents-and-chats.md, decision 52),
+// so it lives here behind a confirmation; hiding a chat for yourself stays
+// in the sidebar.
+function ArchiveChat({
+  workspaceSlug,
+  channel,
+  onArchived,
+}: {
+  workspaceSlug: string
+  channel: Channel
+  onArchived: () => void
+}) {
+  const [confirming, setConfirming] = useState(false)
+  const hasAgents = (channel.agentIds?.length ?? 0) > 0
+  const { archive, unarchive } = useChatArchive(workspaceSlug)
+  if (channel.archivedAt) {
+    return (
+      <SettingsSection title="Archive">
+        <SettingsCard className="flex items-center justify-between gap-4 space-y-0">
+          <p className="min-w-0 text-muted-foreground text-sm">
+            Archived for everyone. Unarchiving opens it again and restarts its
+            paused loops.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="shrink-0"
+            loading={unarchive.isPending}
+            onClick={() => unarchive.mutate({ channelId: channel.id })}
+          >
+            Unarchive
+          </Button>
+        </SettingsCard>
+      </SettingsSection>
+    )
+  }
+  return (
+    <SettingsSection title="Archive">
+      <SettingsCard className="flex items-center justify-between gap-4 space-y-0">
+        <p className="min-w-0 text-muted-foreground text-sm">
+          Close this chat for everyone. Its messages are kept.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="shrink-0 text-destructive-foreground"
+          onClick={() => setConfirming(true)}
+        >
+          Archive chat
+        </Button>
+      </SettingsCard>
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Archive {channel.name ?? "this chat"} for everyone?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {hasAgents
+                ? "The agents in it stop: they read nothing more here, their loops that report here pause, and events stop posting here. "
+                : "Events stop posting here. "}
+              It leaves everyone's sidebar and takes no new messages. Its
+              messages are kept, and it can be unarchived.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              loading={archive.isPending}
+              onClick={() =>
+                archive.mutate(
+                  { channelId: channel.id, name: channel.name },
+                  {
+                    onSuccess: () => {
+                      setConfirming(false)
+                      onArchived()
+                    },
+                  }
+                )
+              }
+            >
+              Archive for everyone
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </SettingsSection>
+  )
+}
+
+// Which agent is in the channel, and what the team wants from it here.
+// Adding and removing save at once.
+function AgentTab({
+  workspaceSlug,
+  channel,
+  onLeave,
+}: {
+  workspaceSlug: string
+  channel: Channel
+  // Closes this dialog before the agent's own opens.
+  onLeave: () => void
+}) {
+  const queryClient = useQueryClient()
+  const dialog = useAgentDialog()
+  const agents = useAgents(workspaceSlug)
+  const saved = useChannelSaved(workspaceSlug, channel.id)
+  // A channel can hold several agents (reference/agents-and-chats.md,
+  // decision 32), in the order they were added.
+  const placed = channel.agentIds.flatMap(
+    (id) => agents.find((item) => item.id === id) ?? []
+  )
+  const others = agents.filter((item) => !placed.includes(item))
+  const room = placed.length < MAX_CHANNEL_AGENTS
+  const [busy, setBusy] = useState(false)
+
+  const place = async (agentIds: string[]) => {
+    setBusy(true)
+    try {
+      saved(await setChannelAgents(workspaceSlug, channel.id, agentIds))
+      await refreshAgents(queryClient, workspaceSlug)
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Couldn't change the agent"
+      )
+      throw error
+    } finally {
+      setBusy(false)
+    }
+  }
+  const openAgent = (id: string) => {
+    onLeave()
+    dialog.open(id)
+  }
+
+  const add = (
+    <SettingsSection title={placed.length > 0 ? "Add another" : "Add an agent"}>
+      <SettingsGroup>
+        {others.map((item) => (
+          <div key={item.id} className="flex min-h-14 items-center gap-3">
+            <AgentCreature creature={agentCreature(item)} size={32} still />
+            <AgentName agent={item} />
             <Button
               type="button"
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(channel.id)
-                } catch {
-                  toast.error("Failed to copy channel ID")
-                  return
-                }
-                setIdCopied(true)
-                setTimeout(() => setIdCopied(false), 1500)
-              }}
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() =>
+                void place([...channel.agentIds, item.id]).catch(() => {})
+              }
             >
-              <HugeiconsIcon
-                icon={idCopied ? Tick02Icon : Copy01Icon}
-                className="size-3.5"
-                strokeWidth={2}
-              />
-              Copy ID
+              Add
             </Button>
-          )}
-          <DialogDescription className="sr-only">
-            Manage this {isCategory ? "category" : "channel"}'s settings.
-          </DialogDescription>
-        </DialogHeader>
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (hasChanges && isValid) {
-              updateMutation.mutate()
-            }
-          }}
-        >
-          {/* Webhooks save as they change, so that tab has no footer; its
-            body takes the footer's height so the dialog doesn't jump. */}
-          <div
-            className={cn(
-              "flex",
-              tab === "webhooks" ? "h-[521px]" : "h-[460px]"
-            )}
-          >
-            <nav className="flex w-48 shrink-0 flex-col gap-1 border-border border-r bg-sidebar p-3">
-              {visibleTabs.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTab(t.id)}
-                  className={cn(
-                    "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-                    tab === t.id
-                      ? "bg-accent font-medium text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-                  )}
-                >
-                  <HugeiconsIcon
-                    icon={t.icon}
-                    className="size-4"
-                    strokeWidth={2}
-                  />
-                  {t.label}
-                </button>
-              ))}
-            </nav>
-
-            <div className="min-w-0 flex-1 overflow-y-auto p-6">
-              <div className="mx-auto w-full max-w-xl space-y-4">
-                {tab === "overview" ? (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="channel-name">Name</Label>
-                      <Input
-                        id="channel-name"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        maxLength={100}
-                      />
-                    </div>
-                    {!isCategory && (
-                      <div className="space-y-2">
-                        <Label htmlFor="channel-topic">Topic</Label>
-                        <Textarea
-                          id="channel-topic"
-                          value={topic}
-                          onChange={(e) => setTopic(e.target.value)}
-                          maxLength={1024}
-                          placeholder="What's this channel about?"
-                          rows={3}
-                        />
-                      </div>
-                    )}
-                  </>
-                ) : tab === "webhooks" ? (
-                  workspaceSlug ? (
-                    <ChannelWebhooksTab
-                      workspaceSlug={workspaceSlug}
-                      channelId={channel.id}
-                      channelName={channel.name}
-                    />
-                  ) : null
-                ) : (
-                  <div className="space-y-3">
-                    {channel.type === "text" && workspaceSlug && (
-                      <>
-                        <div className="flex gap-4">
-                          <div className="flex size-24 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-                            <AgentCreature
-                              creature={identity.creature}
-                              size={72}
-                              label={identity.name}
-                            />
-                          </div>
-                          <div className="min-w-0 flex-1 space-y-2">
-                            <Label htmlFor="channel-agent-name">Name</Label>
-                            <Input
-                              id="channel-agent-name"
-                              value={agentName}
-                              onChange={(e) => {
-                                setAgentName(e.target.value)
-                                setEdited((prev) => ({
-                                  ...prev,
-                                  agentName: true,
-                                }))
-                              }}
-                              maxLength={AGENT_NAME_MAX}
-                              placeholder={defaultName}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              What the channel calls its agent. People mention
-                              it as @{identity.name}.
-                            </p>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Creature</Label>
-                          <div className="grid grid-cols-5 gap-1.5">
-                            {CREATURES.map((creature) => (
-                              <button
-                                key={creature.id}
-                                type="button"
-                                title={creature.label}
-                                aria-label={creature.label}
-                                aria-pressed={identity.creature === creature.id}
-                                onClick={() => {
-                                  setAgentCreature(creature.id)
-                                  setEdited((prev) => ({
-                                    ...prev,
-                                    agentCreature: true,
-                                  }))
-                                }}
-                                className={cn(
-                                  "flex cursor-pointer flex-col items-center gap-0.5 rounded-md border px-1 pt-1.5 pb-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/60",
-                                  identity.creature === creature.id
-                                    ? "border-primary bg-accent text-foreground"
-                                    : "border-transparent"
-                                )}
-                              >
-                                <AgentCreature
-                                  creature={creature.id}
-                                  size={48}
-                                  still
-                                />
-                                <span className="truncate">
-                                  {creature.label}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        {!overviewOnly && (
-                          <>
-                            <DiscordChatSection
-                              key={channel.id}
-                              workspaceSlug={workspaceSlug}
-                              channelId={channel.id}
-                              agentName={identity.name}
-                            />
-                            <div className="space-y-2">
-                              <Label htmlFor="channel-agent-model">Model</Label>
-                              <AgentModelSelect
-                                id="channel-agent-model"
-                                workspaceSlug={workspaceSlug}
-                                value={agentModel}
-                                onChange={(model) => {
-                                  setAgentModel(model)
-                                  setEdited((e) => ({ ...e, model: true }))
-                                }}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="channel-agent-wake">
-                                Answers
-                              </Label>
-                              <Select
-                                items={WAKE_MODES}
-                                value={wakeMode}
-                                onValueChange={(v) => {
-                                  if (!v) return
-                                  setWakeMode(v as typeof wakeMode)
-                                  setEdited((e) => ({ ...e, wakeMode: true }))
-                                }}
-                              >
-                                <SelectTrigger
-                                  id="channel-agent-wake"
-                                  className="w-full"
-                                >
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {WAKE_MODES.map((mode) => (
-                                    <SelectItem
-                                      key={mode.value}
-                                      value={mode.value}
-                                    >
-                                      {mode.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <p className="text-xs text-muted-foreground">
-                                {identity.name} reads every message here either
-                                way. This sets which ones it answers right away.
-                              </p>
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="channel-agent-brief">Brief</Label>
-                              <Textarea
-                                id="channel-agent-brief"
-                                value={brief}
-                                onChange={(e) => {
-                                  setBrief(e.target.value)
-                                  setEdited((prev) => ({
-                                    ...prev,
-                                    brief: true,
-                                  }))
-                                }}
-                                maxLength={4000}
-                                rows={4}
-                                placeholder={`What ${identity.name} should know and do here, e.g. “Watch deploys and tell us in two lines when one fails. Zoe owns the pipeline.”`}
-                              />
-                              <p className="text-xs text-muted-foreground">
-                                Standing instructions for {identity.name} in
-                                this channel. Only people write the brief.
-                              </p>
-                            </div>
-                          </>
-                        )}
-                        {/* Any member may edit facts, as the API allows. */}
-                        <AgentFactsList
-                          workspaceSlug={workspaceSlug}
-                          channelId={channel.id}
-                        />
-                      </>
-                    )}
-                    {!overviewOnly && customProfiles.length > 0 && (
-                      <div className="space-y-2">
-                        <Label htmlFor="channel-agent-profile">Profile</Label>
-                        <Select
-                          items={[
-                            {
-                              value: INHERIT,
-                              label: isCategory
-                                ? "Inherit (workspace default)"
-                                : "Inherit (category or default)",
-                            },
-                            ...customProfiles.map((p) => ({
-                              value: p.id,
-                              label: p.name,
-                            })),
-                          ]}
-                          value={profileId}
-                          onValueChange={(v) => v && setProfileId(v)}
-                        >
-                          <SelectTrigger
-                            id="channel-agent-profile"
-                            className="w-full"
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={INHERIT}>
-                              {isCategory
-                                ? "Inherit (workspace default)"
-                                : "Inherit (category or default)"}
-                            </SelectItem>
-                            {customProfiles.map((p) => (
-                              <SelectItem key={p.id} value={p.id}>
-                                {p.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-
-                    {!overviewOnly && previewProfile && profilesData && (
-                      <ProfileCapabilities
-                        profile={previewProfile}
-                        groups={profilesData.availableToolGroups}
-                      />
-                    )}
-
-                    {!overviewOnly && customProfiles.length === 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        Add agent profiles in workspace settings to give
-                        channels different tools.
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => openAgent("new")}
+          className="group flex min-h-14 w-full cursor-pointer items-center gap-3 text-left text-muted-foreground text-sm outline-none transition-colors duration-150 hover:text-foreground focus-visible:text-foreground"
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 border-dashed transition-colors duration-150 group-hover:border-foreground/60">
+            <HugeiconsIcon
+              icon={PlusSignIcon}
+              className="size-3.5"
+              strokeWidth={2}
+            />
+          </span>
+          New agent
+        </button>
+      </SettingsGroup>
+    </SettingsSection>
+  )
 
-          {tab !== "webhooks" && (
-            <DialogFooter className="border-border border-t px-5 py-3">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={!hasChanges || !isValid || updateMutation.isPending}
-              >
-                <MorphText>
-                  {updateMutation.isPending ? "Saving..." : "Save"}
-                </MorphText>
-              </Button>
-            </DialogFooter>
+  const first = placed[0]
+  if (first) {
+    return (
+      <PaneBody
+        title={placed.length > 1 ? "Agents" : "Agent"}
+        description={
+          placed.length > 1
+            ? `${NAMES.format(placed.map((item) => item.name))} read along in ${channel.name}. A mention or a reply wakes the one it names at once.`
+            : `${first.name} reads along in ${channel.name}. A mention or a reply wakes it at once.`
+        }
+      >
+        {placed.map((agent) => (
+          <Fragment key={agent.id}>
+            <PlacedAgent
+              workspaceSlug={workspaceSlug}
+              channel={channel}
+              agent={agent}
+              onOpen={() => openAgent(agent.id)}
+              onRemove={() =>
+                place(channel.agentIds.filter((id) => id !== agent.id))
+              }
+            />
+            <ChannelInstructions
+              workspaceSlug={workspaceSlug}
+              channel={channel}
+              agent={agent}
+            />
+          </Fragment>
+        ))}
+        {room && add}
+      </PaneBody>
+    )
+  }
+  return (
+    <PaneBody
+      title="Agent"
+      description={`No agent is in ${channel.name}. People talk here and nothing answers.`}
+    >
+      {add}
+    </PaneBody>
+  )
+}
+
+const NAMES = new Intl.ListFormat("en", { style: "long", type: "conjunction" })
+
+function AgentName({ agent }: { agent: WorkspaceAgent }) {
+  return (
+    <span className="min-w-0 flex-1">
+      <span className="block truncate font-medium text-sm">{agent.name}</span>
+      {agent.role && (
+        <span className="block truncate text-muted-foreground text-xs">
+          {agent.role}
+        </span>
+      )}
+    </span>
+  )
+}
+
+function PlacedAgent({
+  workspaceSlug,
+  channel,
+  agent,
+  onOpen,
+  onRemove,
+}: {
+  workspaceSlug: string
+  channel: Channel
+  agent: WorkspaceAgent
+  onOpen: () => void
+  onRemove: () => Promise<unknown>
+}) {
+  const state = useAgentState(channel.workspaceId ?? undefined, {
+    channelIds: [channel.id],
+  })
+  const { data: list } = useQuery(workspaceChannelsQueryOptions(workspaceSlug))
+  const names = new Map(
+    [
+      ...(list?.uncategorized ?? []),
+      ...(list?.categories.flatMap((category) => category.channels) ?? []),
+    ].map((item) => [item.id, item.name])
+  )
+  const elsewhere = agent.channelIds
+    .filter((id) => id !== channel.id)
+    .flatMap((id) => names.get(id) ?? [])
+  return (
+    <div className={`${SETTINGS_SURFACE} flex items-center gap-3 p-4`}>
+      <AgentCreature creature={agentCreature(agent)} state={state} size={40} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium text-sm">
+          {agent.name}
+          {agent.role && (
+            <span className="ml-2 font-normal text-muted-foreground">
+              {agent.role}
+            </span>
           )}
-        </form>
-      </DialogContent>
-    </Dialog>
+        </span>
+        <span className="block truncate text-muted-foreground text-xs">
+          {elsewhere.length > 0
+            ? `Also in ${elsewhere.join(", ")}`
+            : "Only in this chat"}
+        </span>
+      </span>
+      <Button type="button" size="sm" variant="outline" onClick={onOpen}>
+        Settings
+      </Button>
+      <InlineConfirmButton
+        label={`Remove ${agent.name} from ${channel.name}`}
+        confirmLabel="Remove"
+        onConfirm={onRemove}
+      />
+    </div>
+  )
+}
+
+// What the team wants from the agent in this channel only. Readable by the
+// people who can see the channel, so a private channel's instructions stay
+// in it; the agent's own brief is everyone's to read.
+function ChannelInstructions({
+  workspaceSlug,
+  channel,
+  agent,
+}: {
+  workspaceSlug: string
+  channel: Channel
+  agent: WorkspaceAgent
+}) {
+  const queryClient = useQueryClient()
+  const key = channelAgentsKey(workspaceSlug, channel.id)
+  const { data } = useQuery({
+    queryKey: key,
+    queryFn: () => loadChannelAgents(workspaceSlug, channel.id),
+  })
+  const stored = data?.find((row) => row.agentId === agent.id)?.brief ?? ""
+  const [draft, setDraft] = useState<string | null>(null)
+  const text = draft ?? stored
+  const save = useMutation({
+    mutationFn: () =>
+      saveChannelBrief(
+        workspaceSlug,
+        channel.id,
+        agent.id,
+        text.trim() || null
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: key })
+      setDraft(null)
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  const changed = text.trim() !== stored.trim()
+  return (
+    <SettingsSection
+      title="Instructions for this chat"
+      // Always there, so the heading doesn't move when the text changes.
+      action={
+        <Button
+          type="button"
+          size="xs"
+          loading={save.isPending}
+          disabled={!changed}
+          aria-hidden={!changed}
+          tabIndex={changed ? 0 : -1}
+          onClick={() => save.mutate()}
+          className={cn(
+            "transition-opacity duration-150 ease-out",
+            !changed && "pointer-events-none opacity-0 disabled:opacity-0"
+          )}
+        >
+          Save
+        </Button>
+      }
+      caption={`Only the people in ${channel.name} can read these. ${agent.name} follows them here, ahead of its own brief.`}
+    >
+      <Textarea
+        aria-label={`Instructions for ${agent.name} in this chat`}
+        value={text}
+        disabled={!data}
+        onChange={(event) => setDraft(event.target.value)}
+        maxLength={4000}
+        rows={4}
+        placeholder={`What ${agent.name} should do in ${channel.name}. “Only speak up when a deploy fails.”`}
+      />
+    </SettingsSection>
+  )
+}
+
+// The tools an agent may use in this channel: a profile set here, else the
+// category's, else the workspace's default. Picking one saves at once.
+function ToolsTab({
+  workspaceSlug,
+  channel,
+}: {
+  workspaceSlug: string
+  channel: Channel
+}) {
+  const isCategory = channel.type === "category"
+  const saved = useChannelSaved(workspaceSlug, channel.id)
+  const { data } = useQuery({
+    queryKey: ["agent-profiles", workspaceSlug],
+    queryFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"][
+        "agent-profiles"
+      ].$get({ param: { workspaceSlug } })
+      if (!res.ok) throw new Error("Failed to load profiles")
+      return res.json()
+    },
+  })
+  const pick = useMutation({
+    mutationFn: async (profileId: string) => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
+        ":channelId"
+      ].$patch({
+        param: { workspaceSlug, channelId: channel.id },
+        json: { agentProfileId: profileId === INHERIT ? null : profileId },
+      })
+      if (!res.ok) throw await errorOf(res, "Failed to change the tools")
+      return res.json()
+    },
+    onSuccess: saved,
+    onError: (error) => toast.error(error.message),
+  })
+  const profileId = channel.agentProfileId ?? INHERIT
+  const custom = data?.profiles.filter((profile) => !profile.isDefault) ?? []
+  const shown =
+    data?.profiles.find((profile) => profile.id === profileId) ??
+    data?.profiles.find((profile) => profile.isDefault) ??
+    null
+  const inherit = isCategory
+    ? "The workspace's default"
+    : "The category's, else the default"
+  return (
+    <PaneBody
+      title="Tools"
+      description={
+        isCategory
+          ? "What an agent may use in this category's chats."
+          : "What an agent may use in this chat."
+      }
+    >
+      {custom.length > 0 && (
+        <SettingsSection title="Profile">
+          <SettingsCard>
+            <Select
+              items={[
+                { value: INHERIT, label: inherit },
+                ...custom.map((profile) => ({
+                  value: profile.id,
+                  label: profile.name,
+                })),
+              ]}
+              value={profileId}
+              disabled={pick.isPending}
+              onValueChange={(value) => value && pick.mutate(value)}
+            >
+              <SelectTrigger aria-label="Tool profile" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={INHERIT}>{inherit}</SelectItem>
+                {custom.map((profile) => (
+                  <SelectItem key={profile.id} value={profile.id}>
+                    {profile.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </SettingsCard>
+        </SettingsSection>
+      )}
+      {shown && data && (
+        <SettingsSection
+          title="Can use"
+          caption={
+            custom.length === 0
+              ? "Add agent profiles in workspace settings to give chats different tools."
+              : undefined
+          }
+        >
+          <SettingsCard>
+            <GrantedChips profile={shown} groups={data.availableToolGroups} />
+          </SettingsCard>
+        </SettingsSection>
+      )}
+    </PaneBody>
   )
 }

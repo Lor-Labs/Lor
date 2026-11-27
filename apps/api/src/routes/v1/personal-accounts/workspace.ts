@@ -2,8 +2,8 @@ import { createRoute, z } from "@hono/zod-openapi"
 import { and, asc, db, eq, inArray, schema } from "@repo/db"
 import { workspaceInferenceKeyId } from "@repo/db/queries/inference"
 import {
+  getHarnessSettings,
   getPersonalHarnessSettings,
-  getWorkspaceHarnessSettings,
   harnessAccountOwner,
   orderHarnessAccounts,
 } from "@repo/db/queries/personal-accounts"
@@ -26,6 +26,9 @@ import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 
 const provider = z.enum(["claude", "chatgpt"])
 const params = z.object({ workspaceSlug: z.string() })
+// The agent whose own run settings are read or changed
+// (reference/agents-and-chats.md): each agent has its own.
+const agentQuery = z.object({ agentId: z.string().uuid().optional() })
 // Postgres returns lowercase UUIDs; the saved order must match them.
 const accountUuid = z.string().uuid().toLowerCase()
 const preference = z.object({
@@ -86,7 +89,7 @@ const list = createRoute({
   ...common,
   path,
   method: "get",
-  request: { params },
+  request: { params, query: agentQuery },
   responses: ok,
 })
 const savePreference = createRoute({
@@ -111,10 +114,11 @@ const saveSettings = createRoute({
   method: "put",
   request: {
     params,
+    query: z.object({ agentId: z.string().uuid() }),
     body: {
       ...jsonContent({
         schema: settings.partial(),
-        description: "Changed autonomous run settings",
+        description: "Changed run settings of one agent",
       }),
       required: true,
     },
@@ -188,15 +192,33 @@ const disconnect = createRoute({
   method: "delete",
   request: {
     params: params.extend({ provider, accountId: z.string().uuid() }),
+    query: agentQuery,
   },
   responses: ok,
 })
 
+// An agent of this workspace, or a 404: run settings are per agent.
+async function assertAgent(workspaceId: string, agentId: string) {
+  const [row] = await db
+    .select({ id: schema.agent.id })
+    .from(schema.agent)
+    .where(
+      and(
+        eq(schema.agent.id, agentId),
+        eq(schema.agent.workspaceId, workspaceId)
+      )
+    )
+  if (!row) throw new HTTPException(404, { message: "Agent not found" })
+}
+
 async function snapshot(
   workspaceId: string,
   userId: string,
-  canManage: boolean
+  canManage: boolean,
+  // Whose run settings to include. The accounts are the workspace's.
+  agentId?: string
 ) {
+  if (agentId) await assertAgent(workspaceId, agentId)
   const [personal, accounts, preferences, saved, personalPolicy] =
     await Promise.all([
       db
@@ -226,7 +248,7 @@ async function snapshot(
             eq(schema.harnessAccountPreference.userId, userId)
           )
         ),
-      canManage ? getWorkspaceHarnessSettings(workspaceId) : null,
+      canManage && agentId ? getHarnessSettings({ agentId }) : null,
       getPersonalHarnessSettings(workspaceId, userId),
     ])
   const masked = (rows: typeof personal) =>
@@ -298,7 +320,8 @@ const router = createRouter()
       await snapshot(
         c.var.workspace.id,
         c.var.user.id,
-        hasWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
+        hasWorkspaceAuthority(c.var.authority, { billing: ["manage"] }),
+        c.req.valid("query").agentId
       ),
       200
     )
@@ -390,7 +413,9 @@ const router = createRouter()
     assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
     // A patch of changed fields, so concurrent admin edits don't revert each other.
     const patch = c.req.valid("json")
-    const previous = await getWorkspaceHarnessSettings(c.var.workspace.id)
+    const { agentId } = c.req.valid("query")
+    await assertAgent(c.var.workspace.id, agentId)
+    const previous = await getHarnessSettings({ agentId })
     const values = { ...previous, ...patch }
     const activated = (harness: typeof values.defaultHarness) =>
       values.defaultHarness === harness && previous.defaultHarness !== harness
@@ -421,7 +446,7 @@ const router = createRouter()
     )
       throw new HTTPException(400, {
         message:
-          "Choose a dedicated Lor account before enabling subscription billing.",
+          "Choose one of the workspace's accounts before enabling subscription billing.",
       })
     // Check funding only when a choice changes or becomes active, so an admin
     // can still switch away from a route whose key was removed.
@@ -460,15 +485,28 @@ const router = createRouter()
           message: `Add your ${provider === "anthropic" ? "Anthropic" : "OpenAI"} API key in Billing first.`,
         })
     }
-    if (Object.keys(patch).length)
-      await db
-        .insert(schema.workspaceHarnessSettings)
-        .values(values)
-        .onConflictDoUpdate({
-          target: schema.workspaceHarnessSettings.workspaceId,
-          set: patch,
-        })
-    return c.json(await snapshot(c.var.workspace.id, c.var.user.id, true), 200)
+    // The model is the agent's own column; the rest is its settings row.
+    const { apiModel, ...row } = patch
+    const { apiModel: _model, ...saved } = values
+    await db.transaction(async (tx) => {
+      if (apiModel !== undefined)
+        await tx
+          .update(schema.agent)
+          .set({ model: apiModel })
+          .where(eq(schema.agent.id, agentId))
+      if (Object.keys(row).length)
+        await tx
+          .insert(schema.agentHarnessSettings)
+          .values({ agentId, ...saved })
+          .onConflictDoUpdate({
+            target: schema.agentHarnessSettings.agentId,
+            set: row,
+          })
+    })
+    return c.json(
+      await snapshot(c.var.workspace.id, c.var.user.id, true, agentId),
+      200
+    )
   })
   .openapi(connect, async (c) => {
     assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
@@ -496,7 +534,15 @@ const router = createRouter()
       provider,
       accountId
     )
-    return c.json(await snapshot(c.var.workspace.id, c.var.user.id, true), 200)
+    return c.json(
+      await snapshot(
+        c.var.workspace.id,
+        c.var.user.id,
+        true,
+        c.req.valid("query").agentId
+      ),
+      200
+    )
   })
 
 export default router

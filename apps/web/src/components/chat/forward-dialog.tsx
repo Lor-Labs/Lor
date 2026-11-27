@@ -55,7 +55,7 @@ export function ForwardDialog({
       if (!result.ok) throw new Error(result.error)
       setNote("")
       onClose()
-      toast(`Forwarded to #${target.channelName}`, {
+      toast(`Forwarded to ${target.channelName}`, {
         action: {
           label: "View",
           onClick: () =>
@@ -78,10 +78,10 @@ export function ForwardDialog({
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle className="text-base">
-            Forward to #{target.channelName}
+            Forward to {target.channelName}
           </DialogTitle>
           <DialogDescription>
-            Posts as you in the channel chat, with the message under your note.
+            Posts as you in the chat, with the message under your note.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-3">

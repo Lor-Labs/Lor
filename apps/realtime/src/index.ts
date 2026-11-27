@@ -47,6 +47,7 @@ import {
   workspaceRoom,
 } from "@repo/realtime-types"
 import type {
+  AgentInboxClassifyJobData,
   AgentInboxFlushJobData,
   AttachmentIndexJobData,
   LinkUnfurlJobData,
@@ -921,7 +922,12 @@ io.on("connection", (socket) => {
           )
           .limit(1)
         if (existingRun) {
-          if (existingRun.state === "queued" && existingRun.messageId) {
+          // A run a message started is in that message's chat.
+          if (
+            existingRun.state === "queued" &&
+            existingRun.messageId &&
+            existingRun.channelId
+          ) {
             await lorRespondQueue.add(
               "respond",
               {
@@ -955,21 +961,17 @@ io.on("connection", (socket) => {
           !session &&
           createdMessage.message.type !== "forward"
         ) {
-          const lane = await addChatMessageToAgentInbox({
+          const addressed = await addChatMessageToAgentInbox({
             workspaceId,
             channelId: parsed.channelId,
             message: createdMessage.message,
             queue: agentInboxQueue,
-            onCheckInMade: (loop) =>
-              io
-                .to(channelRoom(parsed.channelId))
-                .emit("loop:updated", { loop }),
           })
           // The agent's turn starts after a short batch delay; show it as
           // typing from the moment someone addresses it (the worker keeps it
           // up while the turn runs).
-          if (lane === "addressed") {
-            const threadRootId = createdMessage.message.threadRootId ?? null
+          const threadRootId = createdMessage.message.threadRootId ?? null
+          for (const agent of addressed) {
             io.to(
               threadRootId
                 ? threadRoom(threadRootId)
@@ -978,7 +980,8 @@ io.on("connection", (socket) => {
               channelId: parsed.channelId,
               threadRootId,
               userId: LOR_USER_ID,
-              name: "Lor",
+              name: agent.name,
+              agentId: agent.id,
             })
           }
           return
@@ -1523,7 +1526,9 @@ const attachmentIndexQueue = new Queue<AttachmentIndexJobData>(
   }
 )
 
-const agentInboxQueue = new Queue<AgentInboxFlushJobData>(AGENT_INBOX_QUEUE, {
+const agentInboxQueue = new Queue<
+  AgentInboxFlushJobData | AgentInboxClassifyJobData
+>(AGENT_INBOX_QUEUE, {
   connection: {
     ...parseRedisUrl(env.REDIS_URL),
     maxRetriesPerRequest: null,

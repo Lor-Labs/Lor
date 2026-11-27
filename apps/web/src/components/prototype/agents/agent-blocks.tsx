@@ -15,7 +15,6 @@ import { type ReactNode, useEffect, useState } from "react"
 import { PersonAvatar } from "../prototype-parts"
 import {
   type Agent,
-  agentById,
   type Block,
   type Chart,
   charts,
@@ -24,7 +23,7 @@ import {
   type Work,
 } from "./agents-data"
 import { PRESS, StateIcon } from "./agents-parts"
-import { useProto, useThreadId } from "./agents-store"
+import { useChatId, useProto } from "./agents-store"
 
 export const CARD =
   "overflow-hidden rounded-2xl border border-border/70 bg-foreground/[0.025]"
@@ -117,8 +116,8 @@ export function WorkCard({ workId }: { workId: string }) {
             {work.facts}
           </span>
         )}
-        <span title={`${work.owner.name} owns this`} className="shrink-0">
-          <PersonAvatar person={work.owner} className="size-5" />
+        <span title={`${work.asker.name} asked for this`} className="shrink-0">
+          <PersonAvatar person={work.asker} className="size-5" />
         </span>
         <HugeiconsIcon
           icon={ArrowRight01Icon}
@@ -395,7 +394,7 @@ function ChartCard({ chartId, agent }: { chartId: string; agent: Agent }) {
 
 function LeadsCard() {
   const { draftOutreach } = useProto()
-  const threadId = useThreadId()
+  const chatId = useChatId()
   const [picked, setPicked] = useState(
     () => new Set(["lumen", "kestrel", "paygrove"])
   )
@@ -463,9 +462,9 @@ function LeadsCard() {
           size="sm"
           disabled={sent || picked.size === 0}
           onClick={() => {
-            if (!threadId) return
+            if (!chatId) return
             setSent(true)
-            draftOutreach(threadId, [...picked])
+            draftOutreach(chatId, [...picked])
           }}
         >
           {sent ? "Drafting" : `Draft outreach for ${picked.size}`}
@@ -536,70 +535,17 @@ function DraftCard({ draftId }: { draftId: string }) {
   )
 }
 
-function AgentTag({ name }: { name: string }) {
-  return (
-    <span className="rounded-md bg-agent/12 px-1.5 py-0.5 text-[11px] font-medium text-agent">
-      {name}
-    </span>
-  )
-}
-
-function HandoffBlock({
-  agent,
-  block,
-}: {
-  agent: Agent
-  block: Extract<Block, { kind: "handoff" }>
-}) {
-  const { openCanvas } = useProto()
-  const target = agentById(block.toAgentId)
-  if (!target) return null
-  return (
-    <div className={cn(CARD, "divide-y divide-border/60")}>
-      <div className="px-4 py-3.5">
-        <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
-          <AgentTag name={agent.name} />
-          asked
-          <AgentTag name={target.name} />
-        </div>
-        <p className="mt-1.5 text-[14px] leading-6 text-foreground/80">
-          {block.ask}
-        </p>
-      </div>
-      <div className="px-4 py-3.5">
-        <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
-          <AgentTag name={target.name} />
-          answered
-        </div>
-        <p className="mt-1.5 text-[14px] leading-6">{block.answer}</p>
-        <button
-          type="button"
-          onClick={() => openCanvas({ kind: "work", workId: block.workId })}
-          className="mt-2 inline-flex cursor-pointer items-center gap-1 text-[13px] font-medium text-agent hover:underline"
-        >
-          See the fix
-          <HugeiconsIcon
-            icon={ArrowRight01Icon}
-            className="size-3.5"
-            strokeWidth={2}
-          />
-        </button>
-      </div>
-    </div>
-  )
-}
-
 function TemplatesBlock({ agent }: { agent: Agent }) {
   const { send, configured } = useProto()
-  const threadId = useThreadId()
-  if (configured[agent.id] || !threadId) return null
+  const chatId = useChatId()
+  if (configured[agent.id] || !chatId) return null
   return (
     <div className="flex flex-col items-start gap-2">
       {templates.map((template) => (
         <button
           key={template}
           type="button"
-          onClick={() => send(threadId, template)}
+          onClick={() => send(chatId, template)}
           className={cn(
             "cursor-pointer rounded-full border border-border px-3.5 py-1.5 text-left text-[14px] hover:bg-foreground/[0.04]",
             PRESS
@@ -621,7 +567,7 @@ const proposal = [
 
 function ProposalCard({ agent }: { agent: Agent }) {
   const { configured, approveSetup } = useProto()
-  const threadId = useThreadId()
+  const chatId = useChatId()
   const done = configured[agent.id]
   return (
     <div className={cn(CARD, !done && "border-warning/45")}>
@@ -648,7 +594,7 @@ function ProposalCard({ agent }: { agent: Agent }) {
             <motion.div key="ask" {...swap} className="flex gap-2">
               <Button
                 size="sm"
-                onClick={() => threadId && approveSetup(agent.id, threadId)}
+                onClick={() => chatId && approveSetup(agent.id, chatId)}
               >
                 Approve setup
               </Button>
@@ -677,8 +623,6 @@ export function BlockView({ block, agent }: { block: Block; agent: Agent }) {
       return <LeadsCard />
     case "draft":
       return <DraftCard draftId={block.draftId} />
-    case "handoff":
-      return <HandoffBlock agent={agent} block={block} />
     case "templates":
       return <TemplatesBlock agent={agent} />
     case "proposal":

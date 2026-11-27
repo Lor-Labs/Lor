@@ -1,15 +1,17 @@
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatDateTime } from "@repo/utils/date"
 import { Pressable, Text, View } from "react-native"
-import { ChannelRow } from "@/components/channel-list"
+import { ChatAvatar } from "@/components/chat-avatar"
+import { MentionBadge } from "@/components/chat-list"
 import { Avatar } from "@/components/ui/avatar"
 import { PressableRow } from "@/components/ui/pressable-row"
 import { PressableScale } from "@/components/ui/pressable-scale"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useUnread } from "@/context/unread-context"
+import { agentCreature, useAgentsById } from "@/hooks/use-agents"
 import type { useMessageSearch } from "@/hooks/use-message-search"
-import type { Channel, ChannelSearchResult } from "@/lib/api-types"
+import type { ChannelSearchResult } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/message-markdown"
 
 function MessageResultRow({
@@ -114,22 +116,82 @@ function ResultsHeading({ title, count }: { title: string; count?: number }) {
   )
 }
 
+// A chat search finds: one of yours, or one you can join (`people` empty).
+export type ChatSearchItem = {
+  id: string
+  name: string | null
+  agentIds: string[]
+  people: {
+    id: string
+    name: string
+    image: string | null
+    avatarColor: string | null
+  }[]
+  joined: boolean
+}
+
+function ChatResultRow({
+  chat,
+  workspaceSlug,
+  onPress,
+}: {
+  chat: ChatSearchItem
+  workspaceSlug: string
+  onPress: (chat: ChatSearchItem) => void
+}) {
+  const { getUnreadCount, getMentionCount } = useUnread()
+  const agentsById = useAgentsById(workspaceSlug)
+  const agents = chat.agentIds.flatMap((id) => agentsById.get(id) ?? [])
+  const mentions = getMentionCount(chat.id)
+  const unread = getUnreadCount(chat.id) > 0
+  const name = chat.name ?? "Chat"
+  return (
+    <PressableRow
+      accessibilityLabel={`${name}${chat.joined ? "" : ", you're not in it"}`}
+      accessibilityRole="button"
+      className="min-h-14 flex-row items-center gap-three px-two py-two"
+      onPress={() => onPress(chat)}
+    >
+      <ChatAvatar
+        agents={agents.map((agent) => ({
+          id: agent.id,
+          creature: agentCreature(agent),
+        }))}
+        people={chat.people}
+        size={36}
+        total={agents.length + chat.people.length}
+      />
+      <Text
+        className={`min-w-0 flex-1 text-[16px] text-foreground ${unread ? "font-semibold" : ""}`}
+        numberOfLines={1}
+      >
+        {name}
+      </Text>
+      {chat.joined ? null : (
+        <Text className="text-xs text-muted">Not in it</Text>
+      )}
+      {mentions > 0 ? <MentionBadge count={mentions} /> : null}
+    </PressableRow>
+  )
+}
+
 export function WorkspaceSearchResults({
-  channels,
-  onPressChannel,
+  chats: channels,
+  workspaceSlug,
+  onPressChat: onPressChannel,
   onPressMessage,
   onPressMessageAuthor,
   query,
   search,
 }: {
-  channels: Channel[]
-  onPressChannel: (channel: Channel) => void
+  chats: ChatSearchItem[]
+  workspaceSlug: string
+  onPressChat: (chat: ChatSearchItem) => void
   onPressMessage: (message: ChannelSearchResult) => void
   onPressMessageAuthor?: (message: ChannelSearchResult) => void
   query: string
   search: ReturnType<typeof useMessageSearch>
 }) {
-  const { getUnreadCount, getMentionCount } = useUnread()
   const isSearching = search.isDebouncing || search.isLoading
   const nothingFound =
     channels.length === 0 &&
@@ -144,7 +206,7 @@ export function WorkspaceSearchResults({
           No results found
         </Text>
         <Text className="text-center text-sm leading-5 text-muted">
-          Nothing matches “{query}” across your channels and messages.
+          Nothing matches “{query}” across your chats and messages.
         </Text>
       </View>
     )
@@ -154,14 +216,13 @@ export function WorkspaceSearchResults({
     <View className="gap-three pb-seven">
       {channels.length > 0 ? (
         <View>
-          <ResultsHeading title="Channels" />
-          {channels.map((channel) => (
-            <ChannelRow
-              channel={channel}
-              key={channel.id}
-              mentionCount={getMentionCount(channel.id)}
+          <ResultsHeading title="Chats" />
+          {channels.map((chat) => (
+            <ChatResultRow
+              chat={chat}
+              key={chat.id}
               onPress={onPressChannel}
-              unread={getUnreadCount(channel.id) > 0}
+              workspaceSlug={workspaceSlug}
             />
           ))}
         </View>

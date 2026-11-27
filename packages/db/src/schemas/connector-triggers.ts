@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { agent } from "./agents"
 import { channel } from "./channels"
 import { integrationConnection } from "./integration-connections"
 import { user } from "./users"
@@ -19,8 +20,6 @@ import { user } from "./users"
 // rows and the settings UI show the same numbers a new trigger would get.
 export const ACT_DEFAULTS = {
   windowSeconds: 300,
-  hourlyRunCap: 3,
-  dailyRunCap: 20,
 } as const
 
 // Where an Act run goes (reference/act-sessions-runbook.md): a new session
@@ -32,10 +31,11 @@ export const actSessionModeEnum = pgEnum("act_session_mode", [
   "ongoing",
 ])
 
-// A trigger: one connector event kind (e.g. GitHub "pr_merged") anchored to a
-// channel, fanning out to effects — POST (message into the channel) and Act
-// (unattended agent run). Connected items are ingested into `source` whether
-// or not a trigger exists. No row = that event is off. `event`
+// A listener (reference/agents-and-chats.md, decisions 40 and 42): one
+// connector event kind (e.g. GitHub "pr_merged") an agent listens to, anchored
+// to the chat the agent reports in, fanning out to effects — POST (message into
+// that chat) and Act (wake the agent). Connected items are ingested into `source` whether
+// or not a trigger exists. No row = nobody listens to that event. `event`
 // keys are declared in the @repo/connectors registry (CONNECTOR_EVENTS) and
 // validated at the API layer. See reference/automation-primitives.md.
 export const connectorTrigger = pgTable(
@@ -49,7 +49,20 @@ export const connectorTrigger = pgTable(
     channelId: uuid("channel_id")
       .notNull()
       .references(() => channel.id, { onDelete: "cascade" }),
+    // The agent that hears the event: it is woken in its own conversation
+    // and reports in `channelId`. Null: the chat's first agent, as before
+    // listeners named one.
+    agentId: uuid("agent_id").references(() => agent.id, {
+      onDelete: "set null",
+    }),
+    // A plain-language condition Jev checks against each event before the
+    // agent is woken or anything is posted ("is this a failed deploy on
+    // main?"). Null: every event passes.
+    filter: text("filter"),
     post: boolean("post").notNull().default(true),
+    // Whether the posted event pings the people in the chat. Off: it shows
+    // as unread and sends no notification; the agent's own message pings.
+    notify: boolean("notify").notNull().default(false),
     // Act instructions — null = Act off.
     actInstructions: text("act_instructions"),
     actSessionMode: actSessionModeEnum("act_session_mode")
@@ -77,14 +90,6 @@ export const connectorTrigger = pgTable(
     // pushes this forward as it re-arms, which is what lets the recovery sweep
     // tell "the flush job was lost" from "the batch is legitimately waiting".
     actFlushDueAt: timestamp("act_flush_due_at"),
-    // Backstops for Act, counted over rolling windows. Hourly keeps a burst
-    // from eating the whole day's budget; daily is the outer fuse.
-    hourlyRunCap: integer("hourly_run_cap")
-      .notNull()
-      .default(ACT_DEFAULTS.hourlyRunCap),
-    dailyRunCap: integer("daily_run_cap")
-      .notNull()
-      .default(ACT_DEFAULTS.dailyRunCap),
   },
   (table) => [
     // Explicit name: the auto-generated one exceeds Postgres's 63-byte limit.
@@ -93,11 +98,13 @@ export const connectorTrigger = pgTable(
       foreignColumns: [integrationConnection.id],
       name: "connector_trigger_connection_fk",
     }).onDelete("cascade"),
-    // One trigger per (connection, event) — multi-channel fan-out for the same
-    // event is a later relaxation (reference/automation-primitives.md §8).
-    uniqueIndex("connector_trigger_connection_event_uidx").on(
+    // Several agents can listen to one event, each once
+    // (reference/agents-and-chats.md, decision 42). Rows with no agent are
+    // distinct to Postgres: the API keeps those to one per event.
+    uniqueIndex("connector_trigger_connection_event_agent_uidx").on(
       table.connectionId,
-      table.event
+      table.event,
+      table.agentId
     ),
     index("connector_trigger_connection_idx").on(table.connectionId),
     index("connector_trigger_channel_idx").on(table.channelId),

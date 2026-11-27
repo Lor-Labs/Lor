@@ -60,6 +60,10 @@ export default function RootLayout() {
                             name="file"
                             options={{ presentation: "modal" }}
                           />
+                          <Stack.Screen
+                            name="chat/new"
+                            options={{ presentation: "modal" }}
+                          />
                         </Stack>
                         {features.voiceChannels && <CallTile />}
                         <AppUpdates />

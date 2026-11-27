@@ -7,6 +7,8 @@ import type { AppSocket } from "@/lib/socket"
 
 type TypingUser = {
   userId: string
+  // Which agent, when Lor types: several agents share Lor's user id.
+  agentId: string | null
   name: string
   expiresAt: number
 }
@@ -56,15 +58,15 @@ export function useTypingIndicator({
 
       setTypingUsers((prev) => {
         const expiresAt = Date.now() + TYPING_EXPIRE_MS
-        const existing = prev.find((u) => u.userId === payload.userId)
-        if (existing) {
-          return prev.map((u) =>
-            u.userId === payload.userId ? { ...u, expiresAt } : u
-          )
+        const agentId = payload.agentId ?? null
+        const same = (u: TypingUser) =>
+          u.userId === payload.userId && u.agentId === agentId
+        if (prev.some(same)) {
+          return prev.map((u) => (same(u) ? { ...u, expiresAt } : u))
         }
         return [
           ...prev,
-          { userId: payload.userId, name: payload.name, expiresAt },
+          { userId: payload.userId, agentId, name: payload.name, expiresAt },
         ]
       })
     }
@@ -83,7 +85,14 @@ export function useTypingIndicator({
       // Only a post in this scope ends typing here, as onTypingUpdate scopes.
       if ((message.threadRootId ?? undefined) !== threadRootId) return
       setTypingUsers((prev) => {
-        const filtered = prev.filter((u) => u.userId !== message.author.id)
+        // An agent's post ends that agent's typing, not another agent's.
+        // Its typing comes as Lor's with the agent's id; its post is by its
+        // own bot user.
+        const filtered = prev.filter((u) =>
+          u.agentId !== null && message.agentId != null
+            ? u.agentId !== message.agentId
+            : u.userId !== message.author.id
+        )
         return filtered.length === prev.length ? prev : filtered
       })
     }

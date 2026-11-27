@@ -5,7 +5,7 @@ import {
 } from "@repo/db/queries/beta-access"
 import { assertInferenceKeyCurrent } from "@repo/db/queries/inference"
 import {
-  getWorkspaceHarnessSettings,
+  getHarnessSettings,
   resolveHarnessAccount,
 } from "@repo/db/queries/personal-accounts"
 import { assertHarnessEnabled } from "@repo/utils/features"
@@ -25,9 +25,14 @@ import { CLAUDE_CODE_DEFAULT_MODEL } from "./session-core/claude-runtime"
 import { CODEX_DEFAULT_MODEL } from "./session-core/codex-runtime"
 import { inGatewayCatalog } from "./session-core/pi-runtime"
 
-// Post-answer work has its own workspace payer, independent of the person's turn.
-export async function autonomousInference(workspaceId: string, runId?: string) {
-  const settings = await getWorkspaceHarnessSettings(workspaceId)
+// Post-answer work is paid by the agent's own settings, independent of the
+// person's turn. With no agent, by Lor credits.
+export async function autonomousInference(
+  workspaceId: string,
+  agentId: string | null,
+  runId?: string
+) {
+  const settings = await getHarnessSettings({ agentId })
   assertHarnessEnabled(settings.defaultHarness)
   assertHostedHarness(settings.defaultHarness)
   const provider =
@@ -37,7 +42,10 @@ export async function autonomousInference(workspaceId: string, runId?: string) {
         ? "chatgpt"
         : null
   const route = provider
-    ? await resolveHarnessAccount({ workspaceId, userId: null }, provider)
+    ? await resolveHarnessAccount(
+        { workspaceId, userId: null, agentId },
+        provider
+      )
     : null
   const subscription = route?.source === "subscription"
   let funding: InferenceFunding | undefined

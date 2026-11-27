@@ -3,11 +3,12 @@ import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { AnimatePresence, motion } from "motion/react"
 import { AgentCreature } from "@/components/agent/agent-creature"
-import { useChannelAgentContext } from "@/components/agent/channel-agent"
+import { useAgentOf } from "@/components/agent/channel-agent"
 import { UserAvatar } from "@/components/ui/user-avatar"
 
 type TypingUser = {
   userId: string
+  agentId?: string | null
   name: string
 }
 
@@ -39,15 +40,16 @@ export function TypingIndicator({
   users: TypingUser[]
   className?: string
 }) {
-  // The channel agent types under its own name, with its creature at work.
-  const agent = useChannelAgentContext()
-  const agentTyping =
-    agent && typers.some((user) => user.userId === LOR_USER_ID)
-  const users = agent
-    ? typers.map((user) =>
-        user.userId === LOR_USER_ID ? { ...user, name: agent.name } : user
-      )
-    : typers
+  // A channel's agent types under its own name, with its creature at work.
+  // With several typing, the first one's creature shows.
+  const agentOf = useAgentOf()
+  const lorTyper = typers.find((user) => user.userId === LOR_USER_ID)
+  const agent = lorTyper ? agentOf(lorTyper.agentId) : null
+  const agentTyping = Boolean(agent)
+  const users = typers.map((user) => {
+    const typing = user.userId === LOR_USER_ID ? agentOf(user.agentId) : null
+    return typing ? { ...user, name: typing.name } : user
+  })
   return (
     <div className="relative h-0">
       <AnimatePresence>

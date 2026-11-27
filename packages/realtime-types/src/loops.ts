@@ -225,3 +225,41 @@ export function daysToDow(days: number[]): string {
   if (sorted.join(",") === "1,2,3,4,5") return "1-5"
   return sorted.join(",")
 }
+
+// What an agent changed on one of its own Loops: the "loop_updated" line in
+// the Loop's chat names these (reference/agents-and-chats.md §9).
+export type LoopChange =
+  | "name"
+  | "instructions"
+  | "schedule"
+  | "end"
+  | "chat"
+  | "paused"
+  | "resumed"
+
+const LOOP_CHANGE_WORDS: Record<LoopChange, string> = {
+  name: "name",
+  instructions: "instructions",
+  schedule: "schedule",
+  end: "when it ends",
+  chat: "where it reports",
+  paused: "paused",
+  resumed: "resumed",
+}
+
+// How that line reads: "{agent} paused the loop X", "resumed", or "changed"
+// with what changed after it.
+export function describeLoopChanges(changes: readonly LoopChange[] = []): {
+  verb: "paused" | "resumed" | "changed"
+  detail: string | null
+} {
+  const only = changes.length === 1 ? changes[0] : null
+  if (only === "paused" || only === "resumed") {
+    return { verb: only, detail: null }
+  }
+  return {
+    verb: "changed",
+    detail:
+      changes.map((change) => LOOP_CHANGE_WORDS[change]).join(", ") || null,
+  }
+}

@@ -250,6 +250,86 @@ wins. It has no launch flag and needs `db:push` before deploy. The agent's
 turns run on Lor's own loop (`packages/lor/src/agent-loop.ts`), not Pi, and
 open no sandbox: the session rules below do not apply to them.
 
+Agents are coming off channels, step by step, under
+`reference/agents-and-chats.md` (2026-11-24); where a step has landed that doc
+wins. Step 1 is built: an agent is its own row (`agent`) with its name, face,
+brief, model, facts and run settings (`agent_harness_settings`); which agents
+are in a channel is `channel_agent` (up to `MAX_CHANNEL_AGENTS`, and a
+channel can have none); only a mention or a reply wakes it. Step 2
+is built: one memory per agent under every conversation
+(`packages/lor/src/agent-memory.ts`): facts with no private scope, an archive
+(`agent_fact.archived_at`), a journal (`agent_journal`) the memory pass writes
+and every turn reads, `remember` and `recall`, and code sessions in the
+agent's channel reading it. What an agent knows is shared with the whole
+workspace, and a new private channel starts with no agent. Step 3's backend
+is built: an agent has conversations (`agent_conversation`), one of its own
+(its hidden 15-minute check-in, Loops, events) and one per request a person
+makes, each with its own inbox, steps, context and queue
+(`conversation_id`), so requests run side by side; `agent_run.channel_id` is
+the channel a turn is about. It needs `db:push` with the workers stopped,
+which first runs `agents-from-channels.ts`, `agent-facts-unscoped.ts` and
+`agent-conversations.ts` in `packages/db/src/scripts/`. Decided 2026-11-25
+(decisions 31 to 34): Lor is named group chats, a chat is a text channel
+(`channel.kind = "chat"`), and a chat holds several agents. Several agents in
+a chat is built, each posting as a bot user of its own (decision 37):
+`agent.id` is also a `user.id` (`is_bot`, no account or membership, made by
+`createAgent`), so a message's author says which agent wrote it and payloads
+derive `agentId` from it. Each is mentioned by its own id (`<@agentId>`;
+Lor's own mention means the chat's first agent), a message that names agents
+wakes those and waits in the others' inboxes, and one that names nobody
+waits in every agent's (`apps/realtime/src/services/agent-inbox.ts`) and
+is judged at once by Jev (LOR-171, `packages/lor/src/inbox-address.ts`): an
+agent it reads as meant for is woken now (`agent_inbox.inferred`) and may
+stay quiet. It
+needs `db:push` with the workers stopped, which first runs
+`agent-bot-users.ts` (a user per agent, earlier agent posts re-authored).
+The sidebar's chat list is built (decisions 33, 35 and 36): who is in a chat
+is its own `channel_member` rows, each with that person's pin and hide
+(`packages/db/src/queries/chat-members.ts`, `apps/api/src/routes/v1/chats`,
+`apps/web/src/components/sidebar/chat-panel`); `db:push` moves an earlier
+`chat_member` table over (`chat-member-table.ts`) and, after the push, fills
+chats nobody is in (`chat-members.ts`). Listeners are built (decisions 40
+to 42): an incoming connector event or webhook is heard by one or several
+agents (`connector_trigger.agent_id`, each with a Jev `filter` and a
+`notify` switch), set up on the connector's page with a suggested agent
+(`apps/web/src/components/workspace/connector-events.tsx`), a custom
+webhook is made from a chat or from the agent's page
+(`channel-webhooks-tab.tsx`), there are no wake caps (decision 43), and
+notifications reach the people in a chat (`buildMessageFanout`). New chat is built
+(`apps/web/src/components/chat/new-chat-view.tsx`): a chat starts with the
+people picked, not everyone. A chat's header and details panel are built
+(`apps/web/src/components/sidebar/right-panel/chat-details-panel.tsx`,
+people routes under `apps/api/src/routes/v1/chats`), and the sidebar's
+search finds chats you are not in, which you join from the chat. Agents in a
+chat talk in its agents' room with `message_agent` (decisions 39 and 44: name
+agents to wake them, name nobody and Jev picks, or `agents` for all): saved in
+`agent_message`, shown read-only in the agents' chat
+(`apps/web/src/components/chat/agents-chat-view.tsx`), one quiet line in the
+feed. A Loop belongs to its agent (`loop.agent_id`, filled once by
+`loop-agents.ts` before the push) and reports in one chat: a fire wakes
+that agent, taking it out of the chat pauses the Loop, and "Run by" in the
+Loop's panel hands it to another agent. A Loop's chat is optional
+(`loop.channel_id` null: the agent's own work across its chats), and an
+agent makes and changes its own Loops with no approval (`create_loop`,
+`update_loop`, `apps/worker/src/lib/agent-loops.ts`), shown by a card, a
+`loop_updated` line and `loop.changed_by_id` (decisions 45 and 46). A Loop
+is a scheduled wake (decisions 48 to 50): one with no chat runs in a turn
+about no chat (`agent_run.channel_id` and `agent_inbox.channel_id` are
+nullable), for an agent in no chat too; an agent sets one up without being
+asked; and `create_loop` and `update_loop` are approval gate targets, off
+by default (`AGENT_LOOP_GATE_TOOLS`). A chat's
+group mentions are `@chat` and `@here`; `@everyone` and `@channel` are plain
+text (decision 47). Hiding a chat is each person's own; archiving is for
+everyone, from the chat's settings, and stops its agents there
+(`apps/api/src/lib/chat-archive.ts`, decision 52); unarchiving (Undo, or
+from the chat once the sidebar's archive icon shows archived chats)
+restarts its paused Loops. A Discord channel agents are in is a place: a
+hidden chat (`channel.kind = "place"`, decision 51) set up from the Discord
+connector, shown by the sidebar filter (`apps/api/src/lib/discord/places.ts`).
+Step 3 is built; what is left is
+"What is left" in that doc's §9. The mock of the chat list is
+`/prototype/chats`; `/prototype/agents` is the earlier design.
+
 ### Conventions
 
 - DO NOT make extremely verbose comments for every tiny detail or every line of code changed. this bloats the codebase and makes it harder to read and maintain. THIS IS VERY IMPORTANT.

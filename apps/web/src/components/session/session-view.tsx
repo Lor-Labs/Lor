@@ -350,7 +350,7 @@ function SessionConversation({
       : session.origin === "trigger"
         ? "Started by an automation"
         : session.origin === "agent"
-          ? `Started by ${channelAgent?.name ?? "the channel's agent"}`
+          ? `Started by ${channelAgent?.name ?? "the chat's agent"}`
           : `Started by ${nameOf(session.creatorId)}`
   const starter =
     people.find((person) => person.userId === session.creatorId) ?? null
@@ -474,7 +474,7 @@ function SessionConversation({
         heading={
           <SessionHeading
             session={session}
-            channelName={channel.name ?? "channel"}
+            channelName={channel.name ?? "chat"}
             source={source}
             startedBy={startedBy}
             starter={starter}
@@ -505,8 +505,8 @@ function SessionConversation({
                 strokeWidth={2}
               />
               <span className="min-w-0 flex-1 truncate">
-                Chat sessions are read-only. Ask Lor in #
-                {channel.name ?? "the channel"}.
+                Chat sessions are read-only. Ask Lor in{" "}
+                {channel.name ?? "the chat"}.
               </span>
               <Button
                 size="xs"

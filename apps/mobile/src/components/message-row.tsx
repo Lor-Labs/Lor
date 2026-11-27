@@ -22,7 +22,7 @@ import { LorReasoning } from "@/components/lor-reasoning"
 import { LorStoppedNote } from "@/components/lor-stopped-note"
 import { LorWorkingFor, lorWorkStart } from "@/components/lor-work-time"
 import {
-  isAttioRecording,
+  isMeetingCard,
   MeetingRecordingCard,
 } from "@/components/meeting-recording-card"
 import { MessageAttachments } from "@/components/message-attachments"
@@ -36,11 +36,16 @@ import { ProposalCard } from "@/components/proposal-card"
 import { ThinkingIndicator } from "@/components/thinking-indicator"
 import { Avatar } from "@/components/ui/avatar"
 import { CallSummaryCard } from "@/components/voice/call-summary-card"
-import { type ChannelAgent, useChannelAgent } from "@/hooks/use-channel-agent"
+import { type ChannelAgent, useMessageAgent } from "@/hooks/use-channel-agent"
 import { useSessionCoder } from "@/hooks/use-session-agent"
 import type { Message } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/message-markdown"
 import { isOptimisticMessage } from "@/lib/messages"
+
+// Lor's own message, or an agent's: an agent posts as its own bot user, and
+// `agentId` says so.
+const isLorMessage = (message: Pick<Message, "authorId" | "agentId">) =>
+  message.authorId === LOR_USER_ID || Boolean(message.agentId)
 
 export const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
 
@@ -89,7 +94,7 @@ function MessageAvatar({
   const foreground = useThemeColor("foreground")
   // In a code session Lor's replies are its coding agent's.
   const coder = useSessionCoder()
-  const isLor = message.authorId === LOR_USER_ID
+  const isLor = isLorMessage(message)
   if (agent && isLor) {
     return (
       <AgentCreature
@@ -181,12 +186,13 @@ function MessageRowBody({
   sessionThreadRootId?: string | null
 }) {
   const accent = useThemeColor("accent")
-  const isLor = message.authorId === LOR_USER_ID
+  const isLor = isLorMessage(message)
   const isPending = isOptimisticMessage(message)
   const isStreaming = isLor && message.status === "pending"
   const isMeetingPost =
-    connectorForName(message.overrideName) === "attio" &&
-    message.embeds.some(isAttioRecording)
+    ["attio", "granola", "circleback"].includes(
+      connectorForName(message.overrideName) ?? ""
+    ) && message.embeds.some(isMeetingCard)
   const hasTimeline =
     (message.lorToolCalls?.length ?? 0) > 0 ||
     (message.lorReasoningSegments?.length ?? 0) > 0
@@ -297,7 +303,7 @@ function MessageRowBody({
         />
       ) : null}
       {message.embeds.map((embed, index) =>
-        isAttioRecording(embed) ? (
+        isMeetingCard(embed) ? (
           <MeetingRecordingCard
             embed={embed}
             // recordingId keeps card state (transcript expand) pinned to the
@@ -388,9 +394,9 @@ export function MessageRow({
     }),
     [isDocument, message.routedToLor]
   )
-  const channelAgent = useChannelAgent()
+  const channelAgent = useMessageAgent(message.agentId)
   if (message.type === "agent_session") return null
-  const isLor = message.authorId === LOR_USER_ID
+  const isLor = isLorMessage(message)
   const agent = isLor && !isDocument ? channelAgent : null
   const displayName = agent?.name ?? messageDisplayName(message)
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
@@ -542,9 +548,9 @@ export function ThreadRootMessage({
   onPressAuthor?: (message: Message) => void
   onToggleReaction?: (message: Message, emoji: string) => void
 }) {
-  const channelAgent = useChannelAgent()
+  const channelAgent = useMessageAgent(message.agentId)
   if (message.type === "agent_session") return null
-  const isLor = message.authorId === LOR_USER_ID
+  const isLor = isLorMessage(message)
   const agent = isLor ? channelAgent : null
   const displayName = agent?.name ?? messageDisplayName(message)
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)

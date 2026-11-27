@@ -1,5 +1,5 @@
 import {
-  BubbleChatIcon,
+  ArrowUp02Icon,
   DiscordIcon,
   SlackIcon,
   Tick02Icon,
@@ -9,11 +9,41 @@ import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { motion } from "motion/react"
 import type { ReactNode } from "react"
-import type { Agent, Room, WorkState } from "./agents-data"
+import { AgentFace } from "@/components/agent/agent-face"
+import type { Agent, ChannelPlace, WorkState } from "./agents-data"
 
 // Press feedback for anything clickable in the prototype.
 export const PRESS =
   "transition-[transform,background-color,color,border-color] duration-150 ease-out active:scale-[0.98]"
+
+export function SendButton({
+  enabled,
+  onClick,
+}: {
+  enabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!enabled}
+      aria-label="Send"
+      className={cn(
+        "flex size-8 shrink-0 items-center justify-center rounded-full transition-[transform,background-color,color] duration-150 ease-out",
+        enabled
+          ? "cursor-pointer bg-foreground text-background active:scale-[0.94]"
+          : "bg-foreground/[0.07] text-muted-foreground"
+      )}
+    >
+      <HugeiconsIcon
+        icon={ArrowUp02Icon}
+        className="size-[18px]"
+        strokeWidth={2.2}
+      />
+    </button>
+  )
+}
 
 export function Spinner({ className }: { className?: string }) {
   return (
@@ -50,36 +80,27 @@ export function StateIcon({ state }: { state: WorkState }) {
 
 export type AgentStatus = "idle" | "working" | "needs_you" | "off"
 
+// The agent's face, drawn by the app's own component and moved by its state.
 export function AgentAvatar({
   agent,
   status = "idle",
+  size = 36,
   className,
 }: {
   agent: Agent
   status?: AgentStatus
+  size?: number
   className?: string
 }) {
   return (
-    <span className={cn("relative block size-9 shrink-0", className)}>
-      <span
-        className={cn(
-          "flex size-full items-center justify-center rounded-[10px] text-[13px] font-semibold",
-          status === "off"
-            ? "border border-dashed border-muted-foreground/35 text-muted-foreground"
-            : "bg-agent/12 text-agent"
-        )}
-      >
-        {agent.name.charAt(0)}
-      </span>
-      {status === "working" && (
-        <span className="absolute -right-1 -bottom-1 flex size-4 items-center justify-center rounded-full bg-sidebar">
-          <Spinner className="size-2.5" />
-        </span>
-      )}
-      {status === "needs_you" && (
-        <span className="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full bg-warning ring-2 ring-sidebar" />
-      )}
-    </span>
+    <AgentFace
+      creature={agent.creature}
+      size={size}
+      state={
+        status === "off" ? "asleep" : status === "working" ? "working" : status
+      }
+      className={cn(status === "off" && "opacity-50", className)}
+    />
   )
 }
 
@@ -87,22 +108,18 @@ export function LorMark({ className }: { className?: string }) {
   return <img src="/lor-mark.svg" alt="" className={cn("size-4", className)} />
 }
 
-export function RoomIcon({
-  room,
+// Where a channel lives when it is not in Lor.
+export function PlaceIcon({
+  place,
   className,
 }: {
-  room: Room
+  place: ChannelPlace
   className?: string
 }) {
-  const icon =
-    room.kind === "slack"
-      ? SlackIcon
-      : room.kind === "discord"
-        ? DiscordIcon
-        : BubbleChatIcon
+  if (place === "lor") return null
   return (
     <HugeiconsIcon
-      icon={icon}
+      icon={place === "slack" ? SlackIcon : DiscordIcon}
       className={cn("size-4 shrink-0", className)}
       strokeWidth={1.8}
     />

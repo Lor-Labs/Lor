@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto"
 import { recordUsage } from "@repo/billing"
 import type { ConnectorEventKey } from "@repo/connectors"
-import { APP_USER_ID, and, db, eq, schema, sql } from "@repo/db"
+import { APP_USER_ID, and, asc, db, eq, isNull, schema } from "@repo/db"
+import { ownConversation } from "@repo/db/queries/agent-conversations"
+import { channelAgentId } from "@repo/db/queries/agents"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import type {
   Embed,
@@ -9,11 +11,8 @@ import type {
   TriggerSourceMessage,
 } from "@repo/db/schema"
 import { ACT_DELIVERY_PAYLOAD_MAX } from "@repo/lor/act-runs"
-import {
-  addInboxNote,
-  triggerInboxNote,
-  triggerWakeCounts,
-} from "@repo/lor/channel-agent"
+import { addInboxNote, triggerInboxNote } from "@repo/lor/channel-agent"
+import { decideListenerFilter } from "@repo/lor/listener-filter"
 import { enrichMeetingEmbed } from "@repo/lor/meeting-insights"
 import { channelRoom, threadRoom } from "@repo/realtime-types"
 import { AGENT_INBOX_BATCH_MS } from "@repo/realtime-types/queues"
@@ -87,10 +86,7 @@ function actPayload(input: {
   return parts.join("\n\n")
 }
 
-// Fan one connector event out to its trigger's effects (POST, Act), and log
-// the delivery. No trigger row — or a disabled one — means the event is off
-// (returns null). See reference/automation-primitives.md §2.
-export async function dispatchConnectorEvent(input: {
+type DispatchInput = {
   provider: IntegrationProvider
   externalId: string
   event: ConnectorEventKey
@@ -109,18 +105,21 @@ export async function dispatchConnectorEvent(input: {
   ingested?: boolean
   // Raw inbound payload for the delivery log (BYO webhooks only).
   payload?: string
-}): Promise<DispatchOutcome | null> {
-  const target = await db
+}
+
+async function listListeners(input: DispatchInput) {
+  return db
     .select({
       trigger: {
         id: schema.connectorTrigger.id,
+        agentId: schema.connectorTrigger.agentId,
+        filter: schema.connectorTrigger.filter,
         post: schema.connectorTrigger.post,
+        notify: schema.connectorTrigger.notify,
         actInstructions: schema.connectorTrigger.actInstructions,
         actRepoFullName: schema.connectorTrigger.actRepoFullName,
         actBaseBranch: schema.connectorTrigger.actBaseBranch,
         actWindowSeconds: schema.connectorTrigger.actWindowSeconds,
-        hourlyRunCap: schema.connectorTrigger.hourlyRunCap,
-        dailyRunCap: schema.connectorTrigger.dailyRunCap,
         enabled: schema.connectorTrigger.enabled,
       },
       connection: {
@@ -154,21 +153,127 @@ export async function dispatchConnectorEvent(input: {
         eq(schema.integrationConnection.externalId, input.externalId),
         eq(schema.integrationConnection.status, "active"),
         eq(schema.connectorTrigger.event, input.event),
+        eq(schema.connectorTrigger.enabled, true),
+        // An archived chat's listeners stay set up and hear nothing until it
+        // is unarchived (reference/agents-and-chats.md, decision 52).
+        isNull(schema.channel.archivedAt),
         // Belt: never act across tenants even if a stale trigger survives.
         eq(schema.channel.workspaceId, schema.integrationConnection.workspaceId)
       )
     )
-    .limit(1)
-    .then((rows) => rows[0])
-  if (!target?.trigger.enabled) return null
-  if (
-    (await workspaceBetaAccess(target.connection.workspaceId)).state !==
-    "active"
-  )
-    return null
+    .orderBy(asc(schema.connectorTrigger.createdAt))
+}
 
-  let postedMessageId: string | null = null
-  let sourceMessage: TriggerSourceMessage = {
+type Listener = Awaited<ReturnType<typeof listListeners>>[number]
+
+function deliveryBase(target: Listener, input: DispatchInput) {
+  return {
+    triggerId: target.trigger.id,
+    payload: input.payload
+      ? input.payload.slice(0, DELIVERY_PAYLOAD_MAX)
+      : null,
+    subject: input.subject ?? input.item?.url ?? null,
+  }
+}
+
+// A listener's filter, asked before anything else: an event it turns away
+// is logged and nothing happens for that listener.
+async function passesFilter(
+  target: Listener,
+  input: DispatchInput
+): Promise<boolean> {
+  if (!target.trigger.filter?.trim()) return true
+  const decision = await decideListenerFilter({
+    filter: target.trigger.filter,
+    label: input.label,
+    text: inboxBody(input),
+  })
+  if (decision.responded) {
+    void recordUsage({
+      workspaceId: target.connection.workspaceId,
+      tool: "lor.listener.filter",
+      model: decision.model,
+      inputTokens: decision.inputTokens,
+      outputTokens: decision.outputTokens,
+      costUsd: decision.costUsd,
+      wallMs: decision.wallMs,
+    }).catch((err) =>
+      logger.warn({ err }, "Listener filter usage recording failed")
+    )
+  }
+  if (decision.passed) return true
+  await db
+    .insert(schema.triggerDelivery)
+    .values({ ...deliveryBase(target, input), outcome: "filtered" })
+    .catch((err) =>
+      logger.warn({ err, event: input.event }, "Delivery log insert failed")
+    )
+  logger.info(
+    { provider: input.provider, event: input.event, score: decision.score },
+    "Connector event turned away by its listener's filter"
+  )
+  return false
+}
+
+// The POST effect: the event as a message in the listener's chat. A failure
+// must not take the delivery log or the agent's wake with it.
+async function postEventCard(
+  target: Listener,
+  input: DispatchInput,
+  quiet: boolean
+): Promise<TriggerSourceMessage | null> {
+  try {
+    const message = await postBotMessage({
+      channel: target.channel,
+      authorId: APP_USER_ID,
+      content: input.text,
+      embeds: input.embeds,
+      overrideName: input.label,
+      overrideAvatarUrl: input.avatarUrl,
+      excludedFromMemory: input.ingested ?? false,
+      // Off by default: the event shows as unread and the agent's own
+      // message is what pings people.
+      quiet,
+    })
+    // Meeting insights are a model call — too slow to hold the webhook ack
+    // open. Post the base card first, then patch the embeds in place.
+    if (input.embeds?.some((embed) => embed.meeting)) {
+      void enrichPostedMeetingEmbeds({
+        messageId: message.id,
+        channelId: target.channel.id,
+        workspaceId: target.connection.workspaceId,
+        embeds: input.embeds,
+      }).catch((err) => logger.warn({ err }, "Meeting embed enrichment failed"))
+    }
+    return {
+      id: message.id,
+      content: message.content,
+      createdAt: message.createdAt,
+      author: message.author,
+      overrideName: message.overrideName ?? null,
+      overrideAvatarUrl: message.overrideAvatarUrl ?? null,
+      mentions: message.mentions,
+      attachments: message.attachments,
+      embeds: message.embeds,
+    }
+  } catch (err) {
+    logger.error(
+      { err, provider: input.provider, event: input.event },
+      "Connector event post failed"
+    )
+    return null
+  }
+}
+
+// One listener's delivery: the log row, then its agent's inbox (or an Act
+// run for a channel that is not a chat).
+async function deliverToListener(
+  target: Listener,
+  input: DispatchInput,
+  card: TriggerSourceMessage | null
+): Promise<DispatchOutcome> {
+  const postedMessageId = card?.id ?? null
+  const sourceMessage: TriggerSourceMessage = card ?? {
     id: randomUUID(),
     content: input.text,
     createdAt: new Date().toISOString(),
@@ -178,53 +283,6 @@ export async function dispatchConnectorEvent(input: {
     mentions: [],
     attachments: [],
     embeds: input.embeds ?? [],
-  }
-  if (target.trigger.post) {
-    // A POST failure must not take the delivery log or Act with it.
-    try {
-      const message = await postBotMessage({
-        channel: target.channel,
-        authorId: APP_USER_ID,
-        content: input.text,
-        embeds: input.embeds,
-        overrideName: input.label,
-        overrideAvatarUrl: input.avatarUrl,
-        excludedFromMemory: input.ingested ?? false,
-      })
-      postedMessageId = message.id
-      sourceMessage = {
-        id: message.id,
-        content: message.content,
-        createdAt: message.createdAt,
-        author: message.author,
-        overrideName: message.overrideName ?? null,
-        overrideAvatarUrl: message.overrideAvatarUrl ?? null,
-        mentions: message.mentions,
-        attachments: message.attachments,
-        embeds: message.embeds,
-      }
-      // Meeting insights are a model call — too slow to hold the webhook ack
-      // open. Post the base card first, then patch the embeds in place.
-      if (
-        input.provider === "attio" &&
-        input.event === "call_recording_ready" &&
-        input.embeds?.length
-      ) {
-        void enrichPostedMeetingEmbeds({
-          messageId: message.id,
-          channelId: target.channel.id,
-          workspaceId: target.connection.workspaceId,
-          embeds: input.embeds,
-        }).catch((err) =>
-          logger.warn({ err }, "Meeting embed enrichment failed")
-        )
-      }
-    } catch (err) {
-      logger.error(
-        { err, provider: input.provider, event: input.event },
-        "Connector event post failed"
-      )
-    }
   }
 
   let acted: string | null = null
@@ -239,14 +297,10 @@ export async function dispatchConnectorEvent(input: {
   const delivery = await db
     .insert(schema.triggerDelivery)
     .values({
-      triggerId: target.trigger.id,
-      payload: input.payload
-        ? input.payload.slice(0, DELIVERY_PAYLOAD_MAX)
-        : null,
+      ...deliveryBase(target, input),
       actPayload: actText ? actText.slice(0, ACT_DELIVERY_PAYLOAD_MAX) : null,
       actLabel: actText ? input.label : null,
       sourceMessage: actText ? capSourceMessage(sourceMessage) : null,
-      subject: input.subject ?? input.item?.url ?? null,
       posted: postedMessageId !== null,
     })
     .returning({ id: schema.triggerDelivery.id })
@@ -283,17 +337,33 @@ export async function dispatchConnectorEvent(input: {
       triggerId: target.trigger.id,
       deliveryId: delivery.id,
       windowSeconds: target.trigger.actWindowSeconds,
-      hourlyRunCap: target.trigger.hourlyRunCap,
-      dailyRunCap: target.trigger.dailyRunCap,
       workspaceId: target.connection.workspaceId,
       channelId: target.channel.id,
       label: input.label,
       payload: actText,
+    }).catch((err) => {
+      // Caught so one listener's failure can't fail the delivery (and get
+      // its cards reposted on the provider's retry).
+      logger.error(
+        { err, triggerId: target.trigger.id, deliveryId: delivery.id },
+        "Trigger act run failed"
+      )
+      return null
     })
-    actOutcome = started.kind === "skipped" ? started.reason : started.kind
-    if (started.kind === "started") acted = started.runId
+    if (!started) actOutcome = "error"
+    else {
+      actOutcome = started.kind === "skipped" ? started.reason : started.kind
+      if (started.kind === "started") acted = started.runId
+    }
   }
 
+  if (delivery) {
+    await db
+      .update(schema.triggerDelivery)
+      .set({ outcome: actOutcome })
+      .where(eq(schema.triggerDelivery.id, delivery.id))
+      .catch(() => {})
+  }
   logger.info(
     {
       provider: input.provider,
@@ -306,6 +376,57 @@ export async function dispatchConnectorEvent(input: {
     "Dispatched connector event"
   )
   return { posted: postedMessageId, acted }
+}
+
+// Fan one connector event out to everyone who listens to it, and log each
+// delivery. Nobody listening means the event is off (returns null). Each
+// listener's filter is asked on its own, so one agent's condition never
+// holds an event back from another. See reference/automation-primitives.md
+// §2 and reference/agents-and-chats.md (decisions 40 and 42).
+export async function dispatchConnectorEvent(
+  input: DispatchInput
+): Promise<DispatchOutcome | null> {
+  const listeners = await listListeners(input)
+  const first = listeners[0]
+  if (!first) return null
+  if (
+    (await workspaceBetaAccess(first.connection.workspaceId)).state !== "active"
+  )
+    return null
+
+  const heard = (
+    await Promise.all(
+      listeners.map(async (target) =>
+        (await passesFilter(target, input)) ? target : null
+      )
+    )
+  ).filter((target) => target !== null)
+
+  // Listeners that post into the same chat share one message, which pings
+  // people when any of them asks for it.
+  const cards = new Map<string, TriggerSourceMessage | null>()
+  for (const target of heard) {
+    const chatId = target.channel.id
+    if (!target.trigger.post || cards.has(chatId)) continue
+    const notify = heard.some(
+      (other) =>
+        other.channel.id === chatId &&
+        other.trigger.post &&
+        other.trigger.notify
+    )
+    cards.set(chatId, await postEventCard(target, input, !notify))
+  }
+
+  const outcome: DispatchOutcome = { posted: null, acted: null }
+  for (const target of heard) {
+    const card = target.trigger.post
+      ? (cards.get(target.channel.id) ?? null)
+      : null
+    const delivered = await deliverToListener(target, input, card)
+    outcome.posted ??= delivered.posted
+    outcome.acted ??= delivered.acted
+  }
+  return outcome
 }
 
 // The event as the agent reads it: its text, then what the item adds. A
@@ -337,20 +458,20 @@ function inboxBody(input: {
   return parts.join("\n\n")
 }
 
-// One event into the channel agent's inbox. A trigger with instructions
-// wakes the agent, unless its hourly or daily cap is spent: then the event
-// waits unread, like a trigger that only posts a card.
+// One event into the inbox of the agent that listens for it (the chat's
+// first agent when the listener names none). A listener with instructions
+// wakes the agent; one that only posts a card leaves the event to be read at
+// the agent's next check-in.
 async function deliverToInbox(input: {
   deliveryId: string
   workspaceId: string
   channelId: string
   trigger: {
     id: string
+    agentId: string | null
     actInstructions: string | null
     actRepoFullName: string | null
     actBaseBranch: string | null
-    hourlyRunCap: number
-    dailyRunCap: number
   }
   setUpBy: string | null
   label: string
@@ -373,41 +494,30 @@ async function deliverToInbox(input: {
         }
       : null,
   })
-  // Count and insert under one per-trigger lock so concurrent deliveries
-  // cannot both take the last unit of the wake cap.
-  const { added, lane, outcome } = await db.transaction(async (tx) => {
-    let lane: "wake" | "wait" = "wait"
-    let outcome = "wait"
-    if (trigger.actInstructions !== null) {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`trigger-wake:${trigger.id}`}, 0))`
-      )
-      const counts = await triggerWakeCounts(trigger.id, tx)
-      if (counts.hourly >= trigger.hourlyRunCap) outcome = "hourly_cap"
-      else if (counts.daily >= trigger.dailyRunCap) outcome = "daily_cap"
-      else {
-        lane = "wake"
-        outcome = "wake"
-      }
-    }
-    const added = await addInboxNote(
-      {
-        workspaceId: input.workspaceId,
-        channelId: input.channelId,
-        source: "trigger",
-        sourceId: input.deliveryId,
-        deliveryId: input.deliveryId,
-        lane,
-        note,
-      },
-      tx
-    )
-    return { added, lane, outcome }
+  const agentId = trigger.agentId ?? (await channelAgentId(input.channelId))
+  if (!agentId) return "no_agent"
+  const conversationId = (
+    await ownConversation({ workspaceId: input.workspaceId, agentId })
+  ).id
+  // A listener that wakes its agent wakes it for every event: there are no
+  // hourly or daily caps (decided 2026-11-26). Bursts are batched by the
+  // inbox, and the listener's filter is what turns events away.
+  const lane = trigger.actInstructions !== null ? "wake" : "wait"
+  // An event goes to the listening agent's own conversation.
+  const added = await addInboxNote({
+    workspaceId: input.workspaceId,
+    channelId: input.channelId,
+    conversationId,
+    source: "trigger",
+    sourceId: input.deliveryId,
+    deliveryId: input.deliveryId,
+    lane,
+    note,
   })
   if (added && lane === "wake") {
-    await flushAgentInbox(input.channelId, AGENT_INBOX_BATCH_MS)
+    await flushAgentInbox(added, AGENT_INBOX_BATCH_MS)
   }
-  return outcome
+  return lane
 }
 
 // Follow-up to the POST effect: run meeting-insight enrichment after the base

@@ -2,6 +2,11 @@
 // Clients render events from eventType/eventPayload; this string is the
 // search + stale-client fallback, so it must always read as a full sentence.
 
+import {
+  describeLoopChanges,
+  type LoopChange,
+} from "@repo/realtime-types/loops"
+
 export type ChannelEventContentInput =
   | {
       eventType: "channel_created"
@@ -15,6 +20,8 @@ export type ChannelEventContentInput =
       from: string
       to: string
     }
+  | { eventType: "channel_archived"; actorName: string }
+  | { eventType: "channel_unarchived"; actorName: string }
   | { eventType: "member_added"; actorName: string; memberNames: string[] }
   | { eventType: "member_removed"; actorName: string; memberName: string }
   | { eventType: "member_left"; actorName: string }
@@ -27,9 +34,15 @@ export type ChannelEventContentInput =
   | {
       eventType: "loop_paused"
       loopName: string
-      reason: "failures" | "out_of_credits"
+      reason: "failures" | "out_of_credits" | "agent_left"
     }
   | { eventType: "loop_completed"; actorName: string; loopName: string }
+  | {
+      eventType: "loop_updated"
+      actorName: string
+      loopName: string
+      changes: LoopChange[]
+    }
   | { eventType: "loop_run"; loopName: string }
   | {
       eventType: "session_continued"
@@ -114,28 +127,39 @@ export function channelEventContent(input: ChannelEventContentInput): string {
     case "channel_created":
       if (input.viaProposal) {
         return input.originChannelName
-          ? `${input.actorName} created this channel from an approved change proposal in #${input.originChannelName}`
-          : `${input.actorName} created this channel from an approved change proposal`
+          ? `${input.actorName} created this chat from an approved change proposal in ${input.originChannelName}`
+          : `${input.actorName} created this chat from an approved change proposal`
       }
-      return `${input.actorName} created this channel`
+      return `${input.actorName} created this chat`
     case "channel_renamed":
-      return `${input.actorName} renamed the channel from #${input.from} to #${input.to}`
+      return `${input.actorName} renamed the chat from ${input.from} to ${input.to}`
+    case "channel_archived":
+      return `${input.actorName} archived the chat`
+    case "channel_unarchived":
+      return `${input.actorName} unarchived the chat`
     case "member_added":
       return `${input.actorName} added ${joinNames(input.memberNames)}`
     case "member_removed":
       return `${input.actorName} removed ${input.memberName}`
     case "member_left":
-      return `${input.actorName} left the channel`
+      return `${input.actorName} left the chat`
     case "loop_created":
       return input.viaProposal
         ? `${input.actorName} created the loop "${input.loopName}" from an approved change proposal`
         : `${input.actorName} created the loop "${input.loopName}"`
     case "loop_paused":
+      if (input.reason === "agent_left") {
+        return `The loop "${input.loopName}" was paused — its agent is no longer in this chat`
+      }
       return input.reason === "out_of_credits"
         ? `The loop "${input.loopName}" was paused — out of credits`
         : `The loop "${input.loopName}" was paused after repeated failures`
     case "loop_completed":
       return `${input.actorName} completed the loop "${input.loopName}"`
+    case "loop_updated": {
+      const { verb, detail } = describeLoopChanges(input.changes)
+      return `${input.actorName} ${verb} the loop "${input.loopName}"${detail ? ` (${detail})` : ""}`
+    }
     case "loop_run":
       return `The loop "${input.loopName}" ran on schedule`
     case "session_continued":

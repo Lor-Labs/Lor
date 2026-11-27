@@ -1,11 +1,10 @@
 import { db, eq, schema } from "@repo/db"
+import { loopAgentFor } from "@repo/db/queries/agents"
 import { describeLoopSchedule } from "@repo/lor/loop-schedule"
-import { toRealtimeLoop } from "@repo/lor/loops"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
-import { channelRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { createClient } from "redis"
-import { logger } from "@/lib/logger"
+import { emitLoopUpdated } from "@/lib/loop-session"
 import { postLorMessage } from "@/lib/lor-messages"
 
 type RedisClient = ReturnType<typeof createClient>
@@ -15,16 +14,27 @@ export type LorLoopDeps = {
   redis: RedisClient
 }
 
-// The propose_loop executor: loop_card message + draft loop row, with the
-// card as the loop's anchor. Nothing is scheduled here — the
-// loop stays a draft until a human activates it (L2 activate route). The
-// card content is a plain-text fallback (mobile, search, clients without the
-// loop row); rich rendering reads the row via cardMessageId.
+// A loop_card message + its loop row, with the card as the loop's anchor.
+// A session's propose_loop makes a draft: nothing is scheduled until a
+// person activates it (L2 activate route). An agent's create_loop passes
+// `active`: its own Loop runs at once, with no approval
+// (reference/agents-and-chats.md §9), and the card is the trace people
+// see. The card content is a plain-text fallback (mobile, search, clients
+// without the loop row); rich rendering reads the row via cardMessageId.
 export async function createLoopCard(
   deps: LorLoopDeps,
   input: {
     workspaceId: string
+    // Where the card is posted.
     channelId: string
+    // The chat the Loop reports in, when that is not where the card is:
+    // another chat, or null for none. Left out: the card's chat.
+    reportsIn?: string | null
+    // Set by an agent's create_loop: the Loop starts active, next due then.
+    active?: { nextRunAt: Date }
+    // The agent that made it (create_loop), which owns it as given. Left
+    // out (a session proposed it): the chat's first agent.
+    agentId?: string | null
     // The session Lor proposed it in; the draft card posts there.
     threadRootId: string | null
     creatorId: string | null
@@ -43,26 +53,45 @@ export async function createLoopCard(
       content: `${input.name} — ${describeLoopSchedule(input.schedule, input.timezone)}`,
       type: "loop_card",
       ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
+      // The agent's own card: in a chat with several agents it is shown
+      // under the one that proposed it, not the chat's first.
+      ...(input.agentId ? { agentId: input.agentId } : {}),
     }
   )
   // Compensation: an orphan loop_card renders a benign fallback, but don't
   // leave one around when we know the insert failed (thrown or no row).
-  const loop = await db
-    .insert(schema.loop)
-    .values({
-      workspaceId: input.workspaceId,
-      channelId: input.channelId,
-      cardMessageId: cardId,
-      creatorId: input.creatorId,
-      name: input.name,
-      instructions: input.instructions,
-      schedule: input.schedule,
-      timezone: input.timezone,
-      endCondition: input.endCondition,
-      endAt: input.endAt,
-      status: "draft",
-    })
-    .returning()
+  const owner = input.agentId
+    ? Promise.resolve(input.agentId)
+    : loopAgentFor(input.channelId)
+  const loop = await owner
+    .then((agentId) =>
+      db
+        .insert(schema.loop)
+        .values({
+          workspaceId: input.workspaceId,
+          channelId:
+            input.reportsIn === undefined ? input.channelId : input.reportsIn,
+          agentId,
+          cardMessageId: cardId,
+          creatorId: input.creatorId,
+          name: input.name,
+          instructions: input.instructions,
+          schedule: input.schedule,
+          timezone: input.timezone,
+          endCondition: input.endCondition,
+          endAt: input.endAt,
+          ...(input.active
+            ? {
+                status: "active" as const,
+                nextRunAt: input.active.nextRunAt,
+                // The agent made it: shown on the Loop as who changed it.
+                changedById: agentId,
+                changedAt: new Date(),
+              }
+            : { status: "draft" as const }),
+        })
+        .returning()
+    )
     .then((rows) => rows[0] ?? null)
     .catch(async (err) => {
       await db
@@ -79,12 +108,6 @@ export async function createLoopCard(
     throw new Error("Loop insert returned no row")
   }
 
-  try {
-    deps.emitter
-      .to(channelRoom(input.channelId))
-      .emit("loop:updated", { loop: toRealtimeLoop(loop) })
-  } catch (err) {
-    logger.error({ err, loopId: loop.id }, "Loop card emit failed")
-  }
+  emitLoopUpdated(deps.emitter, loop)
   return { loopId: loop.id }
 }

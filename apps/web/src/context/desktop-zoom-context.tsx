@@ -13,7 +13,7 @@ import {
 export const ZOOM_LEVELS = [75, 80, 90, 100, 110, 120, 125, 150, 175, 200]
 export const ZOOM_SCOPES = {
   app: "Entire app",
-  main: "Main channel",
+  main: "Main chat",
   right: "Right panel",
 } as const
 export type ZoomScope = keyof typeof ZOOM_SCOPES

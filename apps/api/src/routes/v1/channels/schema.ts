@@ -1,11 +1,11 @@
 import { z } from "@hono/zod-openapi"
+import { MAX_CHANNEL_AGENTS } from "@repo/db/constants"
 import {
   insertChannelSchema,
   integrationProviderEnum,
   selectChannelSchema,
   updateChannelSchema,
 } from "@repo/db/schema"
-import { CREATURES, type CreatureId } from "@repo/utils/bestiary"
 import {
   listMessagesQuerySchema,
   listMessagesResponseSchema,
@@ -36,44 +36,44 @@ export const channelParamsSchema = workspaceSlugParamsSchema.extend({
     }),
 })
 
-export const channelResponseSchema = selectChannelSchema
+// A channel as clients get it: its row and the agents in it, in the order
+// they were added. Empty: plain human chat (reference/agents-and-chats.md).
+const channelSchema = selectChannelSchema.extend({
+  agentIds: z.array(z.string().uuid()),
+})
+
+// Which agents are in a channel, in the order they were added.
+const agentIdsSchema = z.array(z.string().uuid()).max(MAX_CHANNEL_AGENTS)
+
+export const channelResponseSchema = channelSchema
 
 export const channelReadPositionResponseSchema = z.object({
   firstUnreadMessageId: z.string().uuid().nullable(),
 })
 
-export const categoryWithChannelsSchema = selectChannelSchema.extend({
-  channels: z.array(selectChannelSchema),
+export const categoryWithChannelsSchema = channelSchema.extend({
+  channels: z.array(channelSchema),
 })
 
 export const listChannelsResponseSchema = z.object({
-  uncategorized: z.array(selectChannelSchema),
+  uncategorized: z.array(channelSchema),
   categories: z.array(categoryWithChannelsSchema),
 })
 
 // Narrow the create endpoint to workspace-creatable types only.
 // DMs / group DMs are created via the /dms route, not generic create-channel.
 // `audience`/`memberIds` create a standalone private channel (same membership
-// mechanics as a project, minus the lifecycle row). The channel agent's
-// settings are set only through update, with its authority and validation.
-export const createChannelRequestSchema = insertChannelSchema
-  .omit({
-    agentModel: true,
-    agentWakeMode: true,
-    agentBrief: true,
-    agentBriefUpdatedAt: true,
-    agentCheckInAt: true,
-    agentName: true,
-    agentCreature: true,
-    agentIdentityUpdatedAt: true,
-  })
-  .extend({
-    type: z.enum(["text", "voice", "category"]).default("text"),
-    audience: z.enum(["workspace", "members"]).default("workspace"),
-    memberIds: z.array(z.string().uuid()).max(200).optional(),
-  })
+// mechanics as a project, minus the lifecycle row). `agentIds` picks the
+// channel's agents: left out, the workspace's first agent; empty, none
+// (reference/agents-and-chats.md).
+export const createChannelRequestSchema = insertChannelSchema.extend({
+  agentIds: agentIdsSchema.optional(),
+  type: z.enum(["text", "voice", "category"]).default("text"),
+  audience: z.enum(["workspace", "members"]).default("workspace"),
+  memberIds: z.array(z.string().uuid()).max(200).optional(),
+})
 
-export const createChannelResponseSchema = selectChannelSchema
+export const createChannelResponseSchema = channelSchema
 
 // ── Update / Delete ──────────────────────────────────────────
 
@@ -83,25 +83,11 @@ const updateChannelRequestBaseSchema = updateChannelSchema
     topic: true,
     rateLimitPerUser: true,
     agentProfileId: true,
-    agentModel: true,
-    agentWakeMode: true,
   })
   .extend({
-    // The channel agent's brief (reference/always-on-agents.md §7). Empty
-    // or null removes it.
-    agentBrief: z.string().max(4_000).nullable().optional(),
-    // Its name and creature (decisions 32 and 33). Null goes back to the
-    // ones derived from the channel id.
-    agentName: z.string().max(100).nullable().optional(),
-    agentCreature: z
-      .enum(
-        CREATURES.map((creature) => creature.id) as [
-          CreatureId,
-          ...CreatureId[],
-        ]
-      )
-      .nullable()
-      .optional(),
+    // The agents in the channel; empty removes them. An agent's own settings
+    // are the agent's (routes/v1/agents).
+    agentIds: agentIdsSchema.optional(),
   })
   .strict()
 
@@ -112,43 +98,37 @@ export const updateChannelRequestSchema = updateChannelRequestBaseSchema.refine(
   }
 )
 
-export const updateChannelResponseSchema = selectChannelSchema
+export const updateChannelResponseSchema = channelSchema
 
-export const deleteChannelResponseSchema = z.object({
-  success: z.literal(true),
-})
+// ── An agent's instructions for one channel ──────────────────────────
 
-// ── Channel agent facts ──────────────────────────────────────────
-
-export const agentFactParamsSchema = channelParamsSchema.extend({
-  factId: z
+export const channelAgentParamsSchema = channelParamsSchema.extend({
+  agentId: z
     .string()
     .uuid()
     .openapi({
-      param: { name: "factId", in: "path", required: true },
+      param: { name: "agentId", in: "path", required: true },
       example: "00000000-0000-0000-0000-000000000000",
     }),
 })
 
-export const agentFactSchema = z.object({
-  id: z.string().uuid(),
-  text: z.string(),
-  source: z.string(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  // The person who last edited it in settings; null when the agent did.
-  editedBy: z.object({ id: z.string(), name: z.string() }).nullable(),
+// The team's instructions for an agent in this channel only, readable by
+// the people who can see the channel. Where a private channel's
+// instructions go: the agent's own brief is readable by every member.
+export const channelAgentSchema = z.object({
+  agentId: z.string().uuid(),
+  brief: z.string().nullable(),
 })
 
-export const listAgentFactsResponseSchema = z.object({
-  facts: z.array(agentFactSchema),
+export const listChannelAgentsResponseSchema = z.object({
+  agents: z.array(channelAgentSchema),
 })
 
-export const updateAgentFactRequestSchema = z
-  .object({ text: z.string().trim().min(1).max(300) })
+export const updateChannelAgentRequestSchema = z
+  .object({ brief: z.string().max(4_000).nullable() })
   .strict()
 
-export const deleteAgentFactResponseSchema = z.object({
+export const deleteChannelResponseSchema = z.object({
   success: z.literal(true),
 })
 

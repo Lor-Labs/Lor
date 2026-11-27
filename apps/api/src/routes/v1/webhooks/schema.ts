@@ -18,6 +18,16 @@ export const webhookIdParamsSchema = channelWebhookParamsSchema.extend({
     .openapi({ param: { name: "webhookId", in: "path", required: true } }),
 })
 
+export const agentWebhookParamsSchema = z.object({
+  workspaceSlug: z.string().openapi({
+    param: { name: "workspaceSlug", in: "path", required: true },
+  }),
+  agentId: z
+    .string()
+    .uuid()
+    .openapi({ param: { name: "agentId", in: "path", required: true } }),
+})
+
 // The newest Act run on this webhook's trigger, carrying the handoff note that
 // run left for the next one. null = the trigger has never run.
 export const lastActSchema = z
@@ -35,19 +45,25 @@ export const lastActSchema = z
 export const channelWebhookSchema = z.object({
   id: z.string(),
   name: z.string(),
+  // The chat its agent reports in, and where the data is posted.
   channelId: z.string(),
+  // The agent that hears it (the chat's first agent when none was picked);
+  // null when its chat has no agent.
+  agentId: z.string().nullable(),
   avatarUrl: z.string().nullable(),
   token: z.string(),
   createdAt: z.string(),
   createdByName: z.string().nullable(),
   post: z.boolean(),
+  // Whether a posted event pings the people in the chat.
+  notify: z.boolean(),
+  // A plain-language condition checked before the agent is woken.
+  filter: z.string().nullable(),
   actInstructions: z.string().nullable(),
   actSessionMode: actSessionModeSchema,
   actCode: actCodeSchema,
   // Act rate shape (reference/automation-primitives.md §5).
   actWindowSeconds: z.number(),
-  hourlyRunCap: z.number(),
-  dailyRunCap: z.number(),
   // Read-only: never accepted on create/update.
   lastAct: lastActSchema,
 })
@@ -61,6 +77,10 @@ export const listChannelWebhooksResponseSchema = z.object({
 export const createChannelWebhookRequestSchema = z.object({
   name: z.string().trim().min(1).max(80),
   avatarUrl: z.string().url().max(2048).optional(),
+  // The agent that hears it; it must be in the chat. Made for an agent, a
+  // webhook wakes it and posts nothing. Absent: the data is posted, and the
+  // chat's first agent hears it.
+  agentId: z.string().uuid().optional(),
 })
 
 export const createChannelWebhookResponseSchema = z.object({
@@ -71,7 +91,14 @@ export const updateChannelWebhookRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(80).optional(),
     avatarUrl: z.string().url().max(2048).nullable().optional(),
+    // Moves the webhook to another chat its agent is in.
+    channelId: z.string().uuid().optional(),
+    // Which of the chat's agents hears it.
+    agentId: z.string().uuid().optional(),
     post: z.boolean().optional(),
+    notify: z.boolean().optional(),
+    // Null or empty clears it.
+    filter: z.string().trim().max(500).nullable().optional(),
     // The Act effect's instructions for Lor; null = Act off.
     actInstructions: z.string().trim().max(4000).nullable().optional(),
     actSessionMode: actSessionModeSchema.optional(),
@@ -80,8 +107,6 @@ export const updateChannelWebhookRequestSchema = z
     // 0 = one run per delivery; otherwise deliveries inside the window
     // coalesce into a single run.
     actWindowSeconds: z.number().int().min(0).max(3600).optional(),
-    hourlyRunCap: z.number().int().min(1).max(500).optional(),
-    dailyRunCap: z.number().int().min(1).max(2000).optional(),
   })
   .refine((v) => Object.values(v).some((value) => value !== undefined), {
     message: "Nothing to update",

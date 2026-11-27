@@ -54,11 +54,9 @@ export function MentionSuggestionMenu({
           {candidates.map((candidate) => {
             const isBroadcast = BROADCAST_MENTION_IDS.has(candidate.id)
             const secondary = isBroadcast
-              ? candidate.id === "everyone"
-                ? "Notify everyone in the workspace"
-                : candidate.id === "channel"
-                  ? "Notify everyone who can see this channel"
-                  : "Notify channel members who are online right now"
+              ? candidate.id === "chat"
+                ? "Notify everyone in this chat"
+                : "Notify the people in this chat who are online now"
               : candidate.creature
                 ? "Channel agent"
                 : candidate.name !== candidate.label

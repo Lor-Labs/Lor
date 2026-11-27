@@ -139,7 +139,12 @@ export async function loadPausedDecisions(
       const allowed =
         row.status === "approved" &&
         row.resolvedBy !== null &&
-        (await resolverStillAllowed({ ...row, userId: row.resolvedBy }))
+        row.channelId !== null &&
+        (await resolverStillAllowed({
+          ...row,
+          channelId: row.channelId,
+          userId: row.resolvedBy,
+        }))
       // Claimed before it runs: a run that fails or crashes after the call
       // ran must never hand it to the harness again.
       const claimed =

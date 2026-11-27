@@ -135,7 +135,7 @@ async function loadPendingSet(
     .where(eq(schema.approval.id, approvalId))
     .then((rows) => rows[0]?.runId ?? null)
   if (!runId) return []
-  return db
+  const rows = await db
     .select({
       approvalId: schema.approval.id,
       workspaceId: schema.approval.workspaceId,
@@ -157,6 +157,11 @@ async function loadPendingSet(
       )
     )
     .orderBy(asc(schema.approval.createdAt), asc(schema.approval.id))
+  // A run that parks on approvals is always about a chat (a turn about none
+  // refuses gated tools).
+  return rows.flatMap((row) =>
+    row.channelId ? [{ ...row, channelId: row.channelId }] : []
+  )
 }
 
 // The policy row's resolver spec for this approval's target; null when the

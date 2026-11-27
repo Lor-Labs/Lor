@@ -419,7 +419,8 @@ async function firstTextChannelId(workspaceId: string) {
       and(
         eq(schema.channel.workspaceId, workspaceId),
         isNull(schema.channel.parentId),
-        eq(schema.channel.type, "text")
+        eq(schema.channel.type, "text"),
+        ne(schema.channel.kind, "place")
       )
     )
     .orderBy(asc(schema.channel.position))
@@ -725,7 +726,9 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
           inArray(
             schema.channel.type,
             features.voiceChannels ? ["text", "voice"] : ["text"]
-          )
+          ),
+          // What was said in a Slack or Discord channel is read there.
+          ne(schema.channel.kind, "place")
         )
       ),
     listAccessibleChannelIds(currentUser.id, workspace.id),

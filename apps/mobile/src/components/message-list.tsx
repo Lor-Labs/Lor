@@ -64,7 +64,7 @@ export function MessageList({
   // A question about the message for the channel's agent (the action menu,
   // a meeting recording's questions).
   onAskLor?: (message: Message, prompt?: string) => void
-  onReply: (message: Message) => void
+  onReply?: (message: Message) => void
   onLoadAround?: (messageId: string) => Promise<boolean>
   onEdit?: (message: Message) => void
   onDelete?: (message: Message) => void
@@ -196,12 +196,14 @@ export function MessageList({
       }
     : undefined
 
-  const replyToSelectedMessage = () => {
-    if (!selectedMessage) return
-    const message = selectedMessage
-    setSelectedMessage(null)
-    onReply(message)
-  }
+  const replyToSelectedMessage = onReply
+    ? () => {
+        if (!selectedMessage) return
+        const message = selectedMessage
+        setSelectedMessage(null)
+        onReply(message)
+      }
+    : undefined
 
   const askLorAboutSelected = onAskLor
     ? () => {
@@ -300,7 +302,8 @@ export function MessageList({
               Boolean(currentUserId) &&
               item.authorId === currentUserId &&
               !isOptimisticMessage(item)
-            const accessibilityActions = [{ label: "Reply", name: "reply" }]
+            const accessibilityActions: { label: string; name: string }[] =
+              onReply ? [{ label: "Reply", name: "reply" }] : []
             if (onOpenThread) {
               accessibilityActions.push({
                 label: actionLabel,
@@ -330,7 +333,7 @@ export function MessageList({
                   delayLongPress={350}
                   onAccessibilityAction={(event) => {
                     if (event.nativeEvent.actionName === "reply") {
-                      onReply(item)
+                      onReply?.(item)
                       return
                     }
                     if (event.nativeEvent.actionName === "open-thread") {

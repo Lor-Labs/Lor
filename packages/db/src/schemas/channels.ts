@@ -36,9 +36,17 @@ export const channelAudienceEnum = pgEnum("channel_audience", [
   "members",
 ])
 
-export const channelAgentWakeModeEnum = pgEnum("channel_agent_wake_mode", [
-  "mention",
-  "every_message",
+// A text channel is a chat (reference/agents-and-chats.md, decision 31): a
+// named group of people and agents, listed by its last message. "channel" is
+// kept for long-lived channels, should they come back; nothing makes one yet.
+// "place" is a Slack or Discord channel an agent is in (decisions 24 and 51):
+// the row holds what was said there, for the agents' inboxes, history, Loops
+// and sessions, and no list in Lor shows it. Which outside channel it is:
+// `channel_discord_link`.
+export const channelKindEnum = pgEnum("channel_kind", [
+  "chat",
+  "channel",
+  "place",
 ])
 
 export const channel = pgTable(
@@ -54,6 +62,7 @@ export const channel = pgTable(
     topic: text("topic"),
     type: channelTypeEnum("type").notNull().default("text"),
     audience: channelAudienceEnum("audience").notNull().default("workspace"),
+    kind: channelKindEnum("kind").notNull().default("chat"),
 
     // Archived channels are read-only and leave the active sidebar; set on
     // all of a project's channels when it archives.
@@ -77,27 +86,7 @@ export const channel = pgTable(
       { onDelete: "set null" }
     ),
 
-    // The channel agent's model, as Lor's own harness names it. Null = the
-    // default (reference/always-on-agents.md, decision 15).
-    agentModel: text("agent_model"),
-    // What wakes the channel agent: a mention or a reply to it, or every
-    // message. Other messages wait unread in its inbox.
-    agentWakeMode: channelAgentWakeModeEnum("agent_wake_mode")
-      .notNull()
-      .default("mention"),
-    // The channel agent's brief: standing instructions only people write,
-    // in its system prompt (reference/always-on-agents.md §7).
-    agentBrief: text("agent_brief"),
-    agentBriefUpdatedAt: timestamp("agent_brief_updated_at"),
-    // When the channel got its agent's check-in Loop: it is made once, so a
-    // check-in someone deleted stays deleted.
-    agentCheckInAt: timestamp("agent_check_in_at"),
-    // The channel agent's name and creature (reference/always-on-agents.md,
-    // decisions 32 and 33). Null = derived from the channel id
-    // (`channelAgentIdentity` in @repo/utils/bestiary).
-    agentName: text("agent_name"),
-    agentCreature: text("agent_creature"),
-    agentIdentityUpdatedAt: timestamp("agent_identity_updated_at"),
+    // Which agents are in a channel is `channel_agent` (schemas/agents.ts).
 
     // ordering within a category or workspace
     position: integer("position").default(0).notNull(),
@@ -147,8 +136,15 @@ export const channelRelations = relations(channel, ({ one, many }) => ({
   members: many(channelMember),
 }))
 
-// For DMs and group DMs — tracks which users are in non-workspace channels
-// Also useful later for per-channel permission overwrites on workspace channels
+// The people in a channel, one list for every kind
+// (reference/agents-and-chats.md, decisions 35 and 36):
+// - a DM or group DM: its people, which is also who can open it;
+// - a chat (text channel): who is in it, so it is in their list. Chats are
+//   open and hidden: anyone who can see one finds it and joins;
+// - a private chat or project (audience "members"): the rows on the access
+//   container (the parent category, else the channel) are also who can see
+//   it (queries/channel-access.ts). A chat inside a project has its own
+//   rows for who is in that chat.
 export const channelMember = pgTable(
   "channel_member",
   {
@@ -160,6 +156,11 @@ export const channelMember = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
+    // This person's own, for a chat. Pinned chats lead their list, in the
+    // order they were pinned.
+    pinnedAt: timestamp("pinned_at"),
+    // Put away by this person. A message after this time brings it back.
+    hiddenAt: timestamp("hidden_at"),
   },
   (table) => [
     uniqueIndex("channelMember_channel_user_uidx").on(
@@ -200,6 +201,7 @@ export const insertChannelSchema = createInsertSchema(channel, {
   // (with membership handling), never raw channel create/update.
   audience: true,
   archivedAt: true,
+  kind: true,
 })
 
 export const updateChannelSchema = createUpdateSchema(channel, {
@@ -214,4 +216,5 @@ export const updateChannelSchema = createUpdateSchema(channel, {
   creatorId: true,
   audience: true,
   archivedAt: true,
+  kind: true,
 })

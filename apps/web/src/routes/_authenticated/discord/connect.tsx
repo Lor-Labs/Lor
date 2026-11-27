@@ -8,7 +8,7 @@ import { apiClient } from "@/lib/api-client"
 
 type ConnectSearch = { token?: string }
 
-// `/lor connect` in Discord links here: the signed-in person's Lor account
+// `/lor connect-account` in Discord links here: the signed-in person's Lor account
 // takes the Discord account the token names (reference/always-on-agents.md
 // §10), so their Discord messages post as them and they can decide
 // approvals from Discord.
@@ -50,7 +50,7 @@ function DiscordConnect() {
     }
   }, [])
 
-  // Linking needs the person's consent: someone else's `/lor connect` link
+  // Linking needs the person's consent: someone else's `/lor connect-account` link
   // would otherwise attach their Discord account to this Lor account.
   const link = async () => {
     if (!token) return
@@ -87,7 +87,7 @@ function DiscordConnect() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-sm">
         <p className="text-muted-foreground">
-          This link is wrong or expired. Run /lor connect again.
+          This link is wrong or expired. Run /lor connect-account again.
         </p>
         <Button variant="outline" onClick={() => router.history.replace("/")}>
           Go back
@@ -108,7 +108,7 @@ function DiscordConnect() {
             {session?.user.name ?? "you"}
           </span>
           {session?.user.email ? ` (${session.user.email})` : ""}. Only continue
-          if you ran /lor connect yourself.
+          if you ran /lor connect-account yourself.
         </p>
         <div className="flex justify-end gap-2">
           <Button

@@ -1,8 +1,10 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { isWorkspaceRole } from "@repo/auth/permissions"
 import { isConnectorEvent } from "@repo/connectors"
-import { and, db, eq, isUniqueViolation, max, schema, sql } from "@repo/db"
+import { and, asc, db, eq, isUniqueViolation, max, schema, sql } from "@repo/db"
+import { loopAgentFor } from "@repo/db/queries/agents"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import { joinChatAudience } from "@repo/db/queries/chat-members"
 import type {
   ChangeOperation,
   ChangeProposal,
@@ -25,6 +27,8 @@ import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
 import { endAfterToDate } from "@repo/lor/loops"
 import { initialMcpServerOAuthStatus } from "@repo/lor/mcp-server-oauth"
 import { encryptSecret } from "@repo/utils/crypto"
+import { placeDefaultAgent } from "@/lib/agents"
+import { loopAccess } from "@/lib/loops"
 import { approvalTargetIssue } from "./approval-targets"
 import { profileToolAccessIssue } from "./profile-tool-access"
 
@@ -55,6 +59,8 @@ type ApplyContext = {
   workspaceId: string
   approverId: string
   authorUserId: string | null
+  // The proposal card's author: the agent that filed it, when one did.
+  proposerId: string | null
   rationale: string
   // position → created resource id, for `created` refs in later ops.
   createdIds: Map<number, string>
@@ -152,6 +158,13 @@ async function applyOperation(
         .returning({ id: schema.channel.id })
         .then((rows) => rows[0])
       if (!inserted) fail(position, "Failed to create the channel")
+      // Like a channel a person makes: the workspace's first agent is in it.
+      await placeDefaultAgent(ctx.tx, {
+        workspaceId: ctx.workspaceId,
+        channelIds: [inserted.id],
+        addedById: null,
+      })
+      await joinChatAudience([inserted.id], ctx.tx)
       ctx.createdIds.set(position, inserted.id)
       return { resourceId: inserted.id }
     }
@@ -240,8 +253,13 @@ async function applyOperation(
       }
       // Rerouting needs the approver's access to the trigger's current
       // channel too, so a private channel's events can't be moved out.
+      // Several agents can listen to one event; a proposal sets the one it
+      // was written against, the event's first.
       const current = await ctx.tx
-        .select({ channelId: schema.connectorTrigger.channelId })
+        .select({
+          id: schema.connectorTrigger.id,
+          channelId: schema.connectorTrigger.channelId,
+        })
         .from(schema.connectorTrigger)
         .where(
           and(
@@ -249,6 +267,7 @@ async function applyOperation(
             eq(schema.connectorTrigger.event, spec.event)
           )
         )
+        .orderBy(asc(schema.connectorTrigger.createdAt))
         .limit(1)
         .then((rows) => rows[0])
       if (
@@ -258,26 +277,27 @@ async function applyOperation(
         fail(position, "Trigger not found")
       }
       const channelId = await resolveChannelRef(ctx, spec.channel, position)
-      await ctx.tx
-        .insert(schema.connectorTrigger)
-        .values({
+      if (current) {
+        await ctx.tx
+          .update(schema.connectorTrigger)
+          .set({
+            channelId,
+            post: spec.post,
+            actInstructions: spec.actInstructions,
+            // Moved to another chat, it is heard by that chat's first agent:
+            // its old one may not be there.
+            ...(current.channelId !== channelId ? { agentId: null } : {}),
+          })
+          .where(eq(schema.connectorTrigger.id, current.id))
+      } else {
+        await ctx.tx.insert(schema.connectorTrigger).values({
           connectionId: connection.id,
           event: spec.event,
           channelId,
           post: spec.post,
           actInstructions: spec.actInstructions,
         })
-        .onConflictDoUpdate({
-          target: [
-            schema.connectorTrigger.connectionId,
-            schema.connectorTrigger.event,
-          ],
-          set: {
-            channelId,
-            post: spec.post,
-            actInstructions: spec.actInstructions,
-          },
-        })
+      }
       return { resourceId: connection.id }
     }
 
@@ -291,6 +311,19 @@ async function applyOperation(
       if (spec.endCondition && spec.endAfter) {
         fail(position, "A loop can have one end mode, not both")
       }
+      // The Loop belongs to the agent that proposed it when it is in that
+      // chat, else the chat's first agent. A chat with no agent can't run
+      // one.
+      const agentId = await loopAgentFor(channelId, ctx.proposerId, ctx.tx)
+      if (!agentId) {
+        const [target] = await ctx.tx
+          .select({ type: schema.channel.type })
+          .from(schema.channel)
+          .where(eq(schema.channel.id, channelId))
+        if (target?.type === "text") {
+          fail(position, "That chat has no agent to run a Loop")
+        }
+      }
       // Approving the card IS the high-frequency consent — the schedule is
       // printed on it (mirrors the activate route's confirm round-trip).
       const highFrequency = validation.requiresConfirmation
@@ -299,6 +332,7 @@ async function applyOperation(
         .values({
           workspaceId: ctx.workspaceId,
           channelId,
+          agentId,
           creatorId: ctx.approverId,
           name: spec.name,
           instructions: spec.instructions,
@@ -337,7 +371,11 @@ async function applyOperation(
         .limit(1)
         .then((rows) => rows[0])
       if (!loop) fail(position, "Loop not found")
-      await requireWritableChannel(ctx, loop.channelId, position)
+      if (loop.channelId) {
+        await requireWritableChannel(ctx, loop.channelId, position)
+      } else if (!(await loopAccess(loop, ctx.approverId))?.canWrite) {
+        fail(position, "Loop not found")
+      }
       if (loop.status === "completed") {
         fail(position, "Completed loops can't be edited")
       }
@@ -779,12 +817,19 @@ export async function applyProposal(
         spec: parsed.data,
       }
     })
+    const [card] = proposal.cardMessageId
+      ? await db
+          .select({ authorId: schema.message.authorId })
+          .from(schema.message)
+          .where(eq(schema.message.id, proposal.cardMessageId))
+      : []
     const results = await db.transaction(async (tx) => {
       const ctx: ApplyContext = {
         tx,
         workspaceId: proposal.workspaceId,
         approverId,
         authorUserId: proposal.authorUserId,
+        proposerId: card?.authorId ?? null,
         rationale: proposal.rationale,
         createdIds: new Map(),
         kinds: new Map(

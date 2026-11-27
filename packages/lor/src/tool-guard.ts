@@ -38,9 +38,15 @@ export const SIDE_EFFECT_TOOLS = new Set([
   "complete_loop",
   // Creates a draft loop row + card message; replay must not duplicate them.
   "propose_loop",
+  // The agent's own Loops: a retried step must not make one twice or post
+  // the same "changed" line twice.
+  "create_loop",
+  "update_loop",
   "propose_workspace_change",
   // The channel agent's post in the chat; a retried step must not repeat it.
   "send_message",
+  // A retried step must not save the same fact twice.
+  "remember",
   // A retried step must not set the same wake-up twice.
   "wake_up",
   "cancel_wake_up",

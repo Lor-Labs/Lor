@@ -28,7 +28,6 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useDesktopChrome } from "@/components/desktop-window-frame"
 import { AgentProfilesSection } from "@/components/workspace/agent-profiles-section"
-import { AiAccountsSettings } from "@/components/workspace/ai-accounts-settings"
 import { AiProvidersSection } from "@/components/workspace/ai-providers-section"
 import { ApprovalsSection } from "@/components/workspace/approvals-section"
 import { BillingSection } from "@/components/workspace/billing-section"
@@ -79,7 +78,6 @@ export type SectionId =
   | "instructions"
   | "billing"
   | "ai-providers"
-  | "ai-accounts"
 
 const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "general", label: "General", icon: Settings01Icon },
@@ -87,7 +85,6 @@ const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "connectors", label: "Connectors", icon: Plug01Icon },
   { id: "custom-tools", label: "Tools", icon: Wrench01Icon },
   { id: "ai-providers", label: "AI providers", icon: AiCloudIcon },
-  { id: "ai-accounts", label: "Autonomous runs", icon: Layers01Icon },
   { id: "agent", label: "Agent profiles", icon: Layers01Icon },
   { id: "approvals", label: "Approvals", icon: CheckmarkSquare02Icon },
   { id: "instructions", label: "LOR.md", icon: Scroll01Icon },
@@ -284,7 +281,7 @@ export function WorkspaceSettingsDialog({
               </div>
               {/* Vertical padding sits inside the scroll area so sticky
                   footers (SettingsFooter) pin flush to its bottom edge. */}
-              <div className="min-h-0 flex-1 overflow-y-auto px-6">
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 [scrollbar-gutter:stable]">
                 <div className="mx-auto max-w-2xl py-6">
                   {section === "general" ? (
                     // key on identity so the form resets if the workspace
@@ -303,8 +300,6 @@ export function WorkspaceSettingsDialog({
                     />
                   ) : section === "connectors" ? (
                     <ConnectorsSection workspaceSlug={workspace.slug} />
-                  ) : section === "ai-accounts" ? (
-                    <AiAccountsSettings workspaceSlug={workspace.slug} />
                   ) : section === "custom-tools" ? (
                     <CustomToolsSection
                       workspaceSlug={workspace.slug}

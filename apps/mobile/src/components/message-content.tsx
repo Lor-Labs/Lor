@@ -8,7 +8,7 @@ import {
 } from "react-native-enriched-markdown"
 import { StreamdownText } from "react-native-streamdown"
 import { Fonts } from "@/constants/theme"
-import { useChannelAgent } from "@/hooks/use-channel-agent"
+import { useChannelAgent, useChannelAgents } from "@/hooks/use-channel-agent"
 import { useOpenCallTranscript } from "@/hooks/use-open-call-transcript"
 import type { Message } from "@/lib/api-types"
 import { BROADCAST_MENTION_IDS } from "@/lib/mentions"
@@ -184,21 +184,31 @@ export function MessageContent({
     ]
   )
   // @Lor in a channel reads as its agent's name, outside session transcripts.
+  // Each agent in a chat is also mentioned by its own id, which the server
+  // doesn't resolve: only people are in `mentions`.
   const channelAgent = useChannelAgent()
+  const channelAgents = useChannelAgents()
   const agentName = prose.document ? undefined : channelAgent?.name
   const markdown = useMemo(
     () =>
       toDisplayMarkdown(
         content,
         agentName
-          ? mentions.map((mention) =>
-              mention.id === LOR_USER_ID
-                ? { ...mention, name: agentName }
-                : mention
-            )
+          ? [
+              ...mentions.map((mention) =>
+                mention.id === LOR_USER_ID
+                  ? { ...mention, name: agentName }
+                  : mention
+              ),
+              ...channelAgents.map((agent) => ({
+                id: agent.id,
+                name: agent.name,
+                image: null,
+              })),
+            ]
           : mentions
       ),
-    [content, mentions, agentName]
+    [content, mentions, agentName, channelAgents]
   )
   const markdownStyle = useMemo(
     () => buildMarkdownStyle(theme, prose.document),

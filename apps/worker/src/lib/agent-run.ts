@@ -756,9 +756,15 @@ export async function claimAgentRun(
 
     // Ambient tier: whatever else landed in the run's scope since the last
     // boundary — context only, no delivery guarantee.
+    // An agent's turn about no chat has no feed to overhear.
     const scopeCond = claimed.threadRootId
       ? eq(schema.message.threadRootId, claimed.threadRootId)
-      : and(eq(schema.message.channelId, claimed.channelId), chatFeedMessage())
+      : claimed.channelId
+        ? and(
+            eq(schema.message.channelId, claimed.channelId),
+            chatFeedMessage()
+          )
+        : sql`false`
     const ambientRows = await db
       .select({
         id: schema.message.id,

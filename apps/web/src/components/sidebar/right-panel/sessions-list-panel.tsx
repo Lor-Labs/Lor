@@ -96,7 +96,7 @@ export function SessionsListPanel({ view }: { view: SessionsListSidebarView }) {
         )}
         {sessions?.length === 0 && (
           <p className="p-8 text-center text-muted-foreground text-sm">
-            {archived ? "No archived sessions" : "No sessions in this channel"}
+            {archived ? "No archived sessions" : "No sessions in this chat"}
           </p>
         )}
         {sessions?.map((session) => (

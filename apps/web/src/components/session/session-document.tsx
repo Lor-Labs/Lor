@@ -778,7 +778,7 @@ export function SessionDocument({
       <ForwardDialog
         message={forwarding}
         workspaceSlug={workspaceSlug}
-        target={{ channelId, channelName: channel?.name ?? "channel" }}
+        target={{ channelId, channelName: channel?.name ?? "chat" }}
         onClose={() => setForwarding(null)}
       />
       {header({ lorRunning: Boolean(pendingLorMessage), headingVisible })}

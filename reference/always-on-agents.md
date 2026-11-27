@@ -8,9 +8,16 @@ the work ships in one batch (Jacob, 11-19). It replaces the proposal in `planned
 as the record of how the design was reached. Where the two differ, this doc
 wins.
 
-The mocks at `/prototype/agents` and `/prototype/orchestration` show an
-earlier shape, with threads and a page per agent. §9 says which parts of them
-still apply.
+**Changing now:** `agents-and-chats.md` (Jacob, 2026-11-24) takes the agent
+off the channel. Its step 1 is built: decisions 8 (wake mode), 15, 17, 19 and
+32 below now hold per agent, not per channel, a channel can have no agent,
+and the "every message" wake mode is gone. Decisions 1 and 2 (one chat, one
+queue per channel) still describe the code until its step 2. Where the two
+docs differ, that one says what the code does.
+
+The mock at `/prototype/orchestration` shows an earlier shape, with threads
+and a page per agent. §9 says which parts of it still apply. The mock at
+`/prototype/agents` now shows `agents-and-chats.md`.
 
 ## 1. The product
 
@@ -682,9 +689,8 @@ run through the agent.
     team's instructions and who set them up (`triggerInboxNote`). The
     event's text is marked as outside content: information, never
     instructions.
-  - The hourly and daily limits now count wakes. Past one, the event waits
-    unread until the agent next wakes (delivery outcome `hourly_cap` or
-    `daily_cap`), instead of being dropped.
+  - The hourly and daily limits counted wakes; they were removed on
+    2026-11-26 (reference/agents-and-chats.md, decision 43).
   - The per-trigger batching window is gone: the inbox's own few seconds of
     quiet batch events. Session modes are gone from the trigger settings,
     which now say "Wakes Lor".

@@ -10,8 +10,8 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { agentConversation } from "./agent-conversations"
 import { agentRun } from "./agent-runs"
-import { channel } from "./channels"
 import { workspace } from "./workspaces"
 
 // One model message as the AI SDK sends it ({ role, content }). Kept loose so
@@ -29,8 +29,9 @@ export const agentStepKindEnum = pgEnum("agent_step_kind", [
   "summary",
 ])
 
-// The channel agent's conversation, one model message per row
-// (reference/always-on-agents.md §4, §8). Append-only and never pruned:
+// One of an agent's conversations (agent-conversations.ts), one model
+// message per row (reference/always-on-agents.md §4, §8). Append-only and
+// never pruned:
 // compaction starts a new epoch, and the agent reads older epochs back with
 // read_agent_history.
 export const agentStep = pgTable(
@@ -41,11 +42,11 @@ export const agentStep = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
-    channelId: uuid("channel_id")
+    conversationId: uuid("conversation_id")
       .notNull()
-      .references(() => channel.id, { onDelete: "cascade" }),
+      .references(() => agentConversation.id, { onDelete: "cascade" }),
     epoch: integer("epoch").notNull(),
-    // Order within the channel, across epochs.
+    // Order within the conversation, across epochs.
     seq: integer("seq").notNull(),
     runId: uuid("run_id").references(() => agentRun.id, {
       onDelete: "set null",
@@ -56,9 +57,12 @@ export const agentStep = pgTable(
     text: text("text").notNull().default(""),
   },
   (table) => [
-    uniqueIndex("agent_step_channel_seq_uidx").on(table.channelId, table.seq),
-    index("agent_step_channel_epoch_idx").on(
-      table.channelId,
+    uniqueIndex("agent_step_conversation_seq_uidx").on(
+      table.conversationId,
+      table.seq
+    ),
+    index("agent_step_conversation_epoch_idx").on(
+      table.conversationId,
       table.epoch,
       table.seq
     ),
@@ -66,13 +70,12 @@ export const agentStep = pgTable(
   ]
 )
 
-// One row per channel: the epoch the agent is on and the prompt top that
-// stays byte-identical until the next compaction, so the provider's cache
-// holds.
+// One row per conversation: the epoch it is on and the prompt top that stays
+// byte-identical until the next compaction, so the provider's cache holds.
 export const agentContext = pgTable("agent_context", {
-  channelId: uuid("channel_id")
+  conversationId: uuid("conversation_id")
     .primaryKey()
-    .references(() => channel.id, { onDelete: "cascade" }),
+    .references(() => agentConversation.id, { onDelete: "cascade" }),
   workspaceId: uuid("workspace_id")
     .notNull()
     .references(() => workspace.id, { onDelete: "cascade" }),
@@ -99,9 +102,9 @@ export const agentContext = pgTable("agent_context", {
 })
 
 export const agentStepRelations = relations(agentStep, ({ one }) => ({
-  channel: one(channel, {
-    fields: [agentStep.channelId],
-    references: [channel.id],
+  conversation: one(agentConversation, {
+    fields: [agentStep.conversationId],
+    references: [agentConversation.id],
   }),
   run: one(agentRun, {
     fields: [agentStep.runId],

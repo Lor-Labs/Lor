@@ -1,10 +1,13 @@
 import { db, schema } from "@repo/db"
+import { MAX_CHANNEL_AGENTS } from "@repo/db/constants"
 import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
+import { agentIdsByChannel } from "@repo/db/queries/agents"
 import {
   listAccessibleChannelIds,
   resolveChannelAccess,
   resolveChannelAudienceInfo,
 } from "@repo/db/queries/channel-access"
+import { joinChatAudience } from "@repo/db/queries/chat-members"
 import {
   canSeeSessionChat,
   visibleToSessionChatFilter,
@@ -22,8 +25,6 @@ import {
   threadReadState,
   user,
 } from "@repo/db/schema"
-import { channelProfileLock } from "@repo/lor/channel-profile"
-import { ensureCheckInLoop } from "@repo/lor/check-in"
 import { channelCodeRepo, listRepoBranches } from "@repo/lor/code-repo"
 import {
   listLinearPickerIssues,
@@ -32,15 +33,12 @@ import {
   searchConnector,
   searchConnectorFiles as searchFiles,
 } from "@repo/lor/connector-search"
-import { syncAgentRole } from "@repo/lor/discord"
-import { isLorCreditModel } from "@repo/lor/model-catalog"
 import {
   channelRoom,
   type ServerToClientEvents,
   threadRoom,
   userRoom,
 } from "@repo/realtime-types"
-import { normalizeAgentName } from "@repo/utils/bestiary"
 import { Emitter } from "@socket.io/redis-emitter"
 import {
   and,
@@ -54,6 +52,12 @@ import {
   or,
   sql,
 } from "drizzle-orm"
+import {
+  afterChannelAgentsChanged,
+  emitAgentsUpdated,
+  placeDefaultAgent,
+  setChannelAgents,
+} from "@/lib/agents"
 import { getEmitter } from "@/lib/bot-messages"
 import { allowedChannelConnectors } from "@/lib/channel-connectors"
 import { emitChannelCreated, postChannelEvent } from "@/lib/channel-events"
@@ -77,15 +81,14 @@ import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CancelAgentWakeUpRoute,
   CreateChannelRoute,
-  DeleteAgentFactRoute,
   DeleteChannelRoute,
   GetChannelAudienceRoute,
   GetChannelReadPositionRoute,
   GetChannelRoute,
   GetLinearIssuePromptRoute,
   GetMessageLocationRoute,
-  ListAgentFactsRoute,
   ListAgentWakeUpsRoute,
+  ListChannelAgentsRoute,
   ListChannelConnectorsRoute,
   ListChannelMessagesRoute,
   ListChannelsRoute,
@@ -101,7 +104,7 @@ import type {
   SearchChannelConnectorRoute,
   SearchConnectorFilesRoute,
   ToggleMessagePinRoute,
-  UpdateAgentFactRoute,
+  UpdateChannelAgentRoute,
   UpdateChannelRoute,
 } from "@/routes/v1/channels/routes"
 
@@ -130,12 +133,21 @@ export const listChannels: AppRouteHandler<ListChannelsRoute> = async (c) => {
     db
       .select()
       .from(channel)
-      .where(eq(channel.workspaceId, workspace.id))
+      // A place (a Slack or Discord channel an agent is in) is in no list in
+      // Lor (reference/agents-and-chats.md, decision 51).
+      .where(
+        and(eq(channel.workspaceId, workspace.id), ne(channel.kind, "place"))
+      )
       .orderBy(asc(channel.position)),
     listAccessibleChannelIds(currentUser.id, workspace.id),
   ])
   // Restricted channels the user isn't a member of are invisible, not locked.
-  const channels = allChannels.filter((ch) => accessibleIds.has(ch.id))
+  const visible = allChannels.filter((ch) => accessibleIds.has(ch.id))
+  const agentIds = await agentIdsByChannel(visible.map((ch) => ch.id))
+  const channels = visible.map((ch) => ({
+    ...ch,
+    agentIds: agentIds.get(ch.id) ?? [],
+  }))
 
   const categoryMap = new Map<string, typeof channels>()
   const categories: typeof channels = []
@@ -169,6 +181,9 @@ export const listChannels: AppRouteHandler<ListChannelsRoute> = async (c) => {
     HttpStatusCodes.OK
   )
 }
+
+// Rolls a channel create back when its picked agents can't be placed.
+class AgentsNotPlaced extends Error {}
 
 export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
   const workspace = c.var.workspace
@@ -219,19 +234,34 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
   // Membership only matters for standalone private channels — a channel
   // inside a category inherits the container's audience.
   const isStandalonePrivate = audience === "members" && !body.parentId
-  const resolvedMemberIds = isStandalonePrivate
-    ? [...new Set([currentUser.id, ...(memberIds ?? [])])]
-    : []
-  if (isStandalonePrivate && resolvedMemberIds.length > 0) {
+
+  // Picking a channel's agents takes channel:update, like changing them.
+  if (body.agentIds) {
+    assertWorkspaceAuthority(c.var.authority, { channel: ["update"] })
+  }
+  // New chat names the people in it (reference/agents-and-chats.md,
+  // decision 35): an open chat then starts with them and its maker, not
+  // with everyone who can see it. Anyone else can still find it and join.
+  const picksPeople =
+    memberIds !== undefined && body.type === "text" && !body.parentId
+  const resolvedMemberIds =
+    isStandalonePrivate || picksPeople
+      ? [...new Set([currentUser.id, ...(memberIds ?? [])])]
+      : []
+  let people: { userId: string; name: string }[] = []
+  if (resolvedMemberIds.length > 0) {
     const workspaceMemberRows = await db
-      .select({ userId: schema.workspaceMember.userId })
+      .select({ userId: schema.workspaceMember.userId, name: schema.user.name })
       .from(schema.workspaceMember)
+      .innerJoin(schema.user, eq(schema.user.id, schema.workspaceMember.userId))
       .where(
         and(
           eq(schema.workspaceMember.workspaceId, workspace.id),
-          inArray(schema.workspaceMember.userId, resolvedMemberIds)
+          inArray(schema.workspaceMember.userId, resolvedMemberIds),
+          eq(schema.user.isBot, false)
         )
       )
+    people = workspaceMemberRows
     if (workspaceMemberRows.length !== resolvedMemberIds.length) {
       return c.json(
         {
@@ -255,48 +285,118 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
             : isNull(channel.parentId)
         )
 
-  const newChannel = await db.transaction(async (tx) => {
-    const position = await tx
-      .select({ value: max(channel.position) })
-      .from(channel)
-      .where(and(eq(channel.workspaceId, workspace.id), siblings))
-      .then((rows) => (rows[0]?.value ?? -1) + 1)
-    const inserted = await tx
-      .insert(channel)
-      .values({
-        ...body,
-        audience: isStandalonePrivate ? "members" : "workspace",
-        workspaceId: workspace.id,
-        creatorId: currentUser.id,
-        position,
-      })
-      .returning()
-      .then((rows) => rows[0])
-    if (inserted && isStandalonePrivate) {
-      await tx.insert(schema.channelMember).values(
-        resolvedMemberIds.map((userId) => ({
-          channelId: inserted.id,
-          userId,
-        }))
-      )
-    }
-    return inserted
-  })
+  const { agentIds: wantedAgentIds, ...fields } = body
+  // A chat left unnamed is called by who is in it: its agents, then the
+  // people besides its maker.
+  if (!fields.name?.trim() && body.type === "text") {
+    const agentNames = wantedAgentIds?.length
+      ? await db
+          .select({ id: schema.agent.id, name: schema.agent.name })
+          .from(schema.agent)
+          .where(
+            and(
+              eq(schema.agent.workspaceId, workspace.id),
+              inArray(schema.agent.id, wantedAgentIds)
+            )
+          )
+          .then((rows) =>
+            wantedAgentIds.flatMap(
+              (id) => rows.find((row) => row.id === id)?.name ?? []
+            )
+          )
+      : []
+    const others = resolvedMemberIds
+      .filter((id) => id !== currentUser.id)
+      .flatMap((id) => people.find((row) => row.userId === id)?.name ?? [])
+      .map((name) => name.trim().split(/\s+/)[0] ?? name)
+    const names = [...agentNames, ...others]
+    fields.name = (
+      names.length > 0
+        ? new Intl.ListFormat("en", { type: "conjunction" }).format(names)
+        : "New chat"
+    ).slice(0, 100)
+  }
+  const created = await db
+    .transaction(async (tx) => {
+      const position = await tx
+        .select({ value: max(channel.position) })
+        .from(channel)
+        .where(and(eq(channel.workspaceId, workspace.id), siblings))
+        .then((rows) => (rows[0]?.value ?? -1) + 1)
+      const inserted = await tx
+        .insert(channel)
+        .values({
+          ...fields,
+          audience: isStandalonePrivate ? "members" : "workspace",
+          workspaceId: workspace.id,
+          creatorId: currentUser.id,
+          position,
+        })
+        .returning()
+        .then((rows) => rows[0])
+      if (inserted && resolvedMemberIds.length > 0) {
+        await tx.insert(schema.channelMember).values(
+          resolvedMemberIds.map((userId) => ({
+            channelId: inserted.id,
+            userId,
+          }))
+        )
+      }
+      if (!inserted) return null
+      // A text channel starts with the agents that were picked, else the
+      // workspace's first agent, else none (reference/agents-and-chats.md).
+      let agentIds: string[] = []
+      if (inserted.type === "text") {
+        if (wantedAgentIds) {
+          const placed = await setChannelAgents({
+            workspaceId: workspace.id,
+            channelId: inserted.id,
+            agentIds: wantedAgentIds,
+            userId: currentUser.id,
+            tx,
+          })
+          if (!placed.ok) throw new AgentsNotPlaced(placed.reason)
+          agentIds = placed.agentIds
+        } else {
+          const agentId = await placeDefaultAgent(tx, {
+            workspaceId: workspace.id,
+            channelIds: [inserted.id],
+            addedById: currentUser.id,
+          })
+          agentIds = agentId ? [agentId] : []
+        }
+        // With no people picked, a chat starts with everyone who can see
+        // it. A private one already holds the people it was made with.
+        if (!picksPeople) await joinChatAudience([inserted.id], tx)
+      }
+      return { ...inserted, agentIds }
+    })
+    .catch((err: unknown) => {
+      if (err instanceof AgentsNotPlaced) return err
+      throw err
+    })
 
-  if (!newChannel) {
+  if (created instanceof AgentsNotPlaced) {
+    return c.json(
+      {
+        success: false,
+        message:
+          created.message === "too_many"
+            ? `A chat holds up to ${MAX_CHANNEL_AGENTS} agents`
+            : "Agent not found",
+      },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  if (!created) {
     return c.json(
       { success: false, message: "Internal server error" },
       HttpStatusCodes.INTERNAL_SERVER_ERROR
     )
   }
+  const newChannel = created
 
-  // A text channel's agent comes with its check-in (always-on-agents.md,
-  // decision 7). Best-effort: the channel's next message makes it otherwise.
-  if (newChannel.type === "text") {
-    await ensureCheckInLoop(newChannel.id).catch((err) =>
-      logger.warn({ err, channelId: newChannel.id }, "Check-in Loop failed")
-    )
-  }
+  if (newChannel.agentIds.length > 0) emitAgentsUpdated(workspace.id)
 
   // Teammates' sidebars refetch on this; the creator's dialog already
   // invalidates locally. The effective audience (container inheritance
@@ -485,7 +585,11 @@ export const getChannel: AppRouteHandler<GetChannelRoute> = async (c) => {
     )
   }
 
-  return c.json(ch, HttpStatusCodes.OK)
+  const agentIds = await agentIdsByChannel([ch.id])
+  return c.json(
+    { ...ch, agentIds: agentIds.get(ch.id) ?? [] },
+    HttpStatusCodes.OK
+  )
 }
 
 export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
@@ -495,17 +599,15 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
   const body = c.req.valid("json")
 
   // channel:update edits any channel. Without it, the channel's creator may
-  // still rename it, change its topic and name its agent; slowmode and the
-  // agent's profile, model, wake mode and brief always need the permission.
+  // still rename it and change its topic; slowmode, the tool profile and
+  // which agents are in the channel always need the permission.
   const canUpdateAny = hasWorkspaceAuthority(c.var.authority, {
     channel: ["update"],
   })
   const isNameOrTopicOnly =
     body.rateLimitPerUser === undefined &&
     body.agentProfileId === undefined &&
-    body.agentModel === undefined &&
-    body.agentWakeMode === undefined &&
-    body.agentBrief === undefined
+    body.agentIds === undefined
   if (!canUpdateAny && !isNameOrTopicOnly) {
     return c.json(
       { success: false, message: "Forbidden" },
@@ -550,75 +652,91 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
     }
   }
 
-  // The channel agent runs on Lor's credits, so only Lor's models qualify.
-  // null goes back to the default.
-  if (body.agentModel && !isLorCreditModel(body.agentModel)) {
-    return c.json(
-      { success: false, message: "Model not available" },
-      HttpStatusCodes.BAD_REQUEST
-    )
-  }
-
   // Prior-name read + update in one transaction with a row lock, so a
   // concurrent rename can't make the event report a stale "from" name.
-  const result = await db.transaction(async (tx) => {
-    const prior = await tx
-      .select({ name: channel.name })
-      .from(channel)
-      .where(
-        and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
-      )
-      .limit(1)
-      .for("update")
-      .then((rows) => rows[0])
-    if (!prior) return null
-    const { agentBrief, agentName, agentCreature, ...fields } = body
-    const identityChanged =
-      agentName !== undefined || agentCreature !== undefined
-    const updated = await tx
-      .update(channel)
-      .set({
-        ...fields,
-        // The agent learns its new name from a change note.
-        ...(agentName !== undefined
-          ? { agentName: agentName ? normalizeAgentName(agentName) : null }
-          : {}),
-        ...(agentCreature !== undefined ? { agentCreature } : {}),
-        ...(identityChanged ? { agentIdentityUpdatedAt: new Date() } : {}),
-        // An empty model means the default, like null.
-        ...(fields.agentModel !== undefined
-          ? { agentModel: fields.agentModel?.trim() || null }
-          : {}),
-        // The agent learns of a new brief from a change note.
-        ...(agentBrief !== undefined
-          ? {
-              agentBrief: agentBrief?.trim() || null,
-              agentBriefUpdatedAt: new Date(),
-            }
-          : {}),
-      })
-      .where(
-        and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
-      )
-      .returning()
-      .then((rows) => rows[0])
-    return updated ? { prior, updated } : null
-  })
+  const { agentIds: wantedAgentIds, ...fields } = body
+  const result = await db
+    .transaction(async (tx) => {
+      const prior = await tx
+        .select()
+        .from(channel)
+        .where(
+          and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
+        )
+        .limit(1)
+        .for("update")
+        .then((rows) => rows[0])
+      if (!prior) return null
+      const updated = Object.values(fields).some((field) => field !== undefined)
+        ? await tx
+            .update(channel)
+            .set(fields)
+            .where(
+              and(
+                eq(channel.id, channelId),
+                eq(channel.workspaceId, workspace.id)
+              )
+            )
+            .returning()
+            .then((rows) => rows[0])
+        : prior
+      if (!updated) return null
+      // Which agents are in the channel: any of the workspace's, in a text
+      // channel. An empty list leaves plain human chat.
+      const placed =
+        wantedAgentIds === undefined
+          ? null
+          : updated.type === "text"
+            ? await setChannelAgents({
+                workspaceId: workspace.id,
+                channelId,
+                agentIds: wantedAgentIds,
+                userId: currentUser.id,
+                tx,
+              })
+            : wantedAgentIds.length === 0
+              ? { ok: true as const, agentIds: [], changed: false, removed: [] }
+              : { ok: false as const, reason: "not_found" as const }
+      if (placed && !placed.ok) throw new AgentsNotPlaced(placed.reason)
+      return { prior, updated, placed }
+    })
+    .catch((err: unknown) => {
+      if (err instanceof AgentsNotPlaced) return err
+      throw err
+    })
 
+  if (result instanceof AgentsNotPlaced) {
+    return c.json(
+      {
+        success: false,
+        message:
+          result.message === "too_many"
+            ? `A chat holds up to ${MAX_CHANNEL_AGENTS} agents`
+            : "Agent not found",
+      },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
   if (!result) {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
-  const { prior, updated } = result
+  const { prior, updated, placed } = result
 
-  // A Discord-linked channel's @mention role follows the agent's new name.
-  if (body.agentName !== undefined || body.agentCreature !== undefined) {
-    void syncAgentRole(channelId).catch((err: unknown) =>
-      logger.warn({ err, channelId }, "Discord agent role rename failed")
-    )
+  if (placed?.changed) {
+    await afterChannelAgentsChanged({
+      workspaceId: workspace.id,
+      channelId,
+      hasAgent: placed.agentIds.length > 0,
+      removed: placed.removed,
+    })
   }
+  const agentIds =
+    placed?.agentIds ??
+    (await agentIdsByChannel([channelId])).get(channelId) ??
+    []
 
   if (
     updated.type !== "category" &&
@@ -634,57 +752,15 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
     })
   }
 
-  return c.json(updated, HttpStatusCodes.OK)
+  return c.json({ ...updated, agentIds }, HttpStatusCodes.OK)
 }
 
-// The channel agent's facts (reference/always-on-agents.md §7): anyone who
-// can see the channel may read, edit or delete them. A deleted fact keeps its
-// row so the agent's next turn can be told it is gone.
-async function loadAgentFact(channelId: string, factId: string) {
-  const [row] = await db
-    .select({
-      id: schema.channelAgentFact.id,
-      text: schema.channelAgentFact.text,
-      source: schema.channelAgentFact.source,
-      createdAt: schema.channelAgentFact.createdAt,
-      updatedAt: schema.channelAgentFact.updatedAt,
-      editorId: schema.user.id,
-      editorName: schema.user.name,
-    })
-    .from(schema.channelAgentFact)
-    .leftJoin(
-      schema.user,
-      eq(schema.user.id, schema.channelAgentFact.editedById)
-    )
-    .where(
-      and(
-        eq(schema.channelAgentFact.id, factId),
-        eq(schema.channelAgentFact.channelId, channelId),
-        isNull(schema.channelAgentFact.deletedAt)
-      )
-    )
-  return row ?? null
-}
-
-function serializeAgentFact(
-  row: NonNullable<Awaited<ReturnType<typeof loadAgentFact>>>
-) {
-  return {
-    id: row.id,
-    text: row.text,
-    source: row.source,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-    editedBy:
-      row.editorId && row.editorName
-        ? { id: row.editorId, name: row.editorName }
-        : null,
-  }
-}
-
-export const listAgentFacts: AppRouteHandler<ListAgentFactsRoute> = async (
-  c
-) => {
+// The agents in a channel with the team's instructions for each here. Only
+// the people who can see the channel read them, so a private channel's
+// instructions stay in it.
+export const listChannelAgents: AppRouteHandler<
+  ListChannelAgentsRoute
+> = async (c) => {
   const { channelId } = c.req.valid("param")
   if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
     return c.json(
@@ -694,99 +770,64 @@ export const listAgentFacts: AppRouteHandler<ListAgentFactsRoute> = async (
   }
   const rows = await db
     .select({
-      id: schema.channelAgentFact.id,
-      text: schema.channelAgentFact.text,
-      source: schema.channelAgentFact.source,
-      createdAt: schema.channelAgentFact.createdAt,
-      updatedAt: schema.channelAgentFact.updatedAt,
-      editorId: schema.user.id,
-      editorName: schema.user.name,
+      agentId: schema.channelAgent.agentId,
+      brief: schema.channelAgent.brief,
     })
-    .from(schema.channelAgentFact)
-    .leftJoin(
-      schema.user,
-      eq(schema.user.id, schema.channelAgentFact.editedById)
+    .from(schema.channelAgent)
+    .where(eq(schema.channelAgent.channelId, channelId))
+    .orderBy(
+      asc(schema.channelAgent.createdAt),
+      asc(schema.channelAgent.agentId)
     )
+  return c.json({ agents: rows }, HttpStatusCodes.OK)
+}
+
+export const updateChannelAgent: AppRouteHandler<
+  UpdateChannelAgentRoute
+> = async (c) => {
+  const { channelId, agentId } = c.req.valid("param")
+  const { brief } = c.req.valid("json")
+  assertWorkspaceAuthority(c.var.authority, { channel: ["update"] })
+  // The authority is the URL workspace's, so the channel must belong to it.
+  const inWorkspace = await db
+    .select({ id: channel.id })
+    .from(channel)
     .where(
       and(
-        eq(schema.channelAgentFact.channelId, channelId),
-        isNull(schema.channelAgentFact.deletedAt)
+        eq(channel.id, channelId),
+        eq(channel.workspaceId, c.var.workspace.id)
       )
     )
-    .orderBy(
-      asc(schema.channelAgentFact.createdAt),
-      asc(schema.channelAgentFact.id)
-    )
-  return c.json({ facts: rows.map(serializeAgentFact) }, HttpStatusCodes.OK)
-}
-
-export const updateAgentFact: AppRouteHandler<UpdateAgentFactRoute> = async (
-  c
-) => {
-  const { channelId, factId } = c.req.valid("param")
-  const { text } = c.req.valid("json")
-  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
+    .limit(1)
+    .then((rows) => rows.length > 0)
+  if (!inWorkspace || !(await userCanAccessChannel(channelId, c.var.user.id))) {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
-  const updated = await db.transaction(async (tx) => {
-    await tx.execute(channelProfileLock(channelId))
-    return tx
-      .update(schema.channelAgentFact)
-      .set({ text, updatedAt: new Date(), editedById: c.var.user.id })
-      .where(
-        and(
-          eq(schema.channelAgentFact.id, factId),
-          eq(schema.channelAgentFact.channelId, channelId),
-          isNull(schema.channelAgentFact.deletedAt)
-        )
+  // The agent learns of the change from a note at the top of its next turn
+  // in this channel.
+  const [updated] = await db
+    .update(schema.channelAgent)
+    .set({ brief: brief?.trim() || null, briefUpdatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.channelAgent.channelId, channelId),
+        eq(schema.channelAgent.agentId, agentId)
       )
-      .returning({ id: schema.channelAgentFact.id })
-  })
-  const row = updated[0] ? await loadAgentFact(channelId, factId) : null
-  if (!row) {
+    )
+    .returning({
+      agentId: schema.channelAgent.agentId,
+      brief: schema.channelAgent.brief,
+    })
+  if (!updated) {
     return c.json(
-      { success: false, message: "Fact not found" },
+      { success: false, message: "Agent not found" },
       HttpStatusCodes.NOT_FOUND
     )
   }
-  return c.json(serializeAgentFact(row), HttpStatusCodes.OK)
-}
-
-export const deleteAgentFact: AppRouteHandler<DeleteAgentFactRoute> = async (
-  c
-) => {
-  const { channelId, factId } = c.req.valid("param")
-  if (!(await userCanAccessChannel(channelId, c.var.user.id))) {
-    return c.json(
-      { success: false, message: "Channel not found" },
-      HttpStatusCodes.NOT_FOUND
-    )
-  }
-  const now = new Date()
-  const deleted = await db.transaction(async (tx) => {
-    await tx.execute(channelProfileLock(channelId))
-    return tx
-      .update(schema.channelAgentFact)
-      .set({ deletedAt: now, updatedAt: now, editedById: c.var.user.id })
-      .where(
-        and(
-          eq(schema.channelAgentFact.id, factId),
-          eq(schema.channelAgentFact.channelId, channelId),
-          isNull(schema.channelAgentFact.deletedAt)
-        )
-      )
-      .returning({ id: schema.channelAgentFact.id })
-  })
-  if (!deleted[0]) {
-    return c.json(
-      { success: false, message: "Fact not found" },
-      HttpStatusCodes.NOT_FOUND
-    )
-  }
-  return c.json({ success: true as const }, HttpStatusCodes.OK)
+  return c.json(updated, HttpStatusCodes.OK)
 }
 
 // The channel agent's wake-ups, as Follow-ups in the channel's Loops panel
@@ -891,6 +932,7 @@ export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
       .select({
         id: channel.id,
         type: channel.type,
+        kind: channel.kind,
         audience: channel.audience,
         agentProfileId: channel.agentProfileId,
       })
@@ -902,6 +944,9 @@ export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
       .limit(1)
       .then((rows) => rows[0])
     if (!existing) return "not_found" as const
+    // A Discord place owns Discord webhooks; it is removed from the Discord
+    // connector, which cleans those up (decision 51).
+    if (existing.kind === "place") return "is_place" as const
 
     // A project is lifecycle over its category channel and cascades away with
     // it. Deleting the category through this route would silently destroy the
@@ -992,6 +1037,17 @@ export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
     await tx.delete(channel).where(eq(channel.id, channelId))
     return "deleted" as const
   })
+
+  if (result === "is_place") {
+    return c.json(
+      {
+        success: false,
+        message:
+          "This chat is a Discord place. Remove it from the Discord connector instead.",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
 
   if (result === "has_project") {
     return c.json(

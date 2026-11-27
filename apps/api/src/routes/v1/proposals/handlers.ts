@@ -258,13 +258,14 @@ async function postResolutionAndContinue(args: {
   if (!messageId) return null
   if (!proposal.threadRootId) {
     try {
-      const added = await addInboxMessage({
+      // The card's thread goes on with the request that filed the card.
+      const conversationId = await addInboxMessage({
         workspaceId: proposal.workspaceId,
         channelId: proposal.channelId,
         messageId,
         lane: "wake",
       })
-      if (added) await flushAgentInbox(proposal.channelId)
+      if (conversationId) await flushAgentInbox(conversationId)
     } catch (err) {
       logger.error(
         { err, proposalId: proposal.id },
@@ -464,8 +465,8 @@ async function announceCreatedResources(args: {
         workspaceId: schema.channel.workspaceId,
         name: schema.channel.name,
       })
-      .from(schema.channel)
-      .innerJoin(schema.loop, eq(schema.loop.channelId, schema.channel.id))
+      .from(schema.loop)
+      .innerJoin(schema.channel, eq(schema.channel.id, schema.loop.channelId))
       .where(eq(schema.loop.id, loopId))
       .limit(1)
       .then((rows) => rows[0])

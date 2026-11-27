@@ -1,85 +1,99 @@
-import { db, eq, schema } from "@repo/db"
-import { addInboxMessage, agentInThread } from "@repo/lor/channel-agent"
-import { ensureCheckInLoop } from "@repo/lor/check-in"
-import { toRealtimeLoop } from "@repo/lor/loops"
+import { asc, db, eq, schema } from "@repo/db"
+import { addInboxMessage, agentsInThread } from "@repo/lor/channel-agent"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import {
   AGENT_INBOX_BATCH_MS,
+  AGENT_INBOX_CLASSIFY_JOB,
   AGENT_INBOX_FLUSH_JOB,
+  type AgentInboxClassifyJobData,
   type AgentInboxFlushJobData,
 } from "@repo/realtime-types/queues"
 import type { Queue } from "bullmq"
 import { logger } from "@/lib/logger"
-import { isLorMentioned, isReplyToLor } from "@/services/lor-routing"
+import { agentsNamed } from "@/services/lor-routing"
 
-// Channels whose check-in this process already made sure of.
-const checkedIn = new Set<string>()
-
-// A channel's agent comes with its check-in (always-on-agents.md, decision
-// 7). Channels made before it get theirs on their next message.
-function ensureCheckIn(
-  channelId: string,
-  onMade: (loop: ReturnType<typeof toRealtimeLoop>) => void
-) {
-  if (checkedIn.has(channelId)) return
-  checkedIn.add(channelId)
-  void ensureCheckInLoop(channelId)
-    .then((loop) => {
-      if (loop) onMade(toRealtimeLoop(loop))
-    })
-    .catch((err) => {
-      checkedIn.delete(channelId)
-      logger.warn({ err, channelId }, "Check-in Loop failed")
-    })
-}
-
-// A message in the channel chat lands in the channel agent's inbox
-// (reference/always-on-agents.md §3). A mention or a reply to the
-// agent wakes it; anything else waits unread until its next turn, unless the
-// channel is set to wake it on every message. In a human thread a mention or
-// a reply to the agent reaches it, and so does every message in a thread
-// it's part of (it may stay quiet); the agent answers in that thread.
+// A message in a chat lands in the inbox of every agent in it
+// (reference/always-on-agents.md §3; reference/agents-and-chats.md, decision
+// 32). A mention of an agent or a reply to it wakes that agent; for the
+// others, and when nobody is named, it waits unread until their next turn
+// (decision 8: no "every message" setting). A chat message that names nobody
+// is also judged at once by the worker (LOR-171): an agent it reads as meant
+// for is woken now, the rest keep it for their check-in. In a human thread a message
+// reaches the agents it names, or with none named every agent that is part
+// of the thread (each may stay quiet); they answer in that thread, and the
+// chat's other agents get nothing. What wakes an agent goes to its request's
+// conversation, so two people asking at once don't share a queue; what waits
+// goes to the agent's own conversation, for its check-in (decisions 26 and
+// 28). A chat with no agent is plain human chat: nothing is queued.
+// Returns the agents the message named, for the typing signal.
 export async function addChatMessageToAgentInbox(args: {
   workspaceId: string
   channelId: string
   message: RealtimeMessage
-  queue: Queue<AgentInboxFlushJobData>
-  // Tells the channel about a check-in Loop made for it just now.
-  onCheckInMade: (loop: ReturnType<typeof toRealtimeLoop>) => void
-  // "addressed": a mention of Lor or a reply to it, which always wakes it.
-  // "skipped": a thread reply not for the agent.
-}): Promise<"addressed" | "wake" | "wait" | "duplicate" | "skipped"> {
-  ensureCheckIn(args.channelId, args.onCheckInMade)
-  const threadRootId = args.message.threadRootId
-  const addressed =
-    isLorMentioned(args.message.content) ||
-    isReplyToLor(args.message.referencedMessage)
-  const inThread =
-    threadRootId && !addressed ? await agentInThread(threadRootId) : false
-  if (threadRootId && !addressed && !inThread) return "skipped"
-  const everyMessage =
-    addressed || threadRootId
-      ? false
-      : await db
-          .select({ mode: schema.channel.agentWakeMode })
-          .from(schema.channel)
-          .where(eq(schema.channel.id, args.channelId))
-          .then((rows) => rows[0]?.mode === "every_message")
-  const lane = addressed || inThread || everyMessage ? "wake" : "wait"
-  const added = await addInboxMessage({
-    workspaceId: args.workspaceId,
-    channelId: args.channelId,
-    messageId: args.message.id,
-    lane,
-  })
-  if (!added) return "duplicate"
-  if (lane === "wake") {
-    // A short delay, so quick messages in a row become one turn.
-    await args.queue.add(
-      AGENT_INBOX_FLUSH_JOB,
-      { channelId: args.channelId },
-      { delay: AGENT_INBOX_BATCH_MS }
+  queue: Queue<AgentInboxFlushJobData | AgentInboxClassifyJobData>
+}): Promise<{ id: string; name: string }[]> {
+  const placed = await db
+    .select({ id: schema.agent.id, name: schema.agent.name })
+    .from(schema.channelAgent)
+    .innerJoin(schema.agent, eq(schema.agent.id, schema.channelAgent.agentId))
+    .where(eq(schema.channelAgent.channelId, args.channelId))
+    .orderBy(
+      asc(schema.channelAgent.createdAt),
+      asc(schema.channelAgent.agentId)
     )
+  if (placed.length === 0) return []
+  const agentIds = placed.map((agent) => agent.id)
+  const named = agentsNamed({
+    content: args.message.content,
+    referencedMessage: args.message.referencedMessage,
+    agentIds,
+  })
+  const threadRootId = args.message.threadRootId
+  const inThread =
+    threadRootId && named.size === 0
+      ? await agentsInThread(threadRootId, agentIds)
+      : new Set<string>()
+  const addressed: { id: string; name: string }[] = []
+  const wakeConversations: string[] = []
+  for (const agent of placed) {
+    const wakes = named.has(agent.id) || inThread.has(agent.id)
+    // A thread reply is not chat an agent outside the thread reads later.
+    if (threadRootId && !wakes) continue
+    const lane = wakes ? "wake" : "wait"
+    const conversationId = await addInboxMessage({
+      workspaceId: args.workspaceId,
+      channelId: args.channelId,
+      agentId: agent.id,
+      messageId: args.message.id,
+      lane,
+    })
+    if (!conversationId) continue
+    if (lane === "wake") wakeConversations.push(conversationId)
+    if (named.has(agent.id)) addressed.push(agent)
   }
-  return addressed ? "addressed" : lane
+  // Every inbox row is written before any wake is queued, so a queue failure
+  // can't keep later agents from getting the message; the stranded-inbox
+  // sweep flushes a wake that failed to queue.
+  for (const conversationId of wakeConversations) {
+    // A short delay, so quick messages in a row become one turn.
+    await args.queue
+      .add(
+        AGENT_INBOX_FLUSH_JOB,
+        { conversationId },
+        { delay: AGENT_INBOX_BATCH_MS }
+      )
+      .catch((err: unknown) =>
+        logger.warn({ err, conversationId }, "Agent inbox wake flush failed")
+      )
+  }
+  if (named.size === 0 && !threadRootId) {
+    // Best effort: without it the message waits for the check-in.
+    await args.queue
+      .add(AGENT_INBOX_CLASSIFY_JOB, {
+        channelId: args.channelId,
+        messageId: args.message.id,
+      })
+      .catch(() => {})
+  }
+  return addressed
 }

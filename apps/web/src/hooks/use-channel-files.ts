@@ -28,7 +28,7 @@ export function useChannelFiles(
           ...(pageParam ? { cursor: pageParam } : {}),
         },
       })
-      if (!res.ok) throw new Error("Couldn't load channel files")
+      if (!res.ok) throw new Error("Couldn't load the chat's files")
       return res.json()
     },
     getNextPageParam: (page) => page.nextCursor ?? undefined,

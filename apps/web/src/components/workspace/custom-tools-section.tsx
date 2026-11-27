@@ -1405,7 +1405,7 @@ export function CustomToolsSection({
         listHidden={!listShown || loading || serversQuery.isError}
         caption={
           <>
-            Lor can call a tool only in channels whose agent profile grants it.
+            Lor can call a tool only in chats whose agent profile grants it.
             Grant tools in{" "}
             <SettingsLink onClick={onOpenAgentProfiles}>
               Agent profiles
@@ -1434,7 +1434,7 @@ export function CustomToolsSection({
               </span>
               ?{" "}
               {deleteTarget && deleteTarget.usedByProfiles > 0
-                ? `${deleteTarget.usedByProfiles} agent ${deleteTarget.usedByProfiles === 1 ? "profile grants" : "profiles grant"} it — Lor loses it in those channels immediately. `
+                ? `${deleteTarget.usedByProfiles} agent ${deleteTarget.usedByProfiles === 1 ? "profile grants" : "profiles grant"} it. Lor loses it in those chats immediately. `
                 : "Lor can no longer call it. "}
               This action cannot be undone.
             </AlertDialogDescription>
