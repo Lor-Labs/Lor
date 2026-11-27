@@ -332,7 +332,7 @@ async function executeCustomTool(
 }
 
 // The channel's granted custom tools as a runtime ToolSet (`grant` comes from
-// resolveChannelCapabilities: "all" or an explicit tool-id list). Built-ins
+// resolveAgentCapabilities: "all" or an explicit tool-id list). Built-ins
 // always win a name collision (the tool is skipped and logged) — a workspace
 // row must never shadow a first-party tool.
 export async function workspaceCustomTools(

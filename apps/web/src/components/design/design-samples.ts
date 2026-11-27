@@ -253,8 +253,8 @@ export const PROPOSAL_SAMPLES: ProposalSample[] = [
           customTools: [],
         }),
         op(3, {
-          op: "assign_channel_profile",
-          channel: { kind: "existing", id: ENG_CHANNEL },
+          op: "assign_agent_profile",
+          agentId: "00000000-0000-4000-8000-0000000000a1",
           profile: { kind: "created", opPosition: 2 },
         }),
       ],

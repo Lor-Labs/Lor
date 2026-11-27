@@ -27,6 +27,7 @@ import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import {
   autonomousUsesSubscription,
   channelRequestUserId,
+  HarnessAccountLimitError,
   personalRequestHarness,
 } from "@repo/db/queries/personal-accounts"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
@@ -1848,15 +1849,19 @@ export async function runAgentTurnJob(
       return
     }
     logger.error({ err, runId, channelId }, "Agent turn failed")
+    // The asker's plan at its usage limit won't change on a retry: say so
+    // now, with when it resets (it never moves to another plan).
+    const planLimited = err instanceof HarnessAccountLimitError
     // A retry continues from the saved steps; only the last attempt says so.
-    if (job.attemptsMade + 1 < (job.opts.attempts ?? 1)) {
+    if (!planLimited && job.attemptsMade + 1 < (job.opts.attempts ?? 1)) {
       execution.stop()
       throw err
     }
     // Said only to a person who asked: a Loop's or an event's turn fails
     // quietly, and its run history shows it (decision 30). So does one the
     // classifier woke for a message that named nobody.
-    if (!sent && userId && !run.triggerInferred) await notice(FAILED_MESSAGE)
+    if (!sent && userId && !run.triggerInferred)
+      await notice(planLimited ? err.message : FAILED_MESSAGE)
     await writer.transition("failed", { stopReason: "error" })
     execution.stop()
     await settleLoop("failed", "error")

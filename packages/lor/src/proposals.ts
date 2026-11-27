@@ -52,11 +52,12 @@ function refIssue(operations: ChangeOperation[]): string | null {
         issue = check(index, operation.channel, ["create_channel"])
         break
       case "assign_channel_profile":
-        issue =
-          check(index, operation.channel, ["create_channel"]) ??
-          (operation.profile
-            ? check(index, operation.profile, ["create_agent_profile"])
-            : null)
+        issue = `operation ${index}: tool profiles are set per agent now; use assign_agent_profile with the agent's id`
+        break
+      case "assign_agent_profile":
+        issue = operation.profile
+          ? check(index, operation.profile, ["create_agent_profile"])
+          : null
         break
       case "create_agent_profile":
         for (const ref of operation.customTools) {
@@ -91,7 +92,7 @@ export class ProposalRefusedError extends Error {}
 export const proposeChangeTool = {
   propose_workspace_change: tool({
     description:
-      'Propose a set of workspace configuration changes as ONE reviewable card: create channels, webhooks, loops (or edit one), connector event routing, agent profiles, custom API tools, MCP servers, approval gates, or update the workspace instructions. Nothing is created until a teammate with the required permissions approves the card, so end your answer by pointing them at it. Operations apply in order and later ones may reference earlier ones with {kind: "created", opPosition: N} (e.g. create a channel at 0, then a webhook inside it at 1). For custom tools: verify the target API with web search FIRST, and never include secret values — list the secret NAMES in requiredSecrets; the approver types the values when approving. Propose an approval gate (set_approval_policy) alongside a tool whose action the user wants a human to sign off on. update_instructions rewrites LOR.md for the whole workspace — use it rarely and only when asked. Keep the set minimal: only what the ask actually needs.',
+      'Propose a set of workspace configuration changes as ONE reviewable card: create channels, webhooks, loops (or edit one), connector event routing, agent profiles, custom API tools, MCP servers, approval gates, or update the workspace instructions. Nothing is created until a teammate with the required permissions approves the card, so end your answer by pointing them at it. Operations apply in order and later ones may reference earlier ones with {kind: "created", opPosition: N} (e.g. create a channel at 0, then a webhook inside it at 1). For custom tools: verify the target API with web search FIRST, and never include secret values — list the secret NAMES in requiredSecrets; the approver types the values when approving. Propose an approval gate (set_approval_policy) alongside a tool whose action the user wants a human to sign off on. update_instructions rewrites LOR.md for the whole workspace — use it rarely and only when asked. Tool profiles belong to agents: assign_agent_profile sets the profile of one agent (by its id), and a session a person starts uses the workspace default. Keep the set minimal: only what the ask actually needs.',
     inputSchema: z.object({
       rationale: z
         .string()

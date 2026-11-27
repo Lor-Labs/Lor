@@ -527,8 +527,10 @@ async function applyOperation(
       return { resourceId: inserted.id }
     }
 
-    case "assign_channel_profile": {
-      const channelId = await resolveChannelRef(ctx, spec.channel, position)
+    case "assign_channel_profile":
+      return fail(position, "Tool profiles are set per agent now")
+
+    case "assign_agent_profile": {
       let profileId: string | null = null
       if (spec.profile) {
         if (spec.profile.kind === "created") {
@@ -556,18 +558,18 @@ async function applyOperation(
         }
       }
       const updated = await ctx.tx
-        .update(schema.channel)
+        .update(schema.agent)
         .set({ agentProfileId: profileId })
         .where(
           and(
-            eq(schema.channel.id, channelId),
-            eq(schema.channel.workspaceId, ctx.workspaceId)
+            eq(schema.agent.id, spec.agentId),
+            eq(schema.agent.workspaceId, ctx.workspaceId)
           )
         )
-        .returning({ id: schema.channel.id })
+        .returning({ id: schema.agent.id })
         .then((rows) => rows[0])
-      if (!updated) fail(position, "Channel not found")
-      return { resourceId: channelId }
+      if (!updated) fail(position, "Agent not found")
+      return { resourceId: spec.agentId }
     }
 
     case "create_custom_tool": {
@@ -913,6 +915,8 @@ export function operationSummary(
       return `Created agent profile "${spec.name}"`
     case "assign_channel_profile":
       return "Assigned the channel's agent profile"
+    case "assign_agent_profile":
+      return "Set the agent's tool profile"
     case "create_custom_tool":
       return `Created tool ${spec.name}${result?.setupNote ? ` — ${result.setupNote}` : ""}`
     case "create_mcp_server":

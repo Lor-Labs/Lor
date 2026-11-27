@@ -106,10 +106,19 @@ export const createAgentProfileOpSchema = z
   })
   .strict()
 
+// From before tools moved to the agent (decision 53): kept so saved cards
+// still render; proposing or applying one is refused.
 export const assignChannelProfileOpSchema = z.object({
   op: z.literal("assign_channel_profile"),
   channel: resourceRefSchema,
-  // Null clears the assignment (channel falls back to the default profile).
+  profile: resourceRefSchema.nullable(),
+})
+
+// Which tool profile an agent uses. Null clears it (the workspace default).
+// Agents aren't made by proposals, so the agent is always an existing one.
+export const assignAgentProfileOpSchema = z.object({
+  op: z.literal("assign_agent_profile"),
+  agentId: z.string().uuid(),
   profile: resourceRefSchema.nullable(),
 })
 
@@ -179,6 +188,7 @@ export const changeOperationSchema = z.discriminatedUnion("op", [
   updateInstructionsOpSchema,
   createAgentProfileOpSchema,
   assignChannelProfileOpSchema,
+  assignAgentProfileOpSchema,
   createCustomToolOpSchema,
   createMcpServerOpSchema,
   setApprovalPolicyOpSchema,
@@ -198,6 +208,7 @@ export const changeOperationKindEnum = pgEnum("change_operation_kind", [
   "update_instructions",
   "create_agent_profile",
   "assign_channel_profile",
+  "assign_agent_profile",
   "create_custom_tool",
   "create_mcp_server",
   "set_approval_policy",
@@ -237,6 +248,7 @@ const OPERATION_PERMISSIONS: Record<ChangeOperationKind, [string, string][]> = {
   update_instructions: [["instructions", "approve"]],
   create_agent_profile: [["agentProfile", "manage"]],
   assign_channel_profile: [["channel", "update"]],
+  assign_agent_profile: [["channel", "update"]],
   create_custom_tool: [["customTool", "manage"]],
   create_mcp_server: [["customTool", "manage"]],
   set_approval_policy: [["approval", "manage"]],

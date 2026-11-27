@@ -23,6 +23,8 @@ import {
 } from "@repo/db/queries/channel-access"
 import {
   autonomousUsesSubscription,
+  HarnessAccountLimitError,
+  PLAN_LIMIT_AGENT_HINT,
   resolveHarnessAccount,
 } from "@repo/db/queries/personal-accounts"
 import type {
@@ -737,8 +739,17 @@ export function createLorRespondProcessor(
                     origin: schema.agentSession.origin,
                     creatorId: schema.agentSession.creatorId,
                     title: schema.agentSession.title,
+                    // The agent that started it, whose tools it uses.
+                    starterAgentId: schema.agentConversation.agentId,
                   })
                   .from(schema.agentSession)
+                  .leftJoin(
+                    schema.agentConversation,
+                    eq(
+                      schema.agentConversation.id,
+                      schema.agentSession.conversationId
+                    )
+                  )
                   .where(eq(schema.agentSession.threadRootId, threadRootId))
                   .then((rows) => rows[0])
               : undefined
@@ -952,6 +963,20 @@ export function createLorRespondProcessor(
               channelId,
               userId: triggerUserId,
             }
+            // Whether a person wrote the message this turn answers (not an
+            // agent's brief, a Loop or an event).
+            const personSent = async () =>
+              Boolean(
+                triggerUserId &&
+                  triggerUserId !== LOR_USER_ID &&
+                  !automated &&
+                  (await db
+                    .select({ isBot: schema.user.isBot })
+                    .from(schema.user)
+                    .where(eq(schema.user.id, triggerUserId))
+                    .then((rows) => rows[0]?.isBot === false)
+                    .catch(() => false))
+              )
             const previousRun =
               continueOnly && harnessState?.lastRunId
                 ? await db
@@ -990,6 +1015,9 @@ export function createLorRespondProcessor(
               : true
             let harnessAccount: HarnessAccountRoute | undefined
             let refusal: string | null = null
+            // The asker's plan is at its usage limit: an agent steering the
+            // session is told to pass it on.
+            let planLimited = false
             if (
               savedAnswer === null &&
               (session.harness === "claude_code" || session.harness === "codex")
@@ -1026,6 +1054,9 @@ export function createLorRespondProcessor(
                     error instanceof Error
                       ? error.message
                       : "Couldn't select an account for this turn."
+                  planLimited =
+                    error instanceof HarnessAccountLimitError &&
+                    Boolean(error.userId)
                 }
               }
             }
@@ -1106,7 +1137,10 @@ export function createLorRespondProcessor(
               emit(refusal, true, "failed")
               await runWriter.transition("failed", { stopReason: "error" })
               execution.stop()
-              await reportToAgent("failed", refusal)
+              await reportToAgent(
+                "failed",
+                planLimited ? `${refusal} ${PLAN_LIMIT_AGENT_HINT}` : refusal
+              )
               await settlePlan("failed")
               await emitThreadSummary()
               drainQueue()
@@ -1291,7 +1325,18 @@ export function createLorRespondProcessor(
                 backgroundConversation,
                 channelId,
                 ...(memory?.note ? { memoryNote: memory.note } : {}),
-                ...(session.origin === "agent" ? { helper: true } : {}),
+                // Read-only only for the agent's own turns: a person writing
+                // in an agent's session gets full tools, like a session they
+                // start (the tool change busts the prompt cache; rare).
+                ...(session.origin === "agent" && !(await personSent())
+                  ? {
+                      helper: true,
+                      // From before conversations: the chat's first agent.
+                      helperAgentId:
+                        session.starterAgentId ??
+                        (await channelAgentId(channelId)),
+                    }
+                  : {}),
                 ...(threadRootId ? { threadRootId } : {}),
                 triggerMessageId,
                 ...(triggerUserId ? { userId: triggerUserId } : {}),

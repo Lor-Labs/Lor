@@ -19,13 +19,15 @@ import { channelAgentId } from "@repo/db/queries/agents"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import {
   getHarnessSettings,
+  HarnessAccountLimitError,
   hasOwnRequestRoute,
+  PLAN_LIMIT_AGENT_HINT,
   personalRequestHarness,
   resolveHarnessAccount,
 } from "@repo/db/queries/personal-accounts"
 import { createSession, toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import { type AgentSessionTools, addInboxNote } from "@repo/lor/channel-agent"
-import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
+import { allowedCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
 import {
   postSessionApprovals,
   postSessionCard,
@@ -74,9 +76,9 @@ function clip(text: string, max: number): string {
 }
 
 // The repositories a session can use here, or why there are none.
-async function reposForChannel(
+async function reposForAgent(
   workspaceId: string,
-  channelId: string
+  agentId: string
 ): Promise<
   { repos: { repo: string; defaultBranch: string }[] } | { error: string }
 > {
@@ -95,7 +97,7 @@ async function reposForChannel(
   }
   const allowed = await Promise.all(
     github.repos.map((repo) =>
-      channelCodeRepo(workspaceId, channelId, repo.fullName).catch(() => null)
+      allowedCodeRepo(workspaceId, agentId, repo.fullName).catch(() => null)
     )
   )
   const repos = allowed.flatMap((found) =>
@@ -157,6 +159,17 @@ async function taskRoute(
         },
         harness === "claude_code" ? "claude" : "chatgpt"
       )
+}
+
+// Why no account can pay, as the agent is told it. A plan at its usage
+// limit is the asker's to know about: the agent tells them.
+function routeError(err: unknown) {
+  if (err instanceof HarnessAccountLimitError) {
+    return err.userId ? `${err.message} ${PLAN_LIMIT_AGENT_HINT}` : err.message
+  }
+  return err instanceof Error
+    ? err.message
+    : "Couldn't select an account for this session."
 }
 
 // The agent's brief or follow-up, as the session's next turn.
@@ -273,13 +286,15 @@ export function agentSessionExecutors(
         }
         requestUserId = owner
       }
-      const available = await reposForChannel(workspaceId, channelId)
+      const available = await reposForAgent(workspaceId, args.agentId)
       if ("error" in available) return available
       const { repos } = available
       if (!repo) return { repos }
-      const allowed = await channelCodeRepo(workspaceId, channelId, repo).catch(
-        () => null
-      )
+      const allowed = await allowedCodeRepo(
+        workspaceId,
+        args.agentId,
+        repo
+      ).catch(() => null)
       if (!allowed) {
         return { error: `${repo} is not available here.`, repos }
       }
@@ -324,12 +339,7 @@ export function agentSessionExecutors(
       try {
         route = await taskRoute(workspaceId, channelId, harness, requestUserId)
       } catch (err) {
-        return {
-          error:
-            err instanceof Error
-              ? err.message
-              : "Couldn't select an account for this session.",
-        }
+        return { error: routeError(err) }
       }
 
       const audience = args.askerId
@@ -524,13 +534,18 @@ export function agentSessionExecutors(
       const payer = (await isPlace(session.channelId))
         ? session.creatorId
         : args.requestUserId
-      const started = await runTask(
-        deps,
-        session,
-        channelName,
-        message,
-        await taskRoute(workspaceId, session.channelId, session.harness, payer)
-      )
+      let route: TaskRoute
+      try {
+        route = await taskRoute(
+          workspaceId,
+          session.channelId,
+          session.harness,
+          payer
+        )
+      } catch (err) {
+        return { error: routeError(err) }
+      }
+      const started = await runTask(deps, session, channelName, message, route)
       if (started === "started") {
         void updateSessionCard(session.id, { state: "working" }).catch(() => {})
       }

@@ -9,7 +9,6 @@ import {
   Tick02Icon,
   VolumeHighIcon,
   WebhookIcon,
-  Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { MAX_CHANNEL_AGENTS } from "@repo/db/constants"
@@ -25,13 +24,6 @@ import {
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@repo/ui/components/select"
 import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
@@ -47,7 +39,6 @@ import {
   PaneFooter,
   type PaneTab,
 } from "@/components/ui/pane-dialog"
-import { GrantedChips } from "@/components/workspace/agent-profiles-section"
 import {
   SETTINGS_SURFACE,
   SettingsCard,
@@ -79,15 +70,12 @@ import {
 import { channelQueryOptions } from "@/lib/channel-query"
 import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels-query"
 
-const INHERIT = "__inherit__"
-
-export type EditChannelTab = "overview" | "agent" | "tools" | "webhooks"
+export type EditChannelTab = "overview" | "agent" | "webhooks"
 type Tab = EditChannelTab
 
 const TABS: PaneTab<Tab>[] = [
   { id: "overview", label: "Overview", icon: Settings01Icon },
   { id: "agent", label: "Agent", icon: BotIcon },
-  { id: "tools", label: "Tools", icon: Wrench01Icon },
   { id: "webhooks", label: "Webhooks", icon: WebhookIcon },
 ]
 
@@ -98,8 +86,8 @@ async function errorOf(res: Response, fallback: string) {
   return new Error(body?.message ?? fallback)
 }
 
-// A channel's settings: its name and topic, the agent in it, the tools that
-// agent may use here, and its webhooks. The agent's own settings are the
+// A channel's settings: its name and topic, the agent in it and its
+// webhooks. What an agent may use is the agent's (agent-tools.tsx). The agent's own settings are the
 // agent's (agent-dialog.tsx): this only says which agent is here and what
 // the team wants from it in this channel.
 export function EditChannelDialog({
@@ -123,16 +111,9 @@ export function EditChannelDialog({
   const isPrivate = channel.audience === "members" && channel.parentId === null
   const kind = isCategory ? "category" : "chat"
 
-  // Agents and webhooks are a text channel's. Tools also sit on a category,
-  // for the channels in it to inherit.
+  // Agents and webhooks are a text channel's.
   const tabs = TABS.filter((item) =>
-    item.id === "overview"
-      ? true
-      : overviewOnly
-        ? false
-        : item.id === "tools"
-          ? true
-          : isText
+    item.id === "overview" ? true : overviewOnly ? false : isText
   )
   const [tab, setTab] = useState<Tab>("overview")
   useEffect(() => {
@@ -206,8 +187,6 @@ export function EditChannelDialog({
           channel={channel}
           onLeave={() => onOpenChange(false)}
         />
-      ) : shownTab === "tools" ? (
-        <ToolsTab workspaceSlug={workspaceSlug} channel={channel} />
       ) : (
         <PaneBody
           title="Webhooks"
@@ -762,106 +741,5 @@ function ChannelInstructions({
         placeholder={`What ${agent.name} should do in ${channel.name}. “Only speak up when a deploy fails.”`}
       />
     </SettingsSection>
-  )
-}
-
-// The tools an agent may use in this channel: a profile set here, else the
-// category's, else the workspace's default. Picking one saves at once.
-function ToolsTab({
-  workspaceSlug,
-  channel,
-}: {
-  workspaceSlug: string
-  channel: Channel
-}) {
-  const isCategory = channel.type === "category"
-  const saved = useChannelSaved(workspaceSlug, channel.id)
-  const { data } = useQuery({
-    queryKey: ["agent-profiles", workspaceSlug],
-    queryFn: async () => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"][
-        "agent-profiles"
-      ].$get({ param: { workspaceSlug } })
-      if (!res.ok) throw new Error("Failed to load profiles")
-      return res.json()
-    },
-  })
-  const pick = useMutation({
-    mutationFn: async (profileId: string) => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].$patch({
-        param: { workspaceSlug, channelId: channel.id },
-        json: { agentProfileId: profileId === INHERIT ? null : profileId },
-      })
-      if (!res.ok) throw await errorOf(res, "Failed to change the tools")
-      return res.json()
-    },
-    onSuccess: saved,
-    onError: (error) => toast.error(error.message),
-  })
-  const profileId = channel.agentProfileId ?? INHERIT
-  const custom = data?.profiles.filter((profile) => !profile.isDefault) ?? []
-  const shown =
-    data?.profiles.find((profile) => profile.id === profileId) ??
-    data?.profiles.find((profile) => profile.isDefault) ??
-    null
-  const inherit = isCategory
-    ? "The workspace's default"
-    : "The category's, else the default"
-  return (
-    <PaneBody
-      title="Tools"
-      description={
-        isCategory
-          ? "What an agent may use in this category's chats."
-          : "What an agent may use in this chat."
-      }
-    >
-      {custom.length > 0 && (
-        <SettingsSection title="Profile">
-          <SettingsCard>
-            <Select
-              items={[
-                { value: INHERIT, label: inherit },
-                ...custom.map((profile) => ({
-                  value: profile.id,
-                  label: profile.name,
-                })),
-              ]}
-              value={profileId}
-              disabled={pick.isPending}
-              onValueChange={(value) => value && pick.mutate(value)}
-            >
-              <SelectTrigger aria-label="Tool profile" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={INHERIT}>{inherit}</SelectItem>
-                {custom.map((profile) => (
-                  <SelectItem key={profile.id} value={profile.id}>
-                    {profile.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </SettingsCard>
-        </SettingsSection>
-      )}
-      {shown && data && (
-        <SettingsSection
-          title="Can use"
-          caption={
-            custom.length === 0
-              ? "Add agent profiles in workspace settings to give chats different tools."
-              : undefined
-          }
-        >
-          <SettingsCard>
-            <GrantedChips profile={shown} groups={data.availableToolGroups} />
-          </SettingsCard>
-        </SettingsSection>
-      )}
-    </PaneBody>
   )
 }

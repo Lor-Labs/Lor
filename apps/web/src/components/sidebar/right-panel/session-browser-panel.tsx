@@ -374,9 +374,10 @@ export function SessionBrowserPanel({
       </Button>
     </BrowserEmpty>
   ) : src ? (
+    // biome-ignore lint/a11y/useIframeTitle: named by aria-label; Safari shows a title as a tooltip over the whole view
     <iframe
       key={`${src}:${reloads}`}
-      title="Browser"
+      aria-label="Browser"
       src={src}
       onLoad={() => setFrameLoading(false)}
       // Light like a new browser tab. A dark-scheme page (JSON and plain text

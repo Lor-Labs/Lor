@@ -154,7 +154,7 @@ function ProfileList({
             New profile
           </Button>
         }
-        caption="Chats use the default profile unless you pick another in chat or category settings."
+        caption="Agents use the default profile unless you pick another on the agent's Tools tab."
       >
         <div className="space-y-3">
           {profiles.map((p) => (

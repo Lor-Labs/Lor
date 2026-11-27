@@ -16,9 +16,10 @@ import {
 } from "./profile-tool-access"
 import { workspace } from "./workspaces"
 
-// A named tool-access profile assigned to a channel or category. Resolution is
-// channel profile → parent category's profile → the workspace default. All tool
-// access lives in toolAccess.
+// A named tool-access profile, picked per agent (agent.agent_profile_id): what
+// that agent may use wherever it works and in the sessions it starts. An
+// agent with none, and work no agent does (a session a person starts), use
+// the workspace default. All tool access lives in toolAccess.
 export const agentProfile = pgTable(
   "agent_profile",
   {
@@ -36,8 +37,7 @@ export const agentProfile = pgTable(
       .$type<ProfileToolAccess>()
       .notNull()
       .default(DEFAULT_PROFILE_TOOL_ACCESS),
-    // The workspace fallback (exactly one per workspace): used when a channel and
-    // its category both lack an explicit profile.
+    // The workspace fallback (exactly one per workspace).
     isDefault: boolean("is_default").notNull().default(false),
   },
   (table) => [

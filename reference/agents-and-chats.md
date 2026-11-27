@@ -115,6 +115,7 @@ objected to and should confirm.
 | 50 | `create_loop` and `update_loop` are approval gate targets, off by default, so a workspace that wants a person to approve an agent's Loops can require it | Jacob, 11-26 |
 | 51 | Slack and Discord channels agents are in are places, and a place is a hidden Lor chat (`channel.kind = "place"`, revised 11-26 from "not a Lor channel"), so the inbox, turns, Loops, code sessions, approvals and archive work there as in a chat. It is read-only in Lor, sends no Lor notifications, has no people, and the sidebar shows it only when "Discord channels" is on in its filter. Discord is a connector: a server is connected once with a code run as `/lor link`, and its channels get agents from the connector's page or with `/lor add`. Several agents can be in one channel, each mentioned by its own role (@Inky) and posting through its own webhook; a message naming nobody goes to Jev. Threads stay threads. The bot answers a mention in a channel with no agent with how to add one. Chats linked to Discord before become places, not archived. DMs are left out; code sessions started from Discord must work before this ships. Slack later in the same shape | Jacob, 11-26 |
 | 52 | Hiding a chat stays each person's own, from the sidebar, and a new message brings it back. Archiving is for everyone, only from the chat's settings, behind a dialog that says what happens: its agents stop there (their pending items are dropped, running turns stopped, Loops that report there pause, wake-ups there are cancelled, its listeners are skipped), it leaves everyone's sidebar, and it takes no new messages. Its messages are kept, and a line says who archived it. Archiving can be undone: Undo in the toast, or Unarchive on the chat, in its settings or from its row's menu. A small archive icon at the top of the sidebar's list flips between the list and the list with the archived chats you can see, greyed, among the rest. Unarchiving resumes those Loops and the wake-ups not yet due | Jacob, 11-26 |
+| 53 | What an agent may use is the agent's, not the chat's: one tool profile per agent (`agent.agent_profile_id`, null = the workspace default), used on its own turns wherever it works (its chats, a Loop with no chat, Discord) and in the code sessions it starts (read-only connectors there, as before). A session a person starts, and work no agent does, use the workspace default; so does a turn a person writes in a session an agent started, with writes (Jacob, 11-27: accept the prompt-cache bust, rather than list write tools that fail). Chats and categories no longer carry a profile; nothing is copied over (the one workspace using profiles is reset when this ships). Later, Claude Code, Codex and an agent's own computer join the same profile as tools it may drive, not a second concept. A turn on a person's plan that is at its usage limit is refused, never moved to the agent's plan, and the person is told whose plan and when it resets | Jacob, 11-27 |
 
 Considered and dropped:
 
@@ -184,7 +185,7 @@ Considered and dropped:
 | Identity | Name, face | The channel |
 | Brief and memory | The brief (only people edit it), facts | The channel |
 | Runs | Its model, what it runs on (Lor, Claude Code or Codex), and which of the workspace's accounts pay when no person's plan does | The channel (model), workspace settings (the rest) |
-| Tools | Connectors, read and write access. Writes follow the approval rules | A tool profile on the channel or its category |
+| Tools | Connectors, read and write access. Writes follow the approval rules | A tool profile on the agent (decision 53) |
 | Channels | The channels it is in, in Lor, Slack and Discord | The channel |
 | Loops and events | What it was told to do on a schedule or on an event, each with an optional place to post. The check-in is not here (decision 26) | The channel |
 | Who can see it | Everyone in the workspace, and everything it knows (decision 22) | New |
@@ -481,9 +482,11 @@ Deviations and gaps:
   for everything.
 - **No subscription run was made live.** No account is linked in the test
   databases, so the plan routes are type-checked only.
-- **Tools stay on the channel.** A turn uses the tool profile of the channel
-  it runs in, so one agent can have different tools in two channels. §5
-  moves them to the agent; not done.
+- **Tools are the agent's** since 11-27 (decision 53):
+  `resolveAgentCapabilities` in `packages/lor/src/capabilities.ts`, the
+  agent's Tools tab (`apps/web/src/components/agent/agent-tools.tsx`), and
+  the `assign_agent_profile` proposal (the old `assign_channel_profile` is
+  refused). Code repos follow the same profile (`allowedCodeRepo`).
 - **Events and Loops stay on the channel** they report in, and the channel's
   agent handles them. They do not move with an agent that leaves.
 - **The log and the open block are per channel.** An agent in three channels

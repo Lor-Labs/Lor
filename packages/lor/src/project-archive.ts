@@ -16,7 +16,7 @@ import { aiRuntimeContext, aiTelemetry } from "./ai-observability"
 import { loadApprovalGates } from "./approval-policy"
 import { attioTools, resolveWorkspaceAttio } from "./attio"
 import { type BrainWriteEvent, brainReadTools, brainWriteTools } from "./brain"
-import { EMPTY_TOOL_GRANTS, resolveChannelCapabilities } from "./capabilities"
+import { EMPTY_TOOL_GRANTS, resolveWorkspaceCapabilities } from "./capabilities"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { githubTools, resolveWorkspaceGithub } from "./github"
@@ -160,7 +160,8 @@ export async function synthesizeProjectArchive(
       ? resolveLorRunScope(args.channelId).catch(() => EMPTY_LOR_RUN_SCOPE)
       : EMPTY_LOR_RUN_SCOPE,
     args.channelId
-      ? resolveChannelCapabilities(args.channelId, args.workspaceId).catch(
+      ? // No agent writes the archive: the workspace default tools.
+        resolveWorkspaceCapabilities(args.workspaceId).catch(
           () => EMPTY_TOOL_GRANTS
         )
       : Promise.resolve(EMPTY_TOOL_GRANTS),

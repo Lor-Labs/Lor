@@ -1,4 +1,4 @@
-import { resolveChannelCapabilities } from "./capabilities"
+import { resolveAgentCapabilities } from "./capabilities"
 import { resolveWorkspaceGithub } from "./github"
 import type { InstallationRepo } from "./providers/github"
 
@@ -19,15 +19,15 @@ export function isSafeBranch(branch: string): boolean {
   )
 }
 
-// A code session's repo must be one Lor may read in the channel: the
-// channel's tools include clone_repo (the same gate as the composer's file
-// browsing) and the workspace's GitHub installation lists the repo.
-export async function channelCodeRepo(
+// A code session's repo must be one its agent may read: the agent's tools
+// (else the workspace default, for a session a person starts) include
+// clone_repo, and the workspace's GitHub installation lists the repo.
+export async function allowedCodeRepo(
   workspaceId: string,
-  channelId: string,
+  agentId: string | null,
   requested: string
 ): Promise<{ installationId: string; repo: InstallationRepo } | null> {
-  const grants = await resolveChannelCapabilities(channelId, workspaceId).catch(
+  const grants = await resolveAgentCapabilities(agentId, workspaceId).catch(
     () => null
   )
   if (!grants?.connectorTools.includes("clone_repo")) return null
