@@ -65,6 +65,7 @@
     "./mcp-servers": "./src/mcp-servers.ts",
     "./proposals": "./src/proposals.ts",
     "./byok": "./src/byok.ts",
+    "./inference-providers": "./src/inference-providers.ts",
     "./beta-compute": "./src/sandbox/beta-compute.ts",
     "./sandbox-usage": "./src/sandbox/blaxel-usage.ts",
     "./boat": "./src/sandbox/boat.ts"
@@ -80,8 +81,11 @@
     "sandbox:smoke": "tsx src/sandbox/smoke.ts"
   },
   "dependencies": {
+    "@ai-sdk/amazon-bedrock": "5.0.121",
     "@ai-sdk/anthropic": "^4.0.85",
+    "@ai-sdk/azure": "4.0.107",
     "@ai-sdk/gateway": "^4.0.120",
+    "@ai-sdk/google-vertex": "5.0.119",
     "@ai-sdk/harness": "1.0.158",
     "@ai-sdk/harness-claude-code": "1.0.162",
     "@ai-sdk/harness-codex": "1.0.160",
@@ -90,6 +94,7 @@
     "@ai-sdk/openai": "^4.0.99",
     "@ai-sdk/otel": "^1.0.147",
     "@ai-sdk/provider": "^4.0.31",
+    "@aws-sdk/client-bedrock": "3.1110.0",
     "@aws-sdk/client-cloudwatch": "^3.1004.0",
     "@aws-sdk/client-cloudwatch-logs": "^3.1004.0",
     "@aws-sdk/client-s3": "^3.1004.0",

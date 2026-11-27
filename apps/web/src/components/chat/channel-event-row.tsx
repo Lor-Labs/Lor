@@ -45,6 +45,7 @@ import {
   useChannelAgentsContext,
 } from "@/components/agent/channel-agent"
 import { MessageItem } from "@/components/chat/message-item"
+import { ChecksCard, isChecksEvent } from "@/components/session/checks"
 import { isReviewedEvent, ReviewCard } from "@/components/session/review-card"
 import { useOptionalRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
@@ -908,6 +909,9 @@ export function ChannelEventRow({
 
   if (layout === "document" && events.length === 1 && isReviewedEvent(first)) {
     return <ReviewCard message={first} />
+  }
+  if (layout === "document" && events.length === 1 && isChecksEvent(first)) {
+    return <ChecksCard message={first} />
   }
   const sessionIcon = first.eventType
     ? SESSION_EVENT_ICONS[first.eventType]

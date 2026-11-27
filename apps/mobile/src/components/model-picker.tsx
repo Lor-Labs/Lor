@@ -8,7 +8,7 @@ import Key01Icon from "@hugeicons/core-free-icons/Key01Icon"
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
-import { KEY_PROVIDER_NAMES } from "@repo/utils/inference"
+import { KEY_PROVIDER_PAYERS } from "@repo/utils/inference"
 import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
@@ -129,7 +129,7 @@ function modelGroups(models: AgentModelOption[]): ModelGroup[] {
       payers.length < 2
         ? null
         : payer
-          ? `${KEY_PROVIDER_NAMES[payer]} key`
+          ? KEY_PROVIDER_PAYERS[payer]
           : "Lor credits",
     models: models.filter((model) => model.keyProvider === payer),
   }))

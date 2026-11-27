@@ -10,6 +10,7 @@ import index from "@/routes/index.route"
 import agentModelsRouter from "@/routes/v1/agent-models/index"
 import agentProfilesRouter from "@/routes/v1/agent-profiles/index"
 import agentsRouter from "@/routes/v1/agents/index"
+import aiProvidersRouter from "@/routes/v1/ai-providers/index"
 import approvalPoliciesRouter from "@/routes/v1/approval-policies/index"
 import approvalsRouter from "@/routes/v1/approvals/index"
 import artifactsRouter from "@/routes/v1/artifacts/index"
@@ -147,6 +148,7 @@ const routes = app
   .route("/v1", mcpServersRouter)
   .route("/v1", webhooksRouter)
   .route("/v1", billingRouter)
+  .route("/v1", aiProvidersRouter)
   .route("/v1", runsRouter)
   .route("/v1", artifactsRouter)
   .route("/v1", plansRouter)

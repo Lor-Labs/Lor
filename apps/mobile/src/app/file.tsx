@@ -1,5 +1,6 @@
 import {
   csvDelimiterForMime,
+  filePreviewMime,
   isCsvMime,
   isTextPreviewable,
   MAX_PREVIEW_BYTES,
@@ -15,6 +16,7 @@ import { useToast } from "heroui-native/toast"
 import { useEffect, useState } from "react"
 import { ScrollView, Text, View } from "react-native"
 import { CsvTable } from "@/components/csv-table"
+import { FileImageGallery } from "@/components/file-image-gallery"
 import { FileTypeIcon } from "@/components/file-type-icon"
 import { formatFileSize } from "@/components/message-attachments"
 import { MessageContent } from "@/components/message-content"
@@ -22,7 +24,7 @@ import { Button } from "@/components/ui/button"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
-import { ZoomableImage } from "@/components/zoomable-image"
+import { VideoPreview } from "@/components/video-preview"
 import { useWorkspace } from "@/context/workspace-context"
 import { api } from "@/lib/api"
 import { fetchMessageLocation } from "@/lib/message-location"
@@ -40,6 +42,7 @@ type ViewedFile = {
 
 type FileState = {
   file: ViewedFile | null
+  images?: ViewedFile[]
   sessionId: string | null
   isPending: boolean
   isError: boolean
@@ -65,9 +68,13 @@ export default function FileScreen() {
   return (
     <Screen className="bg-background" edges={["top", "bottom"]}>
       {artifactId ? (
-        <ArtifactFile artifactId={artifactId} />
+        <ArtifactFile key={artifactId} artifactId={artifactId} />
       ) : messageId ? (
-        <UploadFile index={Number(index ?? 0)} messageId={messageId} />
+        <UploadFile
+          key={`${messageId}.${index}`}
+          index={Number(index ?? 0)}
+          messageId={messageId}
+        />
       ) : (
         <StatePanel
           action={{ label: "Close", onPress: close }}
@@ -93,20 +100,30 @@ function ArtifactFile({ artifactId }: { artifactId: string }) {
     },
   })
   const artifact = data?.artifact
+  const file = artifact
+    ? {
+        name: artifact.path,
+        url: artifact.url,
+        mime: filePreviewMime(artifact.path, artifact.mime),
+        size: artifact.size,
+        detail: `v${artifact.currentVersion}${artifact.size !== null ? ` · ${formatFileSize(artifact.size)}` : ""}`,
+      }
+    : null
 
   return (
     <FileView
-      file={
-        artifact
-          ? {
-              name: artifact.path,
-              url: artifact.url,
-              mime: artifact.mime,
-              size: artifact.size,
-              detail: `v${artifact.currentVersion}${artifact.size !== null ? ` · ${formatFileSize(artifact.size)}` : ""}`,
+      file={file}
+      images={data?.images?.map((image) =>
+        image.artifactId === artifactId && file
+          ? file
+          : {
+              name: image.path,
+              url: image.url,
+              mime: filePreviewMime(image.path, image.contentType),
+              size: image.size,
+              detail: formatFileSize(image.size),
             }
-          : null
-      }
+      )}
       isError={isError}
       isPending={isPending}
       onRetry={() => void refetch()}
@@ -143,12 +160,25 @@ function UploadFile({
           ? {
               name: upload.filename,
               url: upload.url,
-              mime: upload.contentType,
+              mime: filePreviewMime(upload.filename, upload.contentType),
               size: upload.size,
               detail: formatFileSize(upload.size),
             }
           : null
       }
+      images={data?.attachments
+        ?.filter((image) =>
+          filePreviewMime(image.filename, image.contentType).startsWith(
+            "image/"
+          )
+        )
+        .map((image) => ({
+          name: image.filename,
+          url: image.url,
+          mime: filePreviewMime(image.filename, image.contentType),
+          size: image.size,
+          detail: formatFileSize(image.size),
+        }))}
       isError={isError || (data !== undefined && !upload)}
       isPending={isPending}
       onRetry={() => void refetch()}
@@ -173,7 +203,30 @@ function textPreviewable(file: ViewedFile | null) {
   )
 }
 
-function FileView({ file, sessionId, isPending, isError, onRetry }: FileState) {
+function FileView({
+  file: initialFile,
+  images: relatedImages,
+  sessionId,
+  isPending,
+  isError,
+  onRetry,
+}: FileState) {
+  // Selected by URL, so a refresh that reorders the images keeps the same one.
+  const [selectedUrl, setSelectedUrl] = useState<string | null>(null)
+  const images = (
+    relatedImages?.length ? relatedImages : initialFile ? [initialFile] : []
+  ).filter(
+    (image): image is ViewedFile & { url: string } =>
+      image.url !== null &&
+      image.mime.startsWith("image/") &&
+      image.mime !== "image/svg+xml"
+  )
+  const selectedImage = images.find((image) => image.url === selectedUrl)
+  const file = selectedImage ?? initialFile
+  const imageIndex = Math.max(
+    0,
+    images.findIndex((image) => image.url === file?.url)
+  )
   const { toast } = useToast()
   const [sharing, setSharing] = useState(false)
   // Hidden over the file's own session: that is its conversation.
@@ -300,6 +353,9 @@ function FileView({ file, sessionId, isPending, isError, onRetry }: FileState) {
         onShare={share}
         sharing={sharing}
         table={table}
+        images={images}
+        imageIndex={imageIndex}
+        onImageChange={(index) => setSelectedUrl(images[index]?.url ?? null)}
       />
     </>
   )
@@ -315,6 +371,9 @@ function FileBody({
   sharing,
   onShare,
   onOpenInBrowser,
+  images,
+  imageIndex,
+  onImageChange,
 }: {
   file: ViewedFile | null
   isPending: boolean
@@ -325,6 +384,9 @@ function FileBody({
   sharing: boolean
   onShare: () => void
   onOpenInBrowser: (() => void) | null
+  images: (ViewedFile & { url: string })[]
+  imageIndex: number
+  onImageChange: (index: number) => void
 }) {
   if (isPending) return <Loading />
   if (isError || !file) return <LoadFailed onRetry={onRetry} />
@@ -334,7 +396,17 @@ function FileBody({
     file.mime.startsWith("image/") &&
     file.mime !== "image/svg+xml"
   ) {
-    return <FileImage key={file.url} name={file.name} url={file.url} />
+    return (
+      <FileImageGallery
+        images={images}
+        index={imageIndex}
+        onIndexChange={onImageChange}
+      />
+    )
+  }
+
+  if (file.url && file.mime.startsWith("video/")) {
+    return <VideoPreview key={file.url} name={file.name} url={file.url} />
   }
 
   if (!textPreviewable(file)) {
@@ -378,24 +450,6 @@ function FileBody({
         mentions={[]}
       />
     </ScrollView>
-  )
-}
-
-// Swipe-to-dismiss is off while zoomed so a pan moves the image, not the sheet.
-function FileImage({ name, url }: { name: string; url: string }) {
-  const navigation = useNavigation()
-  useEffect(
-    () => () => navigation.setOptions({ gestureEnabled: true }),
-    [navigation]
-  )
-  return (
-    <ZoomableImage
-      accessibilityLabel={name}
-      onZoomChange={(zoomed) =>
-        navigation.setOptions({ gestureEnabled: !zoomed })
-      }
-      uri={url}
-    />
   )
 }
 

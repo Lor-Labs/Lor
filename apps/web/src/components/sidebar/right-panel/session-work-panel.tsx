@@ -20,6 +20,11 @@ import {
 } from "@/components/chat/artifact-file-card"
 import { PlanStepList } from "@/components/chat/plan-step-list"
 import {
+  CheckRow,
+  pullRequestRef,
+  sendChecksToLor,
+} from "@/components/session/checks"
+import {
   ReviewThreadRow,
   sendFixWithLor,
   threadFixItem,
@@ -249,6 +254,12 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
             threadRootId={view.threadRootId}
           />
         )}
+        {code && detail?.session.newBranch && (
+          <SessionChecksSection
+            sessionId={view.sessionId}
+            threadRootId={view.threadRootId}
+          />
+        )}
         {showPlan && (
           <PanelSection
             title="Plan"
@@ -345,6 +356,120 @@ function ContextLink({
 
 function PanelEmpty({ children }: { children: ReactNode }) {
   return <p className="text-sm text-muted-foreground/70">{children}</p>
+}
+
+// CI on the head commit of the session's pull request, live: failing and
+// running checks first, passed ones folded. Hidden until there's a pull
+// request (the Review section says so).
+function SessionChecksSection({
+  sessionId,
+  threadRootId,
+}: {
+  sessionId: string
+  threadRootId: string
+}) {
+  const [showAll, setShowAll] = useState(false)
+  const { data: review } = useSessionReview(sessionId, threadRootId)
+  if (!review) return null
+  const { checks, access, sha } = review.checks
+  const failed = checks.filter((check) => check.state === "failed")
+  const pending = checks.filter(
+    (check) => check.state === "running" || check.state === "queued"
+  )
+  const cancelled = checks.filter((check) => check.state === "cancelled")
+  const passed = checks.filter((check) => check.state === "passed")
+  // Passed, skipped and neutral checks fold; anything else stays in view.
+  const attention = checks.filter(
+    (check) =>
+      check.state !== "passed" &&
+      check.state !== "skipped" &&
+      check.state !== "neutral"
+  )
+  const rest = checks.length - attention.length
+  const shown = showAll ? checks : attention
+  const meta =
+    failed.length > 0
+      ? `${failed.length} failed`
+      : pending.length > 0
+        ? `${pending.length} running`
+        : cancelled.length > 0
+          ? `${cancelled.length} cancelled`
+          : checks.length > 0 && passed.length === checks.length
+            ? "all passed"
+            : passed.length > 0
+              ? `${passed.length} passed`
+              : undefined
+  return (
+    <PanelSection
+      title={
+        <a
+          href={`${review.pullRequest.url}/checks`}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-1 hover:text-foreground"
+        >
+          Checks
+          <span className="font-mono text-muted-foreground/70">
+            {sha.slice(0, 7)}
+          </span>
+        </a>
+      }
+      meta={meta}
+    >
+      {access === "forbidden" ? (
+        <PanelEmpty>
+          Lor's GitHub App can't read checks yet. A GitHub admin grants it
+          Checks: read.
+        </PanelEmpty>
+      ) : access === "error" ? (
+        <PanelEmpty>Couldn't load from GitHub</PanelEmpty>
+      ) : checks.length === 0 ? (
+        <PanelEmpty>No checks on this commit</PanelEmpty>
+      ) : (
+        <div className="-mx-2 flex flex-col gap-0.5">
+          {failed.length > 0 && (
+            <Button
+              size="xs"
+              variant="outline"
+              className="mx-2 mb-1 self-start"
+              onClick={() =>
+                sendChecksToLor(threadRootId, {
+                  ref: pullRequestRef(
+                    review.pullRequest.url,
+                    review.pullRequest.number
+                  ),
+                  sha,
+                  failed: failed.map((check) => check.name),
+                })
+              }
+            >
+              <HugeiconsIcon icon={AiMagicIcon} className="size-3.5" />
+              Fix with Lor
+            </Button>
+          )}
+          {shown.map((check) => (
+            <CheckRow
+              key={`${check.id ?? "status"}:${check.name}`}
+              check={check}
+            />
+          ))}
+          {rest > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowAll(!showAll)}
+              className="cursor-pointer self-start px-2 text-muted-foreground text-xs hover:text-foreground"
+            >
+              {showAll
+                ? "Show less"
+                : attention.length === 0
+                  ? `Show ${rest} checks`
+                  : `Show ${rest} more`}
+            </button>
+          )}
+        </div>
+      )}
+    </PanelSection>
+  )
 }
 
 // The open comments on the pull request of the session's own branch, across

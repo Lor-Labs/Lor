@@ -131,8 +131,12 @@ Live Gateway prices replace seeded rates; every request is priced at the most
 expensive listed route for the served model ($3/$0.30/$15 per Mtok when the
 Gateway lists none), and beta adds no extra multiplier. Each request's cost
 is settled once. An unsupported model pick quietly runs on Lor's default model. BYOK
-is one encrypted key per provider (Anthropic, OpenAI); the composer lists each
-key's models in its own group beside Lor's, and the pick decides the payer (no
+is one encrypted credential per provider (Anthropic and OpenAI API keys; Azure
+OpenAI endpoint, key and deployments; Google Vertex AI service account and
+region; AWS Bedrock region with an IAM access key or Bedrock API key), managed
+in Workspace settings → AI providers (2026-11-25, moved out of Billing; needs
+`db:push` for `workspace_inference_key.config`). The composer lists each
+provider's models in its own group beside Lor's, and the pick decides the payer (no
 pick: Lor credits). Payer, key identity and the per-message model are pinned across retries;
 BYOK AI pays only a platform fee from the pool: the provider's list price
 times `CREDIT_CONVERSION_RATE - 1` (1.05 → 5%); its sandbox time draws on the

@@ -1,11 +1,17 @@
 "use client"
 
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
-import { Cancel01Icon } from "@hugeicons/core-free-icons"
+import {
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  Cancel01Icon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { cn } from "@repo/ui/lib/utils"
 import type React from "react"
-import { useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
+
+export type LightboxImage = { src: string; alt: string; vector?: boolean }
 
 type Size = { width: number; height: number }
 type Point = { x: number; y: number }
@@ -27,19 +33,24 @@ function ZoomStage({
   src,
   alt,
   vector,
+  onNavigate,
 }: {
   src: string
   alt: string
   vector: boolean
+  onNavigate?: (direction: number) => void
 }) {
   const stageRef = useRef<HTMLDivElement>(null)
   const [stage, setStage] = useState<Size | null>(null)
   const [natural, setNatural] = useState<Size | null>(null)
+  const [failed, setFailed] = useState(false)
   const [zoomed, setZoomed] = useState(false)
   const [offset, setOffset] = useState(CENTER)
   const [dragging, setDragging] = useState(false)
   // Only the zoom toggle animates; panning must track the pointer directly.
   const [animate, setAnimate] = useState(false)
+  const swipe = useRef<Point | null>(null)
+  const swiped = useRef(false)
   const drag = useRef<{
     pointerId: number
     start: Point
@@ -88,7 +99,7 @@ function ZoomStage({
   const toggleZoom = (event: React.MouseEvent<HTMLButtonElement>) => {
     // detail 0 is keyboard activation: no drag to ignore, no pointer position.
     const fromPointer = event.detail > 0
-    if (fromPointer && drag.current?.moved) return
+    if (fromPointer && (drag.current?.moved || swiped.current)) return
     setAnimate(true)
     if (zoomed) {
       setZoomed(false)
@@ -123,12 +134,18 @@ function ZoomStage({
       ref={stageRef}
       className="absolute inset-0 flex items-center justify-center"
     >
+      {failed && (
+        <p role="alert" className="px-16 text-center text-sm text-white/70">
+          Couldn't load this image.
+        </p>
+      )}
       <button
         type="button"
         aria-label={zoomed ? "Zoom out" : "Zoom in"}
         className={cn(
           "pointer-events-auto shrink-0 touch-none select-none rounded outline-none focus-visible:ring-2 focus-visible:ring-white/70 motion-reduce:transition-none",
           !natural && "invisible",
+          failed && "hidden",
           animate && "transition-transform duration-200 ease-out",
           dragging
             ? "cursor-grabbing"
@@ -146,12 +163,20 @@ function ZoomStage({
           const step = KEY_PAN[event.key]
           if (!zoomed || !step) return
           event.preventDefault()
+          event.stopPropagation()
           setAnimate(true)
           setOffset((previous) =>
             clampOffset({ x: previous.x + step.x, y: previous.y + step.y })
           )
         }}
         onPointerDown={(event) => {
+          swiped.current = false
+          swipe.current =
+            !zoomed && event.pointerType === "touch"
+              ? { x: event.clientX, y: event.clientY }
+              : null
+          if (swipe.current)
+            event.currentTarget.setPointerCapture(event.pointerId)
           drag.current =
             zoomed && event.button === 0
               ? {
@@ -179,8 +204,23 @@ function ZoomStage({
             clampOffset({ x: current.origin.x + dx, y: current.origin.y + dy })
           )
         }}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
+        onPointerUp={(event) => {
+          const start = swipe.current
+          swipe.current = null
+          if (start && onNavigate) {
+            const dx = event.clientX - start.x
+            const dy = event.clientY - start.y
+            if (Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy)) {
+              swiped.current = true
+              onNavigate(dx < 0 ? 1 : -1)
+            }
+          }
+          endDrag()
+        }}
+        onPointerCancel={() => {
+          swipe.current = null
+          endDrag()
+        }}
         onWheel={(event) => {
           // ctrlKey is a trackpad pinch, which belongs to the browser.
           if (!zoomed || event.ctrlKey) return
@@ -203,6 +243,7 @@ function ZoomStage({
               height: Math.max(1, img.naturalHeight || img.height),
             })
           }}
+          onError={() => setFailed(true)}
         />
       </button>
     </div>
@@ -218,13 +259,56 @@ export function ImageLightbox({
   open,
   onOpenChange,
   vector = false,
+  images,
 }: {
   src: string
   alt: string
   open: boolean
   onOpenChange: (open: boolean) => void
   vector?: boolean
+  images?: LightboxImage[]
 }): React.ReactElement {
+  const gallery = images?.length ? images : [{ src, alt, vector }]
+  const initialIndex = Math.max(
+    0,
+    gallery.findIndex((image) => image.src === src)
+  )
+  const [selectedIndex, setIndex] = useState(initialIndex)
+  const index = Math.max(0, Math.min(gallery.length - 1, selectedIndex))
+  useEffect(() => {
+    if (open) setIndex(initialIndex)
+  }, [open, initialIndex])
+  useEffect(() => {
+    setIndex((index) => Math.max(0, Math.min(gallery.length - 1, index)))
+  }, [gallery.length])
+  useEffect(() => {
+    if (!open || gallery.length < 2) return
+    const handleKey = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
+      )
+        return
+      event.preventDefault()
+      setIndex((index) =>
+        Math.max(
+          0,
+          Math.min(
+            gallery.length - 1,
+            index + (event.key === "ArrowRight" ? 1 : -1)
+          )
+        )
+      )
+    }
+    window.addEventListener("keydown", handleKey)
+    return () => window.removeEventListener("keydown", handleKey)
+  }, [open, gallery.length])
+  const current = gallery[index] ?? { src, alt, vector }
+  const hasMultiple = gallery.length > 1
+  const navigate = (direction: number) =>
+    setIndex((index) =>
+      Math.max(0, Math.min(gallery.length - 1, index + direction))
+    )
   const fade =
     "transition-opacity duration-200 ease-out data-ending-style:opacity-0 data-ending-style:duration-150 data-starting-style:opacity-0"
   return (
@@ -235,13 +319,50 @@ export function ImageLightbox({
         />
         {/* pointer-events-none: a click beside the image lands on the backdrop and closes. */}
         <DialogPrimitive.Popup
-          aria-label={alt}
+          aria-label={current.alt}
           className={cn(
             "pointer-events-none fixed inset-0 z-50 overflow-hidden outline-none",
             fade
           )}
         >
-          <ZoomStage src={src} alt={alt} vector={vector} />
+          <ZoomStage
+            key={current.src}
+            src={current.src}
+            alt={current.alt}
+            vector={current.vector ?? false}
+            onNavigate={hasMultiple ? navigate : undefined}
+          />
+          {hasMultiple && (
+            <>
+              <button
+                type="button"
+                aria-label="Previous image"
+                disabled={index === 0}
+                onClick={() => navigate(-1)}
+                className="pointer-events-auto absolute top-1/2 left-3 flex size-11 -translate-y-1/2 touch-manipulation items-center justify-center rounded-full bg-black/60 text-white outline-none hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-30"
+              >
+                <HugeiconsIcon icon={ArrowLeft01Icon} className="size-6" />
+              </button>
+              <button
+                type="button"
+                aria-label="Next image"
+                disabled={index === gallery.length - 1}
+                onClick={() => navigate(1)}
+                className="pointer-events-auto absolute top-1/2 right-3 flex size-11 -translate-y-1/2 touch-manipulation items-center justify-center rounded-full bg-black/60 text-white outline-none hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-30"
+              >
+                <HugeiconsIcon icon={ArrowRight01Icon} className="size-6" />
+              </button>
+              <div
+                aria-live="polite"
+                className="absolute inset-x-14 bottom-[max(1rem,env(safe-area-inset-bottom))] text-center text-sm text-white/70"
+              >
+                <p className="truncate">{current.alt}</p>
+                <p className="tabular-nums">
+                  {index + 1} of {gallery.length}
+                </p>
+              </div>
+            </>
+          )}
           <DialogPrimitive.Close
             aria-label="Close"
             className="pointer-events-auto absolute top-4 right-4 cursor-pointer rounded-md bg-black/50 p-2 text-white/70 outline-none transition-colors hover:bg-black/70 hover:text-white focus-visible:ring-2 focus-visible:ring-white/70"

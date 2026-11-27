@@ -4,6 +4,7 @@ import { tool } from "ai"
 import { z } from "zod"
 import {
   fetchIssueOrPr,
+  fetchPullRequestCheckLogs,
   fetchRepoTree,
   type InstallationRepo,
   listInstallationRepos,
@@ -317,14 +318,26 @@ export const githubTools = {
   }),
   fetch_github: tool({
     description:
-      "Fetch a GitHub pull request or issue's full body and discussion (comments, plus review comments for PRs), beyond the search snippet. Pass a ref as owner/repo#number (from search_github). Reference it with a Markdown link to its url.",
+      "Fetch a GitHub pull request or issue's full body and discussion, beyond the search snippet: comments, and for PRs also reviews, inline review comments (file:line) and the head commit's check runs with failure annotations. Bot HTML is stripped; on long threads the oldest comments are dropped and the latest kept. For a PR's CI, pass logs: true to read its failed checks instead (or check to pick one by name): each GitHub Actions job's steps and its log around the errors. Pass a ref as owner/repo#number (from search_github). Reference it with a Markdown link to its url.",
     inputSchema: z.object({
       ref: z
         .string()
         .describe("a pull request or issue ref, owner/repo#number"),
+      logs: z
+        .boolean()
+        .optional()
+        .describe(
+          "pull requests only: return the head commit's failed checks with their Actions job steps and log excerpts instead of the discussion"
+        ),
+      check: z
+        .string()
+        .optional()
+        .describe(
+          "with logs: read the checks whose name contains this, passed or not"
+        ),
     }),
     contextSchema: githubContext,
-    execute: async ({ ref }, { context }) => {
+    execute: async ({ ref, logs, check }, { context }) => {
       // Enforce the connected-repo list before fetching; an empty list is
       // usually a transient enumeration failure, so stay permissive like
       // resolveRepo does.
@@ -338,6 +351,16 @@ export const githubTools = {
             context.repos.map((r) => r.fullName)
           )}`,
         }
+      }
+      if (logs || check) {
+        const fetched = await fetchPullRequestCheckLogs(
+          context.installationId,
+          ref,
+          check
+        )
+        if (!fetched)
+          return { error: "couldn't read that pull request's checks" }
+        return fetched
       }
       const fetched = await fetchIssueOrPr(context.installationId, ref)
       if (!fetched) return { error: "couldn't fetch that pull request/issue" }

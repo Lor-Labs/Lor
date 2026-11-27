@@ -1,5 +1,7 @@
 import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon"
 import ArrowUp02Icon from "@hugeicons/core-free-icons/ArrowUp02Icon"
+import CancelCircleIcon from "@hugeicons/core-free-icons/CancelCircleIcon"
+import CheckmarkCircle02Icon from "@hugeicons/core-free-icons/CheckmarkCircle02Icon"
 import GitCommitIcon from "@hugeicons/core-free-icons/GitCommitIcon"
 import GitForkIcon from "@hugeicons/core-free-icons/GitForkIcon"
 import GitMergeIcon from "@hugeicons/core-free-icons/GitMergeIcon"
@@ -72,6 +74,15 @@ type SessionPullRequestPayload = {
   headBranch: string
   baseBranch: string
   githubLogin: string
+}
+type SessionChecksPayload = {
+  repoFullName: string
+  pullRequestNumber: number
+  pullRequestUrl: string
+  headSha: string
+  outcome: "failed" | "passed"
+  total: number
+  failed: { name: string; url: string | null }[]
 }
 type SessionSetupChangedPayload = {
   environmentName?: string | null
@@ -316,6 +327,30 @@ function eventText(
         </>
       )
     }
+    // The full card (Fix with Lor) is web only for now.
+    case "session_checks": {
+      if (!payload) break
+      const p = payload as SessionChecksPayload
+      return (
+        <>
+          {p.outcome === "failed"
+            ? `Checks failed (${p.failed.map((check) => check.name).join(", ")}) on `
+            : `All ${p.total} checks passed on `}
+          <Text
+            accessibilityRole="link"
+            className="font-semibold text-muted underline"
+            onPress={() => void Linking.openURL(p.pullRequestUrl)}
+            suppressHighlighting
+          >
+            #{p.pullRequestNumber}
+          </Text>{" "}
+          <ShortSha
+            href={`https://github.com/${p.repoFullName}/commit/${p.headSha}`}
+            sha={p.headSha}
+          />
+        </>
+      )
+    }
     case "session_forked": {
       if (!payload) break
       const p = payload as SessionForkedPayload
@@ -445,6 +480,7 @@ const SESSION_EVENT_ICONS: Partial<
   session_rewound: Undo02Icon,
   session_pr_opened: GitPullRequestIcon,
   session_pr_merged: GitMergeIcon,
+  session_checks: CancelCircleIcon,
   session_setup_changed: Settings02Icon,
   loop_run: Infinity01Icon,
   trigger_run: ZapIcon,
@@ -528,9 +564,14 @@ export function ChannelEventRow({
   if (layout === "document" && events.length === 1 && isReviewedEvent(first)) {
     return <ReviewCard message={first} />
   }
-  const sessionIcon = first.eventType
-    ? SESSION_EVENT_ICONS[first.eventType]
-    : undefined
+  const passedChecks =
+    first.eventType === "session_checks" &&
+    (first.eventPayload as { outcome?: string } | null)?.outcome === "passed"
+  const sessionIcon = passedChecks
+    ? CheckmarkCircle02Icon
+    : first.eventType
+      ? SESSION_EVENT_ICONS[first.eventType]
+      : undefined
   if (layout === "document" && sessionIcon && events.length === 1) {
     return (
       <SessionEventRow

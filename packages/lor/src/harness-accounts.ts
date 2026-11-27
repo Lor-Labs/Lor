@@ -52,9 +52,11 @@ export function harnessQuotaReset(error: unknown): Date | null {
         if (parsed && typeof parsed === "object")
           return inspect(parsed, depth + 1)
       } catch {}
+      // Native CLIs use human-readable limits, including Claude's "5-hour"
+      // window and Codex's typographic apostrophe, instead of an error code.
       return {
         limited:
-          /usage_limit_reached|insufficient_quota|rate_limit_exceeded|rate_limit_error|you(?:'ve| have) (?:hit|reached) your (?:usage )?limit|(?:usage|weekly|daily|subscription) limit (?:reached|exceeded)|credit balance is too low/i.test(
+          /usage_limit_reached|insufficient_quota|rate_limit_exceeded|rate_limit_error|you(?:['’]ve| have) (?:hit|reached) your (?:(?:usage|weekly|daily|subscription|\d+[ -]hour) )?limits?\b|(?:usage|weekly|daily|subscription) limit (?:reached|exceeded)|credit balance is too low/i.test(
             value
           ),
       }

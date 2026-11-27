@@ -1,7 +1,10 @@
 import { ArrowDown01Icon, Tick02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Combobox, ComboboxPrimitive } from "@repo/ui/components/combobox"
-import { CHANNEL_AGENT_DEFAULT_MODEL } from "@repo/utils/inference"
+import {
+  CHANNEL_AGENT_DEFAULT_MODEL,
+  KEY_PROVIDER_PAYERS,
+} from "@repo/utils/inference"
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 import { agentModelsQueryOptions } from "@/hooks/use-agent-models"
@@ -32,7 +35,7 @@ export function AgentModelSelect({
     const model = models.find((item) => item.id === modelId)
     if (!model) return modelId
     return model.keyProvider
-      ? `${model.name} · your ${model.keyProvider === "anthropic" ? "Anthropic" : "OpenAI"} key`
+      ? `${model.name} · your ${KEY_PROVIDER_PAYERS[model.keyProvider]}`
       : model.name
   }
   const selected = value ?? CHANNEL_AGENT_DEFAULT_MODEL

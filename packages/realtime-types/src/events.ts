@@ -344,6 +344,7 @@ export type RealtimeChannelEventType =
   | "session_forked"
   | "session_rewound"
   | "session_reviewed"
+  | "session_checks"
   | "session_pr_opened"
   | "session_pr_merged"
   | "session_setup_changed"
@@ -407,6 +408,16 @@ export type RealtimeChannelEventPayload =
       reviewer: string
       reviewerBot: boolean
       state: "approved" | "changes_requested" | "commented"
+    }
+  | {
+      sessionId: string
+      repoFullName: string
+      pullRequestNumber: number
+      pullRequestUrl: string
+      headSha: string
+      outcome: "failed" | "passed"
+      total: number
+      failed: { name: string; url: string | null }[]
     }
   | {
       sessionId: string
