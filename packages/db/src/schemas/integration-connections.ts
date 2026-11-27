@@ -27,6 +27,7 @@ export const integrationProviderEnum = pgEnum("integration_provider", [
   "cloudwatch",
   "betterstack",
   "granola",
+  "circleback",
   "webhook",
 ])
 
@@ -76,6 +77,9 @@ export const integrationConnection = pgTable(
     // id, and its signing secret encrypted at rest (AES-256-GCM).
     webhookId: text("webhook_id"),
     webhookSecret: text("webhook_secret"),
+    // When the provider's webhook last delivered (connectors whose webhook is
+    // set up by hand, like Circleback, show it so people know it works).
+    webhookReceivedAt: timestamp("webhook_received_at"),
     // BYO webhook post identity: the message avatar (display name reuses
     // accountLogin). Null for real providers.
     avatarUrl: text("avatar_url"),

@@ -2,6 +2,7 @@ import type { IntegrationProvider } from "@repo/db/schema"
 import { attioProvider } from "./attio"
 import { fetchAttioSourceItem } from "./attio-ingest"
 import { betterstackProvider } from "./betterstack"
+import { circlebackProvider } from "./circleback"
 import { cloudwatchProvider } from "./cloudwatch"
 import { datadogProvider } from "./datadog"
 import { fetchGithubSourceItem, githubProvider } from "./github"
@@ -22,6 +23,7 @@ const providers: Record<IntegrationProvider, SourceProvider> = {
   cloudwatch: cloudwatchProvider,
   betterstack: betterstackProvider,
   granola: granolaProvider,
+  circleback: circlebackProvider,
   webhook: webhookProvider,
 }
 
@@ -63,6 +65,18 @@ export {
 } from "./attio"
 export { attioNoteKey, attioRecordingKey } from "./attio-ingest"
 export { connectBetterstack } from "./betterstack"
+export {
+  CIRCLEBACK_MEETING_KIND,
+  type CirclebackMeeting,
+  circlebackAttendees,
+  circlebackMeetingUrl,
+  circlebackMinutes,
+  circlebackSourceItem,
+  circlebackTitle,
+  connectCircleback,
+  formatCirclebackActionItems,
+  formatCirclebackTranscript,
+} from "./circleback"
 export { connectCloudwatch } from "./cloudwatch"
 export { connectDatadog } from "./datadog"
 export {

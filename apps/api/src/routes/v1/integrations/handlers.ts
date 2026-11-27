@@ -31,9 +31,11 @@ import {
   getGranolaApiKey,
   getInstallationOverview,
   connectBetterstack as verifyBetterstackToken,
+  connectCircleback as verifyCirclebackKey,
   connectCloudwatch as verifyCloudwatchKeys,
   connectDatadog as verifyDatadogKeys,
 } from "@repo/lor/providers"
+import { encryptSecret } from "@repo/utils/crypto"
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm"
 import { actCodeChanged, actCodeOf, checkActTarget } from "@/lib/act-target"
 import {
@@ -63,6 +65,7 @@ import type {
   CompleteGithubSetupRoute,
   ConnectAttioRoute,
   ConnectBetterstackRoute,
+  ConnectCirclebackRoute,
   ConnectCloudwatchRoute,
   ConnectDatadogRoute,
   ConnectGranolaRoute,
@@ -74,6 +77,7 @@ import type {
   ListenerActivityRoute,
   ListenerSuggestionsRoute,
   ListIntegrationsRoute,
+  SetCirclebackWebhookSecretRoute,
   StartGithubConnectRoute,
   UpdateIntegrationToolsRoute,
   UpdateListenerRoute,
@@ -109,6 +113,10 @@ function granolaWebhookTargetUrl(): ((externalId: string) => string) | null {
   }
   return (externalId) => `${base}/v1/integrations/granola/webhook/${externalId}`
 }
+
+// Pasted into a Circleback automation's "Send webhook request" step.
+const circlebackWebhookUrl = (connectionId: string) =>
+  `${env.NEXT_PUBLIC_API_URL.replace(/\/+$/, "")}/v1/integrations/circleback/webhook/${connectionId}`
 
 const GRANOLA_CONNECT_ERRORS: Record<GranolaConnectError, string> = {
   invalid_key:
@@ -222,6 +230,8 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
       accountLogin: integrationConnection.accountLogin,
       enabledTools: integrationConnection.enabledTools,
       externalId: integrationConnection.externalId,
+      webhookSecret: integrationConnection.webhookSecret,
+      webhookReceivedAt: integrationConnection.webhookReceivedAt,
     })
     .from(integrationConnection)
     .where(
@@ -345,6 +355,14 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
         repos,
         repoCount,
         manageUrl,
+        inboundWebhook:
+          descriptor.id === "circleback" && conn && canManage
+            ? {
+                url: circlebackWebhookUrl(conn.id),
+                secretSet: conn.webhookSecret !== null,
+                receivedAt: conn.webhookReceivedAt?.toISOString() ?? null,
+              }
+            : null,
         events: CONNECTOR_EVENTS[descriptor.id].map((e) => ({
           key: e.key,
           label: e.label,
@@ -1681,4 +1699,79 @@ export const connectGranola: AppRouteHandler<ConnectGranolaRoute> = async (
     },
     HttpStatusCodes.OK
   )
+}
+
+export const connectCircleback: AppRouteHandler<
+  ConnectCirclebackRoute
+> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
+  if (!env.INTEGRATION_ENCRYPTION_KEY)
+    return c.json(
+      { success: false, message: "Circleback isn't available on this server" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  const { apiKey } = c.req.valid("json")
+  const result = await verifyCirclebackKey(apiKey).catch(() => null)
+  if (!result)
+    return c.json(
+      {
+        success: false,
+        message:
+          "Circleback didn't accept this API key. Check that it was copied whole and hasn't been revoked.",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  // A new key keeps nothing of the old connection's webhook: its secret
+  // belongs to an automation step that still points at the old URL.
+  const ok = await replaceActiveConnection({
+    workspaceId: c.var.workspace.id,
+    provider: "circleback",
+    connectedById: c.var.user.id,
+    externalId: result.externalId,
+    reclaimRevoked: true,
+    clearOnRevoke: { apiKey: null, webhookSecret: null },
+    values: { accountLogin: result.accountLabel, apiKey: result.apiKey },
+  })
+  if (!ok)
+    return c.json(
+      {
+        success: false,
+        message: "This Circleback key is connected to another workspace",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  return c.json(
+    { success: true as const, accountLogin: result.accountLabel },
+    HttpStatusCodes.OK
+  )
+}
+
+export const setCirclebackWebhookSecret: AppRouteHandler<
+  SetCirclebackWebhookSecretRoute
+> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
+  const key = env.INTEGRATION_ENCRYPTION_KEY
+  if (!key)
+    return c.json(
+      { success: false, message: "Circleback isn't available on this server" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  const { secret } = c.req.valid("json")
+  const updated = await db
+    .update(integrationConnection)
+    .set({ webhookSecret: encryptSecret(secret, key) })
+    .where(
+      and(
+        eq(integrationConnection.workspaceId, c.var.workspace.id),
+        eq(integrationConnection.provider, "circleback"),
+        eq(integrationConnection.status, "active")
+      )
+    )
+    .returning({ id: integrationConnection.id })
+  if (updated.length === 0)
+    return c.json(
+      { success: false, message: "Circleback isn't connected" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
 }

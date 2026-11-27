@@ -439,6 +439,38 @@ const CONNECTOR_TOOL_CATALOG = {
       defaultEnabled: true,
     },
   ],
+  circleback: [
+    {
+      name: "search_circleback_meetings",
+      label: "Search meetings",
+      description:
+        "Find meetings by keyword in their names, notes and transcripts, or list recent ones.",
+      readOnlyHint: true,
+      defaultEnabled: true,
+    },
+    {
+      name: "get_circleback_meeting",
+      label: "Read meeting notes",
+      description: "Read a meeting's notes, attendees and action items.",
+      readOnlyHint: true,
+      defaultEnabled: true,
+    },
+    {
+      name: "get_circleback_transcript",
+      label: "Read transcript",
+      description: "Read what was said in a meeting.",
+      readOnlyHint: true,
+      defaultEnabled: true,
+    },
+    {
+      name: "list_circleback_action_items",
+      label: "List action items",
+      description:
+        "List action items from meetings, by who owns them and whether they're done.",
+      readOnlyHint: true,
+      defaultEnabled: true,
+    },
+  ],
   webhook: [],
 } as const satisfies Record<
   IntegrationProvider,

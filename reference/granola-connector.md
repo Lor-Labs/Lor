@@ -133,14 +133,6 @@ of it and the mobile `ConnectorIcon` an `Image`.
   only new or edited ones are stored.
 - **Folder filters** (`folder_ids`) are not offered; the key's spaces decide.
 
-## Circleback, later
+## Circleback
 
-From the 2026-11-26 research: a REST API with `cb_` keys on every plan
-(per account; `ownership=All` adds meetings shared with the key's owner),
-an OAuth MCP server, and webhooks on Pro and up that are set up by hand in
-Circleback (an automation step, which an admin can enable for the whole
-workspace) and signed with `X-Signature` = hex HMAC-SHA256 of the body. The
-payload carries the full meeting, so no refetch is needed. It would reuse
-`meeting_ready`, the `meeting` source kind and the card; the new part is a
-step on the connector page to paste Lor's URL into Circleback and the signing
-secret back.
+Built 2026-11-27 on the same pieces: `circleback-connector.md`.

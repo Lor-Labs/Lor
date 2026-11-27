@@ -126,3 +126,22 @@ export function granolaNotificationEmbed(input: {
     color: GRANOLA_BRAND,
   }
 }
+
+const CIRCLEBACK_BRAND = "#f24e1d"
+
+export function circlebackNotificationEmbed(input: {
+  event: string
+  title: string
+  url?: string | null
+  fields?: Embed["fields"]
+}): Embed {
+  return {
+    type: "rich",
+    ...(input.url ? { url: input.url } : {}),
+    eventLabel: input.event,
+    title: input.title,
+    ...(input.fields?.length ? { fields: input.fields } : {}),
+    siteName: "Circleback",
+    color: CIRCLEBACK_BRAND,
+  }
+}

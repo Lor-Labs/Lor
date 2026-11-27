@@ -16,6 +16,7 @@ export const CONNECTOR_URL_HOSTS: Record<IntegrationProvider, RegExp> = {
   cloudwatch: /(^|\.)console\.aws\.amazon\.com$/i,
   betterstack: /(^|\.)betterstack\.com$/i,
   granola: /(^|\.)granola\.ai$/i,
+  circleback: /(^|\.)circleback\.ai$/i,
   webhook: /$^/,
 }
 
@@ -86,6 +87,7 @@ const ITEM_URL_PARSERS: Record<IntegrationProvider, ItemUrlParser | null> = {
   betterstack: null,
   // Granola's note links are not a documented format.
   granola: null,
+  circleback: null,
   webhook: null,
 }
 
@@ -151,4 +153,9 @@ export function notionPageKey(id: string): string {
 // Granola note ids (not_…) are case-insensitive; the key is lowercase.
 export function granolaNoteKey(id: string): string {
   return id.trim().toLowerCase()
+}
+
+// Circleback meeting ids are opaque strings; the key keeps their case.
+export function circlebackMeetingKey(id: string): string {
+  return id.trim()
 }

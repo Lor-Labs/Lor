@@ -27,6 +27,7 @@ const SOURCE_KEYED: ReadonlySet<TouchKind> = new Set([
   "attio_list_entry",
   "attio_task",
   "granola_note",
+  "circleback_meeting",
 ])
 
 type Resolved = {
@@ -293,6 +294,7 @@ export async function fetchSessionTouches(args: {
       case "attio_list_entry":
       case "attio_task":
       case "granola_note":
+      case "circleback_meeting":
       case "source": {
         const source = sourceByKey.get(value)
         if (kind === "source" && !source) return null

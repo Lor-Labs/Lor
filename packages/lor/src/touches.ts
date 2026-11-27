@@ -2,6 +2,7 @@ import {
   betterstackErrorKey,
   CONNECTOR_TOOLS,
   type ConnectorToolName,
+  circlebackMeetingKey,
   githubItemKey,
   githubRepoKey,
   granolaNoteKey,
@@ -75,6 +76,11 @@ function betterstackError(input: Rec): Item | null {
   return applicationId && pattern
     ? item("betterstack_error", betterstackErrorKey(applicationId, pattern))
     : null
+}
+
+const circlebackMeeting = (input: Rec) => {
+  const id = str(input, "meetingId")
+  return item("circleback_meeting", id ? circlebackMeetingKey(id) : null)
 }
 
 const granolaNote = (input: Rec) => {
@@ -196,6 +202,10 @@ const CATALOG_SPECS: Record<
   search_granola_meetings: null,
   get_granola_meeting: (input) => [granolaNote(input)],
   get_granola_transcript: (input) => [granolaNote(input)],
+  search_circleback_meetings: null,
+  get_circleback_meeting: (input) => [circlebackMeeting(input)],
+  get_circleback_transcript: (input) => [circlebackMeeting(input)],
+  list_circleback_action_items: null,
   search_web: null,
   // A plain web page is not an item: only a connector link counts.
   fetch_web: (input, output) => [

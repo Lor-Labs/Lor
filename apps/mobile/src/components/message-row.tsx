@@ -190,7 +190,7 @@ function MessageRowBody({
   const isPending = isOptimisticMessage(message)
   const isStreaming = isLor && message.status === "pending"
   const isMeetingPost =
-    ["attio", "granola"].includes(
+    ["attio", "granola", "circleback"].includes(
       connectorForName(message.overrideName) ?? ""
     ) && message.embeds.some(isMeetingCard)
   const hasTimeline =

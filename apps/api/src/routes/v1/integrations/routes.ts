@@ -18,6 +18,8 @@ import {
   connectAttioResponseSchema,
   connectBetterstackRequestSchema,
   connectBetterstackResponseSchema,
+  connectCirclebackRequestSchema,
+  connectCirclebackResponseSchema,
   connectCloudwatchRequestSchema,
   connectCloudwatchResponseSchema,
   connectDatadogRequestSchema,
@@ -38,6 +40,8 @@ import {
   listenerParamsSchema,
   listenerSuggestionsResponseSchema,
   listIntegrationsResponseSchema,
+  setCirclebackWebhookSecretRequestSchema,
+  setCirclebackWebhookSecretResponseSchema,
   startGithubConnectResponseSchema,
   updateIntegrationToolsRequestSchema,
   updateListenerRequestSchema,
@@ -495,3 +499,57 @@ export const connectGranola = createRoute({
   },
 })
 export type ConnectGranolaRoute = typeof connectGranola
+
+export const connectCircleback = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/circleback/connect",
+  method: "post",
+  summary: "Connect a Circleback account",
+  description: "Takes a read-only Circleback API key.",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: integrationsWorkspaceParamsSchema,
+    body: jsonContent({
+      schema: connectCirclebackRequestSchema,
+      description: "Circleback API key",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: connectCirclebackResponseSchema,
+      description: "Connected",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+  },
+})
+export type ConnectCirclebackRoute = typeof connectCircleback
+
+export const setCirclebackWebhookSecret = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/circleback/webhook-secret",
+  method: "put",
+  summary: "Save the signing secret of a Circleback webhook step",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: integrationsWorkspaceParamsSchema,
+    body: jsonContent({
+      schema: setCirclebackWebhookSecretRequestSchema,
+      description: "The signing secret Circleback shows for the step",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: setCirclebackWebhookSecretResponseSchema,
+      description: "Saved",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+export type SetCirclebackWebhookSecretRoute = typeof setCirclebackWebhookSecret

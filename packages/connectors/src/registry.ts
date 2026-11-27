@@ -89,6 +89,16 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
     authType: "api-key",
     envKeys: ["INTEGRATION_ENCRYPTION_KEY"],
   },
+  // A read-only Circleback API key; its webhook is set up by hand in a
+  // Circleback automation. reference/circleback-connector.md.
+  circleback: {
+    id: "circleback",
+    label: "Circleback",
+    description:
+      "Search meeting notes, transcripts and action items, and hear about new meetings from a Circleback automation.",
+    authType: "api-key",
+    envKeys: ["INTEGRATION_ENCRYPTION_KEY"],
+  },
   // BYO inbound webhooks (reference/automation-primitives.md §3): each webhook
   // a user creates in channel settings is one connection row under this
   // provider + a channel-anchored trigger. Never listed on the connect page.
@@ -186,6 +196,7 @@ export const CONNECTOR_EVENTS: Record<
   cloudwatch: [],
   betterstack: [],
   granola: [{ key: "meeting_ready", label: "Meeting notes ready" }],
+  circleback: [{ key: "meeting_ready", label: "Meeting notes ready" }],
   webhook: [{ key: "data_received", label: "Data received" }],
 }
 

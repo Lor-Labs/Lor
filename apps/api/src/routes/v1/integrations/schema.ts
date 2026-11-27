@@ -103,6 +103,16 @@ export const integrationStatusSchema = z.object({
       listeners: z.array(listenerSchema),
     })
   ),
+  // A webhook people set up by hand at the provider (Circleback): the URL to
+  // paste there, whether its signing secret is saved, and the last delivery.
+  // Null for other connectors, when not connected, or without connector:manage.
+  inboundWebhook: z
+    .object({
+      url: z.string(),
+      secretSet: z.boolean(),
+      receivedAt: z.string().nullable(),
+    })
+    .nullable(),
 })
 
 export const listIntegrationsResponseSchema = z.object({
@@ -303,4 +313,31 @@ export const connectGranolaResponseSchema = z.object({
   accountLogin: z.string().nullable(),
   // False in local development, where Granola can't reach the API.
   events: z.boolean(),
+})
+
+export const connectCirclebackRequestSchema = z.object({
+  apiKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(4096)
+    .refine((value) => !/\s/.test(value), "API keys cannot contain whitespace"),
+})
+
+export const connectCirclebackResponseSchema = z.object({
+  success: z.literal(true),
+  accountLogin: z.string().nullable(),
+})
+
+export const setCirclebackWebhookSecretRequestSchema = z.object({
+  secret: z
+    .string()
+    .trim()
+    .min(8)
+    .max(512)
+    .refine((value) => !/\s/.test(value), "Secrets cannot contain whitespace"),
+})
+
+export const setCirclebackWebhookSecretResponseSchema = z.object({
+  success: z.literal(true),
 })
