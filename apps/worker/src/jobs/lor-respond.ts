@@ -1332,11 +1332,15 @@ export function createLorRespondProcessor(
                   ? {
                       helper: true,
                       // From before conversations: the chat's first agent.
-                      helperAgentId:
+                      toolAgentId:
                         session.starterAgentId ??
                         (await channelAgentId(channelId)),
                     }
-                  : {}),
+                  : // An Act session works as the chat's first agent, with
+                    // its tools (as its repo check, allowedCodeRepo).
+                    session.origin === "trigger" && !(await personSent())
+                    ? { toolAgentId: await channelAgentId(channelId) }
+                    : {}),
                 ...(threadRootId ? { threadRootId } : {}),
                 triggerMessageId,
                 ...(triggerUserId ? { userId: triggerUserId } : {}),

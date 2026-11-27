@@ -768,8 +768,10 @@ export type RespondContext = {
   // connectors, no writes to connectors or memory. It reports to the agent,
   // which acts (reference/always-on-agents.md §6).
   helper?: boolean
-  // The agent that started that session: the session uses its tool profile.
-  helperAgentId?: string | null
+  // The agent whose tool profile a session turn uses: the one that started
+  // a helper session, or an Act session's chat agent. None: the workspace
+  // default.
+  toolAgentId?: string | null
   // Set on a request spoken in a voice call: binds show_in_call and the call
   // framing. Results go to Lor's window, never the chat.
   voice?: RunVoiceContext
@@ -3081,11 +3083,11 @@ async function respondImpl(
     ? await resolveLorRunScope(ctx.channelId).catch(() => EMPTY_LOR_RUN_SCOPE)
     : EMPTY_LOR_RUN_SCOPE
 
-  // The agent's own tools on its turns and in the sessions it starts; else
-  // the workspace default (decision 53). Profile reads fail closed to core
-  // tools, including resumed runs.
+  // The agent's own tools on its turns, in the sessions it starts and in a
+  // chat's Act sessions; else the workspace default (decision 53). Profile
+  // reads fail closed to core tools, including resumed runs.
   const profileGrants = await resolveAgentCapabilities(
-    ctx.agent?.agentId ?? (ctx.helper ? ctx.helperAgentId : null),
+    ctx.agent?.agentId ?? ctx.toolAgentId ?? null,
     ctx.workspaceId
   ).catch(() => EMPTY_TOOL_GRANTS)
   // A session an agent started keeps the read side (connector and MCP tools

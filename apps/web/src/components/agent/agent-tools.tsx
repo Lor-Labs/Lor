@@ -1,3 +1,4 @@
+import { Button } from "@repo/ui/components/button"
 import {
   Select,
   SelectContent,
@@ -31,7 +32,7 @@ export function AgentTools({
   canManage: boolean
 }) {
   const queryClient = useQueryClient()
-  const { data } = useQuery({
+  const { data, isError, refetch, isRefetching } = useQuery({
     queryKey: ["agent-profiles", workspaceSlug],
     queryFn: async () => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"][
@@ -49,8 +50,34 @@ export function AgentTools({
     onSuccess: () => refreshAgents(queryClient, workspaceSlug),
     onError: (error) => toast.error(error.message),
   })
-  const profileId = agent.agentProfileId ?? DEFAULT
   const custom = data?.profiles.filter((profile) => !profile.isDefault) ?? []
+  // The default profile picked by its id (a proposal can) is "the default".
+  const profileId =
+    agent.agentProfileId &&
+    custom.some((profile) => profile.id === agent.agentProfileId)
+      ? agent.agentProfileId
+      : DEFAULT
+  if (isError && !data) {
+    return (
+      <SettingsSection title="Can use">
+        <SettingsCard>
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="text-muted-foreground">
+              Couldn't load the tool profiles.
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              loading={isRefetching}
+              onClick={() => void refetch()}
+            >
+              Try again
+            </Button>
+          </div>
+        </SettingsCard>
+      </SettingsSection>
+    )
+  }
   const shown =
     data?.profiles.find((profile) => profile.id === profileId) ??
     data?.profiles.find((profile) => profile.isDefault) ??
