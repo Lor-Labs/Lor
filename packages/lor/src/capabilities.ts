@@ -4,7 +4,7 @@ import {
   profileSelectedTools,
   STANDALONE_TOOLS,
 } from "@repo/connectors"
-import { and, db, eq, schema } from "@repo/db"
+import { and, db, eq, inArray, schema } from "@repo/db"
 import {
   BUILTIN_TOOL_GROUPS,
   DEFAULT_PROFILE_TOOL_ACCESS,
@@ -169,4 +169,61 @@ export async function resolveAgentCapabilities(
   const profile = await getProfile(row.profileId, workspaceId)
   if (!profile) throw new Error("The agent's tool profile is unavailable")
   return profileGrants(workspaceId, profile)
+}
+
+const READ_ONLY_CONNECTOR_TOOLS: ReadonlySet<string> = new Set(
+  Object.values(CONNECTOR_TOOLS)
+    .flat()
+    .filter((tool) => tool.readOnlyHint)
+    .map((tool) => tool.name)
+)
+
+// The read side of a profile, for a session an agent starts (its writes stay
+// with the agent): connector tools marked read-only, and MCP tools their
+// server marks read-only (an explicit readOnlyHint, the "Read only" label in
+// the tool picker; it is the server's own word). Custom tools carry no such
+// label, so none.
+export async function readOnlyGrants(
+  workspaceId: string,
+  grants: ChannelToolGrants
+): Promise<ChannelToolGrants> {
+  const servers =
+    grants.mcpServers.length > 0
+      ? await db
+          .select({
+            id: schema.mcpServer.id,
+            toolMetadata: schema.mcpServer.toolMetadata,
+          })
+          .from(schema.mcpServer)
+          .where(
+            and(
+              eq(schema.mcpServer.workspaceId, workspaceId),
+              inArray(schema.mcpServer.id, grants.mcpServers)
+            )
+          )
+      : []
+  const readOnly = new Map(
+    servers.map((server) => [
+      server.id,
+      new Set(
+        server.toolMetadata
+          .filter((tool) => tool.readOnlyHint === true)
+          .map((tool) => tool.name)
+      ),
+    ])
+  )
+  const mcpTools: Record<string, string[]> = {}
+  for (const [serverId, names] of Object.entries(grants.mcpTools)) {
+    const kept = names.filter((name) => readOnly.get(serverId)?.has(name))
+    if (kept.length > 0) mcpTools[serverId] = kept
+  }
+  return {
+    ...grants,
+    connectorTools: grants.connectorTools.filter((name) =>
+      READ_ONLY_CONNECTOR_TOOLS.has(name)
+    ),
+    customTools: [],
+    mcpServers: Object.keys(mcpTools),
+    mcpTools,
+  }
 }

@@ -115,6 +115,8 @@ export type ThreadViewProps = {
   threadRootId: string
   // A Lor session's transcript.
   session?: AgentSession
+  // The agent that started it, when one did.
+  startedByAgentId?: string | null
   // The session's start isn't confirmed yet.
   sessionPending?: boolean
 }
@@ -129,6 +131,7 @@ export function ThreadView({
   tab,
   threadRootId,
   session: lorSession,
+  startedByAgentId = null,
   sessionPending = false,
 }: ThreadViewProps) {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
@@ -397,10 +400,11 @@ export function ThreadView({
   )
   // Memoized: the list re-renders its rows only when its items change, and
   // the heading is one, so it changes them exactly when its content does.
-  // The channel's agent, for a session it started or briefed.
+  // The agent that started the session, else the chat's first agent.
   const agentsById = useAgentsById(workspace?.slug)
   const placedAgent = lorSession
-    ? channelAgentOf(channelState.channel, agentsById)
+    ? ((startedByAgentId && agentsById.get(startedByAgentId)) ??
+      channelAgentOf(channelState.channel, agentsById))
     : null
   const sessionChannelAgent = useMemo(
     () =>
@@ -446,7 +450,7 @@ export function ThreadView({
             : lorSession.origin === "trigger"
               ? "Started by an automation"
               : lorSession.origin === "agent"
-                ? `Started by ${sessionChannelAgent?.name ?? "the channel's agent"}`
+                ? `Started by ${sessionChannelAgent?.name ?? "an agent"}`
                 : `Started by ${nameOf(lorSession.creatorId)}`
         }
         starter={

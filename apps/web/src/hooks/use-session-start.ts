@@ -133,7 +133,13 @@ export function useSessionStart({
     const updatedAt = Date.now() + PENDING_MS
     queryClient.setQueryData<AgentSessionDetail>(
       agentSessionQueryOptions(start.id).queryKey,
-      { session, channel, context: [], source: start.source ?? null },
+      {
+        session,
+        channel,
+        context: [],
+        source: start.source ?? null,
+        startedByAgentId: null,
+      },
       { updatedAt }
     )
     queryClient.setQueryData<InfiniteData<ThreadPage, ThreadPageParam>>(

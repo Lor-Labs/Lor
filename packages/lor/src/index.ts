@@ -122,7 +122,11 @@ import {
   resolveCallCitation,
   searchCalls,
 } from "./calls"
-import { EMPTY_TOOL_GRANTS, resolveAgentCapabilities } from "./capabilities"
+import {
+  EMPTY_TOOL_GRANTS,
+  readOnlyGrants,
+  resolveAgentCapabilities,
+} from "./capabilities"
 import {
   agentLoopTools,
   agentSessionTools,
@@ -358,8 +362,8 @@ for (const name of Object.keys(webTools)) {
     throw new Error(`Tool ${name} needs a STANDALONE_TOOLS entry`)
 }
 
-// Writes a helper session leaves to the channel's agent (connector writes
-// are filtered from its grants by READ_ONLY_CONNECTOR_TOOLS).
+// Writes a helper session leaves to the channel's agent (connector and MCP
+// writes are filtered from its grants by readOnlyGrants).
 const HELPER_WRITE_TOOLS = [
   "remember",
   "memory_write",
@@ -370,12 +374,6 @@ const HELPER_WRITE_TOOLS = [
   "propose_loop",
   "propose_workspace_change",
 ] as const
-const READ_ONLY_CONNECTOR_TOOLS: ReadonlySet<string> = new Set(
-  Object.values(CONNECTOR_TOOLS)
-    .flat()
-    .filter((tool) => tool.readOnlyHint)
-    .map((tool) => tool.name)
-)
 
 // How often a running Codex turn checks its ChatGPT token, which is refreshed
 // with 20 minutes left (chatgpt-account.ts).
@@ -3090,18 +3088,12 @@ async function respondImpl(
     ctx.agent?.agentId ?? (ctx.helper ? ctx.helperAgentId : null),
     ctx.workspaceId
   ).catch(() => EMPTY_TOOL_GRANTS)
-  // A helper session keeps the read side: custom and MCP tools can't be told
-  // apart, so they stay out.
+  // A session an agent started keeps the read side (connector and MCP tools
+  // marked read-only); a person's turn there gets the full profile.
   const grants = ctx.helper
-    ? {
-        ...profileGrants,
-        connectorTools: profileGrants.connectorTools.filter((name) =>
-          READ_ONLY_CONNECTOR_TOOLS.has(name)
-        ),
-        customTools: [],
-        mcpServers: [],
-        mcpTools: {},
-      }
+    ? await readOnlyGrants(ctx.workspaceId, profileGrants).catch(
+        () => EMPTY_TOOL_GRANTS
+      )
     : profileGrants
   const selectedBuiltinTools = new Set(grants.builtinTools)
   const selectedConnectorTools = new Set(grants.connectorTools)

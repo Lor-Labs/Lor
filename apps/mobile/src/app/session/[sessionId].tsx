@@ -30,6 +30,7 @@ export default function SessionScreen() {
           focusMessageId={focusMessageId}
           session={data.session}
           sessionPending={data.pending === true}
+          startedByAgentId={data.startedByAgentId}
           threadRootId={data.session.threadRootId}
         />
       ) : error ? (

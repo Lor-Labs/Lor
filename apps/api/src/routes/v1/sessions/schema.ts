@@ -387,6 +387,9 @@ export const getAgentSessionResponseSchema = z.object({
   // "Continue in Code" or a fork: the session this one comes from. Same
   // channel.
   source: z.object({ id: z.string().uuid(), title: z.string() }).nullable(),
+  // The agent that started it (origin "agent"); null otherwise, or for one
+  // from before conversations.
+  startedByAgentId: z.string().uuid().nullable(),
 })
 
 // What the session started with, oldest segment first: a fork chain's

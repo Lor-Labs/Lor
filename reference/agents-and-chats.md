@@ -362,38 +362,57 @@ time; unarchiving resumes the one and puts back the other when not yet due.
 Listeners stay on and are skipped while the chat is archived. Checked live
 on a throwaway database.
 
-**Owed: merging with the AI providers branch** (flagged 2026-11-26).
-Commit `8597867` on `lor/foghollow-320c80` (Azure OpenAI, Vertex AI and
-Bedrock as workspace AI providers, a new "AI providers" settings section,
-`workspace_inference_key.config`) is in neither dev nor this branch. Nothing
-needs doing until one of the two merges into dev; the second one resolves
-five small conflicts (confirmed by a dry-run merge, which changed nothing):
+**Merged with the AI providers branch** (2026-11-27): dev (Azure OpenAI,
+Vertex AI and Bedrock as workspace AI providers, the "AI providers" settings
+section) is merged into this branch, and the branch into dev (#289). The
+Autonomous runs section stays gone (each agent's Runs tab); an agent turn
+whose provider or model can't be used tells the person why
+(`InferenceConfigError` in `apps/worker/src/lib/agent-inbox.ts`).
 
-1. `apps/api/src/app.ts`: keep both `agentsRouter` and `aiProvidersRouter`.
-2. `workspace-settings-dialog.tsx`: keep the "ai-providers" section; drop
-   the "ai-accounts" (Autonomous runs) entries this branch removed.
-3. `apps/web/src/components/agent/agent-runs.tsx`: take this branch's.
-4. `packages/lor/src/index.ts` (the `InferenceConfigError` text): keep this
-   branch's wording, pointing at "Workspace settings → AI providers".
-5. `reference/harness-accounts.md`: take this branch's text, and say
-   workspace API keys are set up in "AI providers", not Billing.
+**Still to do** (written down 2026-11-27 so a new session can pick it up):
 
-After that merge: apply the other session's patch (model pickers grouped by
-who pays, in `agent-model-select.tsx` and the mobile agent screen); have
-`apps/worker/src/lib/agent-inbox.ts` send the person an
-`InferenceConfigError`'s own message instead of the generic failure; and do
-not bring back `channel.agentModel` or a workspace "Autonomous runs"
-setting. `db:push` then also adds the `config` column. The patch:
-https://cdn.lor.chat/artifacts/aa5b7d27-2b2f-4f9d-a0de-ba847a06b546/926da81d-a381-455e-9225-25faa84fae5b/1eb898b5-6091-427b-b7b1-6bbe643d68fb/lor-screenshots_ironwood-provider-models.patch
+1. **Slack as places**, in Discord's shape (decision 51). Talk through its
+   priority and design with Jacob first.
+2. **Agents proposing their own listeners** (an agent sets up the connector
+   events it should hear, like it sets up its own Loops).
+3. **Session screenshots to Discord**: check whether Claude Code and Codex
+   sessions share browser screenshots in a way the agent can forward with
+   send_message's `files`.
+4. **Coding agents and computer in the tool profile** (decision 53), once
+   agents get their own computer: whether it may drive Claude Code, Codex,
+   its machine. Maybe rename "tool profile" to Access.
+5. **The agents' room**: a link to a post older than the newest 200 can't
+   open it; the agent-messages route needs an `around` anchor.
+6. **Discord leftovers**: files changed by an edit are saved but don't show
+   live (`message:updated` carries no attachments); a change to the server's
+   @everyone role doesn't re-check places' privacy until a channel changes;
+   the Message Content intent needs Discord's approval only past 100 servers.
+7. **Mobile leftovers**: an agent's tool profile is set on the web only;
+   workspace member roles and removal are no longer on mobile; the mobile
+   app's web build doesn't run (not shipped).
+8. **Model pickers grouped by who pays**: another session's patch for
+   `agent-model-select.tsx` and the mobile agent screen, not applied:
+   https://cdn.lor.chat/artifacts/aa5b7d27-2b2f-4f9d-a0de-ba847a06b546/926da81d-a381-455e-9225-25faa84fae5b/1eb898b5-6091-427b-b7b1-6bbe643d68fb/lor-screenshots_ironwood-provider-models.patch
+9. **No private chat from the web app** (Jacob, 11-26: no switch for now).
+10. **Rollout**: rehearse `pnpm db:push` on a copy of production (it runs
+    every data move above in order, and asks about the dropped columns);
+    then stop the workers, push, deploy API, realtime, worker and web
+    together, start the workers, and reset the one workspace using tool
+    profiles. Set `DISCORD_BOT_TOKEN` and `DISCORD_APPLICATION_ID` on the API
+    and turn on the Message Content intent. Not yet run live: Discord on a
+    real server, the mobile app on a phone, the plan-limit refusal.
 
-Beside these: no private chat can be made from
-the web app (Jacob, 11-26: no switch for now); the API's error messages
-and what agents are told still say "channel" (the web app's own wording
-says "chat" since 11-26); a turn about no chat shows nowhere while it runs
-and can't be stopped from the app (its run is in no chat's list); listeners
-an agent
-proposes for itself; `db:push` on the shared databases, then API, realtime,
-worker and web deployed together.
+11. **Agent turns on a subscription** (Jacob, 11-27, to settle): today an
+    agent's own turns can run with a Claude or ChatGPT subscription as the
+    model (`agent-harness-model.ts`, from `reference/harness-accounts.md`):
+    the agent's own when its Runs tab says Claude Code or Codex, and a
+    person's when they ask it. Jacob meant the agent's subscription only for
+    the coding sessions it starts when nobody asked, and its own turns on
+    Lor credits (or the agent's model).
+
+Accepted as they are (Jacob, 11-27): a turn about no chat shows nowhere
+while it runs and can't be stopped from the app; the API's errors and what
+agents are told still say "channel" in places.
 
 ### Step 1: agents apart from channels (built 2026-11-24)
 
@@ -486,7 +505,10 @@ Deviations and gaps:
   `resolveAgentCapabilities` in `packages/lor/src/capabilities.ts`, the
   agent's Tools tab (`apps/web/src/components/agent/agent-tools.tsx`), and
   the `assign_agent_profile` proposal (the old `assign_channel_profile` is
-  refused). Code repos follow the same profile (`allowedCodeRepo`).
+  refused). Code repos follow the same profile (`allowedCodeRepo`). A
+  session an agent starts gets the profile's read side
+  (`readOnlyGrants`): connector tools and MCP tools marked read-only, no
+  custom tools; a turn a person writes there gets all of it.
 - **Events and Loops stay on the channel** they report in, and the channel's
   agent handles them. They do not move with an agent that leaves.
 - **The log and the open block are per channel.** An agent in three channels

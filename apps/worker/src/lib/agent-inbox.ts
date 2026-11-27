@@ -33,7 +33,7 @@ import {
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { AgentConversation } from "@repo/db/schema"
 import { env } from "@repo/env/server"
-import { type ModelMessage, respond } from "@repo/lor"
+import { InferenceConfigError, type ModelMessage, respond } from "@repo/lor"
 import { saveHandoffNote } from "@repo/lor/act-runs"
 import { resolveAgentFiles } from "@repo/lor/agent-files"
 import {
@@ -1849,11 +1849,13 @@ export async function runAgentTurnJob(
       return
     }
     logger.error({ err, runId, channelId }, "Agent turn failed")
-    // The asker's plan at its usage limit won't change on a retry: say so
-    // now, with when it resets (it never moves to another plan).
-    const planLimited = err instanceof HarnessAccountLimitError
+    // A plan at its usage limit, or a provider or model that can't be used,
+    // won't change on a retry: say why now (a plan never moves to another).
+    const lasting =
+      err instanceof HarnessAccountLimitError ||
+      err instanceof InferenceConfigError
     // A retry continues from the saved steps; only the last attempt says so.
-    if (!planLimited && job.attemptsMade + 1 < (job.opts.attempts ?? 1)) {
+    if (!lasting && job.attemptsMade + 1 < (job.opts.attempts ?? 1)) {
       execution.stop()
       throw err
     }
@@ -1861,7 +1863,7 @@ export async function runAgentTurnJob(
     // quietly, and its run history shows it (decision 30). So does one the
     // classifier woke for a message that named nobody.
     if (!sent && userId && !run.triggerInferred)
-      await notice(planLimited ? err.message : FAILED_MESSAGE)
+      await notice(lasting ? err.message : FAILED_MESSAGE)
     await writer.transition("failed", { stopReason: "error" })
     execution.stop()
     await settleLoop("failed", "error")
