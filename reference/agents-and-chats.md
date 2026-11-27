@@ -116,6 +116,7 @@ objected to and should confirm.
 | 51 | Slack and Discord channels agents are in are places, and a place is a hidden Lor chat (`channel.kind = "place"`, revised 11-26 from "not a Lor channel"), so the inbox, turns, Loops, code sessions, approvals and archive work there as in a chat. It is read-only in Lor, sends no Lor notifications, has no people, and the sidebar shows it only when "Discord channels" is on in its filter. Discord is a connector: a server is connected once with a code run as `/lor link`, and its channels get agents from the connector's page or with `/lor add`. Several agents can be in one channel, each mentioned by its own role (@Inky) and posting through its own webhook; a message naming nobody goes to Jev. Threads stay threads. The bot answers a mention in a channel with no agent with how to add one. Chats linked to Discord before become places, not archived. DMs are left out; code sessions started from Discord must work before this ships. Slack later in the same shape | Jacob, 11-26 |
 | 52 | Hiding a chat stays each person's own, from the sidebar, and a new message brings it back. Archiving is for everyone, only from the chat's settings, behind a dialog that says what happens: its agents stop there (their pending items are dropped, running turns stopped, Loops that report there pause, wake-ups there are cancelled, its listeners are skipped), it leaves everyone's sidebar, and it takes no new messages. Its messages are kept, and a line says who archived it. Archiving can be undone: Undo in the toast, or Unarchive on the chat, in its settings or from its row's menu. A small archive icon at the top of the sidebar's list flips between the list and the list with the archived chats you can see, greyed, among the rest. Unarchiving resumes those Loops and the wake-ups not yet due | Jacob, 11-26 |
 | 53 | What an agent may use is the agent's, not the chat's: one tool profile per agent (`agent.agent_profile_id`, null = the workspace default), used on its own turns wherever it works (its chats, a Loop with no chat, Discord) and in the code sessions it starts (read-only connectors there, as before). A session a person starts, and work no agent does, use the workspace default; so does a turn a person writes in a session an agent started, with writes (Jacob, 11-27: accept the prompt-cache bust, rather than list write tools that fail). Chats and categories no longer carry a profile; nothing is copied over (the one workspace using profiles is reset when this ships). Later, Claude Code, Codex and an agent's own computer join the same profile as tools it may drive, not a second concept. A turn on a person's plan that is at its usage limit is refused, never moved to the agent's plan, and the person is told whose plan and when it resets | Jacob, 11-27 |
+| 54 | Subscriptions pay only for coding sessions. An agent's own turns, its memory pass and write-back run on its model, paid by Lor credits or a workspace provider key, never on a Claude or ChatGPT plan (they used to, through `agent-harness-model.ts`). A coding session it starts runs on the asker's own plan when a person asked, else on the agent's coding-agent settings (its Runs tab: Claude Code or Codex on a workspace account, or API billing), which also give its default. The agent picks per session what a person can on New session: the coding agent, model, effort, fast mode, Claude Code's mode (not bypassPermissions), the new branch, environment and sandbox size; the agent sees every repository its profile allows, a session is locked to one | Jacob, 11-27 |
 
 Considered and dropped:
 
@@ -401,14 +402,6 @@ whose provider or model can't be used tells the person why
     profiles. Set `DISCORD_BOT_TOKEN` and `DISCORD_APPLICATION_ID` on the API
     and turn on the Message Content intent. Not yet run live: Discord on a
     real server, the mobile app on a phone, the plan-limit refusal.
-
-11. **Agent turns on a subscription** (Jacob, 11-27, to settle): today an
-    agent's own turns can run with a Claude or ChatGPT subscription as the
-    model (`agent-harness-model.ts`, from `reference/harness-accounts.md`):
-    the agent's own when its Runs tab says Claude Code or Codex, and a
-    person's when they ask it. Jacob meant the agent's subscription only for
-    the coding sessions it starts when nobody asked, and its own turns on
-    Lor credits (or the agent's model).
 
 Accepted as they are (Jacob, 11-27): a turn about no chat shows nowhere
 while it runs and can't be stopped from the app; the API's errors and what

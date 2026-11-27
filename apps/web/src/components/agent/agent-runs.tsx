@@ -42,9 +42,10 @@ const labelFor = (a: Data["accounts"][number]) =>
   a.label ?? a.email ?? `${names[a.provider]} · ${a.login}`
 
 // How an agent runs and who pays (reference/agents-and-chats.md, decision
-// 7): its model, what it runs on, and the workspace accounts it may use. A
-// person's own plan pays for what they ask; these cover work nobody asked
-// for, and people with no plan linked. Each change saves at once.
+// 7): its model, for its own turns (Lor credits or a provider key, never a
+// subscription), and what the code sessions it starts on its own run on,
+// with the workspace accounts they may use. A person's own plan pays for a
+// session they ask for. Each change saves at once.
 export function AgentRuns({
   workspaceSlug,
   agent,
@@ -129,16 +130,11 @@ export function AgentRuns({
     }
     changed(await res.json())
   }
-  const runsOn = settings?.defaultHarness ?? "pi"
   return (
     <div className="space-y-6">
       <SettingsSection
         title="Model"
-        caption={
-          runsOn === "pi"
-            ? `What ${agent.name} thinks with. One paid by your own API key is billed to that key.`
-            : `Used when ${agent.name} runs as Lor. It runs on ${runsOn === "claude_code" ? "Claude Code" : "Codex"} now.`
-        }
+        caption={`What ${agent.name} thinks with in its own turns, paid by Lor credits, or by your own API key when the model is one it pays for.`}
       >
         <div className={cn(SETTINGS_SURFACE, "p-4")}>
           <AgentModelSelect
@@ -151,23 +147,24 @@ export function AgentRuns({
       </SettingsSection>
       {!data.canManage && (
         <p className="px-4 text-muted-foreground text-sm">
-          An admin sets what {agent.name} runs on and which accounts pay.
+          An admin sets what {agent.name}'s code sessions run on and which
+          accounts pay.
         </p>
       )}
       {data.canManage && settings && (
         <SettingsSection
-          title="Who pays"
-          description={`When someone asks ${agent.name} for something, their own Claude or ChatGPT plan pays. This covers the rest: work nobody asked for, and people with no plan linked.`}
+          title="Code sessions"
+          description={`When someone asks ${agent.name} for code work, the session runs on their own Claude or ChatGPT plan. This covers the sessions ${agent.name} starts with nobody asking, and people with no plan linked.`}
         >
           <SettingsGroup>
             <div className="space-y-2 py-4">
-              <p className="text-sm font-medium">Runs on</p>
+              <p className="text-sm font-medium">Coding agent</p>
               <Choice
-                label="What it runs on"
+                label="Coding agent"
                 value={settings.defaultHarness}
                 disabled={saveSettings.isPending}
                 options={[
-                  { value: "pi", label: "Lor · the model above" },
+                  { value: "pi", label: "Lor · the model above, on credits" },
                   ...(features.claudeCodeHarness
                     ? [{ value: "claude_code", label: "Claude Code" }]
                     : []),
@@ -182,7 +179,8 @@ export function AgentRuns({
                 }
               />
               <p className="text-xs text-muted-foreground">
-                Its own turns, and the code sessions it starts.
+                The default for the code sessions it starts; it can pick another
+                per session.
               </p>
             </div>
             {providers.filter(enabled).map((provider) => {

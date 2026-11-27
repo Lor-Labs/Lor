@@ -8,6 +8,16 @@ the agent's dialog under Runs. The workspace's Autonomous runs section and
 `workspace_harness_settings` are gone, and a person with no plan of their own
 now falls to the agent's settings.
 
+Changed 2026-11-27 (`agents-and-chats.md`, decision 54): subscriptions pay
+only for coding sessions. An agent's own turns, memory pass and write-back
+run on its model (Lor credits or a provider key); a person's plan no longer
+pays for the agent's turns they ask for, only for coding sessions they ask
+for. The agent's Runs tab sets what the coding sessions it starts with
+nobody asking run on, and their default; the agent can pick another coding
+agent, model and the other session settings per session. Where this doc
+says a direct channel request or channel inference uses a subscription, read
+"a coding session". Runs that pinned a subscription before keep it to finish.
+
 ## Settings
 
 - **Settings → Linked accounts** connects multiple named Claude Code and Codex

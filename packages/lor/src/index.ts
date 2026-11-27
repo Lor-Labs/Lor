@@ -31,7 +31,6 @@ import {
 } from "@repo/db/queries/channel-access"
 import {
   getHarnessSettings,
-  personalRequestHarness,
   resolveHarnessAccount,
 } from "@repo/db/queries/personal-accounts"
 import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
@@ -2975,30 +2974,20 @@ async function respondImpl(
     ctx.autonomous || (ctx.agent && ctx.autonomous !== false)
       ? await getHarnessSettings({ agentId: policyAgentId })
       : null
+  // An agent's own turns run on its model, paid by Lor credits or a
+  // workspace provider key, never on a Claude or ChatGPT subscription:
+  // subscriptions pay only for coding sessions (Jacob, 11-27). A run that
+  // pinned a subscription before keeps it to finish.
   if (ctx.agent) {
     const pinned = run?.harnessAccount ?? run?.resume?.context.harnessAccount
-    const selected =
-      pinned?.provider === "claude"
-        ? "claude_code"
-        : pinned?.provider === "chatgpt"
-          ? "codex"
-          : run?.funding
-            ? "pi"
-            : !ctx.autonomous && ctx.userId
-              ? await personalRequestHarness(ctx.workspaceId, ctx.userId)
-              : policy?.defaultHarness
-    if (selected === "claude_code" || selected === "codex") {
+    if (pinned) {
       const route = await resolveHarnessAccount(
         {
           workspaceId: ctx.workspaceId,
-          userId: pinned
-            ? pinned.userId
-            : !ctx.autonomous
-              ? (ctx.userId ?? null)
-              : null,
-          agentId: pinned ? pinned.agentId : policyAgentId,
+          userId: pinned.userId,
+          agentId: pinned.agentId,
         },
-        selected === "claude_code" ? "claude" : "chatgpt",
+        pinned.provider,
         { pinned }
       )
       ctx = { ...ctx, harnessAccount: route }

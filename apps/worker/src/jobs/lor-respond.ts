@@ -22,7 +22,6 @@ import {
   resolveLorRunScope,
 } from "@repo/db/queries/channel-access"
 import {
-  autonomousUsesSubscription,
   HarnessAccountLimitError,
   PLAN_LIMIT_AGENT_HINT,
   resolveHarnessAccount,
@@ -2060,12 +2059,8 @@ export function createLorRespondProcessor(
           // brain writes are create-only and edits compare-and-swap per page
           // (reference/planned/session-memory.md Step 3).
           try {
-            if (
-              !(await autonomousUsesSubscription(
-                await channelAgentId(channelId)
-              )) &&
-              !(await checkCredits(workspaceId)).allowed
-            ) {
+            // Write-back runs on the agent's model, never a subscription.
+            if (!(await checkCredits(workspaceId)).allowed) {
               await runWriter.close()
               return
             }

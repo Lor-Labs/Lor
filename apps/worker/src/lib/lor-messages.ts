@@ -3,6 +3,7 @@ import type {
   Attachment,
   ChannelEventPayload,
   ChannelEventType,
+  ClaudeCodeMode,
 } from "@repo/db/schema"
 import {
   buildMessageFanout,
@@ -182,6 +183,14 @@ export async function postLorMessage(
     // The agent speaking, in a chat: the message's author is its bot user.
     agentId?: string
     attachments?: Attachment[]
+    // A session turn's picks, as a person's composer sends them: read by
+    // the run this message triggers (an agent's brief to its session).
+    turn?: {
+      model?: string | null
+      effort?: string | null
+      fast?: boolean | null
+      claudeCodeMode?: ClaudeCodeMode | null
+    }
   },
   // A caller's transaction: one holding a lock must not wait on a second
   // pooled connection (pool exhaustion deadlock).
@@ -203,6 +212,14 @@ export async function postLorMessage(
       threadRootId: input.threadRootId ?? null,
       excludedFromMemory: input.type === "event",
       attachments: input.attachments ?? [],
+      ...(input.turn
+        ? {
+            turnModel: input.turn.model ?? null,
+            turnEffort: input.turn.effort ?? null,
+            turnFast: input.turn.fast ?? null,
+            claudeCodeMode: input.turn.claudeCodeMode ?? null,
+          }
+        : {}),
     })
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
     .then((rows) => rows[0])

@@ -24,14 +24,16 @@ const claudeAccount = (
 // The models for the composer's picker: the person's Claude Code's own list
 // from their last turn, or the starting list from Anthropic before one.
 export async function claudeModels(
-  userId: string,
-  accountId?: string
+  // Null: a workspace account an agent uses (scoped by workspaceId).
+  userId: string | null,
+  accountId?: string,
+  workspaceId?: string
 ): Promise<ReportedHarnessModel[] | null> {
   if (!accountId) return null
   const [account] = await db
     .select({ models: schema.personalAccount.models })
     .from(schema.personalAccount)
-    .where(claudeAccount(userId, accountId))
+    .where(claudeAccount(userId, accountId, workspaceId))
     .limit(1)
   return account?.models ?? null
 }

@@ -43,16 +43,35 @@ export type SendMessageExecutor = (input: {
 
 // Code sessions the agent runs as helpers (reference/always-on-agents.md §6).
 // The worker implements them; each returns what the model reads.
+// What an agent picks when it starts or follows up on a session: the same
+// choices a person has on the New session screen.
+export type SessionPicks = {
+  model?: string
+  effort?: string
+  fast?: boolean
+  mode?: "auto" | "default" | "acceptEdits" | "plan"
+}
+
 export type AgentSessionTools = {
-  start: (input: {
-    repo?: string
-    baseBranch?: string
-    title: string
-    task: string
-    harness?: "claude_code" | "codex"
-  }) => Promise<unknown>
+  start: (
+    input: {
+      repo?: string
+      baseBranch?: string
+      newBranch?: string
+      environmentId?: string
+      sandboxGb?: number
+      title: string
+      task: string
+      harness?: "claude_code" | "codex"
+    } & SessionPicks
+  ) => Promise<unknown>
   check: (input: { sessionId: string }) => Promise<unknown>
-  message: (input: { sessionId: string; message: string }) => Promise<unknown>
+  message: (
+    input: { sessionId: string; message: string } & Pick<
+      SessionPicks,
+      "model" | "effort" | "fast"
+    >
+  ) => Promise<unknown>
   stop: (input: { sessionId: string }) => Promise<unknown>
 }
 
@@ -299,17 +318,23 @@ const sessionId = z.string().uuid().describe("the session's id")
 export const agentSessionTools = {
   start_session: tool({
     description:
-      "Start a code session: a coding agent (Claude Code or Codex, on the plan of the person who asked you, or for a Loop or event of the person who set it up) working on one branch of one repository, with its own computer, while you go on. Give it a short title and a complete task: what to change and why, the issue or messages it came from, and what done looks like. It can read the team's tools but cannot write to them or post in the chat; it reports back to you. When its turn ends you are woken with its report. Call without `repo` to list the repositories you can use. A piece of work across repositories is one session per repository.",
+      "Start a code session: a coding agent (Claude Code or Codex) working on one branch of one repository, with its own computer, while you go on. When a person asked for the work it runs on their own Claude or ChatGPT plan; with nobody asking, on your own coding-agent settings. Give it a short title and a complete task: what to change and why, the issue or messages it came from, and what done looks like. It can read the team's tools but cannot write to them or post in the chat; it reports back to you. When its turn ends you are woken with its report. Call without `repo` to list what you can pick: the repositories, each coding agent with its models, effort levels and fast mode for whoever pays, the environments and the sandbox sizes. You may pick the same things a person can when they start one; leave any out for its default. A piece of work across repositories is one session per repository.",
     inputSchema: z.object({
       repo: z
         .string()
         .optional()
-        .describe("owner/name; leave out to list the repositories"),
+        .describe("owner/name; leave out to list what you can pick"),
       baseBranch: z
         .string()
         .optional()
         .describe(
           "the branch to start from; the repository's default if left out"
+        ),
+      newBranch: z
+        .string()
+        .optional()
+        .describe(
+          "the branch to create for its work; Lor names one if left out"
         ),
       title: z.string().min(1).max(120).describe("a short title for people"),
       task: z.string().min(1).max(20_000),
@@ -317,8 +342,37 @@ export const agentSessionTools = {
         .enum(["claude_code", "codex"])
         .optional()
         .describe(
-          "Claude Code or Codex; leave out to use whichever plan the person has connected"
+          "Claude Code or Codex; leave out for the default of whoever pays"
         ),
+      model: z
+        .string()
+        .optional()
+        .describe(
+          "a model id from the list; the coding agent's default if left out"
+        ),
+      effort: z
+        .string()
+        .optional()
+        .describe("an effort level the model takes, from the list"),
+      fast: z
+        .boolean()
+        .optional()
+        .describe("fast mode, where the model offers it"),
+      mode: z
+        .enum(["auto", "default", "acceptEdits", "plan"])
+        .optional()
+        .describe(
+          "Claude Code's permission mode: plan to have it plan first, default to ask before edits; auto if left out"
+        ),
+      environmentId: z
+        .string()
+        .uuid()
+        .optional()
+        .describe("an environment set up for the repository, from the list"),
+      sandboxGb: z
+        .number()
+        .optional()
+        .describe("the computer's memory in GB, from the list"),
     }),
     contextSchema: sessionContext,
     execute: async (input, { context }) => context.sessions.start(input),
@@ -336,6 +390,12 @@ export const agentSessionTools = {
     inputSchema: z.object({
       sessionId,
       message: z.string().min(1).max(20_000),
+      model: z
+        .string()
+        .optional()
+        .describe("another model for this turn, from start_session's list"),
+      effort: z.string().optional().describe("an effort level for this turn"),
+      fast: z.boolean().optional().describe("fast mode for this turn"),
     }),
     contextSchema: sessionContext,
     execute: async (input, { context }) => context.sessions.message(input),

@@ -341,11 +341,3 @@ export class HarnessAccountLimitError extends Error {
 // steers: tell them, and don't move the work to another plan.
 export const PLAN_LIMIT_AGENT_HINT =
   "Tell the person who asked, in the chat, with when it resets. Don't start it again on another plan or harness."
-
-// Used by queue admission before a run has pinned its own payer.
-export async function autonomousUsesSubscription(agentId: string | null) {
-  const settings = await getHarnessSettings({ agentId })
-  return settings.defaultHarness === "claude_code"
-    ? settings.claudeUseSubscriptions
-    : settings.defaultHarness === "codex" && settings.codexUseSubscriptions
-}
