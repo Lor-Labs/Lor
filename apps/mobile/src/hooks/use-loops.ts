@@ -130,14 +130,7 @@ export function useActivateLoop(loop: ChannelLoop | null) {
       }
       // loop:updated also lands via the socket; setting directly makes the
       // flip immediate even on a slow connection.
-      queryClient.setQueryData(
-        ["channel-loops", result.loop.channelId],
-        (existing: ChannelLoop[] | undefined) => {
-          if (!existing) return existing
-          const rest = existing.filter((l) => l.id !== result.loop.id)
-          return [result.loop, ...rest]
-        }
-      )
+      replaceLoop(queryClient, result.loop)
     },
     onError: (err) => {
       Alert.alert(
@@ -184,21 +177,149 @@ export function useLoopRuns(loop: ChannelLoop | null) {
   })
 }
 
+// A Loop is cached in three places: the list of each chat it shows in, the
+// list of the agent it belongs to, and on its own for its page. As web's
+// use-channel-loops.ts.
+const LOOP_LISTS = [["channel-loops"], ["agent-loops"]] as const
+export const loopKey = (loopId: string) => ["loop", loopId] as const
+export const agentLoopsKey = (agentId: string) =>
+  ["agent-loops", agentId] as const
+
 // Loops carry no version, so a response or rollback can be older than a
 // loop:updated that landed meanwhile: each mutation refetches when it settles.
 const refetchLoops = (queryClient: QueryClient, loop: ChannelLoop | null) => {
   if (!loop) return
-  void queryClient.invalidateQueries({
-    queryKey: ["channel-loops", loop.channelId],
+  for (const queryKey of LOOP_LISTS) {
+    void queryClient.invalidateQueries({ queryKey })
+  }
+  void queryClient.invalidateQueries({ queryKey: loopKey(loop.id) })
+}
+
+// The server's copy of a Loop, written over every cached one. A list it is
+// not in yet is read again: only the server knows whether it belongs there
+// (a Loop moved to another chat, or handed to another agent).
+function replaceLoop(queryClient: QueryClient, updated: ChannelLoop) {
+  queryClient.setQueryData(loopKey(updated.id), updated)
+  for (const queryKey of LOOP_LISTS) {
+    queryClient.setQueriesData<ChannelLoop[]>({ queryKey }, (existing) =>
+      existing?.map((loop) => (loop.id === updated.id ? updated : loop))
+    )
+  }
+  for (const queryKey of [
+    ...(updated.channelId ? [["channel-loops", updated.channelId]] : []),
+    ...(updated.agentId ? [agentLoopsKey(updated.agentId)] : []),
+  ]) {
+    const list = queryClient.getQueryData<ChannelLoop[]>(queryKey)
+    if (list && !list.some((loop) => loop.id === updated.id)) {
+      void queryClient.invalidateQueries({ queryKey })
+    }
+  }
+}
+
+// One Loop, for its page, live by loop:updated. `undefined` while loading,
+// null when it is gone.
+export function useLoop(loopId: string): {
+  loop: ChannelLoop | null | undefined
+  isError: boolean
+  refetch: () => void
+} {
+  const socket = useSocket()
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    if (!socket || !loopId) return
+    const onUpdated: ServerToClientEvents["loop:updated"] = (payload) => {
+      if (payload.loop.id === loopId) replaceLoop(queryClient, payload.loop)
+    }
+    const onDeleted: ServerToClientEvents["loop:deleted"] = (payload) => {
+      if (payload.loopId === loopId)
+        queryClient.setQueryData(loopKey(loopId), null)
+    }
+    socket.on("loop:updated", onUpdated)
+    socket.on("loop:deleted", onDeleted)
+    return () => {
+      socket.off("loop:updated", onUpdated)
+      socket.off("loop:deleted", onDeleted)
+    }
+  }, [socket, queryClient, loopId])
+  const query = useQuery({
+    queryKey: loopKey(loopId),
+    enabled: loopId.length > 0,
+    queryFn: async (): Promise<ChannelLoop | null> => {
+      const res = await api.v1.loops[":loopId"].$get({ param: { loopId } })
+      if (res.status === 404) return null
+      if (!res.ok) throw new Error("Failed to fetch the loop")
+      return (await res.json()).loop
+    },
+  })
+  return {
+    loop: query.isPending ? undefined : (query.data ?? null),
+    isError: query.isError,
+    refetch: () => void query.refetch(),
+  }
+}
+
+// The Loops an agent runs, in every chat this person can see and in none
+// (reference/agents-and-chats.md §9). Loop events reach only the chats this
+// client is in, so the list is read again each time it is shown.
+export function useAgentLoops(workspaceSlug: string, agentId: string) {
+  const socket = useSocket()
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    if (!socket) return
+    const refresh = () =>
+      void queryClient.invalidateQueries({ queryKey: ["agent-loops"] })
+    socket.on("loop:updated", refresh)
+    socket.on("loop:deleted", refresh)
+    return () => {
+      socket.off("loop:updated", refresh)
+      socket.off("loop:deleted", refresh)
+    }
+  }, [socket, queryClient])
+  return useQuery({
+    queryKey: agentLoopsKey(agentId),
+    enabled: Boolean(workspaceSlug && agentId),
+    refetchOnMount: "always",
+    queryFn: async (): Promise<ChannelLoop[]> => {
+      const res = await api.v1.workspaces[":workspaceSlug"].agents[
+        ":agentId"
+      ].loops.$get({ param: { workspaceSlug, agentId } })
+      if (!res.ok) throw new Error("Failed to fetch the agent's loops")
+      return (await res.json()).loops
+    },
   })
 }
 
-function replaceLoop(queryClient: QueryClient, updated: ChannelLoop) {
-  queryClient.setQueryData(
-    ["channel-loops", updated.channelId],
-    (existing: ChannelLoop[] | undefined) =>
-      existing?.map((loop) => (loop.id === updated.id ? updated : loop))
-  )
+// Hands a Loop to another agent, or moves where it reports (a chat, a
+// Discord channel, or none).
+export function useSetLoopPlace(loop: ChannelLoop | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (
+      place: { agentId: string } | { channelId: string | null }
+    ) => {
+      if (!loop) throw new Error("Loop not loaded yet")
+      const res = await api.v1.loops[":loopId"].$patch({
+        param: { loopId: loop.id },
+        json: place,
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(
+          (body && "message" in body && body.message) ||
+            "Failed to change the loop"
+        )
+      }
+      return (await res.json()).loop
+    },
+    onSuccess: (updated) => replaceLoop(queryClient, updated),
+    onError: (err) => {
+      Alert.alert(
+        "Couldn't change the loop",
+        err instanceof Error ? err.message : "Please try again in a moment."
+      )
+    },
+    onSettled: () => refetchLoops(queryClient, loop),
+  })
 }
 
 type LoopLifecycleAction = "pause" | "resume" | "complete"
@@ -306,10 +427,17 @@ export function useDeleteLoop(loop: ChannelLoop | null) {
       queryClient.setQueryData(key, (existing: ChannelLoop[] | undefined) =>
         existing?.filter((item) => item.id !== loop.id)
       )
+      queryClient.setQueriesData<ChannelLoop[]>(
+        { queryKey: ["agent-loops"] },
+        (existing) => existing?.filter((item) => item.id !== loop.id)
+      )
       return { key, deleted: loop }
     },
     onSuccess: () => {
-      if (loop) queryClient.removeQueries({ queryKey: ["loop-runs", loop.id] })
+      if (!loop) return
+      queryClient.removeQueries({ queryKey: ["loop-runs", loop.id] })
+      queryClient.setQueryData(loopKey(loop.id), null)
+      void queryClient.invalidateQueries({ queryKey: ["agent-loops"] })
     },
     onSettled: (_data, _err, _vars, context) => {
       if (context) void queryClient.invalidateQueries({ queryKey: context.key })

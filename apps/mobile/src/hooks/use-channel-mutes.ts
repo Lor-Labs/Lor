@@ -56,7 +56,7 @@ export function promptChannelMute(options: {
   }
   Alert.alert(
     `Mute ${options.channelLabel}`,
-    "You won't get notifications from this channel while it's muted, on any device. Unread badges are unaffected.",
+    "You won't get notifications from this chat while it's muted, on any device. Unread badges are unaffected.",
     [
       ...MUTE_DURATIONS.map((duration) => ({
         text: duration.label,
@@ -148,7 +148,7 @@ export function useChannelMutes() {
         })
         if (!response.ok) {
           throw new Error(
-            await responseMessage(response, "Could not mute this channel")
+            await responseMessage(response, "Could not mute this chat")
           )
         }
       } catch (cause) {
@@ -176,7 +176,7 @@ export function useChannelMutes() {
         })
         if (!response.ok) {
           throw new Error(
-            await responseMessage(response, "Could not unmute this channel")
+            await responseMessage(response, "Could not unmute this chat")
           )
         }
       } catch (cause) {

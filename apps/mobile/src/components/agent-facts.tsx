@@ -146,8 +146,7 @@ export function AgentFacts({
       </SectionLabel>
       <Text className="text-xs leading-4 text-muted">
         What {agentName} keeps after its turns, in front of it on every turn in
-        every channel it is in. Anyone who sees {agentName} can edit or delete
-        one.
+        every chat it is in. Anyone who sees {agentName} can edit or delete one.
       </Text>
       {facts.isPending ? (
         <View className="gap-two rounded-lor-lg bg-surface-secondary p-three">

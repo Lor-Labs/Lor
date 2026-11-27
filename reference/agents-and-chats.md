@@ -283,6 +283,25 @@ tools all stay.
 - **Does the chat earn its place?** Chat sessions were dropped on 11-18 as
   barely used. New session stays a direct way to a coding agent.
 
+### Mobile catch-up (2026-11-27)
+
+The mobile app follows the chat model since 11-27 (`apps/mobile`): the home
+tab is the person's chat list (`hooks/use-chats.ts`,
+`components/chat-list.tsx`) with pinned and recent, the archived and Discord
+filter in a sheet, a swipe right to pin, a swipe left to mute or hide, and a
+long press for the chat's actions (`chat-actions-sheet.tsx`). A chat's
+header shows its faces and what its agents are doing, every agent is
+mentionable by its own id, and an archived chat, a Discord place and a chat
+the person is not in get their bars (Unarchive, Open, Join). Chat details
+(`app/channel/[channelId]/details.tsx`) holds the name, the agents and
+people (a swipe left takes one out or leaves), what the chat holds, archive
+and delete. New chat is a sheet (`app/chat/new.tsx`). An agent has its own
+page (`app/agent/[agentId].tsx`) with its chats, Loops across them and
+facts; a Loop has its own page (`app/loop/[loopId].tsx`) with Run by and
+Reports in. Making agents, events, webhooks, connectors and Discord stay on
+the web. Workspace member moderation (role, remove), reached before from a
+channel's member list, is no longer on mobile.
+
 ## 9. Build steps
 
 Each step ends in something the team uses. Steps 2 to 5 are not sized.
@@ -367,8 +386,7 @@ setting. `db:push` then also adds the `config` column. The patch:
 https://cdn.lor.chat/artifacts/aa5b7d27-2b2f-4f9d-a0de-ba847a06b546/926da81d-a381-455e-9225-25faa84fae5b/1eb898b5-6091-427b-b7b1-6bbe643d68fb/lor-screenshots_ironwood-provider-models.patch
 
 Beside these: no private chat can be made from
-the web app (Jacob, 11-26: no switch for now); the mobile app still lists
-channels and is to be discussed (Jacob, 11-26); the API's error messages
+the web app (Jacob, 11-26: no switch for now); the API's error messages
 and what agents are told still say "channel" (the web app's own wording
 says "chat" since 11-26); a turn about no chat shows nowhere while it runs
 and can't be stopped from the app (its run is in no chat's list); listeners
@@ -721,8 +739,8 @@ bot user of its own (decision 37, built 2026-11-25):
   Typing still comes as Lor's with the agent's id beside it.
 - **Mentions.** Each agent is mentioned by its own id, `<@agentId>`, which is
   what the composer inserts. Lor's own mention means the chat's first agent,
-  as every chat with one agent used it (the mobile app and Discord still
-  send it).
+  as every chat with one agent used it (Discord still sends it; the mobile
+  app sends each agent's id since 11-27).
 - **Routing** (`addChatMessageToAgentInbox`, `agentsNamed`). The agents a
   message names (by mention, or by replying to what one wrote) are woken, each
   in its own request conversation. Every other agent in the chat gets the
@@ -808,7 +826,7 @@ The chat list (decisions 33, 35 and 36; sidebar built 2026-11-25):
   move a chat up from the unread notification; the person's own send
   refetches. The default width went from 240 to 296.
 - **Notifications** follow the people in a chat since 2026-11-26 (see
-  "Listeners and notifications" below). The mobile app still lists channels.
+  "Listeners and notifications" below).
   Categories, projects and voice channels are no longer in the web sidebar
   (voice is behind its launch flag); `channel-list.tsx` was deleted on
   2026-11-26 with the old create dialog.

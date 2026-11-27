@@ -27,7 +27,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native"
-import { MentionBadge } from "@/components/channel-list"
+import { MentionBadge } from "@/components/chat-list"
 import { HintCard } from "@/components/hint-card"
 import type { CallTab } from "@/components/thread-view"
 import { Avatar } from "@/components/ui/avatar"
