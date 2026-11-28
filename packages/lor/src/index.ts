@@ -889,6 +889,7 @@ export {
   type SteeredMessage,
 } from "./run"
 export { SandboxStartingError } from "./sandbox/blaxel"
+export { SandboxUnavailableError } from "./sandbox/boat"
 export {
   deleteSessionSandbox,
   SandboxCapacityError,
