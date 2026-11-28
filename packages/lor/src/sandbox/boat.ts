@@ -482,8 +482,9 @@ async function writeBoatParts(
   const written: string[] = []
   try {
     for (const part of parts) {
-      await writeBoatFile(sandbox, part.path, part.content, abortSignal)
+      // Recorded first: a write whose response was lost may still have landed.
       written.push(part.path)
+      await writeBoatFile(sandbox, part.path, part.content, abortSignal)
     }
     const quoted = parts.map((part) => shellQuote(part.path)).join(" ")
     // The assembly is a command, so a sandbox Boat no longer serves fails it
@@ -520,7 +521,8 @@ async function writeBoatParts(
 // reads and deletes, so they never sit in Boat's command history.
 async function writeEnvFile(
   sandbox: BoatSandbox,
-  vars: Record<string, string>
+  vars: Record<string, string>,
+  abortSignal?: AbortSignal
 ): Promise<string | null> {
   const entries = Object.entries(vars)
   if (entries.length === 0) return null
@@ -528,7 +530,12 @@ async function writeEnvFile(
   const content = entries
     .map(([key, value]) => `export ${key}=${shellQuote(value)}`)
     .join("\n")
-  await writeBoatFile(sandbox, path, new TextEncoder().encode(content))
+  await writeBoatFile(
+    sandbox,
+    path,
+    new TextEncoder().encode(content),
+    abortSignal
+  )
   return path
 }
 
@@ -542,7 +549,11 @@ async function startCommand(
     abortSignal?: AbortSignal
   }
 ): Promise<number> {
-  const envFile = await writeEnvFile(sandbox, input.env ?? {})
+  const envFile = await writeEnvFile(
+    sandbox,
+    input.env ?? {},
+    input.abortSignal
+  )
   const defaults = Object.entries(SANDBOX_PROCESS_ENV)
     .map(([key, value]) => `export ${key}=${shellQuote(value)}`)
     .join("; ")

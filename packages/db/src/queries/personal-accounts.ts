@@ -265,7 +265,7 @@ export async function resolveHarnessAccount(
         : null
       throw new HarnessAccountLimitError(provider, until, owner, scope.userId)
     }
-    throw new Error(
+    throw new HarnessAccountUnavailableError(
       scope.userId
         ? "No available linked account for this provider. Connect an account in Settings → Linked accounts, or wait for its usage limit to reset."
         : "None of this agent's accounts for this provider is available. An admin can change them in the agent's settings, or switch it to API billing."
@@ -288,6 +288,10 @@ function resetsIn(until: Date) {
     ? `in about ${hours} h`
     : `in about ${Math.round(hours / 24)} days`
 }
+
+// No connected or selected account can pay (as opposed to a query failure),
+// so a code-session payer may move on to the next payer.
+export class HarnessAccountUnavailableError extends Error {}
 
 // A person's (or an agent's) plan is at its usage limit on every account
 // that could pay. The message names whose and when it resets, for the
