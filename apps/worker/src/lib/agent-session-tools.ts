@@ -21,6 +21,7 @@ import {
   PLAN_LIMIT_AGENT_HINT,
 } from "@repo/db/queries/personal-accounts"
 import type { HarnessAccountRoute } from "@repo/db/schema"
+import { env } from "@repo/env/server"
 import { createSession, toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import {
   type AgentSessionTools,
@@ -366,7 +367,9 @@ export function agentSessionExecutors(
       .select({ slug: schema.workspace.slug })
       .from(schema.workspace)
       .where(eq(schema.workspace.id, workspaceId))
-    return workspace ? `/${workspace.slug}/session/${sessionId}` : null
+    return workspace
+      ? `${env.APP_BASE_URL}/${workspace.slug}/session/${sessionId}`
+      : null
   }
 
   return {

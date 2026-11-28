@@ -115,3 +115,44 @@ export function readRepoFileDrag(
     return null
   }
 }
+
+// A session link that isn't a repo file or folder, shown as an inline session
+// chip in chat (message-markdown.tsx). Keeps the search the session route
+// reads, so a link to a message or tab still opens there.
+const SESSION_SEARCH_KEYS = [
+  "artifactId",
+  "upload",
+  "msgId",
+  "open",
+  "at",
+  "folder",
+] as const
+
+export type SessionLink = {
+  workspaceSlug: string
+  sessionId: string
+  search: Partial<Record<(typeof SESSION_SEARCH_KEYS)[number], string>> & {
+    side?: "browser"
+  }
+}
+
+export function sessionFromUrl(href: string): SessionLink | null {
+  try {
+    const url = new URL(href)
+    if (url.origin !== new URL(webOrigin()).origin) return null
+    const match = /^\/([\w-]+)\/session\/([^/]+)\/?$/.exec(url.pathname)
+    const sessionId = match?.[2]
+    if (!match?.[1] || !sessionId || !z.uuid().safeParse(sessionId).success) {
+      return null
+    }
+    const search: SessionLink["search"] = {}
+    for (const key of SESSION_SEARCH_KEYS) {
+      const value = url.searchParams.get(key)
+      if (value !== null) search[key] = value
+    }
+    if (url.searchParams.get("side") === "browser") search.side = "browser"
+    return { workspaceSlug: match[1], sessionId, search }
+  } catch {
+    return null
+  }
+}

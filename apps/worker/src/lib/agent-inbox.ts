@@ -33,7 +33,7 @@ import type { AgentConversation } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { InferenceConfigError, type ModelMessage, respond } from "@repo/lor"
 import { saveHandoffNote } from "@repo/lor/act-runs"
-import { resolveAgentFiles } from "@repo/lor/agent-files"
+import { checkSessionLinks, resolveAgentFiles } from "@repo/lor/agent-files"
 import {
   AGENT_DEFAULT_MODEL,
   appendSteps,
@@ -1225,6 +1225,8 @@ function agentHooks(
         ? await resolveAgentFiles(channel.workspaceId, files)
         : { attachments: [] }
       if ("error" in attached) return { error: attached.error }
+      const badLink = await checkSessionLinks(channel.workspaceId, content)
+      if (badLink) return badLink
       // Another channel the agent is in, when it names one.
       const wanted = named?.trim().replace(/^#/, "").toLowerCase()
       const elsewhere =
