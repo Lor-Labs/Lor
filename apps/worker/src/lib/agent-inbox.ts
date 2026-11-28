@@ -1855,6 +1855,9 @@ export async function runAgentCompactJob(
   const channelId = channel.id
   const context = await loadAgentContext(workspaceId, conversationId)
   if (context.promptTokens < COMPACT_AT_TOKENS) return
+  // The summary is paid like a turn (credits, or a key's fee from the pool):
+  // with none left it waits for the next turn to schedule it again.
+  if (!(await checkCredits(workspaceId)).allowed) return
 
   const runId = (
     await createTurnRun({

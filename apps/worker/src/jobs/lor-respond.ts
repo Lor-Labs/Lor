@@ -964,25 +964,27 @@ export function createLorRespondProcessor(
             }
             // Who wrote the message this turn answers: a person, not a
             // person (an agent's brief, a Loop, an event), or unknown when
-            // the lookup fails. Unknown never widens tools.
+            // the lookup fails or finds no author. Unknown never widens tools.
             let senderKind: Promise<"person" | "other" | "unknown"> | null =
               null
             const sender = () => {
               senderKind ??=
-                !triggerUserId || triggerUserId === LOR_USER_ID || automated
+                triggerUserId === LOR_USER_ID || automated
                   ? Promise.resolve("other" as const)
-                  : db
-                      .select({ isBot: schema.user.isBot })
-                      .from(schema.user)
-                      .where(eq(schema.user.id, triggerUserId))
-                      .then((rows) =>
-                        rows[0] === undefined
-                          ? ("unknown" as const)
-                          : rows[0].isBot
-                            ? ("other" as const)
-                            : ("person" as const)
-                      )
-                      .catch(() => "unknown" as const)
+                  : !triggerUserId
+                    ? Promise.resolve("unknown" as const)
+                    : db
+                        .select({ isBot: schema.user.isBot })
+                        .from(schema.user)
+                        .where(eq(schema.user.id, triggerUserId))
+                        .then((rows) =>
+                          rows[0] === undefined
+                            ? ("unknown" as const)
+                            : rows[0].isBot
+                              ? ("other" as const)
+                              : ("person" as const)
+                        )
+                        .catch(() => "unknown" as const)
               return senderKind
             }
             const previousRun =

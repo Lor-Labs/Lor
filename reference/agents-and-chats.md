@@ -373,7 +373,8 @@ whose provider or model can't be used tells the person why
 **Still to do** (written down 2026-11-27 so a new session can pick it up):
 
 1. **Slack as places**, in Discord's shape (decision 51). Talk through its
-   priority and design with Jacob first.
+   priority and design with Jacob first. What Slack allows, and the ways to
+   address one agent, are under "Step 5: Slack" in §9.
 2. **Agents proposing their own listeners** (an agent sets up the connector
    events it should hear, like it sets up its own Loops).
 3. **Session screenshots to Discord**: check whether Claude Code and Codex
@@ -1367,7 +1368,71 @@ mention rows.
 
 ### Step 5: Slack
 
-In the same shape.
+In the same shape as Discord (decision 51): a Slack channel agents are in is
+a place. Not started, and the design is not decided. What Slack allows was
+researched on 2026-11-28; the open question is how a person addresses one
+agent. `planned/slack-connector-next.md` is an older plan (read Slack, never
+post in it) that decision 51 replaces for places.
+
+**What Slack allows** (checked against Slack's docs unless marked)
+
+- **Where the app is.** A Slack app is only in the channels it was invited to
+  (`/invite @Lor`), and only reads and posts there (`chat:write`;
+  `chat:write.public` posts to public channels without joining). Discord's
+  "the bot shows in every channel" problem does not exist.
+- **Mentions reach the app only where it is.** `app_mention` (scope
+  `app_mentions.read`) fires only in conversations the app is part of. When
+  someone mentions it elsewhere, Slack itself offers to invite it, and the
+  app hears the mention only if they do. Slack gives the wrong-channel answer
+  Lor had to build for Discord (`hintAgentsElsewhere`). Channel membership is
+  tracked apart from this event (`member_joined_channel`).
+- **One app is one mentionable bot.** Slack has no per-agent roles. An agent
+  can post under its own name and face (`chat.postMessage` with `username`
+  and `icon_url`, scope `chat:write.customize`), but that name cannot be
+  mentioned.
+- **User groups** (@inky) are Slack's nearest thing to Discord's roles. They
+  exist on paid plans only (`usergroups.create` fails on free ones), admins
+  can stop apps from making them, and they are the whole workspace's, so
+  every group could be mentioned in every channel, as with Discord's roles.
+  Not confirmed: a group mention in a channel the app is not in would not
+  reach Lor at all, so there could be no wrong-channel answer either.
+- **Slash commands** (`/lor`) work in every channel, as on Discord.
+- **An app can be made by API.** `apps.manifest.create` makes an app from a
+  manifest and returns its client id, secret and signing secret once. It
+  takes an app configuration token a person generates once at
+  api.slack.com/apps (12 hours, renewed with `tooling.tokens.rotate`; a bot
+  token cannot call it). Someone still clicks through each app's install
+  (the returned `oauth_authorize_url`). Not checked: when a workspace needs
+  an admin's approval for that install.
+- **Free plan: 10 apps** a workspace, custom apps included. Paid plans have
+  no limit.
+
+**Ways to address one agent**
+
+| Way | What a person does | Cost |
+| --- | --- | --- |
+| One Lor app, agents post under their own name | @Lor, a reply in the agent's thread, or the agent's name in plain text with Jev picking | No @Inky. Works on every plan with one install |
+| User group per agent | @inky | Paid plans only, mentionable in every channel, and unheard where Lor is not |
+| One Slack app per agent | @Inky, a real bot invited channel by channel | An install click per agent; 10 apps on the free plan (about nine agents beside Lor); an event endpoint and token per app |
+
+Recommended (11-28, Jacob to decide): one Slack app per agent, made with the
+manifest API. It is the only way that gives both a real @Inky and an agent
+that shows only in the channels it is in, and Slack handles a mention in the
+wrong channel itself. Fall back to one Lor app with agents posting under
+their own name where a workspace can't take an app per agent (the free
+plan's limit, or admins who approve each app).
+
+For comparison, Discord cannot be fixed with roles: a role is the whole
+server's, and the only per-channel switch (Mention @everyone, @here and All
+Roles) covers every role at once. An app per agent would work there too, but
+Discord has no API to make an application or its bot token, so each is made
+by hand in the Developer Portal, and each bot's managed role would need View
+Channel denied in every channel it is not in (the last part is inferred, not
+tested).
+
+Sources: Slack's `app_mention`, `chat.postMessage`, `usergroups.create` and
+`apps.manifest.create` pages at docs.slack.dev, and Slack's help page on
+free-plan app limits.
 
 ## 10. The mock
 

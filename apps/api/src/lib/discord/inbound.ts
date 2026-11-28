@@ -214,14 +214,19 @@ async function hintNoAgentHere(event: DiscordMessageEvent, botUserId: string) {
 // mentioned in every channel. In a place, a mention of an agent that isn't
 // in it says so, at most once per agent and channel every 10 minutes, with
 // a button to add it (the hint's own id lets the button say who joined).
+// Not in a thread: an agent is added to a channel, and a click there would
+// name the thread.
 async function hintAgentsElsewhere(
   event: DiscordMessageEvent,
-  agentIds: string[]
+  agentIds: string[],
+  inThread: boolean
 ) {
   if (event.author.bot || event.webhook_id) return
   const redis = await getRedisClient()
   const fresh: string[] = []
-  for (const agentId of agentIds.slice(0, 5)) {
+  // Five buttons fit a row; agents answered about lately don't use one up.
+  for (const agentId of agentIds) {
+    if (fresh.length === 5) break
     const first = await redis.set(
       `discord:agent-elsewhere:${event.channel_id}:${agentId}`,
       "1",
@@ -245,12 +250,13 @@ async function hintAgentsElsewhere(
     {
       method: "POST",
       body: {
-        content: `${who} in this channel, so ${names.length === 1 ? "it" : "they"} won't see this. Discord lets everyone mention every agent's role in every channel, but an agent only reads the channels it was added to.`,
+        content: `${who} in this channel, so ${names.length === 1 ? "it" : "they"} won't see this. Discord lets everyone mention every agent's role in every channel, but an agent only reads the channels it was added to.${inThread ? ` Add ${names.length === 1 ? "it" : "them"} from the channel this thread is in with \`/lor add\`.` : ""}`,
         message_reference: { message_id: event.id, fail_if_not_exists: false },
         allowed_mentions: { parse: [] },
       },
     }
   )
+  if (inThread) return
   await discordRequest(`/channels/${event.channel_id}/messages/${hint.id}`, {
     method: "PATCH",
     body: {
@@ -613,7 +619,7 @@ async function mirrorInto(
     ),
   ]
   if (absent.length > 0) {
-    void hintAgentsElsewhere(event, absent).catch((err) =>
+    void hintAgentsElsewhere(event, absent, threadId !== null).catch((err) =>
       logger.warn({ err, discordMessageId: event.id }, "Discord hint failed")
     )
   }
