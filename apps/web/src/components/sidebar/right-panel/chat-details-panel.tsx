@@ -43,6 +43,7 @@ import { type Chat, chatsKey, orderChats } from "@/hooks/use-chats"
 import { apiClient } from "@/lib/api-client"
 import { patchChannelList, upsertChannel } from "@/lib/channel-list-cache"
 import { channelQueryOptions } from "@/lib/channel-query"
+import { chatDisplayName } from "@/lib/chat-name"
 
 // A chat's details, beside it (reference/agents-and-chats.md, decisions 31
 // and 35): its name, the agents in it and the people in it. The people are
@@ -236,7 +237,7 @@ function ChatName({
   editable,
 }: {
   workspaceSlug: string
-  chat: { id: string; name: string | null }
+  chat: { id: string; name: string | null; kind: string }
   editable: boolean
 }) {
   const queryClient = useQueryClient()
@@ -278,7 +279,11 @@ function ChatName({
     if (name !== saved) rename.mutate(name)
   }
   if (!editable) {
-    return <p className="truncate font-semibold text-[15px]">{saved}</p>
+    return (
+      <p className="truncate font-semibold text-[15px]">
+        {chatDisplayName(chat.name, chat.kind === "place", "")}
+      </p>
+    )
   }
   return (
     <input

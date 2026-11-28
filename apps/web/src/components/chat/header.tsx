@@ -32,6 +32,7 @@ import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
 import { useAgentsById } from "@/hooks/use-agents"
 import { useOpenChannelSessions } from "@/hooks/use-open-channel-sessions"
 import { channelQueryOptions } from "@/lib/channel-query"
+import { chatDisplayName } from "@/lib/chat-name"
 
 export type ChatContext =
   | { type: "channel"; name: string; topic?: string; isPrivate?: boolean }
@@ -192,7 +193,9 @@ function ChatTitle({
         total={agents.length + others.length}
         size={28}
       />
-      <span className="truncate font-semibold">{name}</span>
+      <span className="truncate font-semibold">
+        {chatDisplayName(name, chat?.kind === "place")}
+      </span>
       {isPrivate && (
         <HugeiconsIcon
           icon={SquareLock02Icon}

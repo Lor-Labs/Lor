@@ -21,6 +21,7 @@ import {
   discordGuildFor,
   removeDiscordPlace,
   syncPlaceFromDiscord,
+  syncPlaceNamesFromGuild,
 } from "@/lib/discord/places"
 import {
   type DiscordThreadEvent,
@@ -196,10 +197,19 @@ class DiscordGateway {
       return
     }
     if (type === "GUILD_CREATE") {
-      for (const thread of (data as { threads?: DiscordThreadEvent[] })
-        .threads ?? []) {
-        rememberThread(thread)
+      const guild = data as {
+        id: string
+        threads?: DiscordThreadEvent[]
+        channels?: Array<{ id: string; name?: string }>
       }
+      for (const thread of guild.threads ?? []) rememberThread(thread)
+      void syncPlaceNamesFromGuild(guild.id, guild.channels ?? []).catch(
+        (err) =>
+          logger.warn(
+            { err, guildId: guild.id },
+            "Discord place names sync failed"
+          )
+      )
       return
     }
     if (type === "THREAD_LIST_SYNC") {
