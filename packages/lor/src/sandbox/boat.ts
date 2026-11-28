@@ -402,10 +402,31 @@ export async function hostBoatPort(
     : { url: base }
 }
 
+// Boat's "this sandbox, not your request, is the problem" answers: a 404
+// (Boat no longer has it) or a 409 that means it has no machine or a state
+// that cannot run. That becomes SandboxUnavailableError with the cached id
+// dropped, so the next open re-resolves by name; every other failure keeps
+// Boat's status and code (BoatRequestError).
+async function boatSandboxError(
+  sandbox: BoatSandbox,
+  err: unknown
+): Promise<unknown> {
+  const wrapped = await boatRequestError(err)
+  if (boatSandboxUnavailable(wrapped)) {
+    ids.delete(sandbox.name)
+    return new SandboxUnavailableError(
+      sandbox.name,
+      wrapped.status,
+      wrapped.code,
+      wrapped
+    )
+  }
+  return wrapped
+}
+
 // One inline file write. The SDK's own error says only "Response returned an
 // error code", so a failure is wrapped with Boat's status and code and a VM
-// that is still starting is retried like a command. A sandbox Boat no longer
-// serves is turned into SandboxUnavailableError and its cached id dropped.
+// that is still starting is retried like a command.
 async function writeBoatFile(
   sandbox: BoatSandbox,
   path: string,
@@ -424,19 +445,7 @@ async function writeBoatFile(
           },
         })
         .catch(async (err: unknown) => {
-          const wrapped = await boatRequestError(err)
-          if (boatSandboxUnavailable(wrapped)) {
-            // The next open re-resolves by name (and creates a new sandbox
-            // when this one is gone) instead of writing to it again.
-            ids.delete(sandbox.name)
-            throw new SandboxUnavailableError(
-              sandbox.name,
-              wrapped.status,
-              wrapped.code,
-              wrapped
-            )
-          }
-          throw wrapped
+          throw await boatSandboxError(sandbox, err)
         }),
     {
       retry: (err: unknown) =>
@@ -470,18 +479,38 @@ async function writeBoatParts(
       content: bytes.subarray(offset, offset + INLINE_WRITE_BYTES),
     })
   }
-  for (const part of parts) {
-    await writeBoatFile(sandbox, part.path, part.content, abortSignal)
-  }
-  const quoted = parts.map((part) => shellQuote(part.path)).join(" ")
-  const moved = await boatExec(sandbox, {
-    label: "io-write",
-    command: `mkdir -p ${shellQuote(posix.dirname(target))} && cat ${quoted} > ${shellQuote(target)}; code=$?; rm -f ${quoted}; exit $code`,
-    timeoutSec: 60,
-    ...(abortSignal ? { abortSignal } : {}),
-  })
-  if (moved.exitCode !== 0) {
-    throw new Error(`Writing ${target} failed: ${moved.stderr.trim()}`)
+  const written: string[] = []
+  try {
+    for (const part of parts) {
+      await writeBoatFile(sandbox, part.path, part.content, abortSignal)
+      written.push(part.path)
+    }
+    const quoted = parts.map((part) => shellQuote(part.path)).join(" ")
+    // The assembly is a command, so a sandbox Boat no longer serves fails it
+    // the same way a write does; on success it removes the parts.
+    const moved = await boatExec(sandbox, {
+      label: "io-write",
+      command: `mkdir -p ${shellQuote(posix.dirname(target))} && cat ${quoted} > ${shellQuote(target)}; code=$?; rm -f ${quoted}; exit $code`,
+      timeoutSec: 60,
+      ...(abortSignal ? { abortSignal } : {}),
+    }).catch(async (err: unknown) => {
+      throw await boatSandboxError(sandbox, err)
+    })
+    if (moved.exitCode !== 0) {
+      throw new Error(`Writing ${target} failed: ${moved.stderr.trim()}`)
+    }
+  } catch (err) {
+    // A later part, or the assembly, can fail after earlier parts landed:
+    // drop them so a failed write does not leave them in the sandbox's /tmp.
+    // Best-effort - the write's own error is what surfaces.
+    if (written.length > 0) {
+      await boatExec(sandbox, {
+        label: "io-write-cleanup",
+        command: `rm -f ${written.map((path) => shellQuote(path)).join(" ")}`,
+        timeoutSec: 30,
+      }).catch(() => {})
+    }
+    throw err
   }
 }
 
