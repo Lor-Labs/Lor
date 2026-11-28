@@ -3,7 +3,7 @@ import { workspaceInferenceKeyId } from "@repo/db/queries/inference"
 import {
   getHarnessSettings,
   getPersonalHarnessSettings,
-  HarnessAccountLimitError,
+  HarnessAccountUnavailableError,
   hasPersonalAccount,
   resolveHarnessAccount,
 } from "@repo/db/queries/personal-accounts"
@@ -147,8 +147,9 @@ export async function resolveCodeSessionPayer(args: {
         const route = await resolveHarnessAccount(scope, provider)
         return { harness, route, payer: payerOfRoute(route) }
       } catch (err) {
-        if (err instanceof HarnessAccountLimitError) throw err
-        // No account selected or connected: try the next payer.
+        // Only "no account selected or connected" tries the next payer; a
+        // usage limit or a DB failure must not move the session to credits.
+        if (!(err instanceof HarnessAccountUnavailableError)) throw err
       }
     } else if (
       billing === "byok" &&

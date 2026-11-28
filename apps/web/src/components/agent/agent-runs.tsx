@@ -42,6 +42,12 @@ const providers = ["claude", "chatgpt"] as const
 const names = { claude: "Claude Code", chatgpt: "Codex" }
 const enabled = (provider: Provider) =>
   provider === "claude" ? features.claudeCodeHarness : features.codexHarness
+const harnessOptions = [
+  ...(features.claudeCodeHarness
+    ? [{ value: "claude_code", label: "Claude Code" }]
+    : []),
+  ...(features.codexHarness ? [{ value: "codex", label: "Codex" }] : []),
+]
 const labelFor = (a: Data["accounts"][number]) =>
   a.label ?? a.email ?? `${names[a.provider]} · ${a.login}`
 
@@ -165,20 +171,17 @@ export function AgentRuns({
               <p className="text-sm font-medium">Coding agent</p>
               <Choice
                 label="Coding agent"
+                // Same as the server's payer: the saved harness when enabled,
+                // else the first enabled one ("pi" included).
                 value={
-                  settings.defaultHarness === "pi"
-                    ? "claude_code"
-                    : settings.defaultHarness
+                  harnessOptions.find(
+                    (o) => o.value === settings.defaultHarness
+                  )?.value ??
+                  harnessOptions[0]?.value ??
+                  ""
                 }
                 disabled={saveSettings.isPending}
-                options={[
-                  ...(features.claudeCodeHarness
-                    ? [{ value: "claude_code", label: "Claude Code" }]
-                    : []),
-                  ...(features.codexHarness
-                    ? [{ value: "codex", label: "Codex" }]
-                    : []),
-                ]}
+                options={harnessOptions}
                 onChange={(value) =>
                   update({
                     defaultHarness: value as "claude_code" | "codex",
