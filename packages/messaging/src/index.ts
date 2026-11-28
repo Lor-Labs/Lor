@@ -2,6 +2,9 @@ import { and, db, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import {
   type ChannelAudienceInfo,
+  chatLivesOutside,
+  joinChat,
+  listChatMemberUserIds,
   resolveChannelAudienceInfo,
 } from "@repo/db/queries/channel-access"
 import { liveSessionChatMembers } from "@repo/db/queries/session-chat-access"
@@ -61,6 +64,9 @@ type MessageFanoutInput = {
   // Presence lookup for @here (audience ∩ online). Absent or failing ⇒ @here
   // pings nobody — fail closed, never "everyone by accident".
   redis?: PresenceRedisClient
+  // Shows as unread and pings nobody (a listener's event with "notify
+  // people" off). A direct mention still notifies.
+  quiet?: boolean
 }
 
 type UserTargetedPayload<T> = {
@@ -109,8 +115,11 @@ type NotificationInsertType = Extract<
   "direct_mention" | "everyone_mention"
 >
 
-const EVERYONE_MENTION_REGEX = /(^|\s)@everyone\b/i
-const CHANNEL_MENTION_REGEX = /(^|\s)@channel\b/i
+// The two group mentions a chat has: @chat pings everyone in it, @here
+// those of them online now. There is no @everyone or @channel any more
+// (Jacob, 2026-11-26: a group chat is not a Slack or Discord channel);
+// messages from before keep the words as plain text.
+const CHAT_MENTION_REGEX = /(^|\s)@chat\b/i
 const HERE_MENTION_REGEX = /(^|\s)@here\b/i
 const mentionNotificationTypes = ["direct_mention", "everyone_mention"] as const
 
@@ -143,16 +152,22 @@ async function listOnlineRecipientIds(
   }
 }
 
+// Who a message can reach at all (everyone who can see the channel: a
+// restricted channel's messages must not reach non-members' unreads or
+// push), who is in the chat, and whether its pings belong to another app.
 async function listRecipientAudience(channel: FanoutChannel) {
-  // Shared audience resolver — restricted-channel messages must not reach
-  // non-members' unreads/push.
-  return resolveChannelAudienceInfo(channel.id)
+  const [audience, chatMemberIds, outside] = await Promise.all([
+    resolveChannelAudienceInfo(channel.id),
+    listChatMemberUserIds(channel.id),
+    chatLivesOutside(channel.id),
+  ])
+  return { ...audience, chatMemberIds, outside }
 }
 
 function buildMentionTargets(args: {
   audience: ChannelAudienceInfo["audience"]
   recipients: string[]
-  // Who @everyone/@channel/@here can reach; defaults to all recipients.
+  // Who @chat and @here can reach; defaults to all recipients.
   broadcastRecipients?: string[]
   messageContent: string
   onlineRecipientIds: Set<string>
@@ -166,17 +181,11 @@ function buildMentionTargets(args: {
   )
 
   // Broadcast mentions live in workspace channels only (never DMs).
-  // @everyone additionally requires the audience to BE the workspace — in a
-  // members-only channel it is rejected (no fanout), not narrowed.
   const isWorkspaceChannel =
     args.broadcasts &&
     (args.audience === "workspace" || args.audience === "members")
-  const includeEveryone =
-    args.broadcasts &&
-    args.audience === "workspace" &&
-    EVERYONE_MENTION_REGEX.test(args.messageContent)
-  const includeChannel =
-    isWorkspaceChannel && CHANNEL_MENTION_REGEX.test(args.messageContent)
+  const includeChat =
+    isWorkspaceChannel && CHAT_MENTION_REGEX.test(args.messageContent)
   const includeHere =
     isWorkspaceChannel && HERE_MENTION_REGEX.test(args.messageContent)
 
@@ -189,13 +198,13 @@ function buildMentionTargets(args: {
     }
   }
 
-  // Broadest first: @everyone/@channel cover the whole audience, @here only
-  // whoever is online right now. Direct mentions always win.
-  if (includeEveryone || includeChannel) {
-    const type: MentionInsertType = includeEveryone ? "everyone" : "channel"
+  // Broadest first: @chat covers everyone in the chat, @here only whoever
+  // is online right now. Direct mentions always win. @chat is stored as
+  // the "channel" mention type.
+  if (includeChat) {
     for (const userId of broadcastRecipients) {
       if (!mentionTypeByUserId.has(userId)) {
-        mentionTypeByUserId.set(userId, type)
+        mentionTypeByUserId.set(userId, "channel")
       }
     }
   } else if (includeHere) {
@@ -223,8 +232,7 @@ function needsPresenceLookup(
     broadcasts &&
     (audience === "workspace" || audience === "members") &&
     HERE_MENTION_REGEX.test(content) &&
-    !EVERYONE_MENTION_REGEX.test(content) &&
-    !CHANNEL_MENTION_REGEX.test(content)
+    !CHAT_MENTION_REGEX.test(content)
   )
 }
 
@@ -271,26 +279,34 @@ export async function syncMessageMentions(input: {
   content: string
   redis?: PresenceRedisClient
 }): Promise<RealtimeMessageMention[]> {
-  const [{ audience, userIds: allRecipientIds }, session] = await Promise.all([
-    listRecipientAudience(input.channel),
-    input.threadRootId
-      ? findAgentSessionByThreadRoot(input.threadRootId)
-      : null,
-  ])
+  const [{ audience, userIds: allRecipientIds, chatMemberIds }, session] =
+    await Promise.all([
+      listRecipientAudience(input.channel),
+      input.threadRootId
+        ? findAgentSessionByThreadRoot(input.threadRootId)
+        : null,
+    ])
   const broadcasts = !session
   const recipientIds = [...new Set(allRecipientIds)].filter(
     (id) => id !== input.authorId
   )
+  // @chat and @here reach only the people in the chat, as on send.
+  const inChat =
+    chatMemberIds && !input.threadRootId ? new Set(chatMemberIds) : null
+  const broadcastRecipients = inChat
+    ? recipientIds.filter((id) => inChat.has(id))
+    : recipientIds
   const onlineRecipientIds = needsPresenceLookup(
     audience,
     input.content,
     broadcasts
   )
-    ? await listOnlineRecipientIds(input.redis, recipientIds)
+    ? await listOnlineRecipientIds(input.redis, broadcastRecipients)
     : new Set<string>()
   const mentionTypeByUserId = buildMentionTargets({
     audience,
     recipients: recipientIds,
+    broadcastRecipients,
     messageContent: input.content,
     onlineRecipientIds,
     broadcasts,
@@ -502,13 +518,22 @@ export function buildReactionNotification(input: {
 }
 
 export async function buildMessageFanout(input: MessageFanoutInput) {
-  const { audience, userIds: allRecipientIds } = await listRecipientAudience(
-    input.channel
-  )
-  const recipientIds = [...new Set(allRecipientIds)].filter(
+  const {
+    audience,
+    userIds: allVisibleIds,
+    chatMemberIds,
+    outside,
+  } = await listRecipientAudience(input.channel)
+  const visibleIds = [...new Set(allVisibleIds)].filter(
     (id) => id !== input.authorId
   )
   const threadRootId = input.message.threadRootId ?? null
+  // A chat's own messages reach the people in it (decision 35). A thread's
+  // reach whoever follows it, in the chat or not.
+  const inChat = chatMemberIds && !threadRootId ? new Set(chatMemberIds) : null
+  const recipientIds = inChat
+    ? visibleIds.filter((id) => inChat.has(id))
+    : visibleIds
   const [threadContext, callMemberIds] = await Promise.all([
     resolveThreadNotificationContext(input.message),
     threadRootId ? liveSessionChatMembers(threadRootId) : null,
@@ -517,7 +542,7 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
   // else it mentions learns who and where, never the content.
   const readerIds = callMemberIds
     ? recipientIds.filter((id) => callMemberIds.has(id))
-    : recipientIds
+    : [...recipientIds]
   const outsideCall = (userId: string) =>
     callMemberIds !== null && !callMemberIds.has(userId)
 
@@ -541,7 +566,8 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
     : new Set<string>()
   const mentionTypeByUserId = buildMentionTargets({
     audience,
-    recipients: recipientIds,
+    // A direct mention reaches anyone who can see the chat, in it or not.
+    recipients: visibleIds,
     broadcastRecipients: readerIds,
     broadcasts: !session,
     messageContent: input.message.content ?? "",
@@ -549,6 +575,20 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
   })
 
   const messageMentions = await listMentionUsers(mentionTypeByUserId)
+
+  // Writing in a chat, or being mentioned in it, puts a person in it: the
+  // mentioned get this message too.
+  if (inChat) {
+    const mentioned = [...mentionTypeByUserId]
+      .filter(([userId, type]) => type === "direct" && !inChat.has(userId))
+      .map(([userId]) => userId)
+    const writer =
+      allVisibleIds.includes(input.authorId) && !inChat.has(input.authorId)
+        ? [input.authorId]
+        : []
+    await joinChat(input.channel.id, [...mentioned, ...writer])
+    readerIds.push(...mentioned)
+  }
 
   // Subscribe authorized direct mentions before this message's fanout, so
   // their first mention notifies them too. Broadcasts never subscribe.
@@ -573,7 +613,8 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
     messageId: input.message.id,
     messageType: input.message.type,
     threadRootId: threadContext.threadRootId,
-    notify: notifies(userId),
+    // A chat that lives in another app leaves the ping to that app.
+    notify: notifies(userId) && !outside && !input.quiet,
     sessionId: session?.id ?? null,
     // Session activity never counts toward the channel badge; the session's
     // sidebar row shows it.
@@ -585,10 +626,11 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
     channelName: input.channel.name,
     workspaceName: input.channel.workspaceName ?? null,
   })
-  // A session message only reaches the people it notifies.
+  // A thread's or a session's message only reaches the people who follow
+  // it: it is not unread for the rest of the chat.
   const unreadNotifications: Array<UserTargetedPayload<UnreadNotification>> =
     readerIds
-      .filter((userId) => !session || notifies(userId))
+      .filter(notifies)
       .map((userId) => ({ userId, payload: unreadPayload(userId) }))
 
   if (mentionTypeByUserId.size === 0) {

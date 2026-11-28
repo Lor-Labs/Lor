@@ -13,9 +13,10 @@ import { user } from "./users"
 
 // Per-message targeting facts: who this message mentioned.
 // This is immutable/event-like data used to compute mention badges and unread mention counts.
-// Broadcast kinds: "everyone" = whole workspace (workspace-audience channels
-// only), "channel" = everyone who can see the channel, "here" = channel
-// audience ∩ online at send time. Only "direct" drives mention badges.
+// Broadcast kinds: "channel" = everyone in the chat (written `@chat`),
+// "here" = those of them online at send time. "everyone" (the whole
+// workspace) is no longer written: only rows from before have it. Only
+// "direct" drives mention badges.
 export const mentionTypeEnum = pgEnum("mention_type", [
   "direct",
   "everyone",

@@ -203,7 +203,7 @@ function InstructionsEditor({
         {isEmpty && (
           <span className="pointer-events-none absolute top-3 left-4 text-sm text-muted-foreground">
             e.g. Answer in English. Prefer linking Linear issues over quoting
-            them. In #engineering, always link the PR.
+            them. In the engineering chat, always link the PR.
           </span>
         )}
         <EditorContent editor={editor} />

@@ -1,7 +1,10 @@
-import type { schema } from "@repo/db"
+import { db, eq, schema } from "@repo/db"
+import { agentChannelIds } from "@repo/db/queries/agents"
 import type { RealtimeLoop } from "@repo/realtime-types/events"
+import { channelRoom } from "@repo/realtime-types/rooms"
 import { tool } from "ai"
 import { z } from "zod"
+import type { AgentLoopExecutors } from "./channel-agent"
 import { describeLoopSchedule, validateLoopSchedule } from "./loop-schedule"
 import type { Exact, SerializedDates } from "./wire-guard"
 
@@ -20,11 +23,41 @@ const _realtimeLoopMirrorsDbRow: Exact<
 > = true
 void _realtimeLoopMirrorsDbRow
 
+// Where a loop's events go: its chat's room, and the room of the chat its
+// card is in when that is another one, so the card there stays live. A Loop
+// with no chat goes to the chats its agent is in: the people who can see
+// them are who can see it (never the whole workspace, for an agent kept to
+// private chats). `rooms` can be empty: emit to nobody then, since an emit
+// to no room reaches every socket.
+export async function loopEventTargets(
+  row: Pick<LoopRow, "channelId" | "agentId" | "cardMessageId">
+): Promise<{ rooms: string[]; cardChannelId: string | null }> {
+  const channelIds = new Set<string>()
+  if (row.channelId) channelIds.add(row.channelId)
+  else if (row.agentId) {
+    for (const id of await agentChannelIds(row.agentId)) channelIds.add(id)
+  }
+  const [card] = row.cardMessageId
+    ? await db
+        .select({ channelId: schema.message.channelId })
+        .from(schema.message)
+        .where(eq(schema.message.id, row.cardMessageId))
+    : []
+  if (card) channelIds.add(card.channelId)
+  return {
+    rooms: [...channelIds].map(channelRoom),
+    cardChannelId: card?.channelId ?? null,
+  }
+}
+
 export function toRealtimeLoop(row: LoopRow): RealtimeLoop {
   return {
     id: row.id,
     workspaceId: row.workspaceId,
     channelId: row.channelId,
+    agentId: row.agentId,
+    changedById: row.changedById,
+    changedAt: row.changedAt ? row.changedAt.toISOString() : null,
     cardMessageId: row.cardMessageId,
     creatorId: row.creatorId,
     kind: row.kind,
@@ -120,11 +153,6 @@ export class LoopProposalError extends Error {}
 
 const SESSION_PROPOSE_DESCRIPTION =
   'Set up a scheduled loop in this channel: a recurring run of yourself that follows standing instructions on a cron schedule, each run a turn in the loop\'s own session. Use ONLY when someone asks for genuinely recurring work ("check the support queue every morning", "post a Friday digest") — never for one-off work you can just do now. This creates a DRAFT card in this conversation; nothing runs until a teammate presses Create Loop on it, so end your answer by pointing them at the card. `instructions` are the complete standing brief for every run — each run sees them and its own session, nothing else from this conversation, so include every detail it needs. `schedule` is a standard 5-field cron. `timezone`: pass an IANA timezone (e.g. America/New_York) ONLY when the conversation explicitly establishes one; otherwise pass null — the card shows the schedule in each viewer\'s local timezone and the activating teammate pins one. A loop can end one of three ways: when the ask names an outcome ("until the app ships"), put that finish line in `endCondition` and a future run will judge when it\'s met; when the ask names a duration ("for the next two weeks"), use `endAfter`; otherwise leave both null and the loop simply runs until the team stops it — don\'t describe that in words. Set at most one of the two.'
-
-// The channel agent's wording: a fire wakes it in the channel's chat, and the
-// draft card is posted there.
-const AGENT_PROPOSE_DESCRIPTION =
-  'Set up a Loop in this channel: a schedule that wakes you with standing instructions, on a cron. Use ONLY when a person asks for genuinely recurring work ("check the support queue every morning", "post a Friday digest"), never for one-off work you can do now. This posts a DRAFT card in the chat; nothing runs until a teammate presses Create Loop on it, so point them at the card with send_message. `instructions` are the complete standing brief for every run: write them so they stand on their own, with every detail a run needs. `schedule` is a standard 5-field cron. `timezone`: pass an IANA timezone (e.g. America/New_York) ONLY when the conversation explicitly establishes one; otherwise pass null: the card shows the schedule in each viewer\'s local timezone and the activating teammate pins one. A Loop can end one of three ways: when the ask names an outcome ("until the app ships"), put that finish line in `endCondition` and a later run judges when it is met; when the ask names a duration ("for the next two weeks"), use `endAfter`; otherwise leave both null and the Loop runs until the team stops it. Set at most one of the two.'
 
 // Bound on runs a person is part of (respond() spreads it in when the
 // executor is present): a trigger or a Loop must not schedule more Loops.
@@ -242,6 +270,179 @@ export const proposeLoopTool = {
   propose_loop: proposeLoop(SESSION_PROPOSE_DESCRIPTION),
 }
 
-export const agentProposeLoopTool = {
-  propose_loop: proposeLoop(AGENT_PROPOSE_DESCRIPTION),
+const DAY_MS = 86_400_000
+
+const endAfterSchema = z
+  .object({
+    // Anthropic's strict tools reject integer bounds, and zod's int()
+    // emits the safe-integer bounds, so it is checked when the tool runs.
+    amount: z.number().describe("a whole number from 1 to 365"),
+    unit: z.enum(["days", "weeks", "months"]),
+  })
+  .describe(
+    'fixed lifespan from now, e.g. {"amount": 2, "unit": "weeks"} for "run this for two weeks"'
+  )
+
+const endAfterIssue = (endAfter: LoopEndAfter | null | undefined) =>
+  endAfter &&
+  (!Number.isInteger(endAfter.amount) ||
+    endAfter.amount < 1 ||
+    endAfter.amount > 365)
+    ? "endAfter.amount must be a whole number from 1 to 365"
+    : null
+
+// How often a schedule runs, said to the agent when it is more than hourly:
+// nobody confirms the cadence any more, so the agent tells people.
+function frequencyNote(schedule: string, timezone: string): string | null {
+  const validation = validateLoopSchedule(schedule, timezone)
+  if (!validation.ok || !validation.requiresConfirmation) return null
+  const perDay = Math.max(1, Math.round(DAY_MS / validation.minGapMs))
+  return `It runs up to ${perDay} times a day, each run a turn of yours that costs the team: say how often it runs when you tell people.`
+}
+
+const agentLoopContext = z.object({
+  loops: z.custom<AgentLoopExecutors>(),
+})
+
+// The agent's own Loops (reference/agents-and-chats.md §9): it makes and
+// changes them with no approval, and the worker leaves the trace people see.
+// Always bound, so the tool set stays the same from turn to turn. A
+// workspace can put them behind an approval gate (AGENT_LOOP_GATE_TOOLS).
+export const agentOwnLoopTools = {
+  create_loop: tool({
+    description:
+      'Set up a Loop of your own: a schedule that wakes you with standing instructions, on a cron. It starts running at once (the team can require approval for it), and a card for it is posted in the chat this turn is about, so people see what you set up. Use it when a person asks for genuinely recurring work ("check the support queue every morning", "post a Friday digest"), or when work you were given needs you back on a cadence until it is done ("make a launch video every Wednesday until the company account has 100 followers"): then put the finish line in `endCondition`, so a later run ends it with complete_loop. Never for one-off work you can do now, and never for one return visit (wake_up brings you back once). `instructions` are the complete standing brief for every run: write them so they stand on their own, with every detail a run needs. `schedule` is a standard 5-field cron. `timezone` is the IANA timezone its times are in (e.g. America/New_York): the one the person named, or one you know is theirs. When the schedule depends on the time of day and you do not know their timezone, ask them first, then remember the answer; for your own cadence, UTC is fine. `chat` is the chat it reports in, by name or id, one you are in. Pass null when the work is not about one chat (it looks across your chats, works in your tools, or keeps your memory up to date): each run then posts wherever something needs saying, or nowhere. A Loop can end one of three ways: when the work names an outcome ("until the app ships"), put that finish line in `endCondition` and a later run judges when it is met; when it names a duration ("for the next two weeks"), use `endAfter`; otherwise leave both null and it runs until someone stops it. Set at most one of the two. When a person asked, tell them what you set up and how often it runs; when nobody asked, say so in the chat it matters to.',
+    inputSchema: z.object({
+      name: z
+        .string()
+        .min(1)
+        .max(MAX_NAME_CHARS)
+        .describe('short label for the card, e.g. "Morning queue check"'),
+      instructions: z.string().min(1).max(MAX_INSTRUCTIONS_CHARS),
+      schedule: z
+        .string()
+        .min(1)
+        .max(MAX_SCHEDULE_CHARS)
+        .describe('5-field cron expression, e.g. "0 9 * * 1-5"'),
+      timezone: z
+        .string()
+        .min(1)
+        .max(64)
+        .describe("IANA timezone the schedule is in, e.g. Europe/London"),
+      chat: z
+        .string()
+        .min(1)
+        .max(120)
+        .nullable()
+        .describe(
+          "the chat it reports in, by name or id, one you are in; null when the work is not about one chat"
+        ),
+      endCondition: z
+        .string()
+        .min(1)
+        .max(MAX_END_CONDITION_CHARS)
+        .nullable()
+        .describe(
+          'a real finish-line condition, e.g. "the mobile app has shipped". Null for a Loop that runs until someone stops it: never restate that as text'
+        ),
+      endAfter: endAfterSchema
+        .nullable()
+        .describe("null unless the ask names a duration"),
+    }),
+    contextSchema: agentLoopContext,
+    execute: async (
+      { name, instructions, schedule, timezone, chat, endCondition, endAfter },
+      { context }
+    ) => {
+      const amountIssue = endAfterIssue(endAfter)
+      if (amountIssue) return { ok: false as const, error: amountIssue }
+      const validation = validateLoopSchedule(schedule, timezone)
+      if (!validation.ok) {
+        return { ok: false as const, error: validation.reason }
+      }
+      const condition = normalizeEndCondition(endCondition)
+      if (condition && endAfter) {
+        return {
+          ok: false as const,
+          error: "pass endCondition OR endAfter, not both",
+        }
+      }
+      const made = await context.loops.create({
+        name,
+        instructions,
+        schedule,
+        timezone,
+        chat,
+        endCondition: condition,
+        endAt: endAfter ? endAfterToDate(endAfter) : null,
+      })
+      if (!made.ok) return made
+      return {
+        ...made,
+        scheduleDescription: describeLoopSchedule(schedule, timezone),
+        ...(frequencyNote(schedule, timezone)
+          ? { frequency: frequencyNote(schedule, timezone) }
+          : {}),
+      }
+    },
+    strict: true,
+  }),
+  update_loop: tool({
+    description:
+      "Change one of your own Loops: its name, instructions, schedule, timezone, the chat it reports in, when it ends, or whether it runs. It takes effect at once (the team can require approval for it), and a line in the Loop's chat says what you changed. Pass only what changes. Use it when a person asks for the change, or when a run shows the Loop needs it: its instructions are out of date, or the schedule no longer fits. `running: false` pauses it and `running: true` resumes it. `chat: null` takes it out of its chat, so its runs post wherever something needs saying. `endCondition: null` (or `endAfter: null`) removes its end. To end one for good, use complete_loop when it has an end condition; otherwise a person deletes it.",
+    inputSchema: z.object({
+      loopId: z
+        .string()
+        .uuid()
+        .describe(
+          'the Loop\'s id, from "Open right now" or the line that woke you'
+        ),
+      name: z.string().min(1).max(MAX_NAME_CHARS).optional(),
+      instructions: z.string().min(1).max(MAX_INSTRUCTIONS_CHARS).optional(),
+      schedule: z
+        .string()
+        .min(1)
+        .max(MAX_SCHEDULE_CHARS)
+        .optional()
+        .describe("5-field cron expression"),
+      timezone: z.string().min(1).max(64).optional().describe("IANA timezone"),
+      chat: z
+        .string()
+        .min(1)
+        .max(120)
+        .nullable()
+        .optional()
+        .describe("a chat you are in, by name or id; null for no chat"),
+      endCondition: z
+        .string()
+        .min(1)
+        .max(MAX_END_CONDITION_CHARS)
+        .nullable()
+        .optional(),
+      endAfter: endAfterSchema.nullable().optional(),
+      running: z.boolean().optional(),
+    }),
+    contextSchema: agentLoopContext,
+    execute: async ({ endAfter, endCondition, ...input }, { context }) => {
+      const amountIssue = endAfterIssue(endAfter)
+      if (amountIssue) return { ok: false as const, error: amountIssue }
+      const condition =
+        endCondition === undefined
+          ? undefined
+          : normalizeEndCondition(endCondition)
+      if (condition && endAfter) {
+        return {
+          ok: false as const,
+          error: "pass endCondition OR endAfter, not both",
+        }
+      }
+      return context.loops.update({
+        ...input,
+        ...(condition !== undefined ? { endCondition: condition } : {}),
+        ...(endAfter !== undefined
+          ? { endAt: endAfter ? endAfterToDate(endAfter) : null }
+          : {}),
+      })
+    },
+  }),
 }

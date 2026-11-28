@@ -1,4 +1,5 @@
 import {
+  AiCloudIcon,
   Camera01Icon,
   Cancel01Icon,
   CheckmarkSquare02Icon,
@@ -27,7 +28,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useDesktopChrome } from "@/components/desktop-window-frame"
 import { AgentProfilesSection } from "@/components/workspace/agent-profiles-section"
-import { AiAccountsSettings } from "@/components/workspace/ai-accounts-settings"
+import { AiProvidersSection } from "@/components/workspace/ai-providers-section"
 import { ApprovalsSection } from "@/components/workspace/approvals-section"
 import { BillingSection } from "@/components/workspace/billing-section"
 import { ConnectorsSection } from "@/components/workspace/connectors-section"
@@ -76,19 +77,23 @@ export type SectionId =
   | "approvals"
   | "instructions"
   | "billing"
-  | "ai-accounts"
+  | "ai-providers"
 
 const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "general", label: "General", icon: Settings01Icon },
   { id: "members", label: "Members & Roles", icon: UserGroupIcon },
   { id: "connectors", label: "Connectors", icon: Plug01Icon },
   { id: "custom-tools", label: "Tools", icon: Wrench01Icon },
-  { id: "ai-accounts", label: "Autonomous runs", icon: Layers01Icon },
+  { id: "ai-providers", label: "AI providers", icon: AiCloudIcon },
   { id: "agent", label: "Agent profiles", icon: Layers01Icon },
   { id: "approvals", label: "Approvals", icon: CheckmarkSquare02Icon },
   { id: "instructions", label: "LOR.md", icon: Scroll01Icon },
   { id: "billing", label: "Billing", icon: CreditCardIcon },
 ]
+
+// Admin-or-owner only, like Billing; the API enforces billing:manage and
+// approval:manage regardless.
+const ADMIN_SECTIONS: SectionId[] = ["billing", "approvals", "ai-providers"]
 
 // Resolves the URL ?tab= value to a section, so openers don't hand-maintain
 // the section list.
@@ -145,10 +150,8 @@ export function WorkspaceSettingsDialog({
     activeMember && membersData?.ownerId
       ? isAdminOrOwner(activeMember, { ownerId: membersData.ownerId })
       : false
-  // Approval policies ride the same admin-or-owner tier (the API enforces the
-  // approval:manage grant regardless).
   const sections = SECTIONS.filter(
-    (s) => (s.id !== "billing" && s.id !== "approvals") || canManageBilling
+    (s) => !ADMIN_SECTIONS.includes(s.id) || canManageBilling
   )
 
   // Close on Escape (no dialog primitive here, so wire it ourselves).
@@ -278,7 +281,7 @@ export function WorkspaceSettingsDialog({
               </div>
               {/* Vertical padding sits inside the scroll area so sticky
                   footers (SettingsFooter) pin flush to its bottom edge. */}
-              <div className="min-h-0 flex-1 overflow-y-auto px-6">
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 [scrollbar-gutter:stable]">
                 <div className="mx-auto max-w-2xl py-6">
                   {section === "general" ? (
                     // key on identity so the form resets if the workspace
@@ -297,8 +300,6 @@ export function WorkspaceSettingsDialog({
                     />
                   ) : section === "connectors" ? (
                     <ConnectorsSection workspaceSlug={workspace.slug} />
-                  ) : section === "ai-accounts" ? (
-                    <AiAccountsSettings workspaceSlug={workspace.slug} />
                   ) : section === "custom-tools" ? (
                     <CustomToolsSection
                       workspaceSlug={workspace.slug}
@@ -313,6 +314,11 @@ export function WorkspaceSettingsDialog({
                     <InstructionsSection workspaceSlug={workspace.slug} />
                   ) : section === "billing" && canManageBilling ? (
                     <BillingSection workspaceSlug={workspace.slug} />
+                  ) : section === "ai-providers" && canManageBilling ? (
+                    <AiProvidersSection
+                      key={workspace.slug}
+                      workspaceSlug={workspace.slug}
+                    />
                   ) : (
                     <AgentProfilesSection
                       workspaceSlug={workspace.slug}

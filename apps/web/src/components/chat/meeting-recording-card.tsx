@@ -3,11 +3,42 @@ import type { Message } from "@/lib/api-types"
 
 type Embed = Message["embeds"][number]
 
-export function isAttioRecording(embed: Embed): boolean {
+// Attio call recordings and Granola and Circleback meeting notes share one card.
+export function isMeetingCard(embed: Embed): boolean {
+  if (embed.siteName === "Granola" || embed.siteName === "Circleback") {
+    return Boolean(embed.meeting)
+  }
   return (
     embed.siteName === "Attio" &&
     (Boolean(embed.meeting) || embed.eventLabel === "Call recording ready")
   )
+}
+
+const MEETING_SITES = {
+  Attio: { color: "#d01e48", notes: false },
+  Granola: { color: "#b2c248", notes: true },
+  Circleback: { color: "#f24e1d", notes: true },
+} as const
+
+function meetingCopy(embed: Embed) {
+  const site =
+    embed.siteName === "Granola" || embed.siteName === "Circleback"
+      ? embed.siteName
+      : "Attio"
+  // Granola and Circleback send meeting notes; Attio a call recording.
+  const { color, notes } = MEETING_SITES[site]
+  return {
+    site,
+    color,
+    kind: notes ? "Meeting notes" : "Meeting recording",
+    fallbackTitle: notes ? "Meeting" : "Call recording",
+    ready: notes
+      ? "The notes are ready. Explore the meeting with Lor."
+      : "The recording is ready. Explore the discussion with Lor.",
+    excerpt: notes
+      ? "This is an excerpt of the meeting."
+      : "This is an excerpt of the recording.",
+  }
 }
 
 export function MeetingRecordingCard({
@@ -20,9 +51,10 @@ export function MeetingRecordingCard({
   const { workspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()
   const meeting = embed.meeting
+  const copy = meetingCopy(embed)
   const transcript = meeting?.transcript ?? embed.description
   const summary = meeting?.summary
-  const duration = meeting
+  const duration = meeting?.durationMinutes
     ? `${meeting.durationMinutes} min`
     : embed.fields?.find((field) => field.name === "Duration")?.value
   const canAsk = Boolean(workspaceSlug && !message.threadRootId)
@@ -43,10 +75,11 @@ export function MeetingRecordingCard({
       <div className="space-y-3 p-4">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-medium text-muted-foreground">
           <span
-            className="size-1.5 rounded-full bg-[#d01e48]"
+            className="size-1.5 rounded-full"
+            style={{ backgroundColor: copy.color }}
             aria-hidden="true"
           />
-          <span>Meeting recording</span>
+          <span>{copy.kind}</span>
           {duration && (
             <>
               <span aria-hidden="true">·</span>
@@ -60,13 +93,13 @@ export function MeetingRecordingCard({
               rel="noopener noreferrer"
               className="ml-auto rounded-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring"
             >
-              Open in Attio <span aria-hidden="true">↗</span>
+              Open in {copy.site} <span aria-hidden="true">↗</span>
             </a>
           )}
         </div>
         <div className="space-y-1.5">
           <h3 className="text-base font-semibold leading-snug tracking-tight text-foreground [overflow-wrap:anywhere]">
-            {embed.title ?? "Call recording"}
+            {embed.title ?? copy.fallbackTitle}
           </h3>
           {!!meeting?.participants?.length && (
             <p className="text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
@@ -79,9 +112,7 @@ export function MeetingRecordingCard({
             {summary}
           </p>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            The recording is ready. Explore the discussion with Lor.
-          </p>
+          <p className="text-sm text-muted-foreground">{copy.ready}</p>
         )}
         {transcript && (
           <details>
@@ -95,9 +126,7 @@ export function MeetingRecordingCard({
                 {transcript}
               </p>
               {(!meeting || meeting.transcriptTruncated) && (
-                <p className="mt-3 font-medium">
-                  This is an excerpt of the recording.
-                </p>
+                <p className="mt-3 font-medium">{copy.excerpt}</p>
               )}
             </div>
           </details>

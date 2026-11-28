@@ -155,9 +155,7 @@ export function SearchBar({
           <input
             ref={inputRef}
             type="text"
-            placeholder={
-              mode === "dm" ? "Search all DMs" : "Search all channels"
-            }
+            placeholder={mode === "dm" ? "Search all DMs" : "Search all chats"}
             value={query}
             onChange={(e) => handleQueryChange(e.target.value)}
             onFocus={() => setIsOpen(true)}
@@ -224,8 +222,7 @@ export function SearchBar({
                   {msg.author.name}
                 </span>
                 <span className="text-[10px] text-muted-foreground">
-                  in {mode === "workspace" ? "#" : ""}
-                  {msg.channelName}
+                  in {msg.channelName}
                 </span>
                 <span className="ml-auto text-[10px] text-muted-foreground">
                   {formatTime(msg.createdAt)}

@@ -22,6 +22,7 @@ import {
   useMemo,
   useRef,
 } from "react"
+import { useChannelAgentContext } from "@/components/agent/channel-agent"
 import {
   ChannelEventRow,
   isCollapsibleChannelEvent,
@@ -106,6 +107,7 @@ function EmptyState({
   context: ChatContext
   onNewSession?: () => void
 }) {
+  const channelAgent = useChannelAgentContext()
   return (
     <div className="flex flex-1 flex-col justify-end px-6 pb-4">
       <div className="flex flex-col items-start gap-3">
@@ -137,13 +139,12 @@ function EmptyState({
         <div>
           <h3 className="text-2xl font-extrabold">
             {context.type === "channel"
-              ? `Welcome to #${context.name}!`
+              ? `Welcome to ${context.name}!`
               : context.name}
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
             {context.type === "channel"
-              ? (context.topic ??
-                `This is the start of the #${context.name} channel.`)
+              ? (context.topic ?? `This is the start of ${context.name}.`)
               : context.type === "dm"
                 ? `This is the beginning of your direct message history with ${context.name}.`
                 : `This is the beginning of your group conversation.`}
@@ -152,8 +153,9 @@ function EmptyState({
         {onNewSession && (
           <div className="mt-2 flex max-w-md flex-col items-start gap-3">
             <p className="text-sm text-pretty text-muted-foreground">
-              This chat is for your team and Lor. Mention @Lor to ask it
-              something, or start a code session here.
+              {channelAgent
+                ? `This chat is for your team and ${channelAgent.name}. Mention @${channelAgent.name} to ask it something, or start a code session here.`
+                : "This chat is for your team. Add an agent in the chat's settings to have one read along, or start a code session here."}
             </p>
             <Button variant="secondary" size="sm" onClick={onNewSession}>
               <img src="/lor-mark.svg" alt="" className="size-3.5" />

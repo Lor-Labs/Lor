@@ -387,6 +387,9 @@ export const getAgentSessionResponseSchema = z.object({
   // "Continue in Code" or a fork: the session this one comes from. Same
   // channel.
   source: z.object({ id: z.string().uuid(), title: z.string() }).nullable(),
+  // The agent that started it (origin "agent"); null otherwise, or for one
+  // from before conversations.
+  startedByAgentId: z.string().uuid().nullable(),
 })
 
 // What the session started with, oldest segment first: a fork chain's
@@ -449,6 +452,29 @@ export const sessionReviewResponseSchema = z.object({
         title: z.string(),
         state: z.enum(["open", "closed", "merged"]),
         draft: z.boolean(),
+      }),
+      // CI on the pull request's head commit; "forbidden": the GitHub App
+      // lacks Checks: read.
+      checks: z.object({
+        sha: z.string(),
+        access: z.enum(["ok", "forbidden", "error"]),
+        checks: z.array(
+          z.object({
+            id: z.number().int().nullable(),
+            name: z.string(),
+            state: z.enum([
+              "queued",
+              "running",
+              "passed",
+              "failed",
+              "cancelled",
+              "skipped",
+              "neutral",
+            ]),
+            url: z.string().nullable(),
+            app: z.string().nullable(),
+          })
+        ),
       }),
       reviews: z.array(
         z.object({

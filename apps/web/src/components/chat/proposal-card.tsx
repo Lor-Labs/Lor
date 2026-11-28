@@ -32,6 +32,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import { type ReactNode, useState } from "react"
+import { useAgents } from "@/hooks/use-agents"
 import {
   type ChannelProposal,
   type ProposalSecretsPayload,
@@ -65,6 +66,7 @@ const OP_ICONS: Record<ProposalOperation["kind"], IconSvgObject> = {
   update_instructions: Scroll01Icon,
   create_agent_profile: SparklesIcon,
   assign_channel_profile: SparklesIcon,
+  assign_agent_profile: SparklesIcon,
   create_custom_tool: Wrench01Icon,
   create_mcp_server: PlugSocketIcon,
   set_approval_policy: Shield01Icon,
@@ -125,12 +127,12 @@ function channelRefLabel(
   if (ref.kind === "created") {
     const target = operations.find((o) => o.position === ref.opPosition)
     if (target?.spec.op === "create_channel") {
-      return `#${target.spec.name} (new)`
+      return `${target.spec.name} (new)`
     }
-    return `the channel from step ${(ref.opPosition ?? 0) + 1}`
+    return `the chat from step ${(ref.opPosition ?? 0) + 1}`
   }
   const name = ref.id ? channelNames.get(ref.id) : undefined
-  return name ? `#${name}` : "a channel"
+  return name || "a chat"
 }
 
 function profileRefLabel(
@@ -198,7 +200,7 @@ function opView(
       return {
         title: (
           <>
-            Create channel <Name>#{spec.name}</Name>
+            Create chat <Name>{spec.name}</Name>
           </>
         ),
         details: spec.topic ? [spec.topic] : [],
@@ -226,7 +228,7 @@ function opView(
         ),
         details: [
           [
-            spec.post ? "posts to the channel" : "does not post",
+            spec.post ? "posts to the chat" : "does not post",
             spec.actInstructions && "acts on each event",
           ]
             .filter(Boolean)
@@ -297,6 +299,16 @@ function opView(
               {channelRefLabel(spec.channel, operations, channelNames)}
             </Name>{" "}
             to use {profileRefLabel(spec.profile, operations)}
+          </>
+        ),
+        details: [],
+      }
+    case "assign_agent_profile":
+      return {
+        title: (
+          <>
+            Set <Name>{channelNames.get(spec.agentId) ?? "an agent"}</Name> to
+            use {profileRefLabel(spec.profile, operations)}
           </>
         ),
         details: [],
@@ -471,7 +483,7 @@ function OperationItem({
               params={{ workspaceSlug, channelId: op.result.resourceId }}
               className="inline-flex items-center gap-1 font-medium text-primary text-xs hover:underline"
             >
-              Open #{spec.name}
+              Open {spec.name}
             </Link>
           )}
         {op.result?.url && (
@@ -601,6 +613,7 @@ function ProposalCardBody({
     proposal.requiredPermissions
   )
 
+  const agents = useAgents(workspaceSlug)
   const channelsData = queryClient.getQueryData<ListChannelsResponse>([
     "channels",
     workspaceSlug,
@@ -614,6 +627,8 @@ function ProposalCardBody({
       if (ch.name) channelNames.set(ch.id, ch.name)
     }
   }
+  // Agents by id too: an operation may name one (assign_agent_profile).
+  for (const agent of agents) channelNames.set(agent.id, agent.name)
 
   const resolverName =
     membersData?.members.find((m) => m.userId === proposal.resolvedByUserId)

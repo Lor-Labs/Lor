@@ -315,6 +315,11 @@ export function useMessageSending({
         if (cancelInFlightRefetch()) refetchOwed.current = true
         pendingNonces.current.delete(nonce)
         if (result.ok) {
+          // The sender gets no broadcast of their own message: the chat
+          // list learns of it here (its preview is written by the server).
+          if (!threadRootId) {
+            void queryClient.invalidateQueries({ queryKey: ["chats"] })
+          }
           // The server moved the message into a new Lor session (`@Lor` in
           // chat or a human thread), so it leaves this list.
           const movedToSession =

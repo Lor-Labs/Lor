@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { agentConversation } from "./agent-conversations"
 import { channel } from "./channels"
 import { connectorTrigger } from "./connector-triggers"
 import { environment } from "./environments"
@@ -90,6 +91,12 @@ export const agentSession = pgTable(
       onDelete: "set null",
     }),
     origin: agentSessionOriginEnum("origin").notNull(),
+    // Origin "agent": the conversation that started it, which its turns
+    // report to.
+    conversationId: uuid("conversation_id").references(
+      () => agentConversation.id,
+      { onDelete: "set null" }
+    ),
     mode: agentSessionModeEnum("mode").notNull().default("chat"),
     // Fixed when the session starts: each harness keeps its own native
     // conversation, so a session never switches.

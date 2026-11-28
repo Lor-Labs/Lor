@@ -8,9 +8,16 @@ the work ships in one batch (Jacob, 11-19). It replaces the proposal in `planned
 as the record of how the design was reached. Where the two differ, this doc
 wins.
 
-The mocks at `/prototype/agents` and `/prototype/orchestration` show an
-earlier shape, with threads and a page per agent. §9 says which parts of them
-still apply.
+**Changing now:** `agents-and-chats.md` (Jacob, 2026-11-24) takes the agent
+off the channel. Its step 1 is built: decisions 8 (wake mode), 15, 17, 19 and
+32 below now hold per agent, not per channel, a channel can have no agent,
+and the "every message" wake mode is gone. Decisions 1 and 2 (one chat, one
+queue per channel) still describe the code until its step 2. Where the two
+docs differ, that one says what the code does.
+
+The mock at `/prototype/orchestration` shows an earlier shape, with threads
+and a page per agent. §9 says which parts of it still apply. The mock at
+`/prototype/agents` now shows `agents-and-chats.md`.
 
 ## 1. The product
 
@@ -99,7 +106,7 @@ proposal that he has not objected to and should confirm.
 | 40 | Teams will be able to make their own faces later. Not built, but the faces are built for it: a face is plain data (`FaceSpec` in `packages/utils/src/faces.ts`), a short list of solids a model can write from a description, and web, mobile and Discord all draw from that data, so a custom face is one more spec with no new drawing code (§13, Later) | Jacob, 11-21 |
 | 41 | The faces are 3D. Each creature is a handful of solids (balls, limbs, boxes) with two eyes on its surface, turned in space and drawn flat, with no WebGL and no shading: it turns to look at the pointer, the far eye thins and goes round the head, a snout shows in profile. It replaces the flat faces of decision 39, which a try-out of both settled; the palette, the eyes and the one-colour rule carry over. One definition (`packages/utils/src/faces.ts`) draws on web and on mobile; chat apps get a flat still (decision 42) | Jacob, 11-22 |
 | 42 | A chat app's avatar is a flat still, not the 3D face frozen: each creature keeps a hand-drawn front view (`packages/utils/src/face-stills.ts`) for Discord now and Slack later, kept for the long run. A 3D face at one angle reads worse than a drawing made for the front: the kraken's back legs fall behind its front ones and its four legs become a row of lines. A face with no still (a team's own, later) would fall back to its 3D face seen from the front | Jacob, 11-22 |
-| 43 | Which provider runs what: Boat becomes the default for coding sessions, with Blaxel as the fallback, since Blaxel costs about nine times as much per running hour and Lor charges $0.10 for an 8 GB hour. The agent's computer gets its own desktop image, built for both providers and designed so its files alone bring it back; a spike on both picks its default. No Mac boxes until someone asks; phone testing goes through Expo Simulators on the team's own account (`planned/agent-computer.md`, `boat-fallback.md`) | Jacob, 11-24 |
+| 43 | Which provider runs what: Boat becomes the default for coding sessions, with Blaxel as the fallback, since Blaxel costs about nine times as much per running hour and Lor charges $0.10 for an 8 GB hour. The agent's computer gets its own desktop image, built for both providers and designed so its files alone bring it back; a spike on both picks its default. No Mac boxes until someone asks (Jacob asked on 11-27: Macs for code sessions, NoMac recommended, in the same doc); phone testing goes through Expo Simulators on the team's own account (`planned/agent-computer.md`, `boat-fallback.md`) | Jacob, 11-24 |
 
 Considered and dropped, so they are not added back by accident:
 
@@ -682,9 +689,8 @@ run through the agent.
     team's instructions and who set them up (`triggerInboxNote`). The
     event's text is marked as outside content: information, never
     instructions.
-  - The hourly and daily limits now count wakes. Past one, the event waits
-    unread until the agent next wakes (delivery outcome `hourly_cap` or
-    `daily_cap`), instead of being dropped.
+  - The hourly and daily limits counted wakes; they were removed on
+    2026-11-26 (reference/agents-and-chats.md, decision 43).
   - The per-trigger batching window is gone: the inbox's own few seconds of
     quiet batch events. Session modes are gone from the trigger settings,
     which now say "Wakes Lor".

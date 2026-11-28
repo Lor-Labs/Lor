@@ -20,10 +20,11 @@ type AgentFact = {
   source: string
   updatedAt: string
   editedBy: { id: string; name: string } | null
+  // Set once the agent dropped it to make room; such a fact is not listed.
+  archivedAt: string | null
 }
 
-const agentFactsKey = (channelId: string) =>
-  ["channel-agent-facts", channelId] as const
+const agentFactsKey = (agentId: string) => ["agent-facts", agentId] as const
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -32,17 +33,17 @@ function formatDate(iso: string) {
   })
 }
 
-// The channel agent's facts (reference/always-on-agents.md §7): what it
-// keeps after its turns, each with its source and date. Anyone in the
-// channel can edit or delete one; it saves at once and reaches the agent as
+// An agent's facts (reference/always-on-agents.md §7): what it keeps after
+// its turns, in any channel, each with its source and date. Anyone who sees
+// the agent can edit or delete one; it saves at once and reaches the agent as
 // a change note on its next turn. As web's agent-facts-list.tsx.
 export function AgentFacts({
   workspaceSlug,
-  channelId,
+  agentId,
   agentName,
 }: {
   workspaceSlug: string
-  channelId: string
+  agentId: string
   agentName: string
 }) {
   const [foreground, muted, danger] = useThemeColor([
@@ -53,13 +54,14 @@ export function AgentFacts({
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const facts = useQuery({
-    queryKey: agentFactsKey(channelId),
+    queryKey: agentFactsKey(agentId),
     queryFn: async (): Promise<AgentFact[]> => {
-      const res = await api.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ]["agent-facts"].$get({ param: { workspaceSlug, channelId } })
+      const res = await api.v1.workspaces[":workspaceSlug"].agents[
+        ":agentId"
+      ].facts.$get({ param: { workspaceSlug, agentId } })
       if (!res.ok) throw new Error("Couldn't load the facts")
-      return (await res.json()).facts
+      // Archived facts are managed on web.
+      return (await res.json()).facts.filter((fact) => !fact.archivedAt)
     },
   })
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(
@@ -68,10 +70,10 @@ export function AgentFacts({
 
   const save = useMutation({
     mutationFn: async (input: { id: string; text: string }) => {
-      const res = await api.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ]["agent-facts"][":factId"].$patch({
-        param: { workspaceSlug, channelId, factId: input.id },
+      const res = await api.v1.workspaces[":workspaceSlug"].agents[
+        ":agentId"
+      ].facts[":factId"].$patch({
+        param: { workspaceSlug, agentId, factId: input.id },
         json: { text: input.text },
       })
       if (!res.ok) {
@@ -87,8 +89,8 @@ export function AgentFacts({
           : current
       )
       // A fetch that started before the save would put the old text back.
-      await queryClient.cancelQueries({ queryKey: agentFactsKey(channelId) })
-      queryClient.setQueryData<AgentFact[]>(agentFactsKey(channelId), (list) =>
+      await queryClient.cancelQueries({ queryKey: agentFactsKey(agentId) })
+      queryClient.setQueryData<AgentFact[]>(agentFactsKey(agentId), (list) =>
         list?.map((fact) => (fact.id === saved.id ? saved : fact))
       )
     },
@@ -101,10 +103,10 @@ export function AgentFacts({
   })
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      const res = await api.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ]["agent-facts"][":factId"].$delete({
-        param: { workspaceSlug, channelId, factId: id },
+      const res = await api.v1.workspaces[":workspaceSlug"].agents[
+        ":agentId"
+      ].facts[":factId"].$delete({
+        param: { workspaceSlug, agentId, factId: id },
       })
       if (!res.ok) {
         throw new Error(await responseMessage(res, "Couldn't delete the fact"))
@@ -112,8 +114,8 @@ export function AgentFacts({
       return id
     },
     onSuccess: async (id) => {
-      await queryClient.cancelQueries({ queryKey: agentFactsKey(channelId) })
-      queryClient.setQueryData<AgentFact[]>(agentFactsKey(channelId), (list) =>
+      await queryClient.cancelQueries({ queryKey: agentFactsKey(agentId) })
+      queryClient.setQueryData<AgentFact[]>(agentFactsKey(agentId), (list) =>
         list?.filter((fact) => fact.id !== id)
       )
     },
@@ -143,8 +145,8 @@ export function AgentFacts({
         {list.length > 0 ? `Facts · ${list.length}` : "Facts"}
       </SectionLabel>
       <Text className="text-xs leading-4 text-muted">
-        What {agentName} keeps about this channel after its turns, in front of
-        it on every turn. Anyone here can edit or delete one.
+        What {agentName} keeps after its turns, in front of it on every turn in
+        every chat it is in. Anyone who sees {agentName} can edit or delete one.
       </Text>
       {facts.isPending ? (
         <View className="gap-two rounded-lor-lg bg-surface-secondary p-three">
@@ -165,8 +167,8 @@ export function AgentFacts({
       ) : list.length === 0 ? (
         <View className="rounded-lor-lg border border-dashed border-separator px-three py-three">
           <Text className="text-sm leading-5 text-muted">
-            No facts yet. {agentName} adds them as it learns how this channel
-            works, and saves anything you ask it to remember.
+            No facts yet. {agentName} adds them as it learns how the team works,
+            and saves anything you ask it to remember.
           </Text>
         </View>
       ) : (

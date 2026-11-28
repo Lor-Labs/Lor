@@ -12,8 +12,9 @@ import {
   sql,
 } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
+import { channelAgentId } from "@repo/db/queries/agents"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
-import { getWorkspaceHarnessSettings } from "@repo/db/queries/personal-accounts"
+import { getHarnessSettings } from "@repo/db/queries/personal-accounts"
 import type {
   ActSessionMode,
   AgentSession,
@@ -26,7 +27,7 @@ import {
   releaseActRunDeliveries,
 } from "@repo/lor/act-runs"
 import { createSession, toRealtimeAgentSession } from "@repo/lor/agent-sessions"
-import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
+import { allowedCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   ACT_FLUSH_JOB,
@@ -107,7 +108,9 @@ export async function startActSession(
       : []
   const sessionId = randomUUID()
   const code = input.code ? await actCodeStart(input, sessionId) : null
-  const settings = await getWorkspaceHarnessSettings(input.workspaceId)
+  const settings = await getHarnessSettings({
+    agentId: await channelAgentId(input.channelId),
+  })
   const session = await db.transaction((tx) =>
     createSession(tx, {
       id: sessionId,
@@ -149,9 +152,10 @@ async function actCodeStart(
   note: string | null
 }> {
   if (!input.code) return { note: null }
-  const allowed = await channelCodeRepo(
+  // An Act session works as the chat's first agent, with its tools.
+  const allowed = await allowedCodeRepo(
     input.workspaceId,
-    input.channelId,
+    await channelAgentId(input.channelId),
     input.code.repoFullName
   ).catch(() => null)
   if (!allowed || !isSafeBranch(input.code.baseBranch)) {

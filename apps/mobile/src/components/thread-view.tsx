@@ -3,7 +3,6 @@ import LockedIcon from "@hugeicons/core-free-icons/LockedIcon"
 import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { LOR_USER_ID } from "@repo/db/constants"
-import { channelAgentIdentity } from "@repo/utils/bestiary"
 import { isHarnessAllowedInBeta, isHarnessEnabled } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { router } from "expo-router"
@@ -63,6 +62,11 @@ import {
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
 import {
+  agentCreature,
+  channelAgentOf,
+  useAgentsById,
+} from "@/hooks/use-agents"
+import {
   useChannelApprovals,
   usePausedLorMessageId,
 } from "@/hooks/use-approvals"
@@ -111,6 +115,8 @@ export type ThreadViewProps = {
   threadRootId: string
   // A Lor session's transcript.
   session?: AgentSession
+  // The agent that started it, when one did.
+  startedByAgentId?: string | null
   // The session's start isn't confirmed yet.
   sessionPending?: boolean
 }
@@ -125,6 +131,7 @@ export function ThreadView({
   tab,
   threadRootId,
   session: lorSession,
+  startedByAgentId = null,
   sessionPending = false,
 }: ThreadViewProps) {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
@@ -239,7 +246,6 @@ export function ThreadView({
   const mentions = useWorkspaceMentionCandidates({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
-    channelAudience: channelState.channel?.audience,
     broadcasts: !lorSession,
   })
   const avatarColorByUserId = useMemo(
@@ -394,17 +400,23 @@ export function ThreadView({
   )
   // Memoized: the list re-renders its rows only when its items change, and
   // the heading is one, so it changes them exactly when its content does.
-  // The channel's agent, for a session it started or briefed.
-  const sessionChannel = channelState.channel
+  // The agent that started the session, else the chat's first agent.
+  const agentsById = useAgentsById(workspace?.slug)
+  const placedAgent = lorSession
+    ? ((startedByAgentId && agentsById.get(startedByAgentId)) ??
+      channelAgentOf(channelState.channel, agentsById))
+    : null
   const sessionChannelAgent = useMemo(
     () =>
-      lorSession && sessionChannel?.type === "text"
+      placedAgent
         ? {
-            channelId: sessionChannel.id,
-            ...channelAgentIdentity(sessionChannel),
+            id: placedAgent.id,
+            channelId,
+            name: placedAgent.name,
+            creature: agentCreature(placedAgent),
           }
         : null,
-    [lorSession, sessionChannel]
+    [placedAgent, channelId]
   )
   const sessionHeading = useMemo(() => {
     if (!lorSession) return undefined
@@ -438,7 +450,7 @@ export function ThreadView({
             : lorSession.origin === "trigger"
               ? "Started by an automation"
               : lorSession.origin === "agent"
-                ? `Started by ${sessionChannelAgent?.name ?? "the channel's agent"}`
+                ? `Started by ${sessionChannelAgent?.name ?? "an agent"}`
                 : `Started by ${nameOf(lorSession.creatorId)}`
         }
         starter={

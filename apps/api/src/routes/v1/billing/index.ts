@@ -14,16 +14,9 @@ import { getRedisClient } from "@/lib/redis"
 import * as handlers from "@/routes/v1/billing/handlers"
 import * as routes from "@/routes/v1/billing/routes"
 import { entitlements, entitlementsHandler } from "./entitlements"
-import * as providerKeys from "./provider-keys"
 
 const billingRouter = createRouter()
   .openapi(entitlements, entitlementsHandler)
-  .openapi(providerKeys.listProviderKeys, providerKeys.listProviderKeysHandler)
-  .openapi(providerKeys.putProviderKey, providerKeys.putProviderKeyHandler)
-  .openapi(
-    providerKeys.deleteProviderKey,
-    providerKeys.deleteProviderKeyHandler
-  )
   .openapi(routes.getBilling, handlers.getBilling)
   .openapi(routes.subscribe, handlers.subscribe)
   .openapi(routes.topup, handlers.topup)

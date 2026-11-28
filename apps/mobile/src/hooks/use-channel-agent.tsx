@@ -1,10 +1,6 @@
 import { LOR_USER_ID } from "@repo/db/constants"
 import type { TypingIndicatorEvent } from "@repo/realtime-types"
-import {
-  type CreatureId,
-  type CreatureState,
-  channelAgentIdentity,
-} from "@repo/utils/bestiary"
+import type { CreatureId, CreatureState } from "@repo/utils/bestiary"
 import {
   createContext,
   type ReactNode,
@@ -15,10 +11,17 @@ import {
 } from "react"
 import { useSocket } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
+import {
+  agentCreature,
+  channelAgentOf,
+  useAgentsById,
+  type WorkspaceAgent,
+} from "@/hooks/use-agents"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useWorkspaceActivity } from "@/hooks/use-workspace-activity"
 
 export type ChannelAgent = {
+  id: string
   channelId: string
   name: string
   creature: CreatureId
@@ -86,13 +89,25 @@ function useAgentActivity(workspaceId: string | undefined, channelId: string) {
 }
 
 const ChannelAgentContext = createContext<ChannelAgent | null>(null)
+// Every agent in the channel, first one first: a chat can hold several
+// (reference/agents-and-chats.md, decision 32), each posting as its own
+// bot user.
+const NO_AGENTS: ChannelAgent[] = []
+const ChannelAgentsContext = createContext<ChannelAgent[]>(NO_AGENTS)
 // Apart from who it is, so a change of state doesn't re-render every message.
 const ChannelAgentStateContext = createContext<CreatureState>("asleep")
+// A text channel with no agent: plain human chat, where nothing answers @Lor.
+const NoChannelAgentContext = createContext(false)
+// Every agent in the workspace, so one that has left the chat keeps its name.
+const WorkspaceAgentsContext = createContext<{
+  channelId: string
+  agentsById: ReadonlyMap<string, WorkspaceAgent>
+} | null>(null)
 
-// Lor's messages in a text channel's chat and threads are its agent's: the
-// name and creature the team picked (reference/always-on-agents.md,
-// decisions 32 and 33), and what it is doing now. Sessions have no provider,
-// so Lor stays Lor there.
+// Lor's messages in a channel's chat and threads are its agent's: the name
+// and creature the team picked (reference/agents-and-chats.md), and what it
+// is doing now. Null in a channel with no agent, and in sessions, which have
+// no provider: Lor stays Lor there.
 export function ChannelAgentProvider({
   workspaceSlug,
   channelId,
@@ -104,12 +119,39 @@ export function ChannelAgentProvider({
 }) {
   const { workspace } = useWorkspace()
   const { channel } = useChannelDetail({ workspaceSlug, channelId })
+  const agentsById = useAgentsById(workspaceSlug)
+  const found = channelAgentOf(channel, agentsById)
   const agent = useMemo(
     () =>
-      channel && channel.type === "text"
-        ? { channelId: channel.id, ...channelAgentIdentity(channel) }
+      found
+        ? {
+            id: found.id,
+            channelId,
+            name: found.name,
+            creature: agentCreature(found),
+          }
         : null,
-    [channel]
+    [found, channelId]
+  )
+  const agentIds = channel?.agentIds
+  const agents = useMemo(
+    () =>
+      (agentIds ?? []).flatMap((id) => {
+        const item = agentsById.get(id)
+        return item
+          ? {
+              id: item.id,
+              channelId,
+              name: item.name,
+              creature: agentCreature(item),
+            }
+          : []
+      }),
+    [agentIds, agentsById, channelId]
+  )
+  const workspaceAgents = useMemo(
+    () => ({ channelId, agentsById }),
+    [channelId, agentsById]
   )
   const activity = useAgentActivity(workspace?.id, channelId)
   const working = useAgentWorking(channelId, Boolean(activity?.agentWorking))
@@ -121,9 +163,17 @@ export function ChannelAgentProvider({
       : "asleep"
   return (
     <ChannelAgentContext value={agent}>
-      <ChannelAgentStateContext value={state}>
-        {children}
-      </ChannelAgentStateContext>
+      <ChannelAgentsContext value={agents}>
+        <ChannelAgentStateContext value={state}>
+          <NoChannelAgentContext
+            value={channel?.type === "text" && channel.agentIds.length === 0}
+          >
+            <WorkspaceAgentsContext value={workspaceAgents}>
+              {children}
+            </WorkspaceAgentsContext>
+          </NoChannelAgentContext>
+        </ChannelAgentStateContext>
+      </ChannelAgentsContext>
     </ChannelAgentContext>
   )
 }
@@ -132,8 +182,43 @@ export function useChannelAgent() {
   return useContext(ChannelAgentContext)
 }
 
+// Every agent in the channel, for resolving a mention of one.
+export function useChannelAgents() {
+  return useContext(ChannelAgentsContext)
+}
+
+// The agent that wrote a message here (`message.agentId`): one that left the
+// chat keeps its name; one of Lor's own (no agentId) is the first agent's. A
+// deleted agent's is null, so the post keeps its bot user's name.
+export function useMessageAgent(
+  agentId: string | null | undefined
+): ChannelAgent | null {
+  const first = useContext(ChannelAgentContext)
+  const agents = useContext(ChannelAgentsContext)
+  const workspaceAgents = useContext(WorkspaceAgentsContext)
+  return useMemo(() => {
+    if (!agentId) return first
+    const here = agents.find((agent) => agent.id === agentId)
+    if (here) return here
+    const gone = workspaceAgents?.agentsById.get(agentId)
+    return gone && workspaceAgents
+      ? {
+          id: gone.id,
+          channelId: workspaceAgents.channelId,
+          name: gone.name,
+          creature: agentCreature(gone),
+        }
+      : null
+  }, [agentId, first, agents, workspaceAgents])
+}
+
 export function useChannelAgentState() {
   return useContext(ChannelAgentStateContext)
+}
+
+// False outside a channel (sessions), where Lor is the session's agent.
+export function useChannelHasNoAgent() {
+  return useContext(NoChannelAgentContext)
 }
 
 export const AGENT_STATE_TEXT = {

@@ -1,6 +1,7 @@
 import {
   Add01Icon,
   GitBranchIcon,
+  SourceCodeIcon,
   UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -21,23 +22,24 @@ import {
   type Agent,
   agentById,
   agents,
+  type Channel,
+  channels,
   type Work,
   type WorkState,
 } from "./agents-data"
 import {
   AgentAvatar,
   type AgentStatus,
+  PlaceIcon,
   PRESS,
-  RoomIcon,
-  Segmented,
   StateIcon,
 } from "./agents-parts"
 import { useProto } from "./agents-store"
 
 type Row = {
   key: string
+  agentId: string
   title: string
-  agentName: string
   code: boolean
   state: WorkState
   active: boolean
@@ -45,57 +47,53 @@ type Row = {
   open: () => void
 }
 
-// Your work across every agent: the threads you are in and the code
-// threads you started yourself.
+const ORDER = { needs_you: 0, running: 1, done: 2 } as const
+
+// Your work across every agent: the chats you are in and the code sessions
+// you started yourself. Other people's chats stay on the agent's page.
 function useMyWork(): Row[] {
-  const { threads, works, view, stateOf, childrenOf, openThread, openWork } =
+  const { chats, works, view, stateOf, childrenOf, openChat, openWork } =
     useProto()
-  const chats = threads
-    .filter((thread) => thread.people.some((person) => person.id === me.id))
-    .map((thread) => ({
-      key: thread.id,
-      title: thread.title,
-      agentName: agentById(thread.agentId)?.name ?? "",
+  const mine = chats
+    .filter((chat) => chat.people.some((person) => person.id === me.id))
+    .map((chat) => ({
+      key: chat.id,
+      agentId: chat.agentId,
+      title: chat.title,
       code: false,
-      state: stateOf(thread.id),
-      active: view.kind === "thread" && view.threadId === thread.id,
-      kids: childrenOf(thread.id).filter((work) => work.mode === "code"),
-      open: () => openThread(thread.id),
+      state: stateOf(chat.id),
+      active: view.kind === "chat" && view.chatId === chat.id,
+      kids: childrenOf(chat.id).filter((work) => work.mode === "code"),
+      open: () => openChat(chat.id),
     }))
   const code = Object.values(works)
-    .filter((work) => !work.parentId && work.owner.id === me.id)
+    .filter((work) => !work.parentId && work.asker.id === me.id)
     .reverse()
     .map((work) => ({
       key: work.id,
+      agentId: work.agentId,
       title: work.title,
-      agentName: agentById(work.agentId)?.name ?? "",
       code: true,
       state: work.state,
       active: view.kind === "code" && view.workId === work.id,
       kids: [],
       open: () => openWork(work.id),
     }))
-  return [...code, ...chats]
+  return [...mine, ...code].sort((a, b) => ORDER[a.state] - ORDER[b.state])
 }
 
-const GROUPS: { state: WorkState; label: string }[] = [
-  { state: "needs_you", label: "Needs you" },
-  { state: "running", label: "Running" },
-  { state: "done", label: "Recent" },
-]
+const ROW =
+  "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-foreground/[0.05]"
+const ACTIVE = "bg-foreground/[0.07] hover:bg-foreground/[0.07]"
 
-function MyWorkRow({ row }: { row: Row }) {
+function WorkRow({ row, agentName }: { row: Row; agentName?: string }) {
   const { canvas, openWork } = useProto()
   return (
     <div>
       <button
         type="button"
         onClick={row.open}
-        className={cn(
-          "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-foreground/[0.05]",
-          PRESS,
-          row.active && "bg-foreground/[0.07] hover:bg-foreground/[0.07]"
-        )}
+        className={cn(ROW, PRESS, row.active && ACTIVE)}
       >
         <StateIcon state={row.state} />
         <span className="min-w-0 flex-1 truncate text-[13.5px]">
@@ -108,9 +106,11 @@ function MyWorkRow({ row }: { row: Row }) {
             strokeWidth={2}
           />
         )}
-        <span className="shrink-0 text-[12px] text-muted-foreground">
-          {row.agentName}
-        </span>
+        {agentName && (
+          <span className="shrink-0 text-[12px] text-muted-foreground">
+            {agentName}
+          </span>
+        )}
       </button>
       {row.active && row.kids.length > 0 && (
         <div className="mt-0.5 ml-[17px] flex flex-col gap-0.5 border-l border-border/70 pl-2">
@@ -120,11 +120,10 @@ function MyWorkRow({ row }: { row: Row }) {
               type="button"
               onClick={() => openWork(work.id)}
               className={cn(
-                "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-foreground/[0.05]",
+                ROW,
                 PRESS,
-                canvas?.kind === "work" &&
-                  canvas.workId === work.id &&
-                  "bg-foreground/[0.07] hover:bg-foreground/[0.07]"
+                "gap-2 py-1",
+                canvas?.kind === "work" && canvas.workId === work.id && ACTIVE
               )}
             >
               <StateIcon state={work.state} />
@@ -139,92 +138,97 @@ function MyWorkRow({ row }: { row: Row }) {
   )
 }
 
-function MyWorkList({ rows }: { rows: Row[] }) {
+function Heading({ children }: { children: string }) {
   return (
-    <div className="flex flex-col gap-4 pt-3">
-      {GROUPS.map((group) => {
-        const items = rows.filter((row) => row.state === group.state)
-        if (items.length === 0) return null
-        return (
-          <section key={group.state}>
-            <h3 className="px-2 pb-1 text-[12px] font-medium text-muted-foreground">
-              {group.label}
-            </h3>
-            <div className="flex flex-col gap-0.5">
-              {items.map((row) => (
-                <MyWorkRow key={row.key} row={row} />
-              ))}
-            </div>
-          </section>
-        )
-      })}
+    <h3 className="px-2 pb-1 text-[12px] font-medium text-muted-foreground">
+      {children}
+    </h3>
+  )
+}
+
+function useAgentStatus(agent: Agent, waiting: boolean): AgentStatus {
+  const { works, configured } = useProto()
+  if (!configured[agent.id]) return "off"
+  if (waiting) return "needs_you"
+  const running = Object.values(works).some(
+    (work) => work.agentId === agent.id && work.state === "running"
+  )
+  return running ? "working" : "idle"
+}
+
+// An agent, with your chats with it underneath. A chat that waits on you
+// sits under Needs you until it is handled.
+function AgentGroup({
+  agent,
+  rows,
+  waiting,
+}: {
+  agent: Agent
+  rows: Row[]
+  waiting: boolean
+}) {
+  const { view, configured, openAgent } = useProto()
+  const status = useAgentStatus(agent, waiting)
+  const active =
+    (view.kind === "agent" || view.kind === "new") && view.agentId === agent.id
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => openAgent(agent.id)}
+        className={cn(ROW, PRESS, "gap-2.5 py-1.5", active && ACTIVE)}
+      >
+        <AgentAvatar agent={agent} status={status} size={26} />
+        <span className="min-w-0 flex-1 truncate text-[14px] font-medium">
+          {agent.name}
+        </span>
+        <span className="shrink-0 text-[12px] text-muted-foreground">
+          {configured[agent.id] ? agent.role : "Not set up"}
+        </span>
+      </button>
+      {rows.length > 0 && (
+        <div className="mt-0.5 ml-[20px] flex flex-col gap-0.5 border-l border-border/70 pl-1.5">
+          {rows.map((row) => (
+            <WorkRow key={row.key} row={row} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-function useRosterRow(agent: Agent): { status: AgentStatus; line: string } {
-  const { works, threads, configured, stateOf } = useProto()
-  if (!configured[agent.id]) return { status: "off", line: "Not set up yet" }
-  const needs = threads.find(
-    (thread) =>
-      thread.agentId === agent.id &&
-      thread.people.some((person) => person.id === me.id) &&
-      stateOf(thread.id) === "needs_you"
-  )
-  if (needs) return { status: "needs_you", line: `Needs you: ${needs.title}` }
-  const running = Object.values(works).filter(
-    (work) => work.agentId === agent.id && work.state === "running"
-  ).length
-  if (running > 0) {
-    return {
-      status: "working",
-      line: `${running} ${running === 1 ? "thread" : "work"} running`,
-    }
-  }
-  return { status: "idle", line: agent.job }
-}
-
-function RosterRow({ agent }: { agent: Agent }) {
-  const { view, rooms, openAgent } = useProto()
-  const { status, line } = useRosterRow(agent)
-  const room = rooms[agent.id]
-  const active =
-    (view.kind === "agent" || view.kind === "new") && view.agentId === agent.id
+function ChannelRow({ channel }: { channel: Channel }) {
+  const { view, channelAgents, openChannel } = useProto()
+  const agent = agentById(channelAgents[channel.id] ?? "")
+  const active = view.kind === "channel" && view.channelId === channel.id
   return (
     <button
       type="button"
-      onClick={() => openAgent(agent.id)}
-      className={cn(
-        "flex w-full cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-foreground/[0.05]",
-        PRESS,
-        active && "bg-foreground/[0.07] hover:bg-foreground/[0.07]"
-      )}
+      onClick={() => openChannel(channel.id)}
+      title={
+        agent ? `${agent.name} is in #${channel.name}` : "No agent in here"
+      }
+      className={cn(ROW, PRESS, active && ACTIVE)}
     >
-      <AgentAvatar agent={agent} status={status} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[14px] font-medium leading-5">
-          {agent.name}
-        </span>
-        <span
-          className={cn(
-            "block truncate text-[12.5px] leading-4",
-            status === "needs_you"
-              ? "text-foreground/80"
-              : "text-muted-foreground"
-          )}
-        >
-          {line}
-        </span>
+      <span className="flex size-4 shrink-0 items-center justify-center text-[15px] text-muted-foreground">
+        {channel.place === "lor" ? (
+          "#"
+        ) : (
+          <PlaceIcon place={channel.place} className="size-3.5" />
+        )}
       </span>
-      {room && <RoomIcon room={room} className="text-muted-foreground/70" />}
+      <span className="min-w-0 flex-1 truncate text-[13.5px]">
+        {channel.name}
+      </span>
+      {agent && <AgentAvatar agent={agent} size={18} />}
     </button>
   )
 }
 
 export function AgentsSidebar() {
-  const { sidebarTab, setSidebarTab, openNew } = useProto()
+  const { openNew, openNewCode } = useProto()
   const rows = useMyWork()
-  const needs = rows.filter((row) => row.state === "needs_you").length
+  const needs = rows.filter((row) => row.state === "needs_you")
   return (
     <Sidebar variant="inset">
       <DesktopSidebarTitlebar />
@@ -250,54 +254,79 @@ export function AgentsSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="gap-0 px-2 pb-2">
-        <button
-          type="button"
-          onClick={() => openNew()}
-          className={cn(
-            "mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-border/70 px-2.5 py-1.5 text-left text-[13.5px] font-medium hover:bg-foreground/[0.05]",
-            PRESS
-          )}
-        >
-          <HugeiconsIcon
-            icon={Add01Icon}
-            className="size-4 text-muted-foreground"
-            strokeWidth={2}
-          />
-          New session
-        </button>
+        <div className="mt-1 flex gap-1.5">
+          <button
+            type="button"
+            onClick={() => openNew()}
+            className={cn(
+              "flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-lg border border-border/70 px-2.5 py-1.5 text-left text-[13.5px] font-medium hover:bg-foreground/[0.05]",
+              PRESS
+            )}
+          >
+            <HugeiconsIcon
+              icon={Add01Icon}
+              className="size-4 text-muted-foreground"
+              strokeWidth={2}
+            />
+            New chat
+          </button>
+          <button
+            type="button"
+            onClick={() => openNewCode()}
+            aria-label="New code session"
+            title="New code session, straight in one repo"
+            className={cn(
+              "flex size-[34px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border/70 text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground",
+              PRESS
+            )}
+          >
+            <HugeiconsIcon
+              icon={SourceCodeIcon}
+              className="size-4"
+              strokeWidth={2}
+            />
+          </button>
+        </div>
 
-        <Segmented
-          id="sidebar-tab"
-          className="mt-3"
-          value={sidebarTab}
-          onChange={setSidebarTab}
-          items={[
-            {
-              id: "work",
-              label: (
-                <>
-                  Work
-                  {needs > 0 && (
-                    <span className="rounded-full bg-warning/20 px-1.5 text-[11px] font-semibold text-warning-foreground tabular-nums">
-                      {needs}
-                    </span>
-                  )}
-                </>
-              ),
-            },
-            { id: "agents", label: "Agents" },
-          ]}
-        />
+        {needs.length > 0 && (
+          <section className="pt-4">
+            <Heading>Needs you</Heading>
+            <div className="flex flex-col gap-0.5">
+              {needs.map((row) => (
+                <WorkRow
+                  key={row.key}
+                  row={row}
+                  agentName={agentById(row.agentId)?.name}
+                />
+              ))}
+            </div>
+          </section>
+        )}
 
-        {sidebarTab === "work" ? (
-          <MyWorkList rows={rows} />
-        ) : (
-          <div className="flex flex-col gap-0.5 pt-3">
+        <section className="pt-4">
+          <Heading>Agents</Heading>
+          <div className="flex flex-col gap-1">
             {agents.map((agent) => (
-              <RosterRow key={agent.id} agent={agent} />
+              <AgentGroup
+                key={agent.id}
+                agent={agent}
+                rows={rows.filter(
+                  (row) => row.agentId === agent.id && row.state !== "needs_you"
+                )}
+                waiting={needs.some((row) => row.agentId === agent.id)}
+              />
             ))}
           </div>
-        )}
+        </section>
+
+        <section className="pt-4">
+          <Heading>Channels</Heading>
+          <div className="flex flex-col gap-0.5">
+            {channels.map((channel) => (
+              <ChannelRow key={channel.id} channel={channel} />
+            ))}
+          </div>
+        </section>
       </SidebarContent>
 
       <SidebarFooter className="px-4 py-3">

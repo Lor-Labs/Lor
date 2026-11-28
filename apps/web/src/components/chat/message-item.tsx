@@ -28,7 +28,7 @@ import { formatTime, timeAgo } from "@repo/utils/date"
 import { isLorStoppedStockText } from "@repo/utils/lor"
 import { memo, useCallback, useEffect, useRef, useState } from "react"
 import { AgentCreature } from "@/components/agent/agent-creature"
-import { useChannelAgentContext } from "@/components/agent/channel-agent"
+import { useAgentById, useMessageAgent } from "@/components/agent/channel-agent"
 import { MessageApprovalCard } from "@/components/chat/approval-card"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
@@ -147,7 +147,7 @@ function ReplyPreview({
   // Document layout: the curve starts at the 28px gutter avatar's center.
   compact?: boolean
 }) {
-  const channelAgent = useChannelAgentContext()
+  const repliedAgent = useMessageAgent(referencedMessage?.agentId)
   const connector = (
     <div
       className={cn(
@@ -171,10 +171,11 @@ function ReplyPreview({
   }
 
   const author = referencedMessage.author
+  // The agent a reply is to: its own bot user wrote it, or Lor did.
+  const agent =
+    author.id === LOR_USER_ID || referencedMessage.agentId ? repliedAgent : null
   const referencedName =
-    (author.id === LOR_USER_ID ? channelAgent?.name : undefined) ??
-    referencedMessage.overrideName ??
-    author.name
+    agent?.name ?? referencedMessage.overrideName ?? author.name
   const referencedAvatar = referencedMessage.overrideAvatarUrl ?? author.image
   const referencedConnector = referencedMessage.overrideAvatarUrl
     ? null
@@ -194,25 +195,30 @@ function ReplyPreview({
       className="mb-0.5 flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-xs hover:opacity-80"
     >
       {connector}
-      <Avatar size="sm" className="size-4">
-        {referencedAvatar && (
-          <AvatarImage src={referencedAvatar} alt={referencedName} />
-        )}
-        <AvatarFallback
-          avatarColor={author.avatarColor}
-          className={cn(
-            "text-[8px] font-semibold",
-            referencedConnector && connectorAvatarClassName(referencedConnector)
+      {agent ? (
+        <AgentCreature creature={agent.creature} size={18} still />
+      ) : (
+        <Avatar size="sm" className="size-4">
+          {referencedAvatar && (
+            <AvatarImage src={referencedAvatar} alt={referencedName} />
           )}
-          fallbackSeed={referencedName}
-        >
-          {ReferencedConnectorMark ? (
-            <ReferencedConnectorMark className="size-2.5" />
-          ) : (
-            getAvatarInitials(referencedName)
-          )}
-        </AvatarFallback>
-      </Avatar>
+          <AvatarFallback
+            avatarColor={author.avatarColor}
+            className={cn(
+              "text-[8px] font-semibold",
+              referencedConnector &&
+                connectorAvatarClassName(referencedConnector)
+            )}
+            fallbackSeed={referencedName}
+          >
+            {ReferencedConnectorMark ? (
+              <ReferencedConnectorMark className="size-2.5" />
+            ) : (
+              getAvatarInitials(referencedName)
+            )}
+          </AvatarFallback>
+        </Avatar>
+      )}
       <span className="shrink-0 font-semibold text-foreground/80">
         {referencedName}
       </span>
@@ -234,6 +240,7 @@ function ThreadFooter({
 }) {
   const replyLabel =
     summary.replyCount === 1 ? "1 reply" : `${summary.replyCount} replies`
+  const agentById = useAgentById()
   return (
     <button
       type="button"
@@ -246,23 +253,34 @@ function ThreadFooter({
       )}
     >
       <div className="flex shrink-0 -space-x-1.5">
-        {summary.participants.slice(0, 3).map((p) => (
-          <span
-            key={p.id}
-            className="rounded-full ring-2 ring-background transition-[box-shadow] group-hover/thread:ring-card"
-          >
-            <Avatar size="sm" className="size-[22px]">
-              {p.image && <AvatarImage src={p.image} alt={p.name} />}
-              <AvatarFallback
-                avatarColor={p.avatarColor}
-                className="text-[10px] font-semibold"
-                fallbackSeed={p.name}
-              >
-                {getAvatarInitials(p.name)}
-              </AvatarFallback>
-            </Avatar>
-          </span>
-        ))}
+        {summary.participants.slice(0, 3).map((p) => {
+          const agent = agentById(p.id)
+          return agent ? (
+            <AgentCreature
+              key={p.id}
+              creature={agent.creature}
+              size={22}
+              still
+              label={agent.name}
+            />
+          ) : (
+            <span
+              key={p.id}
+              className="rounded-full ring-2 ring-background transition-[box-shadow] group-hover/thread:ring-card"
+            >
+              <Avatar size="sm" className="size-[22px]">
+                {p.image && <AvatarImage src={p.image} alt={p.name} />}
+                <AvatarFallback
+                  avatarColor={p.avatarColor}
+                  className="text-[10px] font-semibold"
+                  fallbackSeed={p.name}
+                >
+                  {getAvatarInitials(p.name)}
+                </AvatarFallback>
+              </Avatar>
+            </span>
+          )
+        })}
       </div>
       <span className="shrink-0 font-semibold text-primary group-hover/thread:underline">
         {replyLabel}
@@ -365,11 +383,11 @@ export const MessageItem = memo(function MessageItem({
   const author = message.author
   // Lor in a channel's chat or thread is the channel's agent: its name and
   // creature (reference/always-on-agents.md, decisions 32 and 33).
-  const channelAgent = useChannelAgentContext()
-  const agent =
-    message.authorId === LOR_USER_ID && layout !== "document"
-      ? channelAgent
-      : null
+  const messageAgent = useMessageAgent(message.agentId)
+  // An agent's message is by its own bot user; Lor's own is the first
+  // agent's.
+  const byAgent = message.authorId === LOR_USER_ID || !!message.agentId
+  const agent = byAgent && layout !== "document" ? messageAgent : null
   const agentInFlight =
     !!agent && (!!message.streaming || message.status === "pending")
   // Webhook/connector messages render an overridden identity and aren't a
@@ -412,11 +430,10 @@ export const MessageItem = memo(function MessageItem({
 
   const isOwnMessage = !!currentUserId && currentUserId === message.authorId
   // Match the broadcast tokens recognized by messaging fanout, including app posts.
-  const hasBroadcastMention = /(^|\s)@(everyone|channel|here)\b/i.test(
+  const hasBroadcastMention = /(^|\s)@(chat|here)\b/i.test(
     message.content ?? ""
   )
-  const canWrapUnderAvatar =
-    wrapContentAroundAvatar && message.authorId === LOR_USER_ID
+  const canWrapUnderAvatar = wrapContentAroundAvatar && byAgent
   const isDocument = layout === "document"
   const isReply = message.type === "reply"
   const hasToolCalls = (message.lorToolCalls?.length ?? 0) > 0

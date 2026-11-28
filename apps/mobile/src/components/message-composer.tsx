@@ -51,6 +51,10 @@ import { MentionSuggestionMenu } from "@/components/mention-suggestion-menu"
 import { messageDisplayName } from "@/components/message-row"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { IconButton } from "@/components/ui/icon-button"
+import {
+  useChannelAgent,
+  useChannelHasNoAgent,
+} from "@/hooks/use-channel-agent"
 import { useHint } from "@/hooks/use-hints"
 import { useMessageAttachments } from "@/hooks/use-message-attachments"
 import type { RecentPhoto } from "@/hooks/use-recent-photos"
@@ -138,8 +142,9 @@ export function MessageComposer({
   // Rendered flush above the input card so accessories (run queue) can tuck
   // behind its top edge.
   topAccessory?: ReactNode
-  // Main channel composer only: teaches @Lor through the placeholder and the
-  // lor_intro hint.
+  // Main channel composer only: teaches mentioning the channel's agent
+  // through the placeholder and the lor_intro hint. Nothing is taught in a
+  // channel with no agent.
   lorIntro?: boolean
   // Chat, where @Lor wakes the channel agent; human threads, where @Lor
   // starts a session instead of posting here; and sessions, where a message
@@ -157,7 +162,9 @@ export function MessageComposer({
   harnessCommands?: RealtimeHarnessCommandList | null
 }) {
   const lorHint = useHint("lor_intro")
-  const showLorIntro = lorIntro && !lorHint.dismissed
+  const lorLabel = useChannelAgent()?.name ?? "Lor"
+  const noAgent = useChannelHasNoAgent()
+  const showLorIntro = lorIntro && !noAgent && !lorHint.dismissed
   const { bottom: bottomInset } = useSafeAreaInsets()
   const { height: windowHeight } = useWindowDimensions()
   const [accent, danger, foreground, muted, placeholderColor] = useThemeColor([
@@ -585,7 +592,7 @@ export function MessageComposer({
       ) : null}
       {showLorIntro && !isEditing ? (
         <HintCard onDismiss={lorHint.dismiss}>
-          Mention @Lor and it answers here in the chat.
+          Mention @{lorLabel} and it answers here in the chat.
         </HintCard>
       ) : null}
       {showSessionReplyHint ? (
@@ -689,7 +696,7 @@ export function MessageComposer({
               ? "Edit message"
               : (placeholder ??
                 (showLorIntro
-                  ? `Message #${channelName}, or ask @Lor`
+                  ? `Message #${channelName}, or ask @${lorLabel}`
                   : `Message #${channelName}`))
           }
           placeholderTextColor={placeholderColor}

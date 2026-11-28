@@ -31,6 +31,7 @@ export type ConnectorEventKey =
   | "call_recording_ready"
   | "note_created"
   | "list_entry_created"
+  | "meeting_ready"
   | "data_received"
 
 export type ConnectorEventDescriptor = {

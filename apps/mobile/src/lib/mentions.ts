@@ -24,26 +24,15 @@ export type MentionCandidate = Pick<
   search: string
 }
 
-export const everyoneMentionCandidate: MentionCandidate = {
-  id: "everyone",
-  userId: "everyone",
-  name: "Everyone",
+export const chatMentionCandidate: MentionCandidate = {
+  id: "chat",
+  userId: "chat",
+  name: "Chat",
   image: null,
   isBot: false,
   status: "online",
-  label: "everyone",
-  search: "everyone all members workspace",
-}
-
-export const channelMentionCandidate: MentionCandidate = {
-  id: "channel",
-  userId: "channel",
-  name: "Channel",
-  image: null,
-  isBot: false,
-  status: "online",
-  label: "channel",
-  search: "channel all members notify",
+  label: "chat",
+  search: "chat all everyone notify",
 }
 
 export const hereMentionCandidate: MentionCandidate = {
@@ -57,18 +46,12 @@ export const hereMentionCandidate: MentionCandidate = {
   search: "here online active now",
 }
 
-export const BROADCAST_MENTION_IDS = new Set(["everyone", "channel", "here"])
+export const BROADCAST_MENTION_IDS = new Set(["chat", "here"])
 
-// @everyone is only offered in workspace-audience channels — the server
-// rejects it in members-only channels, so the composer doesn't tempt it.
-export function broadcastMentionCandidates(
-  audience: "workspace" | "members" | undefined
-): MentionCandidate[] {
-  return [
-    channelMentionCandidate,
-    hereMentionCandidate,
-    ...(audience === "workspace" ? [everyoneMentionCandidate] : []),
-  ]
+// The group mentions: @chat pings everyone in the chat, @here those of them
+// online now. There is no @everyone or @channel (packages/messaging).
+export function broadcastMentionCandidates(): MentionCandidate[] {
+  return [chatMentionCandidate, hereMentionCandidate]
 }
 
 export function workspaceMemberToMentionCandidate(

@@ -1,8 +1,8 @@
 import ArrowDown01Icon from "@hugeicons/core-free-icons/ArrowDown01Icon"
 import CancelCircleIcon from "@hugeicons/core-free-icons/CancelCircleIcon"
 import PencilEdit02Icon from "@hugeicons/core-free-icons/PencilEdit02Icon"
-import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
+import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { useThemeColor } from "heroui-native/hooks"
 import { useRef, useState } from "react"
@@ -18,15 +18,15 @@ import { PressableScale } from "@/components/ui/pressable-scale"
 import type { Workspace } from "@/context/workspace-context"
 import { LIST_REFLOW, SWAP_ENTER, SWAP_EXIT } from "@/lib/motion"
 
-// The Home tab's top: the workspace (opens its sheet), the two things you
-// start from here, and search. It sits on the same surface as the list, and
+// The Home tab's top: the workspace (opens its sheet), a code session and a
+// new chat, and search. It sits on the same surface as the list, and
 // a hairline fades in under it once the list scrolls beneath.
 export function HomeHeader({
   workspace,
   query,
   onQueryChange,
   onOpenWorkspace,
-  onCreateChannel,
+  onNewChat,
   onNewSession,
   scrollY,
 }: {
@@ -34,8 +34,8 @@ export function HomeHeader({
   query: string
   onQueryChange: (query: string) => void
   onOpenWorkspace: () => void
-  // Unset when the person can't create channels.
-  onCreateChannel?: () => void
+  // Unset when the person can't start chats.
+  onNewChat?: () => void
   onNewSession: () => void
   // The list's scroll offset, read on the UI thread.
   scrollY: SharedValue<number>
@@ -85,20 +85,20 @@ export function HomeHeader({
             />
           </View>
         </PressableScale>
-        {onCreateChannel ? (
-          <HeaderAction
-            color={foreground}
-            icon={PlusSignIcon}
-            label="Create channel"
-            onPress={onCreateChannel}
-          />
-        ) : null}
         <HeaderAction
           color={foreground}
-          icon={PencilEdit02Icon}
-          label="New session"
+          icon={SourceCodeIcon}
+          label="New code session"
           onPress={onNewSession}
         />
+        {onNewChat ? (
+          <HeaderAction
+            color={foreground}
+            icon={PencilEdit02Icon}
+            label="New chat"
+            onPress={onNewChat}
+          />
+        ) : null}
       </View>
 
       <View className="mt-two flex-row items-center gap-three">
@@ -114,14 +114,14 @@ export function HomeHeader({
             strokeWidth={2}
           />
           <TextInput
-            accessibilityLabel="Search channels and messages"
+            accessibilityLabel="Search chats and messages"
             autoCapitalize="none"
             autoCorrect={false}
             className="min-w-0 flex-1 px-0 py-two text-[16px] text-foreground"
             onBlur={() => setFocused(false)}
             onChangeText={onQueryChange}
             onFocus={() => setFocused(true)}
-            placeholder="Search channels and messages"
+            placeholder="Search chats and messages"
             placeholderTextColor={placeholder}
             ref={inputRef}
             returnKeyType="search"

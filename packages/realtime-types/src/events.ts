@@ -1,4 +1,5 @@
 import { z } from "zod"
+import type { LoopChange } from "./loops"
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "./uploads"
 
 export type PresenceStatus = "online" | "offline" | "idle" | "dnd"
@@ -310,15 +311,31 @@ export type RealtimeMessageType =
 
 // Mirrors channel_event_type / ChannelEventPayload in @repo/db (messages.ts) —
 // hand-copied like RealtimeMessageType so clients don't pull in drizzle.
+// What one agent said to another about a chat's work.
+export type AgentChatMessage = {
+  id: string
+  fromAgentId: string
+  // The agents it names; none and not `toEveryone` is a post to the room.
+  toAgentIds: string[]
+  toEveryone: boolean
+  // The post it answers, when it is an answer.
+  replyToId: string | null
+  content: string
+  createdAt: string
+}
+
 export type RealtimeChannelEventType =
   | "channel_created"
   | "channel_renamed"
+  | "channel_archived"
+  | "channel_unarchived"
   | "member_added"
   | "member_removed"
   | "member_left"
   | "loop_created"
   | "loop_paused"
   | "loop_completed"
+  | "loop_updated"
   | "loop_run"
   | "trigger_run"
   | "session_continued"
@@ -327,14 +344,26 @@ export type RealtimeChannelEventType =
   | "session_forked"
   | "session_rewound"
   | "session_reviewed"
+  | "session_checks"
   | "session_pr_opened"
   | "session_pr_merged"
   | "session_setup_changed"
   | "agent_task"
   | "agent_session_started"
+  | "agent_messaged"
 
 export type RealtimeChannelEventPayload =
   | { channelName: string | null }
+  | {
+      fromAgentId: string
+      toAgentId?: string
+      agentMessageId: string
+      agentIds?: string[]
+      senderIds?: string[]
+      room?: boolean
+      everyone?: boolean
+      roomIds?: string[]
+    }
   | { sessionId: string; title: string; repoFullName: string | null }
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
   | { from: string; to: string }
@@ -343,8 +372,9 @@ export type RealtimeChannelEventPayload =
   | {
       loopId: string
       loopName: string
-      reason?: "failures" | "out_of_credits"
+      reason?: "failures" | "out_of_credits" | "agent_left"
       via?: "proposal"
+      changes?: LoopChange[]
     }
   | {
       triggerId: string
@@ -378,6 +408,16 @@ export type RealtimeChannelEventPayload =
       reviewer: string
       reviewerBot: boolean
       state: "approved" | "changes_requested" | "commented"
+    }
+  | {
+      sessionId: string
+      repoFullName: string
+      pullRequestNumber: number
+      pullRequestUrl: string
+      headSha: string
+      outcome: "failed" | "passed"
+      total: number
+      failed: { name: string; url: string | null }[]
     }
   | {
       sessionId: string
@@ -469,6 +509,8 @@ export type RealtimeReferencedMessage = {
   id: string
   content: string | null
   author: RealtimeAuthor
+  // The agent that wrote it, when one did (see RealtimeMessage).
+  agentId?: string | null
   // Webhook/connector display identity — mirrors RealtimeMessage so reply
   // previews show the same name/avatar as the referenced message itself.
   overrideName: string | null
@@ -520,6 +562,11 @@ export type RealtimeMessage = {
   // A person's session message: whether it went to Lor. false = for channel
   // members only. Null outside sessions.
   routedToLor?: boolean | null
+  // The agent that wrote it, when one did: the author's id, since an agent
+  // posts as its own bot user. Null or absent: a person's message, or Lor's
+  // own (a session's, and in a chat one from before agents had bot users,
+  // which is the chat's first agent's).
+  agentId?: string | null
 }
 
 export type RealtimeMessagePinToggled = {
@@ -830,6 +877,9 @@ export type TypingIndicatorEvent = {
   threadRootId?: string | null
   userId: string
   name: string
+  // Which agent is typing in a chat: typing still comes as Lor's (`userId`)
+  // with the agent beside it. Absent: the chat's first agent.
+  agentId?: string | null
 }
 
 export interface ClientToServerEvents {
@@ -889,6 +939,9 @@ export interface ServerToClientEvents {
     content: string
     editedAt: string
     mentions: RealtimeMessageMention[]
+    // An event line whose data changed (a "messaged" line taking in
+    // another agent).
+    eventPayload?: RealtimeChannelEventPayload
   }) => void
   "message:reaction:updated": (payload: RealtimeMessageReactionUpdated) => void
   "message:embeds:updated": (payload: RealtimeMessageEmbedsUpdated) => void
@@ -994,17 +1047,35 @@ export interface ServerToClientEvents {
   // A change proposal was resolved or applied (pillar 3). Channel room; ids
   // only — cards refetch the durable rows.
   "proposal:updated": (payload: ProposalUpdatedEvent) => void
-  // Loop snapshot changed (status, schedule, run bookkeeping). Channel room.
+  // Loop snapshot changed (status, schedule, run bookkeeping). To its chat's
+  // room and its card's; with no chat, to the chats its agent is in.
   "loop:updated": (payload: LoopUpdatedEvent) => void
   // Loop hard-deleted (its card message goes separately via message:deleted).
-  "loop:deleted": (payload: { loopId: string; channelId: string }) => void
+  "loop:deleted": (payload: {
+    loopId: string
+    channelId: string | null
+  }) => void
   // The channel agent's wake-ups changed (set, fired or cancelled): clients
   // refetch the channel's Follow-ups.
   "agent:wake-ups:updated": (payload: { channelId: string }) => void
+  // One of a chat's agents messaged another (reference/agents-and-chats.md,
+  // decision 39): the open agents' chat adds it.
+  "agent-message:created": (payload: {
+    channelId: string
+    message: AgentChatMessage
+  }) => void
   // A channel's Discord link was made or removed: refetch its status.
   "channel:discord:updated": (payload: { channelId: string }) => void
+  // An agent was made, changed or deleted, or a channel got a different
+  // agent (reference/agents-and-chats.md): refetch agents and channels.
+  "agents:updated": (payload: { workspaceId: string }) => void
   // A channel agent's turn started (beats every 10s) or ended.
-  "agent:working": (payload: { channelId: string; working: boolean }) => void
+  "agent:working": (payload: {
+    channelId: string
+    working: boolean
+    // Absent: the chat's first agent.
+    agentId?: string | null
+  }) => void
   "message:pin:toggled": (payload: RealtimeMessagePinToggled) => void
   "message:thread:updated": (payload: RealtimeMessageThreadUpdated) => void
   "notification:bootstrap": (payload: NotificationBootstrap) => void
@@ -1253,7 +1324,13 @@ export type RealtimeLoopStatus = "draft" | "active" | "paused" | "completed"
 export type RealtimeLoop = {
   id: string
   workspaceId: string
-  channelId: string
+  // The chat it reports in; null when it has none.
+  channelId: string | null
+  // The agent that runs it; null when nobody does (agents-and-chats.md §9).
+  agentId: string | null
+  // Who last changed it, a person or the agent itself, and when.
+  changedById: string | null
+  changedAt: string | null
   cardMessageId: string | null
   creatorId: string | null
   // "check_in": the one every channel's agent comes with (decision 7).
@@ -1268,7 +1345,13 @@ export type RealtimeLoop = {
   // Hard end date (sweep-enforced); null = no date end.
   endAt: string | null
   status: RealtimeLoopStatus
-  pausedReason: "manual" | "failures" | "out_of_credits" | null
+  pausedReason:
+    | "manual"
+    | "failures"
+    | "out_of_credits"
+    | "agent_left"
+    | "chat_archived"
+    | null
   nextRunAt: string | null
   lastRunAt: string | null
   consecutiveFailures: number
@@ -1279,6 +1362,9 @@ export type RealtimeLoop = {
 
 export type LoopUpdatedEvent = {
   loop: RealtimeLoop
+  // The chat its card is in, which may not be the chat it reports in: that
+  // chat's list keeps the Loop so the card renders.
+  cardChannelId?: string | null
 }
 
 export type LorSteerEvent = {

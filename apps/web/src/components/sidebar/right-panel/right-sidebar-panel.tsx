@@ -1,11 +1,16 @@
 import { EASE_OUT } from "@repo/ui/lib/motion"
+import { useQuery } from "@tanstack/react-query"
 import { AnimatePresence, motion } from "motion/react"
 import { FilePanel } from "@/components/artifacts/file-panel"
 import { ChannelFilesPanel } from "@/components/sidebar/right-panel/channel-files-panel"
+import { ChatDetailsPanel } from "@/components/sidebar/right-panel/chat-details-panel"
 import { LoopPanel } from "@/components/sidebar/right-panel/loop-panel"
 import { LoopsListPanel } from "@/components/sidebar/right-panel/loops-list-panel"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
-import type { RightSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import type {
+  RightSidebarView,
+  WorkspaceMembersSidebarView,
+} from "@/components/sidebar/right-panel/right-sidebar-types"
 import { SessionBrowserPanel } from "@/components/sidebar/right-panel/session-browser-panel"
 import { SessionChangesPanel } from "@/components/sidebar/right-panel/session-changes-panel"
 import { SessionFilesPanel } from "@/components/sidebar/right-panel/session-files-panel"
@@ -14,6 +19,7 @@ import { SessionWorkPanel } from "@/components/sidebar/right-panel/session-work-
 import { SessionsListPanel } from "@/components/sidebar/right-panel/sessions-list-panel"
 import { ThreadPanel } from "@/components/sidebar/right-panel/thread-panel"
 import { WorkspaceMembersPanel } from "@/components/sidebar/right-panel/workspace-members-panel"
+import { channelQueryOptions } from "@/lib/channel-query"
 
 const enterTransition = { duration: 0.22, ease: EASE_OUT }
 const exitTransition = { duration: 0.12, ease: EASE_OUT }
@@ -57,7 +63,7 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView | null }) {
           ) : (
             <>
               {view?.type === "workspace-members" && (
-                <WorkspaceMembersPanel view={view} />
+                <ChannelOverviewPanel view={view} />
               )}
               {view?.type === "thread" && <ThreadPanel view={view} />}
               {view?.type === "loop" && <LoopPanel view={view} />}
@@ -86,5 +92,19 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView | null }) {
         </motion.div>
       </AnimatePresence>
     </div>
+  )
+}
+
+// Beside a chat: its details (name, agents, the people in it). A channel
+// that is not a chat (voice) keeps the workspace's member list.
+function ChannelOverviewPanel({ view }: { view: WorkspaceMembersSidebarView }) {
+  const { data: channel } = useQuery(
+    channelQueryOptions(view.workspaceSlug, view.channelId)
+  )
+  if (!channel) return null
+  return channel.type === "text" ? (
+    <ChatDetailsPanel view={view} />
+  ) : (
+    <WorkspaceMembersPanel view={view} />
   )
 }

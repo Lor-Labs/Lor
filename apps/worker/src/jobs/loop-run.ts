@@ -15,7 +15,7 @@ import { cancelPendingRun } from "@/lib/unattended-run"
 type RedisClient = ReturnType<typeof createClient>
 
 // One loop fire, from the sweep or "Run now": the kill switch is re-read at
-// process time, then the fire wakes the channel's agent (text channels) or
+// process time, then the fire wakes the Loop's own agent (in a chat) or
 // becomes a turn in the loop's session.
 export function createLoopRunProcessor(
   emitter: Emitter<ServerToClientEvents>,

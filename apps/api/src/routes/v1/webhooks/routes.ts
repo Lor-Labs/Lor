@@ -10,6 +10,7 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
+  agentWebhookParamsSchema,
   channelWebhookParamsSchema,
   createChannelWebhookRequestSchema,
   createChannelWebhookResponseSchema,
@@ -31,6 +32,28 @@ export const listChannelWebhooks = createRoute({
     [HttpStatusCodes.OK]: jsonContent({
       schema: listChannelWebhooksResponseSchema,
       description: "The channel's webhooks",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const listAgentWebhooks = createRoute({
+  path: "/workspaces/{workspaceSlug}/agents/{agentId}/webhooks",
+  method: "get",
+  summary: "List the webhooks an agent listens to",
+  description:
+    "The webhooks this agent hears, across the chats the caller can see.",
+  tags: ["Webhooks"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: agentWebhookParamsSchema },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listChannelWebhooksResponseSchema,
+      description: "The agent's webhooks",
     }),
     [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
@@ -116,6 +139,7 @@ export const deleteChannelWebhook = createRoute({
 })
 
 export type ListChannelWebhooksRoute = typeof listChannelWebhooks
+export type ListAgentWebhooksRoute = typeof listAgentWebhooks
 export type CreateChannelWebhookRoute = typeof createChannelWebhook
 export type UpdateChannelWebhookRoute = typeof updateChannelWebhook
 export type DeleteChannelWebhookRoute = typeof deleteChannelWebhook

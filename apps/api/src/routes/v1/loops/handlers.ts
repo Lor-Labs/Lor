@@ -1,5 +1,9 @@
-import { and, db, desc, eq, inArray, schema, sql } from "@repo/db"
-import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import { and, db, desc, eq, inArray, or, schema, sql } from "@repo/db"
+import { agentChannelIds, isAgentInChannel } from "@repo/db/queries/agents"
+import {
+  listAccessibleChannelIds,
+  resolveChannelAccess,
+} from "@repo/db/queries/channel-access"
 import type { Loop } from "@repo/db/schema"
 import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
 import { toRealtimeLoop } from "@repo/lor/loops"
@@ -11,6 +15,8 @@ import {
   deleteLoop as deleteLoopAction,
   discardDraftLoop as discardDraftLoopAction,
   emitLoopUpdated,
+  loopAccess,
+  loopAgentProblem,
   openLoopSession,
   pauseLoop as pauseLoopAction,
   resumeLoop as resumeLoopAction,
@@ -23,6 +29,8 @@ import type {
   CompleteLoopRoute,
   DeleteLoopRoute,
   DiscardDraftLoopRoute,
+  GetLoopRoute,
+  ListAgentLoopsRoute,
   ListChannelLoopsRoute,
   ListLoopRunsRoute,
   PauseLoopRoute,
@@ -33,7 +41,8 @@ import type {
 
 const DAY_MS = 86_400_000
 
-// Loop + the caller's channel access, denials collapsed to null (= 404,
+// Loop + the caller's access to it (its chat's, or its agent's chats' when
+// it has none: lib/loops.ts loopAccess), denials collapsed to null (= 404,
 // fail closed — a loop's existence reveals channel activity).
 async function loadAccessibleLoop(
   loopId: string,
@@ -46,9 +55,22 @@ async function loadAccessibleLoop(
     .limit(1)
     .then((rows) => rows[0])
   if (!loop) return null
-  const access = await resolveChannelAccess(userId, loop.channelId)
-  if (!access.ok) return null
-  return { loop, canWrite: access.access.canWrite }
+  const access = await loopAccess(loop, userId)
+  return access ? { loop, canWrite: access.canWrite } : null
+}
+
+// One Loop by id: the Loop's panel shows one that is in no chat, or in a
+// chat other than the one it is opened beside.
+export const getLoop: AppRouteHandler<GetLoopRoute> = async (c) => {
+  const { loopId } = c.req.valid("param")
+  const found = await loadAccessibleLoop(loopId, c.var.user.id)
+  if (!found) {
+    return c.json(
+      { success: false as const, message: "Loop not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  return c.json({ loop: toRealtimeLoop(found.loop) }, HttpStatusCodes.OK)
 }
 
 export const listChannelLoops: AppRouteHandler<ListChannelLoopsRoute> = async (
@@ -65,14 +87,57 @@ export const listChannelLoops: AppRouteHandler<ListChannelLoopsRoute> = async (
     )
   }
 
+  // The Loops that report here, and those whose card is here: a card stays
+  // where its Loop was set up, whichever chat the Loop reports in (or none).
   const loops = await db
     .select()
     .from(schema.loop)
-    .where(eq(schema.loop.channelId, channelId))
+    .where(
+      or(
+        eq(schema.loop.channelId, channelId),
+        sql`${schema.loop.cardMessageId} in (select m.id from message m where m.channel_id = ${channelId} and m.type = 'loop_card')`
+      )
+    )
     .orderBy(desc(schema.loop.createdAt))
     .limit(50)
 
   return c.json({ loops: loops.map(toRealtimeLoop) }, HttpStatusCodes.OK)
+}
+
+// The Loops an agent runs (the Loops tab of its page), in the chats the
+// caller can see.
+export const listAgentLoops: AppRouteHandler<ListAgentLoopsRoute> = async (
+  c
+) => {
+  const { agentId } = c.req.valid("param")
+  const [loops, accessible, agentChats] = await Promise.all([
+    db
+      .select()
+      .from(schema.loop)
+      .where(
+        and(
+          eq(schema.loop.agentId, agentId),
+          eq(schema.loop.workspaceId, c.var.workspace.id)
+        )
+      )
+      .orderBy(desc(schema.loop.createdAt))
+      .limit(200),
+    listAccessibleChannelIds(c.var.user.id, c.var.workspace.id),
+    agentChannelIds(agentId),
+  ])
+  // A Loop with no chat: whoever can see a chat its agent is in.
+  const seesAgent =
+    agentChats.length === 0 || agentChats.some((id) => accessible.has(id))
+  return c.json(
+    {
+      loops: loops
+        .filter((loop) =>
+          loop.channelId ? accessible.has(loop.channelId) : seesAgent
+        )
+        .map(toRealtimeLoop),
+    },
+    HttpStatusCodes.OK
+  )
 }
 
 export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
@@ -94,7 +159,7 @@ export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
     return c.json(
       {
         success: false as const,
-        message: "Channel is read-only (archived or beta access ended)",
+        message: "This chat is read-only (archived or beta access ended)",
       },
       HttpStatusCodes.BAD_REQUEST
     )
@@ -103,6 +168,13 @@ export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
     return c.json(
       { success: false as const, message: "Loop is not a draft" },
       HttpStatusCodes.CONFLICT
+    )
+  }
+  const agentProblem = await loopAgentProblem(loop)
+  if (agentProblem) {
+    return c.json(
+      { success: false as const, message: agentProblem },
+      HttpStatusCodes.BAD_REQUEST
     )
   }
 
@@ -152,6 +224,8 @@ export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
       nextRunAt: next,
       pausedReason: null,
       consecutiveFailures: 0,
+      changedById: currentUser.id,
+      changedAt: new Date(),
       ...(validation.requiresConfirmation
         ? {
             highFrequencyConfirmedAt: new Date(),
@@ -227,6 +301,8 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
     name,
     endAt,
     endCondition,
+    agentId,
+    channelId,
     confirmHighFrequency,
   } = c.req.valid("json")
 
@@ -248,6 +324,70 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
   const values: Partial<typeof schema.loop.$inferInsert> = {
     ...(instructions !== undefined ? { instructions } : {}),
     ...(name !== undefined ? { name } : {}),
+  }
+
+  // Where it reports and who runs it. The chat is optional: with none it
+  // is the agent's own work across its chats. With one, its agent must be
+  // in that chat. A Loop paused because its agent left stays paused, now
+  // for a person to resume.
+  const nextChannelId = channelId !== undefined ? channelId : loop.channelId
+  const nextAgentId = agentId ?? loop.agentId
+  const moved = nextChannelId !== loop.channelId
+  const handedOver = nextAgentId !== loop.agentId
+  if (moved || handedOver) {
+    if (moved && nextChannelId) {
+      const target = await resolveChannelAccess(currentUser.id, nextChannelId)
+      if (
+        !target.ok ||
+        !target.access.canWrite ||
+        target.access.channel.workspaceId !== loop.workspaceId ||
+        target.access.channel.type !== "text"
+      ) {
+        return c.json(
+          { success: false as const, message: "That chat can't take a Loop" },
+          HttpStatusCodes.BAD_REQUEST
+        )
+      }
+    }
+    const [agent] = nextAgentId
+      ? await db
+          .select({ id: schema.agent.id })
+          .from(schema.agent)
+          .where(
+            and(
+              eq(schema.agent.id, nextAgentId),
+              eq(schema.agent.workspaceId, loop.workspaceId)
+            )
+          )
+      : []
+    if (handedOver && !agent) {
+      return c.json(
+        { success: false as const, message: "No such agent" },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
+    if (
+      nextChannelId &&
+      nextAgentId &&
+      !(await isAgentInChannel(nextAgentId, nextChannelId))
+    ) {
+      return c.json(
+        {
+          success: false as const,
+          message: moved
+            ? "Its agent is not in that chat. Add the agent there first."
+            : "That agent is not in the chat this Loop reports in",
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
+    if (moved) values.channelId = nextChannelId
+    if (handedOver) values.agentId = nextAgentId
+    if (loop.pausedReason === "agent_left") values.pausedReason = "manual"
+    // Moved out of the archived chat: unarchiving it no longer resumes it.
+    if (moved && loop.pausedReason === "chat_archived") {
+      values.pausedReason = "manual"
+    }
   }
 
   // End modes are one-per-loop: setting either clears the other (the zod
@@ -338,11 +478,16 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
     }
   }
 
+  // Naming the agent it already has changes nothing.
+  if (Object.keys(values).length === 0) {
+    return c.json({ loop: toRealtimeLoop(loop) }, HttpStatusCodes.OK)
+  }
+
   // CAS on the status this edit was computed against — a concurrent
   // pause/activate changes the recompute rules, so the loser retries.
   const updated = await db
     .update(schema.loop)
-    .set(values)
+    .set({ ...values, changedById: currentUser.id, changedAt: new Date() })
     .where(and(eq(schema.loop.id, loopId), eq(schema.loop.status, loop.status)))
     .returning()
     .then((rows) => rows[0] ?? null)
@@ -353,7 +498,7 @@ export const updateLoop: AppRouteHandler<UpdateLoopRoute> = async (c) => {
     )
   }
 
-  await emitLoopUpdated(updated).catch((err) =>
+  await emitLoopUpdated(updated, moved ? loop.channelId : null).catch((err) =>
     logger.error({ err, loopId }, "Loop update emit failed")
   )
 
@@ -398,12 +543,22 @@ export const resumeLoop: AppRouteHandler<ResumeLoopRoute> = async (c) => {
     return c.json(
       {
         success: false as const,
-        message: "Channel is read-only (archived or beta access ended)",
+        message: "This chat is read-only (archived or beta access ended)",
       },
       HttpStatusCodes.BAD_REQUEST
     )
   }
-  const result = await resumeLoopAction({ loopId })
+  const agentProblem = await loopAgentProblem(found.loop)
+  if (agentProblem) {
+    return c.json(
+      { success: false as const, message: agentProblem },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  const result = await resumeLoopAction({
+    loopId,
+    requestedBy: currentUser.id,
+  })
   if (!result) {
     return c.json(
       { success: false as const, message: "Loop is not paused" },
@@ -435,7 +590,7 @@ export const runLoopNow: AppRouteHandler<RunLoopNowRoute> = async (c) => {
     return c.json(
       {
         success: false as const,
-        message: "Channel is read-only (archived or beta access ended)",
+        message: "This chat is read-only (archived or beta access ended)",
       },
       HttpStatusCodes.BAD_REQUEST
     )

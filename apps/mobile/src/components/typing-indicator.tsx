@@ -19,6 +19,7 @@ import { useChannelAgent } from "@/hooks/use-channel-agent"
 
 type TypingUser = {
   userId: string
+  agentId?: string | null
   name: string
 }
 
@@ -68,7 +69,10 @@ export function TypingIndicator({ users: typers }: { users: TypingUser[] }) {
     agent !== null && typers.some((user) => user.userId === LOR_USER_ID)
   const users = agent
     ? typers.map((user) =>
-        user.userId === LOR_USER_ID ? { ...user, name: agent.name } : user
+        // The server names the agent that is typing; an older one says Lor.
+        user.userId === LOR_USER_ID && user.name === "Lor"
+          ? { ...user, name: agent.name }
+          : user
       )
     : typers
   if (users.length === 0) return null
@@ -115,7 +119,7 @@ export function DocumentTypingIndicator({
           className="flex-row items-center gap-three px-four pb-two"
           entering={lineIn}
           exiting={lineOut}
-          key={person.userId}
+          key={`${person.userId}:${person.agentId ?? ""}`}
           layout={lineLayout}
         >
           <Avatar

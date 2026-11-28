@@ -77,12 +77,12 @@ export function ChatgptConnectDialog({
         <DialogHeader>
           <DialogTitle>
             {workspaceSlug
-              ? "Connect a Codex subscription dedicated to Lor"
+              ? "Connect a Codex subscription for agents"
               : "Connect a Codex account"}
           </DialogTitle>
           <DialogDescription>
             {workspaceSlug
-              ? "A separate ChatGPT subscription only for autonomous Codex work Lor starts in this workspace, such as loops and events. Your direct requests use your personal subscriptions. Enable it in Autonomous runs after connecting. Provider terms still apply."
+              ? "A ChatGPT subscription of the workspace's, for its agents: work nobody asked for, and people with no plan of their own. What you ask for uses your own subscriptions. Pick it in an agent's Runs after connecting. Provider terms still apply."
               : "Use this subscription for requests you send to Lor and Codex turns you start. Set its priority for each workspace here in Settings → Linked accounts."}
           </DialogDescription>
         </DialogHeader>
@@ -96,7 +96,7 @@ export function ChatgptConnectDialog({
               value={label}
               onChange={(event) => setLabel(event.target.value)}
               maxLength={80}
-              placeholder={workspaceSlug ? "Lor's account" : "Work account"}
+              placeholder={workspaceSlug ? "Agents' account" : "Work account"}
             />
           </div>
           <Step number={1} title="In a terminal on your own computer, run:">

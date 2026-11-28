@@ -20,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
 import { cn } from "@repo/ui/lib/utils"
-import { KEY_PROVIDER_NAMES, type KeyProvider } from "@repo/utils/inference"
+import { KEY_PROVIDER_PAYERS, type KeyProvider } from "@repo/utils/inference"
 import { useQueries } from "@tanstack/react-query"
 import { type ReactNode, useRef, useState } from "react"
 import { HarnessLogo } from "@/components/session/harness-logo"
@@ -117,7 +117,7 @@ export function ModelPicker({
           payers.length < 2
             ? null
             : payer
-              ? `${KEY_PROVIDER_NAMES[payer]} key`
+              ? KEY_PROVIDER_PAYERS[payer]
               : "Lor credits",
         keyProvider: payer,
         items: models
@@ -189,7 +189,7 @@ export function ModelPicker({
       <ComboboxPrimitive.Trigger
         title={
           keyProvider
-            ? `Runs on your team's ${KEY_PROVIDER_NAMES[keyProvider]} key`
+            ? `Runs on your team's ${KEY_PROVIDER_PAYERS[keyProvider]}`
             : `${HARNESS_LABELS[choice.harness]} model`
         }
         className={TRIGGER_CLASS}
@@ -201,7 +201,7 @@ export function ModelPicker({
         {keyProvider && (
           <HugeiconsIcon
             icon={Key01Icon}
-            aria-label={`${KEY_PROVIDER_NAMES[keyProvider]} key`}
+            aria-label={KEY_PROVIDER_PAYERS[keyProvider]}
             className="size-3.5 shrink-0"
             strokeWidth={2}
           />

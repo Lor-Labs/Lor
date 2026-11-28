@@ -62,7 +62,11 @@ import {
   VOICE_SESSION_AUDIT_EVERY_MS,
   VOICE_SESSION_SWEEP_EVERY_MS,
 } from "@/jobs/voice-sessions"
-import { type AgentQueueData, sweepStrandedInboxes } from "@/lib/agent-inbox"
+import {
+  type AgentQueueData,
+  sweepCheckIns,
+  sweepStrandedInboxes,
+} from "@/lib/agent-inbox"
 import { signalRunStop } from "@/lib/agent-run"
 import { sweepDueWakeUps } from "@/lib/agent-wake-ups"
 import {
@@ -476,10 +480,14 @@ async function bootstrap() {
       } else if (job.name === "sweep-agent-inbox") {
         // Its own job: a failing Loop sweep must not hold up wake-ups. Each
         // sweep runs even when the other fails.
-        const [wakeUps, stranded] = await Promise.allSettled([
+        const [wakeUps, stranded, checkIns] = await Promise.allSettled([
           sweepDueWakeUps({ emitter, agentInboxQueue }),
           sweepStrandedInboxes(agentInboxQueue),
+          sweepCheckIns(agentInboxQueue),
         ])
+        if (checkIns.status === "rejected") {
+          logger.error({ err: checkIns.reason }, "Check-in sweep failed")
+        }
         if (wakeUps.status === "rejected") {
           logger.error({ err: wakeUps.reason }, "Wake-up sweep failed")
         }

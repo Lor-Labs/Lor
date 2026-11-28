@@ -66,6 +66,9 @@ type PostBotMessageInput = {
   // message:created to the channel room. Channel events post silent so they
   // don't bump unreads (loop_fire precedent).
   silent?: boolean
+  // Unread for the people in the chat, with no notification (a listener's
+  // event with "notify people" off).
+  quiet?: boolean
   // Structured cards (webhook embeds/attachments); rendered by the clients.
   embeds?: Embed[]
   overrideName?: string
@@ -88,7 +91,10 @@ export async function postBotMessage(
     .limit(1)
     .then((rows) => rows[0])
   if (!target) throw new Error("Channel not found")
-  if (target.archivedAt) throw new Error("This channel is archived")
+  // The line that says it was archived is the one message it still takes.
+  if (target.archivedAt && input.eventType !== "channel_archived") {
+    throw new Error("This channel is archived")
+  }
 
   await assertChannelActive(input.channel.id)
   const inserted = await db
@@ -156,6 +162,7 @@ export async function postBotMessage(
           embeds: input.embeds,
         },
         redis,
+        quiet: input.quiet,
       })
       mentions = fanout.messageMentions
       for (const n of fanout.unreadNotifications) {

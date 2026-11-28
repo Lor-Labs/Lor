@@ -3,8 +3,14 @@ import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
 import { assertHostedHarness } from "@repo/db/queries/beta-access"
 import { workspaceInferenceKeys } from "@repo/db/queries/inference"
 import { resolveHarnessAccount } from "@repo/db/queries/personal-accounts"
+import type { HarnessAccountRoute } from "@repo/db/schema"
 import { assertHarnessEnabled } from "@repo/utils/features"
-import { type KeyProvider, keyModelId } from "@repo/utils/inference"
+import {
+  type InferenceKeyConfig,
+  type KeyProvider,
+  keyModelId,
+} from "@repo/utils/inference"
+import { keyModels as savedKeyModels } from "./byok"
 import { chatgptModels } from "./chatgpt-account"
 import { claudeModels, startingClaudeModels } from "./claude-account"
 import { harnessModels } from "./harness-models"
@@ -29,8 +35,8 @@ export type AgentModelOption = {
   // The vendor, to group a long list ("anthropic", "openai"); null in a
   // harness with one vendor.
   provider: string | null
-  // The workspace's own key that pays for this model; null: Lor credits, or
-  // the person's subscription.
+  // The workspace's own AI provider that pays for this model; null: Lor
+  // credits, or the person's subscription.
   keyProvider: KeyProvider | null
   // Effort levels the model takes, lowest first; empty: none to pick.
   efforts: string[]
@@ -60,27 +66,31 @@ export function isLorCreditModel(id: string): boolean {
 
 const piEfforts = (levels: string[]) => (levels.length > 1 ? levels : [])
 
-// Lor's own agent: each provider the workspace has a key for lists its
-// native models on that key; then every chat model in Pi's AI Gateway
+// Lor's own agent: each AI provider the workspace set up lists the native
+// models it can run (Azure its deployments, Bedrock its region's); then
+// every chat model in Pi's AI Gateway
 // catalog (generated from models.dev) on Lor credits. A model can appear on
 // both, so the person picks who pays. Lor's main model and its fallbacks
 // lead the Gateway list. Its "-fast" models are fast mode, which Lor's agent
 // doesn't offer.
-function lorCatalog(keys: KeyProvider[]): AgentModelCatalog {
+function lorCatalog(keys: InferenceKeyConfig[]): AgentModelCatalog {
   const pinned = [LOR_MODEL, ...LOR_FALLBACK_MODELS]
   const rank = (id: string) => {
     const at = pinned.indexOf(id)
     return at === -1 ? pinned.length : at
   }
-  const keyModels = keys.flatMap((provider) =>
-    getBuiltinModels(provider)
+  const keyModels = keys.flatMap((config) =>
+    savedKeyModels(config)
       .map((model) => ({
-        id: keyModelId(provider, model.id),
+        id: keyModelId(config.provider, model.id),
         name: model.name,
-        description: null,
+        description:
+          config.provider === "azure"
+            ? `Deployment ${config.deployments.find((item) => item.model === model.id)?.deployment ?? model.id}`
+            : null,
         resolvedModel: null,
-        provider,
-        keyProvider: provider,
+        provider: config.provider,
+        keyProvider: config.provider,
         efforts: piEfforts(getSupportedThinkingLevels(model)),
         fast: false,
       }))
@@ -156,12 +166,14 @@ const claudeLineRank = (name: string) => {
 // turn, with its effort levels and fast mode per model; before a first turn,
 // the starting list from Anthropic. Opus is the default in both.
 async function claudeCodeCatalog(
-  userId: string,
-  accountId?: string
+  // Null: a workspace account an agent uses.
+  userId: string | null,
+  accountId?: string,
+  workspaceId?: string
 ): Promise<AgentModelCatalog> {
   const reported =
-    (await claudeModels(userId, accountId)) ??
-    (await startingClaudeModels(userId, accountId))
+    (await claudeModels(userId, accountId, workspaceId)) ??
+    (userId ? await startingClaudeModels(userId, accountId) : null)
   const models = (
     reported
       ? reported.map((model) => ({
@@ -190,11 +202,12 @@ async function claudeCodeCatalog(
 // ChatGPT plan decides it), or anyone's before that, with the efforts the
 // adapter can pass. "Default" effort leaves it to Codex's own per model.
 async function codexCatalog(
-  userId: string,
-  accountId?: string
+  userId: string | null,
+  accountId?: string,
+  workspaceId?: string
 ): Promise<AgentModelCatalog> {
   const served =
-    (await chatgptModels(userId, accountId)) ??
+    (await chatgptModels(userId, accountId, workspaceId)) ??
     (await harnessModels("codex")) ??
     []
   const models =
@@ -238,5 +251,27 @@ export async function agentModelCatalog(
       : codexCatalog(userId, route?.accountId ?? undefined)
   }
   const keys = await workspaceInferenceKeys(workspaceId)
-  return lorCatalog(keys.map((key) => key.provider))
+  return lorCatalog(keys.map((key) => key.config))
+}
+
+// What a session an agent starts can run, for whoever pays: the asker's own
+// plan, the agent's workspace accounts, or API billing (Claude Code's aliases
+// and Codex's list). Lor's own agent: Lor's models and the workspace's keys.
+export async function sessionModelCatalog(
+  harness: CatalogHarness,
+  route: HarnessAccountRoute | undefined,
+  workspaceId: string
+): Promise<AgentModelCatalog> {
+  if (harness === "pi") {
+    const keys = await workspaceInferenceKeys(workspaceId)
+    return lorCatalog(keys.map((key) => key.config))
+  }
+  const accountId =
+    route?.source === "subscription"
+      ? (route.accountId ?? undefined)
+      : undefined
+  const userId = route?.userId ?? null
+  return harness === "claude_code"
+    ? claudeCodeCatalog(userId, accountId, workspaceId)
+    : codexCatalog(userId, accountId, workspaceId)
 }

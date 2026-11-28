@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import {
+  APP_USER_ID,
   and,
   count,
   db,
@@ -13,16 +14,37 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { sessionStartedByAgent } from "@repo/db/queries/agent-conversations"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import {
-  getWorkspaceHarnessSettings,
+  getHarnessSettings,
+  HarnessAccountLimitError,
+  hasOwnRequestRoute,
+  PLAN_LIMIT_AGENT_HINT,
   personalRequestHarness,
   resolveHarnessAccount,
 } from "@repo/db/queries/personal-accounts"
 import { createSession, toRealtimeAgentSession } from "@repo/lor/agent-sessions"
-import { type AgentSessionTools, addInboxNote } from "@repo/lor/channel-agent"
-import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
+import {
+  type AgentSessionTools,
+  addInboxNote,
+  type SessionPicks,
+} from "@repo/lor/channel-agent"
+import { allowedCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
+import {
+  CODE_SANDBOX_MEMORY_OPTIONS_MB,
+  environmentForRepo,
+} from "@repo/lor/dev-env/environments"
+import {
+  postSessionApprovals,
+  postSessionCard,
+  updateSessionCard,
+} from "@repo/lor/discord-sessions"
 import { resolveWorkspaceGithub } from "@repo/lor/github"
+import {
+  type AgentModelCatalog,
+  sessionModelCatalog,
+} from "@repo/lor/model-catalog"
 import { loadThreadSummary } from "@repo/messaging"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
@@ -34,7 +56,7 @@ import {
 } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import { isHarnessEnabled } from "@repo/utils/features"
-import { lorBranchName } from "@repo/utils/github"
+import { isValidNewBranchName, lorBranchName } from "@repo/utils/github"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
 import type { createClient } from "redis"
@@ -65,9 +87,9 @@ function clip(text: string, max: number): string {
 }
 
 // The repositories a session can use here, or why there are none.
-async function reposForChannel(
+async function reposForAgent(
   workspaceId: string,
-  channelId: string
+  agentId: string
 ): Promise<
   { repos: { repo: string; defaultBranch: string }[] } | { error: string }
 > {
@@ -86,7 +108,7 @@ async function reposForChannel(
   }
   const allowed = await Promise.all(
     github.repos.map((repo) =>
-      channelCodeRepo(workspaceId, channelId, repo.fullName).catch(() => null)
+      allowedCodeRepo(workspaceId, agentId, repo.fullName).catch(() => null)
     )
   )
   const repos = allowed.flatMap((found) =>
@@ -98,20 +120,18 @@ async function reposForChannel(
     ? { repos }
     : {
         error:
-          "This channel's agent profile does not allow code. A workspace admin can allow it in the channel's Agent settings.",
+          "Your tool profile does not allow code (GitHub's clone_repo). A workspace admin can allow it on your Tools tab.",
       }
 }
 
-async function agentSession(channelId: string, sessionId: string) {
+// A session one of the agent's conversations started: they all see the
+// same sessions under "Open right now". Another agent's are not its own.
+async function agentSession(agentId: string, sessionId: string) {
   const [session] = await db
     .select()
     .from(schema.agentSession)
     .where(
-      and(
-        eq(schema.agentSession.id, sessionId),
-        eq(schema.agentSession.channelId, channelId),
-        eq(schema.agentSession.origin, "agent")
-      )
+      and(eq(schema.agentSession.id, sessionId), sessionStartedByAgent(agentId))
     )
   return session ?? null
 }
@@ -132,18 +152,132 @@ async function activeRun(threadRootId: string) {
 
 type TaskRoute = Awaited<ReturnType<typeof resolveHarnessAccount>> | undefined
 
-// Throws when the requester (or the workspace) has no usable account.
+// The requester's own account, else the accounts of the agent in the
+// channel. Throws when neither has one that can be used.
 async function taskRoute(
   workspaceId: string,
+  // The agent whose own settings pay when nobody's plan does: the one that
+  // starts the session, not the chat's first.
+  agentId: string,
   harness: "pi" | "claude_code" | "codex",
   requestUserId: string | null
 ): Promise<TaskRoute> {
   return harness === "pi"
     ? undefined
     : await resolveHarnessAccount(
-        { workspaceId, userId: requestUserId },
+        {
+          workspaceId,
+          userId: requestUserId,
+          agentId: requestUserId ? null : agentId,
+        },
         harness === "claude_code" ? "claude" : "chatgpt"
       )
+}
+
+const CODING_AGENTS = ["claude_code", "codex"] as const
+const PAYER_TEXT = {
+  asker: "the plan of the person who asked",
+  agent: "your workspace account",
+  api: "API billing on Lor credits or the workspace's key",
+} as const
+const payerOf = (route: TaskRoute) =>
+  !route || route.source === "api"
+    ? PAYER_TEXT.api
+    : route.userId
+      ? PAYER_TEXT.asker
+      : PAYER_TEXT.agent
+
+// What an agent can pick when it starts a session: each coding agent with
+// its models for whoever pays (or why it can't run), the environments and
+// the sandbox sizes. The same choices a person has on New session.
+async function sessionOptions(
+  workspaceId: string,
+  agentId: string,
+  requestUserId: string | null,
+  defaultHarness: string
+) {
+  const codingAgents = await Promise.all(
+    CODING_AGENTS.filter(isHarnessEnabled).map(async (harness) => {
+      try {
+        const route = await taskRoute(
+          workspaceId,
+          agentId,
+          harness,
+          requestUserId
+        )
+        const catalog = await sessionModelCatalog(harness, route, workspaceId)
+        return {
+          harness,
+          default: harness === defaultHarness,
+          paidBy: payerOf(route),
+          defaultModel: catalog.defaultModel,
+          models: catalog.models.map((model) => ({
+            id: model.id,
+            name: model.name,
+            efforts: model.efforts,
+            fast: model.fast && route?.source === "subscription",
+          })),
+        }
+      } catch (err) {
+        return { harness, unavailable: routeError(err) }
+      }
+    })
+  )
+  const environments = await db
+    .select({
+      id: schema.environment.id,
+      name: schema.environment.name,
+      repo: schema.environmentRepo.repoFullName,
+    })
+    .from(schema.environment)
+    .innerJoin(
+      schema.environmentRepo,
+      eq(schema.environmentRepo.environmentId, schema.environment.id)
+    )
+    .where(eq(schema.environment.workspaceId, workspaceId))
+  return {
+    codingAgents,
+    environments,
+    sandboxGb: CODE_SANDBOX_MEMORY_OPTIONS_MB.map((mb) => mb / 1024),
+    modes: ["auto", "default", "acceptEdits", "plan"],
+  }
+}
+
+// An agent's picks checked against what the coding agent can run for whoever
+// pays. A string: why one can't be used, for the agent to read.
+function checkPicks(
+  catalog: AgentModelCatalog,
+  route: TaskRoute,
+  picks: SessionPicks,
+  harness: string
+): string | null {
+  const model = picks.model
+    ? catalog.models.find((option) => option.id === picks.model)
+    : catalog.models.find((option) => option.id === catalog.defaultModel)
+  if (picks.model && !model) {
+    return `${picks.model} isn't a model this coding agent can run here. Pick one of: ${catalog.models.map((option) => option.id).join(", ")}.`
+  }
+  if (picks.effort && !model?.efforts.includes(picks.effort)) {
+    return `That model takes no "${picks.effort}" effort${model?.efforts.length ? `; pick one of: ${model.efforts.join(", ")}` : ""}.`
+  }
+  if (picks.fast && !(model?.fast && route?.source === "subscription")) {
+    return "Fast mode isn't available for that model and payer."
+  }
+  if (picks.mode && harness !== "claude_code") {
+    return "A permission mode is for Claude Code only."
+  }
+  return null
+}
+
+// Why no account can pay, as the agent is told it. A plan at its usage
+// limit is the asker's to know about: the agent tells them.
+function routeError(err: unknown) {
+  if (err instanceof HarnessAccountLimitError) {
+    return err.userId ? `${err.message} ${PLAN_LIMIT_AGENT_HINT}` : err.message
+  }
+  return err instanceof Error
+    ? err.message
+    : "Couldn't select an account for this session."
 }
 
 // The agent's brief or follow-up, as the session's next turn.
@@ -156,7 +290,8 @@ async function runTask(
   },
   channelName: string | null,
   task: string,
-  harnessAccount: TaskRoute
+  harnessAccount: TaskRoute,
+  picks: SessionPicks = {}
 ): Promise<"started" | "busy" | "failed"> {
   const { messageId } = await postLorMessage(deps, {
     channelId: session.channelId,
@@ -166,6 +301,13 @@ async function runTask(
     eventType: "agent_task",
     eventPayload: { channelName },
     silent: true,
+    // Read by the turn it starts, like a person's composer picks.
+    turn: {
+      model: picks.model ?? null,
+      effort: picks.effort ?? null,
+      fast: picks.fast ?? null,
+      claudeCodeMode: picks.mode ?? null,
+    },
   })
   const started = await startScopeRun(deps, {
     workspaceId: session.workspaceId,
@@ -214,6 +356,9 @@ export function agentSessionExecutors(
   deps: SessionToolDeps,
   args: {
     workspaceId: string
+    agentId: string
+    // The conversation that starts a session, which its turns report to.
+    conversationId: string
     channelId: string
     channelName: string | null
     // Who woke the agent: they follow the sessions it starts for them.
@@ -221,6 +366,9 @@ export function agentSessionExecutors(
     planUserId: string | null
     // Set only for a direct request; automation attribution is not a payer.
     requestUserId: string | null
+    // The turn's place in the chat: a session started in a Discord place
+    // moves it into the thread its card opens.
+    turn?: { threadRootId: string | null; triggerMessageId?: string | null }
   }
 ): AgentSessionTools {
   const { workspaceId, channelId, channelName } = args
@@ -233,14 +381,62 @@ export function agentSessionExecutors(
   }
 
   return {
-    start: async ({ repo, baseBranch, title, task, harness: wanted }) => {
-      const available = await reposForChannel(workspaceId, channelId)
+    start: async ({
+      repo,
+      baseBranch,
+      newBranch: namedBranch,
+      environmentId: wantedEnvironment,
+      sandboxGb,
+      title,
+      task,
+      harness: wanted,
+      ...picks
+    }) => {
+      // From Discord (decision 51) only a person with a linked Lor account
+      // starts one, and it runs on that person's own plan: they own it.
+      const place = await isPlace(channelId)
+      let requestUserId = args.requestUserId
+      if (place) {
+        const owner = await personAsking(args.askerId)
+        if (!owner) {
+          return {
+            error:
+              "Code sessions from Discord need the person asking to link their Lor account. Tell them to run /lor connect-account in Discord, then ask again.",
+          }
+        }
+        if (!(await hasOwnRequestRoute(workspaceId, owner))) {
+          return {
+            error:
+              "A code session from Discord runs on the asker's own plan, and they have none in Lor. Tell them to link their Claude or ChatGPT account in Lor's settings, then ask again.",
+          }
+        }
+        requestUserId = owner
+      }
+      const available = await reposForAgent(workspaceId, args.agentId)
       if ("error" in available) return available
       const { repos } = available
-      if (!repo) return { repos }
-      const allowed = await channelCodeRepo(workspaceId, channelId, repo).catch(
-        () => null
-      )
+      // The agent's own coding-agent settings, for a session nobody asked
+      // for; the asker's preference otherwise.
+      const settings = await getHarnessSettings({ agentId: args.agentId })
+      const defaultHarness = requestUserId
+        ? await personalRequestHarness(workspaceId, requestUserId)
+        : settings.defaultHarness
+      if (!repo) {
+        return {
+          repos,
+          ...(await sessionOptions(
+            workspaceId,
+            args.agentId,
+            requestUserId,
+            defaultHarness
+          )),
+        }
+      }
+      const allowed = await allowedCodeRepo(
+        workspaceId,
+        args.agentId,
+        repo
+      ).catch(() => null)
       if (!allowed) {
         return { error: `${repo} is not available here.`, repos }
       }
@@ -268,26 +464,56 @@ export function agentSessionExecutors(
         }
       }
 
-      const settings = await getWorkspaceHarnessSettings(workspaceId)
-      const harness =
-        wanted ??
-        (args.requestUserId
-          ? await personalRequestHarness(workspaceId, args.requestUserId)
-          : settings.defaultHarness)
+      const harness = wanted ?? defaultHarness
       if (!isHarnessEnabled(harness))
         return {
           error:
-            "The selected coding agent is unavailable. Update your linked accounts or the workspace's autonomous settings.",
+            "The selected coding agent is unavailable. Update your linked accounts or this agent's settings.",
         }
       let route: TaskRoute
       try {
-        route = await taskRoute(workspaceId, harness, args.requestUserId)
+        route = await taskRoute(
+          workspaceId,
+          args.agentId,
+          harness,
+          requestUserId
+        )
       } catch (err) {
+        return { error: routeError(err) }
+      }
+      const picksIssue = checkPicks(
+        await sessionModelCatalog(harness, route, workspaceId),
+        route,
+        picks,
+        harness
+      )
+      if (picksIssue) return { error: picksIssue }
+      const named = namedBranch?.trim()
+      if (named && (named === branch || !isValidNewBranchName(named))) {
+        return { error: `${named} can't be used as the new branch's name.` }
+      }
+      const environmentId = wantedEnvironment
+        ? await environmentForRepo(
+            workspaceId,
+            wantedEnvironment,
+            allowed.repo.fullName
+          )
+        : null
+      if (wantedEnvironment && !environmentId) {
         return {
-          error:
-            err instanceof Error
-              ? err.message
-              : "Couldn't select an account for this session.",
+          error: `That environment isn't set up for ${allowed.repo.fullName}.`,
+        }
+      }
+      const sandboxMemoryMb =
+        sandboxGb === undefined ? null : Math.round(sandboxGb * 1024)
+      if (
+        sandboxMemoryMb !== null &&
+        !(CODE_SANDBOX_MEMORY_OPTIONS_MB as readonly number[]).includes(
+          sandboxMemoryMb
+        )
+      ) {
+        return {
+          error: `Pick a sandbox size of ${CODE_SANDBOX_MEMORY_OPTIONS_MB.map((mb) => `${mb / 1024}`).join(" or ")} GB.`,
         }
       }
 
@@ -295,7 +521,7 @@ export function agentSessionExecutors(
         ? await listChannelAudienceUserIds(channelId)
         : []
       const sessionId = randomUUID()
-      const newBranch = lorBranchName(sessionId)
+      const newBranch = named || lorBranchName(sessionId)
       const session = await db.transaction((tx) =>
         createSession(tx, {
           id: sessionId,
@@ -304,12 +530,15 @@ export function agentSessionExecutors(
           authorId: LOR_USER_ID,
           creatorId: args.askerId,
           origin: "agent",
+          conversationId: args.conversationId,
           harness,
           title,
           code: {
             repoFullName: allowed.repo.fullName,
             baseBranch: branch,
             newBranch,
+            environmentId,
+            sandboxMemoryMb,
           },
           subscriberIds:
             args.askerId && audience.includes(args.askerId)
@@ -336,18 +565,49 @@ export function agentSessionExecutors(
       }).catch((err) =>
         logger.warn({ err, sessionId }, "Agent session line failed")
       )
+      // Its card in Discord, in the thread of the request, which the agent's
+      // answers move into.
+      if (place) {
+        const card = await postSessionCard({
+          sessionId,
+          channelId,
+          agentId: args.agentId,
+          threadRootId: args.turn?.threadRootId ?? null,
+          triggerMessageId: args.turn?.triggerMessageId ?? null,
+        }).catch((err: unknown) => {
+          logger.warn({ err, sessionId }, "Discord session card failed")
+          return null
+        })
+        if (card?.threadRootId && args.turn) {
+          args.turn.threadRootId = card.threadRootId
+        }
+      }
       const started = await runTask(
         deps,
         session,
         channelName,
         task,
-        route
-      ).catch((err: unknown) => {
+        route,
+        picks
+      ).catch(async (err: unknown) => {
         logger.warn({ err, sessionId }, "Agent session first turn failed")
-        return "failed" as const
+        // A run that took the brief before the throw may still be working.
+        const [accepted] = await db
+          .select({ id: schema.agentRun.id })
+          .from(schema.agentRun)
+          .where(eq(schema.agentRun.scopeKey, session.threadRootId))
+          .limit(1)
+        return accepted ? ("unknown" as const) : ("failed" as const)
       })
       if (started !== "started") {
         logger.warn({ sessionId, started }, "Agent session did not start")
+        // Its Discord card would say "working" forever.
+        if (started === "failed") {
+          void updateSessionCard(sessionId, { state: "failed" }).catch(
+            (err: unknown) =>
+              logger.warn({ err, sessionId }, "Session card failed")
+          )
+        }
         return {
           error:
             "The session was created but its first turn may not have started. Check it with check_session before sending the brief again with message_session.",
@@ -359,7 +619,13 @@ export function agentSessionExecutors(
       return {
         sessionId,
         title,
-        runsOn: `${harness === "pi" ? "Lor" : harness === "codex" ? "Codex" : "Claude Code"} with ${args.requestUserId && harness !== "pi" ? "the requester's personal subscription" : "workspace API or autonomous billing"}`,
+        runsOn: `${harness === "pi" ? "Lor" : harness === "codex" ? "Codex" : "Claude Code"} with ${requestUserId && harness !== "pi" ? "the requester's personal subscription" : "workspace API or autonomous billing"}`,
+        ...(place
+          ? {
+              discord:
+                "A card in the Discord thread shows this session with a link to it and follows its state; no need to paste the link.",
+            }
+          : {}),
         repo: allowed.repo.fullName,
         baseBranch: branch,
         branch: newBranch,
@@ -368,7 +634,7 @@ export function agentSessionExecutors(
     },
 
     check: async ({ sessionId }) => {
-      const session = await agentSession(channelId, sessionId)
+      const session = await agentSession(args.agentId, sessionId)
       if (!session) return { error: "No session you started has that id." }
       const [run, pending, lastRun, reply] = await Promise.all([
         activeRun(session.threadRootId),
@@ -429,8 +695,8 @@ export function agentSessionExecutors(
       }
     },
 
-    message: async ({ sessionId, message }) => {
-      const session = await agentSession(channelId, sessionId)
+    message: async ({ sessionId, message, ...picks }) => {
+      const session = await agentSession(args.agentId, sessionId)
       if (!session) return { error: "No session you started has that id." }
       if (session.archivedAt) {
         return { error: "That session is archived. Start a new one." }
@@ -441,13 +707,42 @@ export function agentSessionExecutors(
             "The session is working. Wait for its report, or stop it first.",
         }
       }
+      // A session from Discord goes on on its owner's plan, wherever the
+      // follow-up comes from.
+      const payer = (await isPlace(session.channelId))
+        ? session.creatorId
+        : args.requestUserId
+      let route: TaskRoute
+      try {
+        route = await taskRoute(
+          workspaceId,
+          args.agentId,
+          session.harness,
+          payer
+        )
+      } catch (err) {
+        return { error: routeError(err) }
+      }
+      if (picks.model || picks.effort || picks.fast) {
+        const picksIssue = checkPicks(
+          await sessionModelCatalog(session.harness, route, workspaceId),
+          route,
+          picks,
+          session.harness
+        )
+        if (picksIssue) return { error: picksIssue }
+      }
       const started = await runTask(
         deps,
         session,
         channelName,
         message,
-        await taskRoute(workspaceId, session.harness, args.requestUserId)
+        route,
+        picks
       )
+      if (started === "started") {
+        void updateSessionCard(session.id, { state: "working" }).catch(() => {})
+      }
       if (started === "failed") {
         return {
           error: "The follow-up did not start. You can send it again.",
@@ -459,7 +754,7 @@ export function agentSessionExecutors(
     },
 
     stop: async ({ sessionId }) => {
-      const session = await agentSession(channelId, sessionId)
+      const session = await agentSession(args.agentId, sessionId)
       if (!session) return { error: "No session you started has that id." }
       const run = await activeRun(session.threadRootId)
       if (!run) return { ok: true, note: "It was not working." }
@@ -476,6 +771,25 @@ export function agentSessionExecutors(
       return { ok: true }
     },
   }
+}
+
+async function isPlace(channelId: string) {
+  const [row] = await db
+    .select({ kind: schema.channel.kind })
+    .from(schema.channel)
+    .where(eq(schema.channel.id, channelId))
+  return row?.kind === "place"
+}
+
+// The person behind a turn: someone who wrote in Discord without a linked
+// account is the app, not a person.
+async function personAsking(userId: string | null) {
+  if (!userId || userId === LOR_USER_ID || userId === APP_USER_ID) return null
+  const [row] = await db
+    .select({ isBot: schema.user.isBot })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId))
+  return row && !row.isBot ? userId : null
 }
 
 export type HelperOutcome = "finished" | "approval" | "failed" | "stopped"
@@ -506,20 +820,62 @@ export async function reportHelperTurn(
   const reply = args.reply.trim()
   const cut = reply.length > REPORT_REPLY_CHARS
   const note = `Session "${args.session.title}" (session ${args.session.id}${args.session.newBranch ? `, branch ${args.session.newBranch}` : ""}) ${OUTCOME_TEXT[args.outcome]}.${reply ? `\nIts reply${cut ? ` (cut short here; read_thread with message ${args.replyMessageId} reads it in full)` : ""}:\n${clip(reply, REPORT_REPLY_CHARS)}` : ""}`
+  const [started] = await db
+    .select({
+      conversationId: schema.agentSession.conversationId,
+      threadRootId: schema.agentSession.threadRootId,
+    })
+    .from(schema.agentSession)
+    .where(eq(schema.agentSession.id, args.session.id))
+  // The conversation that started the session reads its report; a session
+  // from before conversations (none recorded) reports to the agent's own.
   const added = await addInboxNote({
     workspaceId: args.workspaceId,
     channelId: args.channelId,
+    conversationId: started?.conversationId ?? null,
     source: "session",
     sourceId: args.runId,
     note,
     lane: "wake",
   })
-  // A repeated report adds no note but still asks for the flush, in case
-  // the first one's enqueue failed.
-  if (!added) logger.info({ runId: args.runId }, "Helper report already noted")
+  // Its card in Discord follows the session's latest run only: a repeated
+  // report of an older run must not undo a newer one's state.
+  const [latest] = started
+    ? await db
+        .select({ id: schema.agentRun.id })
+        .from(schema.agentRun)
+        .where(eq(schema.agentRun.scopeKey, started.threadRootId))
+        .orderBy(desc(schema.agentRun.createdAt))
+        .limit(1)
+    : []
+  if (latest?.id === args.runId) {
+    void updateSessionCard(args.session.id, {
+      state: args.outcome,
+      report: reply,
+    }).catch((err: unknown) =>
+      logger.warn({ err, sessionId: args.session.id }, "Session card failed")
+    )
+  }
+  // It asks there for what it waits on, once (a repeated report adds no
+  // note), whether or not the card edit worked.
+  if (added && args.outcome === "approval") {
+    void postSessionApprovals(args.session.id, args.runId).catch(
+      (err: unknown) =>
+        logger.warn(
+          { err, sessionId: args.session.id },
+          "Session approvals failed"
+        )
+    )
+  }
+  // A repeated report adds no note, and the stranded-inbox sweep flushes a
+  // first one whose enqueue failed.
+  if (!added) {
+    logger.info({ runId: args.runId }, "Helper report already noted")
+    return
+  }
   await queue?.add(
     AGENT_INBOX_FLUSH_JOB,
-    { channelId: args.channelId },
+    { conversationId: added },
     { delay: AGENT_INBOX_BATCH_MS, removeOnComplete: true, removeOnFail: 100 }
   )
 }
@@ -553,7 +909,9 @@ export async function reportHelperRun(
     )
     .leftJoin(schema.message, eq(schema.message.id, schema.agentRun.messageId))
     .where(eq(schema.agentRun.id, runId))
-  if (!run?.messageId) return
+  // A helper session's run is in its session's chat.
+  const channelId = run?.channelId
+  if (!run?.messageId || !channelId) return
   const outcome: HelperOutcome | null =
     run.state === "failed"
       ? "failed"
@@ -567,7 +925,7 @@ export async function reportHelperRun(
   if (!outcome) return
   await reportHelperTurn(queue, {
     workspaceId: run.workspaceId,
-    channelId: run.channelId,
+    channelId,
     runId,
     session: {
       id: run.sessionId,
@@ -608,7 +966,6 @@ export async function sweepUnreportedHelperRuns(): Promise<void> {
             .from(schema.agentInbox)
             .where(
               and(
-                eq(schema.agentInbox.channelId, schema.agentRun.channelId),
                 eq(schema.agentInbox.source, "session"),
                 eq(schema.agentInbox.sourceId, sql`${schema.agentRun.id}::text`)
               )

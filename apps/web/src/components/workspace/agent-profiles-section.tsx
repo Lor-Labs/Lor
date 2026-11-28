@@ -154,7 +154,7 @@ function ProfileList({
             New profile
           </Button>
         }
-        caption="Channels use the default profile unless you pick another in channel or category settings."
+        caption="Agents use the default profile unless you pick another on the agent's Tools tab."
       >
         <div className="space-y-3">
           {profiles.map((p) => (
@@ -229,8 +229,8 @@ function ProfileEditor({
             {profile?.isDefault && <Badge variant="outline">Default</Badge>}
           </div>
           <p className="text-sm text-muted-foreground">
-            Choose what Lor can use in channels with this profile. Approval
-            rules still apply.
+            Choose what Lor can use in chats with this profile. Approval rules
+            still apply.
           </p>
         </div>
         <div className="max-w-md space-y-2">
@@ -439,9 +439,9 @@ export function AgentProfilesSection({
             <AlertDialogTitle>Delete Profile</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete{" "}
-              <span className="font-semibold">{deleteTarget?.name}</span>?
-              Channels using it fall back to the workspace default profile. This
-              action cannot be undone.
+              <span className="font-semibold">{deleteTarget?.name}</span>? Chats
+              using it fall back to the workspace default profile. This action
+              cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

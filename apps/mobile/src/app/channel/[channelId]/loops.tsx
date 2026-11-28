@@ -28,7 +28,10 @@ export default function ChannelLoopsScreen() {
   })
   const loops = useChannelLoops(channelId ?? "")
   const channelName = channelState.channel?.name ?? "channel"
-  const sorted = sortLoops(loops.data ?? [])
+  // The list also holds Loops whose card is here but report elsewhere.
+  const sorted = sortLoops(
+    (loops.data ?? []).filter((loop) => loop.channelId === channelId)
+  )
   const refreshControl = usePullToRefresh(loops.refetch)
 
   return (

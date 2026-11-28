@@ -53,8 +53,8 @@ export function LoopStatusChip({ status }: { status: ChannelLoop["status"] }) {
 
 export function openLoop(loop: ChannelLoop) {
   router.push({
-    pathname: "/channel/[channelId]/loop/[loopId]",
-    params: { channelId: loop.channelId, loopId: loop.id },
+    pathname: "/loop/[loopId]",
+    params: { loopId: loop.id },
   })
 }
 

@@ -50,7 +50,7 @@ export const getRunEvents: AppRouteHandler<GetRunEventsRoute> = async (c) => {
   const run = await db
     .select({
       id: schema.agentRun.id,
-      channelId: schema.agentRun.channelId,
+      channelId: schema.channel.id,
       threadRootId: schema.agentRun.threadRootId,
       scopeKey: schema.agentRun.scopeKey,
       workspaceId: schema.agentRun.workspaceId,
@@ -169,7 +169,7 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
   const run = await db
     .select({
       id: schema.agentRun.id,
-      channelId: schema.agentRun.channelId,
+      channelId: schema.channel.id,
       workspaceId: schema.agentRun.workspaceId,
       channelWorkspaceId: schema.channel.workspaceId,
       state: schema.agentRun.state,
@@ -415,7 +415,7 @@ export const stopRun: AppRouteHandler<StopRunRoute> = async (c) => {
   const run = await db
     .select({
       id: schema.agentRun.id,
-      channelId: schema.agentRun.channelId,
+      channelId: schema.channel.id,
       threadRootId: schema.agentRun.threadRootId,
       workspaceId: schema.agentRun.workspaceId,
       channelWorkspaceId: schema.channel.workspaceId,
@@ -509,7 +509,7 @@ export const steerQueuedMessage: AppRouteHandler<
     .select({
       state: schema.agentRunQueue.state,
       scopeKey: schema.agentRunQueue.scopeKey,
-      channelId: schema.agentRun.channelId,
+      channelId: schema.channel.id,
       workspaceId: schema.agentRun.workspaceId,
       channelWorkspaceId: schema.channel.workspaceId,
     })
@@ -583,12 +583,17 @@ export const steerQueuedMessage: AppRouteHandler<
   // Conversational scopes always carry a placeholder message; a null here
   // can't happen for them (an Act run is message-less only before its
   // session exists).
-  const outcome = active?.messageId
-    ? await requestRunStop(
-        { ...active, messageId: active.messageId },
-        currentUser.id
-      )
-    : null
+  const outcome =
+    active?.messageId && active.channelId
+      ? await requestRunStop(
+          {
+            ...active,
+            messageId: active.messageId,
+            channelId: active.channelId,
+          },
+          currentUser.id
+        )
+      : null
   if (!outcome) {
     // The run finished on its own between the read and the stop. The
     // promotion stands, so the drain answers this message next — steering
@@ -613,7 +618,7 @@ export const removeQueuedMessage: AppRouteHandler<
       senderId: schema.agentRunQueue.senderId,
       state: schema.agentRunQueue.state,
       scopeKey: schema.agentRunQueue.scopeKey,
-      channelId: schema.agentRun.channelId,
+      channelId: schema.channel.id,
       workspaceId: schema.agentRun.workspaceId,
       channelWorkspaceId: schema.channel.workspaceId,
     })

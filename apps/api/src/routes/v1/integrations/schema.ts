@@ -18,6 +18,39 @@ export const connectionIdParamsSchema =
       .openapi({ param: { name: "connectionId", in: "path", required: true } }),
   })
 
+// One listener of a connector event (reference/agents-and-chats.md, decisions
+// 40 and 42): an agent that hears the event, anchored to the chat it reports
+// in.
+export const listenerSchema = z.object({
+  id: z.string().uuid(),
+  // The chat the listening agent reports in.
+  channelId: z.string(),
+  // The agent that listens (the chat's first agent when none was picked);
+  // null when its chat has no agent.
+  agentId: z.string().nullable(),
+  // A plain-language condition checked before the agent is woken.
+  filter: z.string().nullable(),
+  post: z.boolean(),
+  // Whether the posted event pings the people in the chat.
+  notify: z.boolean(),
+  // Null = the agent is not woken.
+  actInstructions: z.string().nullable(),
+  actSessionMode: actSessionModeSchema,
+  actCode: actCodeSchema,
+  // Act rate shape (reference/automation-primitives.md §5).
+  actWindowSeconds: z.number(),
+  // Newest Act run on this listener + the handoff note it left for the next
+  // run. Read-only; null = never run.
+  lastAct: z
+    .object({
+      note: z.string().nullable(),
+      state: z.string(),
+      stopReason: z.string().nullable(),
+      at: z.string(),
+    })
+    .nullable(),
+})
+
 // One row per integration provider: whether this workspace has it connected,
 // and how to connect it.
 // A repository the connected installation can access. Repo access is managed
@@ -61,33 +94,25 @@ export const integrationStatusSchema = z.object({
   repos: z.array(integrationRepoSchema).nullable(),
   repoCount: z.number().nullable(),
   manageUrl: z.string().nullable(),
-  // The provider's triggerable event kinds (from the connector registry), each
-  // with its trigger config; channelId null = the event is off.
+  // The provider's event kinds (from the connector registry), each with who
+  // listens to it; nobody listening = the event is off.
   events: z.array(
     z.object({
       key: z.string(),
       label: z.string(),
-      channelId: z.string().nullable(),
-      post: z.boolean(),
-      actInstructions: z.string().nullable(),
-      actSessionMode: actSessionModeSchema,
-      actCode: actCodeSchema,
-      // Act rate shape (reference/automation-primitives.md §5).
-      actWindowSeconds: z.number(),
-      hourlyRunCap: z.number(),
-      dailyRunCap: z.number(),
-      // Newest Act run on this event's trigger + the handoff note it left for
-      // the next run. Read-only; null = never run (or no trigger).
-      lastAct: z
-        .object({
-          note: z.string().nullable(),
-          state: z.string(),
-          stopReason: z.string().nullable(),
-          at: z.string(),
-        })
-        .nullable(),
+      listeners: z.array(listenerSchema),
     })
   ),
+  // A webhook people set up by hand at the provider (Circleback): the URL to
+  // paste there, whether its signing secret is saved, and the last delivery.
+  // Null for other connectors, when not connected, or without connector:manage.
+  inboundWebhook: z
+    .object({
+      url: z.string(),
+      secretSet: z.boolean(),
+      receivedAt: z.string().nullable(),
+    })
+    .nullable(),
 })
 
 export const listIntegrationsResponseSchema = z.object({
@@ -177,28 +202,76 @@ export const connectCloudwatchResponseSchema = z.object({
   accountLogin: z.string().nullable(),
 })
 
-export const updateIntegrationRequestSchema = z.object({
-  // One of the provider's event keys from the connector registry.
-  event: z.string().min(1),
-  // The trigger's anchor channel (target/scope of every effect); null removes
-  // the trigger — the event is off.
-  channelId: z.string().uuid().nullable(),
-  post: z.boolean().default(true),
-  // The Act effect's instructions for Lor; null = Act off.
-  actInstructions: z.string().trim().max(4000).nullable().default(null),
-  // Optional like the rate shape below: absent keeps the saved value.
-  actSessionMode: actSessionModeSchema.optional(),
+// The fields of a listener a person can set. All optional on an update:
+// absent keeps the saved value.
+const listenerFieldsSchema = z.object({
+  // The chat the agent reports in, and where the event is posted.
+  channelId: z.string().uuid(),
+  // Null or empty clears it.
+  filter: z.string().trim().max(500).nullable(),
+  post: z.boolean(),
+  notify: z.boolean(),
+  // Instructions for the agent; null = the agent is not woken.
+  actInstructions: z.string().trim().max(4000).nullable(),
+  actSessionMode: actSessionModeSchema,
   // Null = chat sessions.
-  actCode: actCodeSchema.optional(),
-  // Act rate shape. Optional (not defaulted) so a client that doesn't know
-  // about these can't silently reset them on an unrelated toggle.
-  actWindowSeconds: z.number().int().min(0).max(3600).optional(),
-  hourlyRunCap: z.number().int().min(1).max(500).optional(),
-  dailyRunCap: z.number().int().min(1).max(2000).optional(),
+  actCode: actCodeSchema,
+  actWindowSeconds: z.number().int().min(0).max(3600),
 })
 
-export const updateIntegrationResponseSchema = z.object({
+export const createListenerRequestSchema = listenerFieldsSchema
+  .partial()
+  .required({ channelId: true })
+  .extend({
+    // One of the provider's event keys from the connector registry.
+    event: z.string().min(1),
+    // The agent that listens; it must be in the chat. Null: nobody is
+    // named, and the event is only posted.
+    agentId: z.string().uuid().nullable(),
+  })
+
+export const createListenerResponseSchema = z.object({
   success: z.literal(true),
+  id: z.string().uuid(),
+})
+
+export const updateListenerRequestSchema = listenerFieldsSchema.partial()
+
+export const listenerParamsSchema = connectionIdParamsSchema.extend({
+  listenerId: z
+    .string()
+    .uuid()
+    .openapi({ param: { name: "listenerId", in: "path", required: true } }),
+})
+
+export const integrationOkResponseSchema = z.object({
+  success: z.literal(true),
+})
+
+// Which agent fits each of a connector's events that nobody listens to yet,
+// and the chat it would report in.
+export const listenerSuggestionsResponseSchema = z.object({
+  suggestions: z.array(
+    z.object({
+      event: z.string(),
+      agentId: z.string().uuid(),
+      channelId: z.string().uuid(),
+    })
+  ),
+})
+
+// What arrived for a listener and what became of it, newest first.
+export const listenerActivityResponseSchema = z.object({
+  deliveries: z.array(
+    z.object({
+      id: z.string().uuid(),
+      at: z.string(),
+      // "wake", "wait", "filtered", "off", "error", …
+      outcome: z.string().nullable(),
+      posted: z.boolean(),
+      subject: z.string().nullable(),
+    })
+  ),
 })
 
 export const disconnectResponseSchema = z.object({
@@ -224,4 +297,47 @@ export const connectBetterstackRequestSchema = z.object({
 export const connectBetterstackResponseSchema = z.object({
   success: z.literal(true),
   accountLogin: z.string().nullable(),
+})
+
+export const connectGranolaRequestSchema = z.object({
+  apiKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(4096)
+    .refine((value) => !/\s/.test(value), "API keys cannot contain whitespace"),
+})
+
+export const connectGranolaResponseSchema = z.object({
+  success: z.literal(true),
+  accountLogin: z.string().nullable(),
+  // False in local development, where Granola can't reach the API.
+  events: z.boolean(),
+})
+
+export const connectCirclebackRequestSchema = z.object({
+  apiKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(4096)
+    .refine((value) => !/\s/.test(value), "API keys cannot contain whitespace"),
+})
+
+export const connectCirclebackResponseSchema = z.object({
+  success: z.literal(true),
+  accountLogin: z.string().nullable(),
+})
+
+export const setCirclebackWebhookSecretRequestSchema = z.object({
+  secret: z
+    .string()
+    .trim()
+    .min(8)
+    .max(512)
+    .refine((value) => !/\s/.test(value), "Secrets cannot contain whitespace"),
+})
+
+export const setCirclebackWebhookSecretResponseSchema = z.object({
+  success: z.literal(true),
 })

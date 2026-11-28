@@ -1,19 +1,45 @@
 import {
+  index,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { agentSession } from "./agent-sessions"
+import { agent } from "./agents"
 import { channel } from "./channels"
 import { message } from "./messages"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
-// A channel whose chat lives in a Discord channel
-// (reference/always-on-agents.md §10, decision 22): people talk in Discord,
-// Lor mirrors the conversation read-only, and the agent posts there through
-// the webhook the bot made, under its own name and creature.
+// A Discord server connected to a workspace (reference/agents-and-chats.md,
+// decision 51): connected once, with a code from Lor's Connectors run as
+// `/lor link` there, after which its channels can be made places.
+export const discordGuild = pgTable(
+  "discord_guild",
+  {
+    guildId: text("guild_id").primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    name: text("name"),
+    connectedById: uuid("connected_by_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("discord_guild_workspaceId_idx").on(table.workspaceId)]
+)
+
+// A place in Discord: the Discord channel behind a `channel` row of kind
+// "place" (decisions 24 and 51). People talk in Discord, Lor keeps a copy
+// for the agents in it, and each agent posts there through a webhook of its
+// own (`discord_agent_webhook`). `webhookId` is the first one made and only
+// tells one link from a later one (`withDiscordLinkLock`). The creature and
+// role columns are from when a chat had one agent: `discord-places.ts`
+// copies them to the per-agent tables once, and nothing reads them after.
 export const channelDiscordLink = pgTable(
   "channel_discord_link",
   {
@@ -49,6 +75,51 @@ export const channelDiscordLink = pgTable(
   ]
 )
 
+// The role people mention an agent by in a Discord server (@Inky): one per
+// agent and server, whichever of its channels the agent is in, held by the
+// bot so it pings no one, renamed with the agent.
+export const discordAgentRole = pgTable(
+  "discord_agent_role",
+  {
+    guildId: text("guild_id").notNull(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agent.id, { onDelete: "cascade" }),
+    roleId: text("role_id").notNull(),
+    roleName: text("role_name").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.guildId, table.agentId] }),
+    uniqueIndex("discord_agent_role_roleId_uidx").on(table.roleId),
+  ]
+)
+
+// The webhook an agent posts through in one place, wearing its name and
+// face, so several agents in a Discord channel each post as themselves.
+export const discordAgentWebhook = pgTable(
+  "discord_agent_webhook",
+  {
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => channel.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agent.id, { onDelete: "cascade" }),
+    webhookId: text("webhook_id").notNull(),
+    // Encrypted at rest (AES-256-GCM, INTEGRATION_ENCRYPTION_KEY).
+    webhookToken: text("webhook_token").notNull(),
+    // A key for the still its avatar shows (`stillKey`), so a change of
+    // creature or of its drawing re-uploads it.
+    webhookCreature: text("webhook_creature"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.channelId, table.agentId] }),
+    uniqueIndex("discord_agent_webhook_webhookId_uidx").on(table.webhookId),
+  ]
+)
+
 // A Lor message and the Discord message it mirrors or was posted as: replies
 // map both ways, and a redelivered Discord event is not stored twice.
 export const discordMessage = pgTable("discord_message", {
@@ -63,7 +134,7 @@ export const discordMessage = pgTable("discord_message", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 })
 
-// A person's Discord account, linked with `/lor connect`: their Discord
+// A person's Discord account, linked with `/lor connect-account`: their Discord
 // messages post as them in Lor, and they can decide approvals from Discord.
 export const discordAccount = pgTable("discord_account", {
   userId: uuid("user_id")
@@ -86,5 +157,31 @@ export const discordThread = pgTable("discord_thread", {
     .notNull()
     .unique()
     .references(() => message.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+})
+
+// The card a code session started from a Discord place shows there
+// (reference/agents-and-chats.md, decision 51): posted by the agent that
+// started it, in the thread of the request, and edited in place as the
+// session works, waits on an approval, finishes or is pushed.
+export const discordSessionCard = pgTable("discord_session_card", {
+  sessionId: uuid("session_id")
+    .primaryKey()
+    .references(() => agentSession.id, { onDelete: "cascade" }),
+  channelId: uuid("channel_id")
+    .notNull()
+    .references(() => channel.id, { onDelete: "cascade" }),
+  agentId: uuid("agent_id")
+    .notNull()
+    .references(() => agent.id, { onDelete: "cascade" }),
+  discordMessageId: text("discord_message_id").notNull(),
+  // The Discord thread it is in; null when it is in the channel itself.
+  discordThreadId: text("discord_thread_id"),
+  state: text("state").notNull().default("working"),
+  // The start of its last report, shown under the state.
+  latest: text("latest"),
+  // Set once someone pushes the session's branch from Lor.
+  branchUrl: text("branch_url"),
+  pullRequestUrl: text("pull_request_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 })

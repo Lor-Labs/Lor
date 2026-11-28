@@ -4,8 +4,9 @@ import { spawn } from "node:child_process"
 // push the schema to a throwaway eval DB) without touching your .env DATABASE_URL.
 // The url is applied to the spawned processes' env only, so drizzle.config.ts
 // (dialect/schema/out) is otherwise unchanged. Any other flags (--force, etc.)
-// pass straight through to `drizzle-kit push`. Required extensions are created
-// first (src/scripts/ensure-extensions.ts): drizzle-kit can't create them.
+// pass straight through to `drizzle-kit push`. The scripts in BEFORE_PUSH run
+// first: drizzle-kit can't create extensions, and a push that drops columns
+// must not run before their data is moved.
 const argv = process.argv.slice(2)
 const passthrough = []
 let url
@@ -32,6 +33,9 @@ for (let i = 0; i < argv.length; i++) {
 const env = { ...process.env }
 if (url) env.DATABASE_URL = url
 
+// Help runs no data script.
+const wantsHelp = passthrough.some((arg) => arg === "--help" || arg === "-h")
+
 function run(command, args) {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
@@ -43,6 +47,48 @@ function run(command, args) {
   })
 }
 
-const ensured = await run("tsx", ["src/scripts/ensure-extensions.ts"])
-process.exitCode =
-  ensured === 0 ? await run("drizzle-kit", ["push", ...passthrough]) : ensured
+// Before the push, in order: extensions, then data moves the push would
+// otherwise destroy (agents-from-channels.ts copies each channel's agent
+// settings onto `agent` rows before their columns are dropped), then a
+// column drop the push would otherwise ask a question about, then the bot
+// users the push's foreign key from `agent.id` needs, then each Loop's agent
+// (loop-agents.ts adds and fills `loop.agent_id` once).
+const BEFORE_PUSH = [
+  "src/scripts/ensure-extensions.ts",
+  "src/scripts/agents-from-channels.ts",
+  "src/scripts/agent-facts-unscoped.ts",
+  "src/scripts/agent-conversations.ts",
+  "src/scripts/agent-bot-users.ts",
+  "src/scripts/chat-member-table.ts",
+  "src/scripts/loop-agents.ts",
+]
+
+// After the push, which creates their tables: one-time fills. Linked
+// Discord chats become places before chats nobody is in are filled.
+const AFTER_PUSH = ["src/scripts/discord-places.ts"]
+
+// The chat members fill runs only on the push that brings chat lists
+// (asked before the push, which adds channel_member.hidden_at): later, a
+// chat nobody is in is one everyone left, and must stay empty.
+const CHAT_MEMBERS = "src/scripts/chat-members.ts"
+const CHAT_MEMBERS_NOT_NEEDED = 10
+
+let code = 0
+if (wantsHelp) {
+  code = await run("drizzle-kit", ["push", ...passthrough])
+} else {
+  let fillChats = false
+  const check = await run("tsx", [CHAT_MEMBERS, "--needed"])
+  if (check === 0) fillChats = true
+  else if (check !== CHAT_MEMBERS_NOT_NEEDED) code = check
+  for (const script of BEFORE_PUSH) {
+    if (code !== 0) break
+    code = await run("tsx", [script])
+  }
+  if (code === 0) code = await run("drizzle-kit", ["push", ...passthrough])
+  for (const script of fillChats ? [...AFTER_PUSH, CHAT_MEMBERS] : AFTER_PUSH) {
+    if (code !== 0) break
+    code = await run("tsx", [script])
+  }
+}
+process.exitCode = code

@@ -45,6 +45,8 @@ function proposedLabel(spec: ChangeOperation): string {
       return `Create agent profile "${spec.name}"`
     case "assign_channel_profile":
       return "Assign a channel's agent profile"
+    case "assign_agent_profile":
+      return "Set an agent's tool profile"
     case "create_custom_tool":
       return `Create tool ${spec.name}`
     case "create_mcp_server":
@@ -65,6 +67,9 @@ export async function createProposalCard(
   input: {
     workspaceId: string
     channelId: string
+    // The agent proposing it: the card is its own post, and a Loop the
+    // proposal creates belongs to it.
+    agentId?: string
     threadRootId: string | null
     rationale: string
     evidence: ProposalEvidence[]
@@ -79,6 +84,7 @@ export async function createProposalCard(
       content: `Proposed workspace changes:\n${lines.join("\n")}`,
       type: "proposal_card",
       ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
+      ...(input.agentId ? { agentId: input.agentId } : {}),
     }
   )
 

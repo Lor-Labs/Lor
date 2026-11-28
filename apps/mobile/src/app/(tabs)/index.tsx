@@ -8,10 +8,14 @@ import Animated, {
   useAnimatedScrollHandler,
   useSharedValue,
 } from "react-native-reanimated"
-import { ChannelActionsSheet } from "@/components/channel-actions-sheet"
-import { ChannelList, ChannelListSkeleton } from "@/components/channel-list"
+import { ChatActionsSheet } from "@/components/chat-actions-sheet"
+import {
+  ChatFilterSheet,
+  ChatList,
+  ChatListSkeleton,
+  openNeed,
+} from "@/components/chat-list"
 import { ConnectionPill } from "@/components/connection-pill"
-import { CreateChannelSheet } from "@/components/create-channel-sheet"
 import { CreateInviteSheet } from "@/components/create-invite-sheet"
 import { FinishSetupCard } from "@/components/finish-setup-card"
 import { HomeHeader } from "@/components/home-header"
@@ -19,27 +23,39 @@ import { HowLorWorksSheet } from "@/components/how-lor-works-sheet"
 import { Screen } from "@/components/ui/screen"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
-import { WorkspaceSearchResults } from "@/components/workspace-search-results"
+import {
+  type ChatSearchItem,
+  WorkspaceSearchResults,
+} from "@/components/workspace-search-results"
 import { WorkspaceSheet } from "@/components/workspace-sheet"
 import { useWorkspace } from "@/context/workspace-context"
 import { useActiveMember } from "@/hooks/use-active-member"
 import { useAuthorProfileSheet } from "@/hooks/use-author-profile-sheet"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
+import {
+  type Chat,
+  chatsKey,
+  orderChats,
+  useArchivedChats,
+  useChatArchive,
+  useChatFilter,
+  useChatListUpdates,
+  useChats,
+  usePlaceChats,
+  useUpdateChat,
+} from "@/hooks/use-chats"
 import { useMessageSearch } from "@/hooks/use-message-search"
 import { usePrefetchChannels } from "@/hooks/use-prefetch-channels"
-import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { useTheme } from "@/hooks/use-theme"
 import { workspaceActivityKey } from "@/hooks/use-workspace-activity"
-import { api } from "@/lib/api"
-import type {
-  Channel,
-  ChannelList as ChannelListData,
-  ChannelSearchResult,
-} from "@/lib/api-types"
+import type { ChannelSearchResult } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 import { fetchMessageLocation, openMessageAt } from "@/lib/message-location"
 import { SWAP_ENTER, SWAP_EXIT } from "@/lib/motion"
-import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels"
+import {
+  openTextChannels,
+  workspaceChannelsQueryOptions,
+} from "@/lib/workspace-channels"
 
 export default function WorkspaceScreen() {
   const theme = useTheme()
@@ -59,19 +75,18 @@ export default function WorkspaceScreen() {
     scrollY.set(event.contentOffset.y)
   })
   const [isPullRefreshing, setIsPullRefreshing] = useState(false)
-  const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false)
   const [isInviteOpen, setIsInviteOpen] = useState(false)
   const [isWorkspaceSheetOpen, setIsWorkspaceSheetOpen] = useState(false)
   const [isHowLorWorksOpen, setIsHowLorWorksOpen] = useState(false)
-  const [actionChannel, setActionChannel] = useState<Channel | null>(null)
-  const hasFocusedChannelsRef = useRef(false)
+  const [isFilterOpen, setIsFilterOpen] = useState(false)
+  const [actionChat, setActionChat] = useState<Chat | null>(null)
+  const hasFocusedRef = useRef(false)
   const nextSheetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const permissions = useChannelPermissions(workspace?.id)
   const activeMember = useActiveMember(workspace?.id)
   const { data: session } = authClient.useSession()
-  const isWorkspaceOwner = Boolean(
-    session?.user.id && workspace?.ownerId === session.user.id
-  )
+  const me = session?.user.id
+  const isWorkspaceOwner = Boolean(me && workspace?.ownerId === me)
   const canManageWorkspace =
     isWorkspaceOwner || activeMember.data?.role === "admin"
   const { openAuthorProfile, profileSheet } = useAuthorProfileSheet(
@@ -86,66 +101,57 @@ export default function WorkspaceScreen() {
   )
 
   const workspaceSlug = workspace?.slug ?? ""
+  const chatsQuery = useChats(workspaceSlug)
+  const [filter, setFilter] = useChatFilter(workspaceSlug)
+  const archivedQuery = useArchivedChats(workspaceSlug, filter.archived)
+  const placesQuery = usePlaceChats(workspaceSlug, filter.places)
+  useChatListUpdates(workspaceSlug, workspace?.id)
+  const updateChat = useUpdateChat(workspaceSlug)
+  const { unarchive } = useChatArchive(workspaceSlug)
+  // Every chat the person can see, joined or not: what search finds, and
+  // what is loaded ahead so a chat opens at once.
   const channelsQuery = useQuery(workspaceChannelsQueryOptions(workspaceSlug))
-  const { refetch: refetchChannels } = channelsQuery
-  const channels = channelsQuery.data ?? null
   usePrefetchChannels(workspaceSlug, channelsQuery.data)
-  const isLoadingChannels = Boolean(workspaceSlug) && channelsQuery.isPending
-  const channelError = channelsQuery.error?.message ?? null
+  const chatError = chatsQuery.error?.message ?? null
 
-  // Which categories are projects — drives the folder/dashed-border sidebar
-  // treatment in ChannelList.
-  const projectsQuery = useQuery({
-    queryKey: ["projects", workspaceSlug],
-    enabled: Boolean(workspaceSlug),
-    queryFn: async () => {
-      const response = await api.v1.workspaces[":workspaceSlug"].projects.$get({
-        param: { workspaceSlug },
-      })
-      if (!response.ok) throw new Error("Could not load projects")
-      return response.json()
-    },
-  })
-  const projectCategoryIds = useMemo(
-    () =>
-      new Set(
-        projectsQuery.data?.projects.map(
-          (project) => project.categoryChannelId
-        ) ?? []
-      ),
-    [projectsQuery.data]
-  )
-  const archivingCategoryIds = useMemo(
-    () =>
-      new Set(
-        projectsQuery.data?.projects
-          .filter((project) => project.status === "archiving")
-          .map((project) => project.categoryChannelId) ?? []
-      ),
-    [projectsQuery.data]
-  )
-  const archivedCategoryIds = useMemo(
-    () =>
-      new Set(
-        projectsQuery.data?.projects
-          .filter((project) => project.status === "archived")
-          .map((project) => project.categoryChannelId) ?? []
-      ),
-    [projectsQuery.data]
-  )
-  const { refetch: refetchProjects } = projectsQuery
-  // Live refetch on project archive start/finish (spinner → Archived section).
-  useProjectUpdates(workspaceSlug)
+  const chats = useMemo(() => {
+    if (!chatsQuery.data) return undefined
+    const { pinned, recent } = orderChats([
+      ...chatsQuery.data,
+      ...(filter.archived ? (archivedQuery.data ?? []) : []),
+      ...(filter.places ? (placesQuery.data ?? []) : []),
+    ])
+    return [...pinned, ...recent]
+  }, [chatsQuery.data, archivedQuery.data, placesQuery.data, filter])
 
+  // A chat made, deleted or archived elsewhere changes the channels: the
+  // list follows.
   const queryClient = useQueryClient()
+  const channelIds = useMemo(
+    () =>
+      channelsQuery.data
+        ? openTextChannels(channelsQuery.data)
+            .map((channel) => channel.id)
+            .sort()
+            .join(",")
+        : "",
+    [channelsQuery.data]
+  )
+  useEffect(() => {
+    if (!workspaceSlug || !channelIds) return
+    void queryClient.invalidateQueries({ queryKey: chatsKey(workspaceSlug) })
+  }, [channelIds, workspaceSlug, queryClient])
+
   const workspaceId = workspace?.id
+  const { refetch: refetchChats } = chatsQuery
+  const { refetch: refetchChannels } = channelsQuery
   const pullToRefresh = async () => {
     setIsPullRefreshing(true)
     try {
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: chatsKey(workspaceSlug) }),
         refetchChannels(),
-        refetchProjects(),
-        // The session rows under each channel come over the socket.
+        // The session rows under each chat come over the socket.
         workspaceId
           ? queryClient.invalidateQueries({
               queryKey: workspaceActivityKey(workspaceId),
@@ -159,31 +165,27 @@ export default function WorkspaceScreen() {
 
   useEffect(() => {
     setQuery("")
-    setIsCreateChannelOpen(false)
     setIsInviteOpen(false)
     setIsWorkspaceSheetOpen(false)
+    setActionChat(null)
   }, [workspace?.id])
 
   useFocusEffect(
     useCallback(() => {
-      if (hasFocusedChannelsRef.current) void refetchChannels()
-      else hasFocusedChannelsRef.current = true
-    }, [refetchChannels])
+      if (hasFocusedRef.current) void refetchChats()
+      else hasFocusedRef.current = true
+    }, [refetchChats])
   )
 
-  const channelCount = useMemo(() => countChannels(channels), [channels])
   const searchActive = query.trim().length > 0
-  // Results start at the top, wherever the channel list was scrolled to.
   useEffect(() => {
     if (searchActive) scrollRef.current?.scrollTo({ y: 0, animated: false })
   }, [searchActive, scrollRef])
-  const search = useMessageSearch({
-    query,
-    workspaceSlug: workspace?.slug ?? "",
-  })
-  const matchingChannels = useMemo(
-    () => findMatchingChannels(channels, query),
-    [channels, query]
+  const search = useMessageSearch({ query, workspaceSlug })
+  // Archived chats and places shown by the filter are searched too.
+  const matchingChats = useMemo(
+    () => findMatchingChats(chats, channelsQuery.data, query),
+    [chats, channelsQuery.data, query]
   )
 
   if (workspaceLoading) return <LoadingScreen />
@@ -210,57 +212,39 @@ export default function WorkspaceScreen() {
     )
   }
 
-  const openChannel = (channel: Channel) =>
+  const openChat = (chat: { id: string }) =>
     router.push({
       pathname: "/channel/[channelId]",
-      params: { channelId: channel.id },
+      params: { channelId: chat.id },
     } as never)
 
-  const openCreatedChannel = (channel: Channel) => {
-    void refetchChannels()
-    openChannel(channel)
-  }
+  const openDetails = (chat: { id: string }) =>
+    router.push({
+      pathname: "/channel/[channelId]/details",
+      params: { channelId: chat.id },
+    } as never)
 
-  const openInviteFromWorkspaceSheet = () => {
+  const pin = (chat: Chat) =>
+    updateChat.mutate({ channelId: chat.id, pinned: !chat.pinnedAt })
+  const hide = (chat: Chat) =>
+    updateChat.mutate({ channelId: chat.id, hidden: true })
+
+  const afterWorkspaceSheet = (open: () => void) => {
     setIsWorkspaceSheetOpen(false)
     if (nextSheetTimeoutRef.current) clearTimeout(nextSheetTimeoutRef.current)
-    // Let the workspace sheet finish closing before the invite sheet opens.
-    nextSheetTimeoutRef.current = setTimeout(() => setIsInviteOpen(true), 300)
+    // Let the workspace sheet finish closing before the next sheet opens.
+    nextSheetTimeoutRef.current = setTimeout(open, 300)
   }
 
-  const openHowLorWorks = () => {
-    setIsWorkspaceSheetOpen(false)
-    if (nextSheetTimeoutRef.current) clearTimeout(nextSheetTimeoutRef.current)
-    nextSheetTimeoutRef.current = setTimeout(
-      () => setIsHowLorWorksOpen(true),
-      300
-    )
-  }
-
-  const switchWorkspace = (workspaceId: string) => {
+  const switchWorkspace = (nextWorkspaceId: string) => {
     setIsWorkspaceSheetOpen(false)
     void Haptics.selectionAsync()
-    void selectWorkspace(workspaceId)
+    void selectWorkspace(nextWorkspaceId)
   }
 
-  const addWorkspace = () => {
+  const goFromWorkspaceSheet = (path: string) => {
     setIsWorkspaceSheetOpen(false)
-    router.push("/onboarding")
-  }
-
-  const openWorkspaceSettings = () => {
-    setIsWorkspaceSheetOpen(false)
-    router.push("/settings/workspace" as never)
-  }
-
-  const openAgentProfiles = () => {
-    setIsWorkspaceSheetOpen(false)
-    router.push("/settings/agent-profiles" as never)
-  }
-
-  const openInstructions = () => {
-    setIsWorkspaceSheetOpen(false)
-    router.push("/settings/instructions" as never)
+    router.push(path as never)
   }
 
   const openSearchMessage = async (message: ChannelSearchResult) => {
@@ -278,9 +262,9 @@ export default function WorkspaceScreen() {
   return (
     <Screen className="bg-background" edges={["top", "bottom"]}>
       <HomeHeader
-        onCreateChannel={
+        onNewChat={
           permissions.canCreateChannel
-            ? () => setIsCreateChannelOpen(true)
+            ? () => router.push("/chat/new" as never)
             : undefined
         }
         onNewSession={() => router.push("/session/new")}
@@ -294,7 +278,7 @@ export default function WorkspaceScreen() {
       <View className="flex-1">
         <Animated.ScrollView
           className="flex-1"
-          contentContainerClassName="px-two pb-seven pt-two"
+          contentContainerClassName="pb-seven pt-one"
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           onScroll={onScroll}
@@ -312,80 +296,98 @@ export default function WorkspaceScreen() {
         >
           {searchActive ? (
             <Animated.View
+              className="px-two"
               entering={SWAP_ENTER}
               exiting={SWAP_EXIT}
               key="search"
             >
               <WorkspaceSearchResults
-                channels={matchingChannels}
-                onPressChannel={openChannel}
+                chats={matchingChats}
+                onPressChat={openChat}
                 onPressMessage={(message) => void openSearchMessage(message)}
                 onPressMessageAuthor={openAuthorProfile}
                 query={query.trim()}
                 search={search}
+                workspaceSlug={workspace.slug}
               />
             </Animated.View>
-          ) : channelError ? (
+          ) : chatError && !chatsQuery.data ? (
             <StatePanel
               action={{
                 label: "Try again",
-                onPress: () => void refetchChannels(),
+                onPress: () => void refetchChats(),
               }}
               className="px-two"
-              detail={channelError}
-              title="Channels are unavailable"
+              detail={chatError}
+              title="Chats are unavailable"
             />
           ) : (
             <Animated.View entering={SWAP_ENTER} exiting={SWAP_EXIT} key="list">
               {canManageWorkspace && workspace.setupPending ? (
-                <FinishSetupCard
-                  workspaceId={workspace.id}
-                  workspaceSlug={workspace.slug}
-                />
+                <View className="px-two">
+                  <FinishSetupCard
+                    workspaceId={workspace.id}
+                    workspaceSlug={workspace.slug}
+                  />
+                </View>
               ) : null}
-              <ChannelList
-                archivedCategoryIds={archivedCategoryIds}
-                archivingCategoryIds={archivingCategoryIds}
-                data={channels ?? undefined}
-                isLoading={isLoadingChannels}
-                // A workspace's folds and first reveal are its own.
+              <ChatList
+                chats={chats}
+                filter={filter}
+                isLoading={chatsQuery.isPending}
+                // A workspace's list and first reveal are its own.
                 key={workspace.id}
-                onLongPress={setActionChannel}
+                onHide={hide}
+                onLongPressChat={setActionChat}
+                onOpenChat={openChat}
+                onOpenFilter={() => setIsFilterOpen(true)}
+                onOpenNeed={openNeed}
                 onOpenSessions={() => router.push("/sessions")}
-                onPress={openChannel}
-                projectCategoryIds={projectCategoryIds}
+                onPin={pin}
+                workspaceId={workspace.id}
+                workspaceSlug={workspace.slug}
               />
             </Animated.View>
           )}
         </Animated.ScrollView>
         <ConnectionPill />
       </View>
-      <ChannelActionsSheet
-        channel={actionChannel}
+      <ChatActionsSheet
+        canManage={permissions.canUpdateChannel}
+        chat={actionChat}
+        me={me}
+        onHide={hide}
         onOpenChange={(isOpen) => {
-          if (!isOpen) setActionChannel(null)
+          if (!isOpen) setActionChat(null)
         }}
-        workspaceName={workspace.name}
-      />
-      <CreateChannelSheet
-        categories={channels?.categories ?? []}
-        isOpen={isCreateChannelOpen}
-        onCreated={openCreatedChannel}
-        onOpenChange={setIsCreateChannelOpen}
-        workspaceName={workspace.name}
+        onOpenDetails={openDetails}
+        onPin={pin}
+        onUnarchive={(chat) => unarchive.mutate({ channelId: chat.id })}
         workspaceSlug={workspace.slug}
+      />
+      <ChatFilterSheet
+        filter={filter}
+        isOpen={isFilterOpen}
+        onChange={setFilter}
+        onOpenChange={setIsFilterOpen}
       />
       <WorkspaceSheet
         canManageWorkspace={canManageWorkspace}
-        channelCount={channelCount}
+        channelCount={chatsQuery.data?.length ?? null}
         isOpen={isWorkspaceSheetOpen}
-        onAddWorkspace={addWorkspace}
-        onInvite={openInviteFromWorkspaceSheet}
-        onOpenAgentProfiles={openAgentProfiles}
+        onAddWorkspace={() => goFromWorkspaceSheet("/onboarding")}
+        onInvite={() => afterWorkspaceSheet(() => setIsInviteOpen(true))}
+        onOpenAgentProfiles={() =>
+          goFromWorkspaceSheet("/settings/agent-profiles")
+        }
         onOpenChange={setIsWorkspaceSheetOpen}
-        onOpenHowLorWorks={openHowLorWorks}
-        onOpenInstructions={openInstructions}
-        onOpenSettings={openWorkspaceSettings}
+        onOpenHowLorWorks={() =>
+          afterWorkspaceSheet(() => setIsHowLorWorksOpen(true))
+        }
+        onOpenInstructions={() =>
+          goFromWorkspaceSheet("/settings/instructions")
+        }
+        onOpenSettings={() => goFromWorkspaceSheet("/settings/workspace")}
         onSelectWorkspace={switchWorkspace}
         workspace={workspace}
         workspaces={workspaces}
@@ -406,35 +408,34 @@ export default function WorkspaceScreen() {
   )
 }
 
-function countChannels(data: ChannelListData | null) {
-  if (!data) return null
-  return (
-    data.uncategorized.length +
-    data.categories.reduce(
-      (total, category) => total + category.channels.length,
-      0
-    )
-  )
-}
-
-function findMatchingChannels(
-  data: ChannelListData | null,
+// Your chats whose name matches, then the chats you can see but aren't in,
+// which you join from the chat.
+function findMatchingChats(
+  chats: Chat[] | undefined,
+  channels: Parameters<typeof openTextChannels>[0] | undefined,
   query: string
-): Channel[] {
-  const normalizedQuery = query.trim().toLocaleLowerCase()
-  if (!(data && normalizedQuery)) return []
-
-  return [
-    ...data.uncategorized,
-    ...data.categories.flatMap((category) => category.channels),
-  ].filter(
-    (channel) =>
-      channel.name?.toLocaleLowerCase().includes(normalizedQuery) ||
-      channel.topic?.toLocaleLowerCase().includes(normalizedQuery)
-  )
+): ChatSearchItem[] {
+  const needle = query.trim().toLocaleLowerCase()
+  if (!needle) return []
+  const matches = (name: string | null) =>
+    Boolean(name?.toLocaleLowerCase().includes(needle))
+  const mine = (chats ?? []).filter((chat) => matches(chat.name))
+  const listed = new Set((chats ?? []).map((chat) => chat.id))
+  const findable = channels
+    ? openTextChannels(channels)
+        .filter((channel) => !listed.has(channel.id) && matches(channel.name))
+        .map((channel) => ({
+          id: channel.id,
+          name: channel.name,
+          agentIds: channel.agentIds,
+          people: [],
+          joined: false,
+        }))
+    : []
+  return [...mine, ...findable]
 }
 
-// The header's shape while the workspace loads, then the channel rows'
+// The header's shape while the workspace loads, then the chat rows'
 // skeleton, so nothing moves when the real screen takes over.
 function LoadingScreen() {
   return (
@@ -446,9 +447,7 @@ function LoadingScreen() {
         </View>
         <Skeleton className="mt-two h-10 rounded-[12px]" />
       </View>
-      <View className="px-two pt-two">
-        <ChannelListSkeleton />
-      </View>
+      <ChatListSkeleton />
     </Screen>
   )
 }

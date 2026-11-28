@@ -16,6 +16,7 @@ import {
 } from "react"
 import { useDropzone } from "react-dropzone"
 import { ChannelAgentProvider } from "@/components/agent/channel-agent"
+import { AgentsChatView } from "@/components/chat/agents-chat-view"
 import { ChatSkeleton } from "@/components/chat/chat-skeleton"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
@@ -26,15 +27,18 @@ import {
   scrollToMessage,
 } from "@/components/chat/message-list"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
+import { JoinChatBar } from "@/components/sidebar/right-panel/chat-details-panel"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { VoiceChannelView } from "@/components/voice/voice-channel-view"
 import { useSocket } from "@/context/socket-context"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
+import { useCanManageChannels } from "@/hooks/use-can-manage-channels"
 import { useChannelDiscord } from "@/hooks/use-channel-discord"
 import { useChannelEntry } from "@/hooks/use-channel-entry"
 import { useChannelFilesRealtime } from "@/hooks/use-channel-files"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
+import { useChatArchive } from "@/hooks/use-chat-archive"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useMentionCandidates } from "@/hooks/use-mention-candidates"
@@ -92,6 +96,12 @@ type ChannelSearchParams = {
   // Opens the channel's Sessions list in the right panel (the channel menus'
   // "View Sessions"). Cleared once applied.
   panel?: "sessions"
+  // Opens one of the channel's loops in the right panel (the agent dialog's
+  // Loops). Cleared once applied.
+  loop?: string
+  // Shows the chat's agents' own chat in its place, at this agent message
+  // ("all": at the newest).
+  agents?: string
 }
 
 export const Route = createFileRoute(
@@ -118,6 +128,8 @@ export const Route = createFileRoute(
       typeof search.draft === "string" ? search.draft.slice(0, 500) : undefined,
     about: typeof search.about === "string" ? search.about : undefined,
     panel: search.panel === "sessions" ? "sessions" : undefined,
+    loop: typeof search.loop === "string" ? search.loop : undefined,
+    agents: typeof search.agents === "string" ? search.agents : undefined,
   }),
 })
 
@@ -126,7 +138,8 @@ export const Route = createFileRoute(
 // so its messages load alongside the channel's details.
 function ChannelRoute() {
   const { workspaceSlug, channelId } = Route.useParams()
-  const { threadId, threadMessageId, callAt } = Route.useSearch()
+  const { threadId, threadMessageId, callAt, agents } = Route.useSearch()
+  const navigate = Route.useNavigate()
   const { data, isPending, refetch } = useQuery(
     channelQueryOptions(workspaceSlug, channelId)
   )
@@ -140,7 +153,7 @@ function ChannelRoute() {
   if (!data) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
-        <p>Could not load this channel.</p>
+        <p>Could not load this chat.</p>
         <button
           type="button"
           className="underline"
@@ -170,12 +183,29 @@ function ChannelRoute() {
       />
     )
   }
+  // The chat's agents' own chat, in the chat's place.
+  if (agents && data.type === "text") {
+    return (
+      <AgentsChatView
+        key={channelId}
+        workspaceSlug={workspaceSlug}
+        channelId={channelId}
+        chatName={data.name ?? "the chat"}
+        focusId={agents}
+        onBack={() =>
+          void navigate({
+            search: (prev) => ({ ...prev, agents: undefined }),
+          })
+        }
+      />
+    )
+  }
   return <ChannelView />
 }
 
 function ChannelView() {
   const { workspaceSlug, channelId } = Route.useParams()
-  const { msgId, threadId, threadMessageId, draft, about, panel } =
+  const { msgId, threadId, threadMessageId, draft, about, panel, loop } =
     Route.useSearch()
   const navigate = Route.useNavigate()
   // A pending `about` question belongs to the channel it was asked in.
@@ -218,11 +248,38 @@ function ChannelView() {
     threadId,
     threadMessageId,
     panel,
+    loopId: loop,
   })
 
   const { data, isPending, isError, error } = useQuery(
     channelQueryOptions(workspaceSlug, channelId)
   )
+  // Someone archived or unarchived this chat for everyone: the composer and
+  // the archived bar swap for whoever has it open.
+  useEffect(() => {
+    if (!socket) return
+    const onCreated = (message: {
+      channelId: string
+      eventType?: string | null
+    }) => {
+      if (
+        message.channelId !== channelId ||
+        (message.eventType !== "channel_archived" &&
+          message.eventType !== "channel_unarchived")
+      )
+        return
+      void queryClient.invalidateQueries({
+        queryKey: channelQueryOptions(workspaceSlug, channelId).queryKey,
+      })
+      void queryClient.invalidateQueries({
+        queryKey: workspaceChannelsQueryOptions(workspaceSlug).queryKey,
+      })
+    }
+    socket.on("message:created", onCreated)
+    return () => {
+      socket.off("message:created", onCreated)
+    }
+  }, [socket, queryClient, workspaceSlug, channelId])
   // The sidebar's list already knows a text channel, so its messages load
   // alongside the channel's details instead of after them. Voice channels
   // still wait: they show a lobby, not a feed.
@@ -641,7 +698,7 @@ function ChannelView() {
     return (
       <div className="flex flex-1 items-center justify-center">
         <span className="text-sm text-muted-foreground">
-          {error instanceof Error ? error.message : "Failed to load channel"}
+          {error instanceof Error ? error.message : "Failed to load chat"}
         </span>
       </div>
     )
@@ -650,7 +707,7 @@ function ChannelView() {
   if (!data) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <span className="text-sm text-muted-foreground">Channel not found</span>
+        <span className="text-sm text-muted-foreground">Chat not found</span>
       </div>
     )
   }
@@ -703,25 +760,11 @@ function ChannelView() {
         />
         <TypingIndicator users={typingUsers} />
         {data.archivedAt ? (
-          // Archived: no composer — a terminal divider marks when it closed.
-          <div className="px-4 pt-1 pb-5">
-            <div className="relative flex items-center">
-              <div className="h-px w-full bg-border/70" />
-              <span className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                <HugeiconsIcon
-                  icon={Archive02Icon}
-                  className="size-3.5 shrink-0"
-                  strokeWidth={2}
-                />
-                Archived{" "}
-                {new Date(data.archivedAt).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}
-              </span>
-            </div>
-          </div>
+          <ArchivedChatBar
+            workspaceSlug={workspaceSlug}
+            channelId={channelId}
+            archivedAt={data.archivedAt}
+          />
         ) : discordUnknown ? (
           discordQuery.isError ? (
             <div className="px-4 pt-1 pb-5">
@@ -744,13 +787,14 @@ function ChannelView() {
           )
         ) : discord?.link ? (
           <div className="px-4 pt-1 pb-5">
-            <div className="flex items-center gap-3 rounded-xl border bg-muted/40 px-4 py-3 text-sm">
+            {/* Wraps the link under the text when the chat is narrow. */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border bg-muted/40 px-4 py-3 text-sm">
               <HugeiconsIcon
                 icon={DiscordIcon}
                 className="size-5 shrink-0 text-[#5865F2]"
                 strokeWidth={2}
               />
-              <span className="min-w-0 flex-1 text-muted-foreground">
+              <span className="min-w-[10rem] flex-1 text-muted-foreground">
                 This chat lives in Discord, in #
                 {discord.link.channelName ?? "channel"}
                 {discord.link.guildName ? ` on ${discord.link.guildName}` : ""}.
@@ -760,41 +804,94 @@ function ChannelView() {
                 href={discord.link.url}
                 target="_blank"
                 rel="noreferrer"
-                className="shrink-0 font-medium text-primary underline-offset-2 hover:underline"
+                className="shrink-0 whitespace-nowrap font-medium text-primary underline-offset-2 hover:underline"
               >
                 Open in Discord
               </a>
             </div>
           </div>
         ) : (
-          <MessageInput
-            // One editor, draft and undo history per channel. Prefixed: the
-            // sibling MessageList is keyed by the same id, and duplicate keys
-            // leave every visited channel's message list mounted.
-            key={`composer:${channelId}`}
-            draftKey={`channel:${channelId}`}
-            composerDraft={composerDraft}
-            onComposerDraftConsumed={consumeComposerDraft}
-            lorIntro
-            destination="channel"
-            context={context}
-            channelId={channelId}
-            onSend={onComposerSend}
-            currentUserId={currentUserId}
-            mentionCandidates={mentionCandidates}
-            replyingTo={replyingTo}
-            onCancelReply={clearReply}
-            pendingAttachments={fileUpload.attachments}
-            addFiles={fileUpload.addFiles}
-            removeAttachment={fileUpload.removeAttachment}
-            clearAttachments={fileUpload.clearAttachments}
-            getUploadedAttachments={fileUpload.getUploadedAttachments}
-            isUploading={fileUpload.isUploading}
-            onTyping={emitTyping}
-            onEditLast={editLastOwnMessage}
-          />
+          <>
+            {data.type === "text" && (
+              <JoinChatBar
+                workspaceSlug={workspaceSlug}
+                channelId={channelId}
+                me={currentUserId}
+              />
+            )}
+            <MessageInput
+              // One editor, draft and undo history per channel. Prefixed: the
+              // sibling MessageList is keyed by the same id, and duplicate keys
+              // leave every visited channel's message list mounted.
+              key={`composer:${channelId}`}
+              draftKey={`channel:${channelId}`}
+              composerDraft={composerDraft}
+              onComposerDraftConsumed={consumeComposerDraft}
+              lorIntro
+              destination="channel"
+              context={context}
+              channelId={channelId}
+              onSend={onComposerSend}
+              currentUserId={currentUserId}
+              mentionCandidates={mentionCandidates}
+              replyingTo={replyingTo}
+              onCancelReply={clearReply}
+              pendingAttachments={fileUpload.attachments}
+              addFiles={fileUpload.addFiles}
+              removeAttachment={fileUpload.removeAttachment}
+              clearAttachments={fileUpload.clearAttachments}
+              getUploadedAttachments={fileUpload.getUploadedAttachments}
+              isUploading={fileUpload.isUploading}
+              onTyping={emitTyping}
+              onEditLast={editLastOwnMessage}
+            />
+          </>
         )}
       </ChannelAgentProvider>
+    </div>
+  )
+}
+
+// An archived chat has no composer: the bar says when it closed, and
+// someone who manages chats can open it again (decision 52).
+function ArchivedChatBar({
+  workspaceSlug,
+  channelId,
+  archivedAt,
+}: {
+  workspaceSlug: string
+  channelId: string
+  archivedAt: string
+}) {
+  const canManage = useCanManageChannels(workspaceSlug)
+  const { unarchive } = useChatArchive(workspaceSlug)
+  const date = new Date(archivedAt).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+  return (
+    <div className="px-4 pt-1 pb-5">
+      <div className="flex min-h-11 items-center gap-2.5 rounded-xl bg-foreground/[0.04] py-2 pr-2 pl-3.5 text-[13px] text-muted-foreground">
+        <HugeiconsIcon
+          icon={Archive02Icon}
+          className="size-4 shrink-0"
+          strokeWidth={2}
+        />
+        <span className="min-w-0 flex-1">
+          Archived {date}. Nobody can post here.
+        </span>
+        {canManage && (
+          <button
+            type="button"
+            disabled={unarchive.isPending}
+            onClick={() => unarchive.mutate({ channelId })}
+            className="h-7 shrink-0 cursor-pointer rounded-full bg-foreground/[0.08] px-3 font-medium text-foreground outline-none transition-[background-color,transform] duration-150 ease-out hover:bg-foreground/[0.12] focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.97] disabled:opacity-60"
+          >
+            Unarchive
+          </button>
+        )}
+      </div>
     </div>
   )
 }

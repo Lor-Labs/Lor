@@ -10,11 +10,42 @@ import { openExternalUrl } from "@/lib/open-url"
 
 type Embed = Message["embeds"][number]
 
-export function isAttioRecording(embed: Embed): boolean {
+// Attio call recordings and Granola and Circleback meeting notes share one card.
+export function isMeetingCard(embed: Embed): boolean {
+  if (embed.siteName === "Granola" || embed.siteName === "Circleback") {
+    return Boolean(embed.meeting)
+  }
   return (
     embed.siteName === "Attio" &&
     (Boolean(embed.meeting) || embed.eventLabel === "Call recording ready")
   )
+}
+
+const MEETING_SITES = {
+  Attio: { color: "#d01e48", notes: false },
+  Granola: { color: "#b2c248", notes: true },
+  Circleback: { color: "#f24e1d", notes: true },
+} as const
+
+function meetingCopy(embed: Embed) {
+  const site =
+    embed.siteName === "Granola" || embed.siteName === "Circleback"
+      ? embed.siteName
+      : "Attio"
+  // Granola and Circleback send meeting notes; Attio a call recording.
+  const { color, notes } = MEETING_SITES[site]
+  return {
+    site,
+    color,
+    kind: notes ? "Meeting notes" : "Meeting recording",
+    fallbackTitle: notes ? "Meeting" : "Call recording",
+    ready: notes
+      ? "The notes are ready. Explore the meeting with Lor."
+      : "The recording is ready. Explore the discussion with Lor.",
+    excerpt: notes
+      ? "This is an excerpt of the meeting."
+      : "This is an excerpt of the recording.",
+  }
 }
 
 export function MeetingRecordingCard({
@@ -30,9 +61,10 @@ export function MeetingRecordingCard({
   const muted = useThemeColor("muted")
   const [transcriptExpanded, setTranscriptExpanded] = useState(false)
   const meeting = embed.meeting
+  const copy = meetingCopy(embed)
   const transcript = meeting?.transcript ?? embed.description
   const isExcerpt = !meeting || meeting.transcriptTruncated
-  const duration = meeting
+  const duration = meeting?.durationMinutes
     ? `${meeting.durationMinutes} min`
     : embed.fields?.find((field) => field.name === "Duration")?.value
   const recordingUrl =
@@ -46,9 +78,12 @@ export function MeetingRecordingCard({
     <View className="my-two w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-surface">
       <View className="gap-three p-four">
         <View className="flex-row flex-wrap items-center gap-x-two gap-y-one">
-          <View className="size-1.5 rounded-full bg-[#d01e48]" />
+          <View
+            className="size-1.5 rounded-full"
+            style={{ backgroundColor: copy.color }}
+          />
           <Text className="text-[11px] font-medium text-muted">
-            Meeting recording
+            {copy.kind}
           </Text>
           {duration ? (
             <Text className="text-[11px] font-medium tabular-nums text-muted">
@@ -58,12 +93,12 @@ export function MeetingRecordingCard({
           {recordingUrl ? (
             <Pressable
               accessibilityRole="link"
-              accessibilityLabel="Open recording in Attio"
+              accessibilityLabel={`Open in ${copy.site}`}
               className="min-h-11 flex-row items-center gap-one rounded-sm active:opacity-60"
               onPress={() => openExternalUrl(recordingUrl)}
             >
               <Text className="text-[11px] font-medium text-muted">
-                Open in Attio
+                Open in {copy.site}
               </Text>
               <HugeiconsIcon color={muted} icon={ExternalLinkIcon} size={12} />
             </Pressable>
@@ -71,7 +106,7 @@ export function MeetingRecordingCard({
         </View>
         <View className="gap-1.5">
           <Text className="text-base font-semibold leading-[22px] tracking-tight text-foreground">
-            {embed.title ?? "Call recording"}
+            {embed.title ?? copy.fallbackTitle}
           </Text>
           {meeting?.participants?.length ? (
             <Text className="text-xs leading-[18px] text-muted">
@@ -84,9 +119,7 @@ export function MeetingRecordingCard({
             {meeting.summary}
           </Text>
         ) : (
-          <Text className="text-sm leading-5 text-muted">
-            The recording is ready. Explore the discussion with Lor.
-          </Text>
+          <Text className="text-sm leading-5 text-muted">{copy.ready}</Text>
         )}
         {transcript ? (
           <View>
@@ -117,7 +150,7 @@ export function MeetingRecordingCard({
                 </Text>
                 {isExcerpt ? (
                   <Text className="text-xs font-medium text-muted">
-                    This is an excerpt of the recording.
+                    {copy.excerpt}
                   </Text>
                 ) : null}
               </ScrollView>

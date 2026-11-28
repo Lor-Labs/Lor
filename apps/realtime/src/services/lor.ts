@@ -12,7 +12,7 @@ import {
 import { assertHostedHarness } from "@repo/db/queries/beta-access"
 import { hasPersonalAccount } from "@repo/db/queries/personal-accounts"
 import { env } from "@repo/env/server"
-import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
+import { allowedCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
 import { environmentForRepo } from "@repo/lor/dev-env/environments"
 import { extractDirectMentionUserIds } from "@repo/messaging"
 import {
@@ -74,7 +74,8 @@ async function codeSessionStart(
   if (newBranch && !isValidNewBranchName(newBranch)) {
     throw new Error(`"${newBranch}" can't be used as a branch name`)
   }
-  const allowed = await channelCodeRepo(workspaceId, channelId, code.repo)
+  // A session a person starts uses the workspace default tools.
+  const allowed = await allowedCodeRepo(workspaceId, null, code.repo)
   if (!allowed) {
     throw new Error(
       `${code.repo} isn't available for code sessions in this channel`

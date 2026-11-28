@@ -348,11 +348,11 @@ function OAuthConnectionPanel({
   if (server.oauthStatus === "connected") {
     return (
       <Alert variant="success">
-        <AlertTitle>OAuth · Shared through assigned channels</AlertTitle>
+        <AlertTitle>OAuth · Shared through assigned chats</AlertTitle>
         <AlertDescription className="text-xs">
           <span>
-            Everyone in an assigned channel can use the enabled tools through
-            this shared account.
+            Everyone in an assigned chat can use the enabled tools through this
+            shared account.
           </span>
           {authorizedSummary(server) ? (
             <span>{authorizedSummary(server)}</span>
@@ -388,7 +388,7 @@ function OAuthConnectionPanel({
         <AlertTitle>Authorization complete · Tools inactive</AlertTitle>
         <AlertDescription className="text-xs">
           <span>
-            Review the current tool list below and choose what assigned channels
+            Review the current tool list below and choose what assigned chats
             may use.
           </span>
           <span>
@@ -432,8 +432,8 @@ function OAuthConnectionPanel({
           : "OAuth not connected · Tools inactive"}
       </AlertTitle>
       <AlertDescription className="text-xs">
-        Sign in with an account that is appropriate to share through every
-        channel assigned this MCP server.
+        Sign in with an account that is appropriate to share through every chat
+        assigned this MCP server.
       </AlertDescription>
       <AlertAction>
         <Button type="button" size="sm" disabled={busy} onClick={onAuthorize}>
@@ -647,7 +647,7 @@ function ServerEditor({
                   {
                     value: "oauth" as const,
                     title: "OAuth",
-                    description: "One shared account for assigned channels.",
+                    description: "One shared account for assigned chats.",
                   },
                 ] as const
               ).map((option) => {
@@ -1449,13 +1449,13 @@ export function McpServersBlock({
           <AlertDialogHeader>
             <AlertDialogTitle>Share this OAuth account?</AlertDialogTitle>
             <AlertDialogDescription className="leading-relaxed">
-              Every user in a channel whose agent profile grants{" "}
+              Every user in a chat whose agent profile grants{" "}
               <span className="font-medium text-foreground">
                 {oauthDisclosureTarget?.name}
               </span>{" "}
               can call its enabled MCP tools through the account you sign into.
               Use a team account or another account that is appropriate to share
-              with all of those channels.
+              with all of those chats.
             </AlertDialogDescription>
             <label
               htmlFor="mcp-oauth-shared-account-confirmation"
@@ -1472,7 +1472,7 @@ export function McpServersBlock({
               />
               <span className="text-xs leading-relaxed">
                 I understand this is one shared workspace connection, not my
-                personal identity, and everyone in assigned channels can use its
+                personal identity, and everyone in assigned chats can use its
                 enabled tools.
               </span>
             </label>
@@ -1510,8 +1510,8 @@ export function McpServersBlock({
             <AlertDialogDescription>
               Lor will remove the OAuth credentials and disable every MCP tool
               from {disconnectTarget?.name}. Existing profile assignments stay
-              in place, but no channel can use this server until it is
-              authorized and reviewed again.
+              in place, but no chat can use this server until it is authorized
+              and reviewed again.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1546,7 +1546,7 @@ export function McpServersBlock({
               Are you sure you want to delete{" "}
               <span className="font-semibold">{deleteTarget?.name}</span>?{" "}
               {deleteTarget && deleteTarget.usedByProfiles > 0
-                ? `${deleteTarget.usedByProfiles} agent ${deleteTarget.usedByProfiles === 1 ? "profile grants" : "profiles grant"} it — Lor loses its tools in those channels immediately. `
+                ? `${deleteTarget.usedByProfiles} agent ${deleteTarget.usedByProfiles === 1 ? "profile grants" : "profiles grant"} it. Lor loses its tools in those chats immediately. `
                 : "Lor can no longer call its tools. "}
               This action cannot be undone.
             </AlertDialogDescription>

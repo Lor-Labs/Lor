@@ -139,6 +139,8 @@ export const referencedMessageSchema = z
     author: messageAuthorSchema,
     overrideName: z.string().nullable(),
     overrideAvatarUrl: z.string().nullable(),
+    // The agent that wrote it, when one did.
+    agentId: z.string().uuid().nullable().optional(),
     // Lets reply previews resolve stored `<@uuid>` mention tokens in `content`.
     // Optional so endpoints that don't join mentions stay valid.
     mentions: z.array(messageAuthorSchema).optional(),
@@ -175,6 +177,9 @@ export const messageWithAuthorSchema = selectMessageSchema
   })
   .extend({
     author: messageAuthorSchema,
+    // The agent that wrote it, when one did: its author's id, since an agent
+    // posts as its own bot user. Not a column.
+    agentId: z.string().uuid().nullable().optional(),
     // Typed passthrough — keeps the inferred client type as the payload union
     // instead of drizzle-zod's loose jsonb shape.
     eventPayload: z.custom<ChannelEventPayload | null>(),

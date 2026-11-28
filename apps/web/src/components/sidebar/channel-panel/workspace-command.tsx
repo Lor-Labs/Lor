@@ -1,11 +1,14 @@
 import {
+  BubbleChatIcon,
   ComputerIcon,
   Moon02Icon,
   PencilEdit02Icon,
+  PlusSignIcon,
   Search01Icon,
   Sun01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { authClient } from "@repo/auth/client"
 import {
   Command,
   CommandDialog,
@@ -21,14 +24,22 @@ import {
 } from "@repo/ui/components/command"
 import { Spinner } from "@repo/ui/components/spinner"
 import { Kbd } from "@repo/ui/components/unlumen-ui/kbd"
+import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useTheme } from "next-themes"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
+import { ChatAvatar } from "@/components/sidebar/chat-panel/chat-avatar"
+import { useAgentsById } from "@/hooks/use-agents"
+import { useChats } from "@/hooks/use-chats"
 import { useMessageSearchNavigation } from "@/hooks/use-message-search-navigation"
 import { useOpenNewSession } from "@/hooks/use-open-new-session"
 import { apiClient } from "@/lib/api-client"
+import {
+  textChannels,
+  workspaceChannelsQueryOptions,
+} from "@/lib/workspace-channels-query"
 
 type SearchResult = {
   id: string
@@ -61,8 +72,13 @@ type SearchResponse = {
   sessions: SessionResult[]
 }
 
+// How many chats the person is not in a search lists at once.
+const OTHER_CHATS_SHOWN = 8
+
 export function WorkspaceCommand() {
   const { workspaceSlug } = useParams({ strict: false })
+  const { data: session } = authClient.useSession()
+  const me = session?.user.id
   const navigate = useNavigate()
   const navigateToWorkspaceMessage = useMessageSearchNavigation()
   const openNewSession = useOpenNewSession()
@@ -153,13 +169,86 @@ export function WorkspaceCommand() {
     [setTheme]
   )
 
+  // Chats are matched here, by name, as the person types: the ones in
+  // their list, and every other chat they can see, which they find and join
+  // from here (reference/agents-and-chats.md, decision 35).
+  const agentsById = useAgentsById(workspaceSlug)
+  const { data: channelList } = useQuery({
+    ...workspaceChannelsQueryOptions(workspaceSlug ?? ""),
+    enabled: open && !!workspaceSlug,
+  })
+  const { data: myChats } = useChats(open ? workspaceSlug : undefined)
+  const mine = new Map((myChats ?? []).map((chat) => [chat.id, chat]))
+  const needle = query.trim().toLowerCase()
+  const allChats = (channelList ? textChannels(channelList) : []).filter(
+    (chat) => !needle || (chat.name ?? "").toLowerCase().includes(needle)
+  )
+  const yourChats = needle ? allChats.filter((chat) => mine.has(chat.id)) : []
+  // Only once something is typed: an empty search stays commands only.
+  // Archived chats are in no one's list: they get their own group, greyed.
+  const otherChats =
+    needle && myChats
+      ? allChats
+          .filter((chat) => !mine.has(chat.id) && !chat.archivedAt)
+          .slice(0, OTHER_CHATS_SHOWN)
+      : []
+  const archivedChats =
+    needle && myChats
+      ? allChats.filter((chat) => chat.archivedAt).slice(0, OTHER_CHATS_SHOWN)
+      : []
+  const goToChat = (channelId: string) => {
+    if (!workspaceSlug) return
+    setOpen(false)
+    void navigate({
+      to: "/$workspaceSlug/$channelId",
+      params: { workspaceSlug, channelId },
+    })
+  }
+  const chatItem = (chat: (typeof allChats)[number]) => {
+    const agents = chat.agentIds.flatMap((id) => agentsById.get(id) ?? [])
+    const people = (mine.get(chat.id)?.people ?? []).filter(
+      (person) => person.id !== me
+    )
+    return (
+      <CommandItem
+        key={chat.id}
+        value={`chat-${chat.id}`}
+        className={cn("gap-2.5", chat.archivedAt && "text-muted-foreground")}
+        onClick={() => goToChat(chat.id)}
+      >
+        {agents.length + people.length > 0 ? (
+          <ChatAvatar
+            agents={agents}
+            people={people}
+            total={agents.length + people.length}
+            size={24}
+          />
+        ) : (
+          // A chat with no agent, whose people aren't known from here.
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-foreground/[0.07] text-muted-foreground">
+            <HugeiconsIcon
+              icon={BubbleChatIcon}
+              className="size-3.5"
+              strokeWidth={2}
+            />
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate">{chat.name}</span>
+      </CommandItem>
+    )
+  }
+
   const hasQuery = debouncedQuery.length > 0
   const results = data?.data ?? []
   const sessions = data?.sessions ?? []
   const showResults = hasQuery && !isFetching && results.length > 0
   const showSessions = hasQuery && !isFetching && sessions.length > 0
   const showEmpty =
-    hasQuery && !isFetching && results.length === 0 && sessions.length === 0
+    hasQuery &&
+    !isFetching &&
+    results.length === 0 &&
+    sessions.length === 0 &&
+    yourChats.length + otherChats.length + archivedChats.length === 0
   const showLoader = hasQuery && isFetching
 
   return (
@@ -181,9 +270,9 @@ export function WorkspaceCommand() {
       </button>
 
       <CommandDialog open={open} onOpenChange={setOpen}>
-        <CommandDialogPopup aria-label="Search messages or run a command">
+        <CommandDialogPopup aria-label="Search chats and messages, or run a command">
           <Command mode="none" value={query} onValueChange={setQuery}>
-            <CommandInput placeholder="Search messages, run commands…" />
+            <CommandInput placeholder="Search chats and messages, run commands…" />
             <CommandPanel>
               <CommandList className="max-h-[420px]">
                 {showLoader && (
@@ -197,6 +286,27 @@ export function WorkspaceCommand() {
                   <div className="py-6 text-center text-sm text-muted-foreground">
                     No results for “{debouncedQuery}”.
                   </div>
+                )}
+
+                {yourChats.length > 0 && (
+                  <CommandGroup>
+                    <CommandGroupLabel>Your chats</CommandGroupLabel>
+                    {yourChats.map(chatItem)}
+                  </CommandGroup>
+                )}
+
+                {otherChats.length > 0 && (
+                  <CommandGroup>
+                    <CommandGroupLabel>Other chats</CommandGroupLabel>
+                    {otherChats.map(chatItem)}
+                  </CommandGroup>
+                )}
+
+                {archivedChats.length > 0 && (
+                  <CommandGroup>
+                    <CommandGroupLabel>Archived</CommandGroupLabel>
+                    {archivedChats.map(chatItem)}
+                  </CommandGroup>
                 )}
 
                 {showSessions && (
@@ -214,7 +324,7 @@ export function WorkspaceCommand() {
                             {session.title}
                           </span>
                           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <span>#{session.channelName}</span>
+                            <span>{session.channelName}</span>
                             {session.archived && (
                               <>
                                 <span>·</span>
@@ -241,7 +351,7 @@ export function WorkspaceCommand() {
                         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                           <div className="flex items-center gap-1.5 text-xs">
                             <span className="shrink-0 font-medium text-foreground">
-                              #{msg.channelName}
+                              {msg.channelName}
                             </span>
                             {msg.sessionTitle && (
                               <>
@@ -271,6 +381,24 @@ export function WorkspaceCommand() {
                 {!hasQuery && workspaceSlug && (
                   <CommandGroup>
                     <CommandGroupLabel>Lor</CommandGroupLabel>
+                    <CommandItem
+                      value="new-chat"
+                      className="gap-2"
+                      onClick={() => {
+                        setOpen(false)
+                        void navigate({
+                          to: "/$workspaceSlug/new",
+                          params: { workspaceSlug },
+                        })
+                      }}
+                    >
+                      <HugeiconsIcon
+                        icon={PlusSignIcon}
+                        className="size-4 text-muted-foreground"
+                        strokeWidth={2}
+                      />
+                      <span className="flex-1">New chat</span>
+                    </CommandItem>
                     <CommandItem
                       value="new-session"
                       className="gap-2"

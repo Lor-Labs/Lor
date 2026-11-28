@@ -16,6 +16,7 @@ export function useThreadPanelUrlSync({
   callAt,
   transientThreadRootId = null,
   panel,
+  loopId,
 }: {
   workspaceSlug: string
   channelId: string
@@ -26,6 +27,8 @@ export function useThreadPanelUrlSync({
   transientThreadRootId?: string | null
   // ?panel=sessions: open the channel's Sessions list, then drop the param.
   panel?: "sessions"
+  // ?loop=<id>: open that loop's panel, then drop the param.
+  loopId?: string
 }) {
   const { view, setView, clearView, isCollapsed, toggleCollapsed } =
     useRightSidebar()
@@ -40,6 +43,11 @@ export function useThreadPanelUrlSync({
   threadMessageIdRef.current = threadMessageId
   const callAtRef = useRef(callAt)
   callAtRef.current = callAt
+  // useIsMobile is false on its first render: a dependency on it would rerun
+  // the mount effect and its clearView would drop a ?loop= / ?panel= view on
+  // mobile web. The media query is read directly on entry instead.
+  const isMobileRef = useRef(isMobile)
+  isMobileRef.current = isMobile
 
   // Set the initial right-panel view when entering a channel: reopen the
   // thread from the URL (refresh / deep link) or fall back to members.
@@ -57,13 +65,16 @@ export function useThreadPanelUrlSync({
           ? {}
           : { callTab: "transcript", transcriptAtMs: initialCallAt }),
       })
-    } else if (isMobile === false) {
+    } else if (
+      !isMobileRef.current &&
+      !window.matchMedia("(max-width: 767px)").matches
+    ) {
       setView({ type: "workspace-members", workspaceSlug, channelId })
     }
     return () => {
       clearView()
     }
-  }, [setView, clearView, workspaceSlug, channelId, isMobile])
+  }, [setView, clearView, workspaceSlug, channelId])
 
   // After the mount effect above, so it wins on entry; also works when the
   // channel is already open.
@@ -78,6 +89,16 @@ export function useThreadPanelUrlSync({
       replace: true,
     })
   }, [panel, setView, toggleCollapsed, workspaceSlug, channelId, navigate])
+
+  useEffect(() => {
+    if (!loopId) return
+    setView({ type: "loop", workspaceSlug, channelId, loopId })
+    if (isCollapsedRef.current) toggleCollapsed()
+    void navigate({
+      search: (prev) => ({ ...prev, loop: undefined }),
+      replace: true,
+    })
+  }, [loopId, setView, toggleCollapsed, workspaceSlug, channelId, navigate])
 
   // Mirror view → URL (the mount effect does URL → view). Skip views for
   // another channel: a cross-channel jump (search result, Lor citation) sets

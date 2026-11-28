@@ -111,6 +111,23 @@ sidebar, and "Fix with Lor" on each comment.
   `composerDraft.lines` in `message-input.tsx`; the composer has no
   blockquotes, so `>` quoting did not survive sending). Bots' prompts only; a
   bot review's own prompt adds "Fix the whole review with Lor" on its card.
+- [x] **5. Checks (2026-11-26).** CI on the pull request's head commit,
+  beside reviews. `fetchCommitChecks` (`packages/lor/src/providers/github.ts`)
+  reads check runs and commit statuses; `GET /v1/sessions/{id}/review` returns
+  them as `checks` (sha, access, checks). The Details tab's Checks section
+  (`session-work-panel.tsx`) lists failing and running checks first, passed
+  ones folded, with Fix with Lor. A `session_checks` event row (DB enum,
+  `SessionChecksPayload`) is posted by `announceChecks`
+  (`apps/api/src/lib/session-reviews.ts`) on `check_suite.completed` or a
+  finished `status` once every check run and commit status on the head commit
+  is done: when any failed, or when every one passed after a failure card
+  (cancelled ones mean no card). A snapshot of names and links, rendered by
+  `apps/web/src/components/session/checks.tsx`; mobile shows a line. Posted as
+  the GitHub app user, so Lor reads it next turn. Fix with Lor asks Lor to read
+  the logs with `fetch_github` `logs: true`. `check_run.*` and `status`
+  events refresh open lists. Owed: `pnpm db:push` (`session_checks`), the
+  App's permissions and event subscriptions
+  (`reference/github-connector.md`), live QA.
 - [ ] **Later:** resolve a thread or reply "Fixed in abc123" on GitHub as the
   person's linked GitHub account (like push); opt-in automatic fixes; mobile
   card.

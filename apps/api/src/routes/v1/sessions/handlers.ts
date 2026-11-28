@@ -71,6 +71,7 @@ import {
   listTerminals,
   openTerminal,
 } from "@repo/lor/dev-env/terminal"
+import { updateSessionCard } from "@repo/lor/discord-sessions"
 import { sessionPullRequestReview } from "@repo/lor/pr-reviews"
 import {
   BranchRefusedError,
@@ -212,6 +213,15 @@ export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
         .then((rows) => rows[0] ?? null)
     : null
 
+  const startedByAgentId =
+    row.session.origin === "agent" && row.session.conversationId
+      ? await db
+          .select({ agentId: schema.agentConversation.agentId })
+          .from(schema.agentConversation)
+          .where(eq(schema.agentConversation.id, row.session.conversationId))
+          .then((rows) => rows[0]?.agentId ?? null)
+      : null
+
   return c.json(
     {
       session: toRealtimeAgentSession(row.session),
@@ -221,6 +231,7 @@ export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
         createdAt: message.createdAt.toISOString(),
       })),
       source,
+      startedByAgentId,
     },
     HttpStatusCodes.OK
   )
@@ -510,9 +521,9 @@ export const updateAgentSession: AppRouteHandler<
         )
       )
     for (const run of activeRuns) {
-      if (!run.messageId) continue
+      if (!run.messageId || !run.channelId) continue
       await requestRunStop(
-        { ...run, messageId: run.messageId },
+        { ...run, messageId: run.messageId, channelId: run.channelId },
         currentUser.id
       ).catch((err) =>
         logger.warn({ err, runId: run.id }, "Archive run stop failed")
@@ -1233,6 +1244,11 @@ export const pushSessionChanges: AppRouteHandler<
   }
   broadcastChangesUpdated(session, user.id)
   checkpointAfter(session)
+  // A session started from Discord shows the pushed branch on its card.
+  void updateSessionCard(sessionId, {
+    branchUrl: `https://github.com/${session.repoFullName}/tree/${result.pushed.branch.split("/").map(encodeURIComponent).join("/")}`,
+    ...(pullRequest?.open ? { pullRequestUrl: pullRequest.url } : {}),
+  }).catch((err) => logger.warn({ err, sessionId }, "Session card failed"))
   const author = eventAuthor(user)
   const eventPayload = {
     sessionId,

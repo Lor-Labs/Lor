@@ -1,6 +1,7 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { db } from "../index"
 import { channel, channelMember } from "../schemas/channels"
+import { channelDiscordLink } from "../schemas/discord"
 import { project } from "../schemas/projects"
 import { workspaceMember } from "../schemas/workspace-members"
 import { workspace } from "../schemas/workspaces"
@@ -128,10 +129,8 @@ export async function resolveChannelAccess(
 
 /**
  * Everyone who can see the channel plus the effective audience kind — the
- * fanout/recipient set and what broadcast mentions mean here: @channel/@here
- * ping this set; @everyone is only honored when the audience is the whole
- * workspace (it's rejected in members-only channels and DMs — there is no
- * "all-company channel" concept to widen to).
+ * fanout/recipient set. The group mentions @chat and @here ping the people
+ * in the chat (packages/messaging), never wider than this set.
  */
 export type ChannelAudienceInfo = {
   audience: "workspace" | "members" | "dm" | null
@@ -185,8 +184,8 @@ export async function resolveChannelAudienceInfo(
 }
 
 /**
- * Everyone who can see the channel — the fanout/recipient set and the meaning
- * of `@channel`. Includes the author; callers drop them.
+ * Everyone who can see the channel — the fanout/recipient set. Includes the
+ * author; callers drop them.
  */
 export async function listChannelAudienceUserIds(
   channelId: string,
@@ -198,7 +197,7 @@ export async function listChannelAudienceUserIds(
 // Container inheritance: a channel inside a category takes the category's
 // audience and member list. Per-channel overrides inside a container are
 // deliberately unsupported in v1 — one member list per project.
-async function resolveAccessContainer(
+export async function resolveAccessContainer(
   row: {
     id: string
     audience: "workspace" | "members"
@@ -276,7 +275,7 @@ function toChannelShape(row: {
   }
 }
 
-async function hasChannelMemberRow(
+export async function hasChannelMemberRow(
   containerChannelId: string,
   userId: string
 ): Promise<boolean> {
@@ -396,4 +395,60 @@ export async function resolveLorRunScope(
       : null,
     privateContainerChannelId: isPrivate ? container.id : null,
   }
+}
+
+// The people in a chat, whose list it is in and whom its messages reach
+// (reference/agents-and-chats.md, decision 35): the chat's own
+// channel_member rows, empty when everyone left. Null when the channel is
+// not a chat (a DM, a voice channel, a place with agents and no people):
+// then everyone who can see it is reached.
+export async function listChatMemberUserIds(
+  channelId: string,
+  executor: ReadExecutor = db
+): Promise<string[] | null> {
+  const [row] = await executor
+    .select({
+      type: channel.type,
+      kind: channel.kind,
+      workspaceId: channel.workspaceId,
+    })
+    .from(channel)
+    .where(eq(channel.id, channelId))
+    .limit(1)
+  if (row?.type !== "text" || row.kind === "place" || !row.workspaceId) {
+    return null
+  }
+  return listChannelMemberUserIds(channelId, executor)
+}
+
+// Writing in a chat, or being mentioned in it, puts a person in it. Bots
+// are never members. Callers pass only people who can see the chat.
+export async function joinChat(
+  channelId: string,
+  userIds: string[],
+  executor: Pick<typeof db, "execute"> = db
+) {
+  if (userIds.length === 0) return
+  await executor.execute(sql`
+    insert into channel_member (channel_id, user_id)
+    select ${channelId}::uuid, u.id from "user" u
+    where not u.is_bot and u.id in (${sql.join(
+      userIds.map((id) => sql`${id}::uuid`),
+      sql`, `
+    )})
+    on conflict do nothing`)
+}
+
+// A chat that lives in the team's own chat app (a linked Discord channel):
+// that app pings its people, so Lor shows unread and sends no notification.
+export async function chatLivesOutside(
+  channelId: string,
+  executor: ReadExecutor = db
+): Promise<boolean> {
+  const [link] = await executor
+    .select({ channelId: channelDiscordLink.channelId })
+    .from(channelDiscordLink)
+    .where(eq(channelDiscordLink.channelId, channelId))
+    .limit(1)
+  return Boolean(link)
 }

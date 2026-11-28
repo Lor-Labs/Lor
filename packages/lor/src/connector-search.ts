@@ -408,6 +408,8 @@ const FILE_BROWSERS: Record<IntegrationProvider, ConnectorFileBrowser | null> =
     attio: null,
     notion: null,
     cloudwatch: null,
+    granola: null,
+    circleback: null,
     webhook: null,
   }
 
@@ -452,6 +454,10 @@ const SEARCHERS: Record<IntegrationProvider, ConnectorSearcher | null> = {
   betterstack: null,
   // Live log/metric queries, not documents — nothing to attach.
   cloudwatch: null,
+  // Granola's search returns no meeting links, and a chip needs one.
+  granola: null,
+  // Meetings are found with the agent's tools; nothing to attach yet.
+  circleback: null,
   // Inbound-only; deliveries aren't an attachable corpus.
   webhook: null,
 }

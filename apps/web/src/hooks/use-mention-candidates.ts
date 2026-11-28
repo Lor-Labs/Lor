@@ -1,8 +1,12 @@
 import { LOR_USER_ID } from "@repo/db/constants"
-import { channelAgentIdentity } from "@repo/utils/bestiary"
 import { useQuery } from "@tanstack/react-query"
 import { useMemo } from "react"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
+import {
+  agentCreature,
+  channelAgentOf,
+  useAgentsById,
+} from "@/hooks/use-agents"
 import { apiClient } from "@/lib/api-client"
 import { broadcastMentionCandidates } from "@/lib/broadcast-mentions"
 import { channelQueryOptions } from "@/lib/channel-query"
@@ -29,7 +33,7 @@ function useChannelAudience(workspaceSlug: string, channelId: string) {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
         ":channelId"
       ].audience.$get({ param: { workspaceSlug, channelId } })
-      if (!res.ok) throw new Error("Failed to fetch channel audience")
+      if (!res.ok) throw new Error("Failed to fetch who is in the chat")
       return res.json()
     },
   })
@@ -40,8 +44,7 @@ function useChannelAudience(workspaceSlug: string, channelId: string) {
 // audience the server notifies. Bots (Lor) aren't channel members but can be
 // mentioned anywhere, except in voice session chats, which are human-only.
 // Broadcasts come last, as the @ menu lists them. Session composers pass
-// `broadcasts: false`: the server ignores @here, @channel and @everyone in
-// sessions.
+// `broadcasts: false`: the server ignores @chat and @here in sessions.
 // In a text channel's chat and threads, Lor is the channel's agent and goes
 // by its name and creature (reference/always-on-agents.md, decision 32).
 // Session composers pass `agent: false`: there Lor is the session's agent.
@@ -58,35 +61,46 @@ export function useMentionCandidates(
     channelId
   )
 
+  const agents = useAgentsById(workspaceSlug)
+
   return useMemo<MentionCandidate[]>(() => {
     const humanOnly = channel?.type === "voice"
-    const identity =
-      agent && channel?.type === "text" ? channelAgentIdentity(channel) : null
+    // In a text channel's chat, Lor is the agent in that channel. A channel
+    // with no agent has nobody to mention.
+    const inChat = agent && channel?.type === "text"
+    const placed = inChat ? channelAgentOf(channel, agents) : null
+    // A chat can hold several agents (reference/agents-and-chats.md,
+    // decision 32), and each is mentioned by its own id, which the server
+    // routes to it. Lor's own id is not offered beside them: in a chat it
+    // only ever meant the first agent.
+    const here = placed
+      ? (channel?.agentIds ?? []).flatMap((id) => agents.get(id) ?? [])
+      : []
     const audienceIds = new Set(audience?.userIds ?? [])
     const people = (members ?? []).filter((member) =>
-      member.isBot ? !humanOnly : audienceIds.has(member.userId)
+      member.isBot
+        ? !humanOnly && !(inChat && member.userId === LOR_USER_ID)
+        : audienceIds.has(member.userId)
     )
     return [
-      ...people.map((member) =>
-        identity && member.userId === LOR_USER_ID
-          ? {
-              id: member.userId,
-              label: identity.name,
-              name: identity.name,
-              search: "lor",
-              image: null,
-              creature: identity.creature,
-            }
-          : {
-              id: member.userId,
-              label: member.name,
-              name: member.name,
-              image: member.image,
-            }
-      ),
-      ...(broadcasts ? broadcastMentionCandidates(audience?.audience) : []),
+      ...here.map((item, index) => ({
+        id: item.id,
+        label: item.name,
+        name: item.name,
+        // "@lor" still finds the agent that answers by default.
+        ...(index === 0 ? { search: "lor" } : {}),
+        image: null,
+        creature: agentCreature(item),
+      })),
+      ...people.map((member) => ({
+        id: member.userId,
+        label: member.name,
+        name: member.name,
+        image: member.image,
+      })),
+      ...(broadcasts ? broadcastMentionCandidates() : []),
     ]
-  }, [members, channel, audience, broadcasts, agent])
+  }, [members, channel, audience, broadcasts, agent, agents])
 }
 
 // People who can see the channel, so who can follow its threads. Bots never

@@ -6,6 +6,7 @@ import {
   CheckmarkCircle02Icon,
   Clock01Icon,
   Delete02Icon,
+  DiscordIcon,
   Loading03Icon,
   MoreHorizontalIcon,
   PauseIcon,
@@ -61,11 +62,15 @@ import {
   selectTriggerIconClassName,
   selectTriggerVariants,
 } from "@repo/ui/components/select"
+import { Skeleton } from "@repo/ui/components/skeleton"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
+import { timeAgo } from "@repo/utils/date"
+import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { ChevronsUpDownIcon } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { AgentCreature } from "@/components/agent/agent-creature"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import {
@@ -75,20 +80,34 @@ import {
   useDeleteLoop,
   useLoopLifecycle,
   useRunLoopNow,
+  useSetLoopPlace,
   useUpdateLoop,
 } from "@/components/loops/loop-actions"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { LoopSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import { agentCreature, useAgents } from "@/hooks/use-agents"
 import {
   type ChannelLoop,
   type LoopRun,
-  useChannelLoops,
+  useLoop,
   useLoopRuns,
 } from "@/hooks/use-channel-loops"
+import {
+  type LoopSpot,
+  loopSpots,
+  spotName,
+  usePlaceChats,
+} from "@/hooks/use-chats"
 import { useMessageIdNavigation } from "@/hooks/use-message-search-navigation"
+import { apiClient } from "@/lib/api-client"
 import { LOOP_PAUSED_REASON_LABEL, LOOP_STATUS_META } from "@/lib/loop-ui"
 import { PLAN_STATUS_META } from "@/lib/plan-ui"
+import {
+  openTextChannels,
+  textChannels,
+  workspaceChannelsQueryOptions,
+} from "@/lib/workspace-channels-query"
 
 // Loop detail panel (ChatGPT-scheduled-tasks inspired): the card in chat is
 // a compact pill; everything else lives here — the editable prompt, a
@@ -163,6 +182,205 @@ function SectionLabel({ children }: { children: string }) {
   return (
     <p className="px-1 font-medium text-[12px] text-muted-foreground">
       {children}
+    </p>
+  )
+}
+
+const NO_CHAT = "none"
+
+// Who runs the Loop and where it reports (reference/agents-and-chats.md
+// §9). The agent is its own: a person can hand it to another agent in the
+// same chat. The chat is optional: with none the Loop is the agent's work
+// across its chats, and each run posts where its result belongs. Not shown
+// for a Loop that runs in its own session (one outside a text chat).
+function RunBy({
+  loop,
+  workspaceSlug,
+}: {
+  loop: ChannelLoop
+  workspaceSlug: string
+}) {
+  const agents = useAgents(workspaceSlug)
+  const { data: list } = useQuery(workspaceChannelsQueryOptions(workspaceSlug))
+  const place = useSetLoopPlace(loop)
+  // Discord channels agents are in can be reported in too (decision 51).
+  const { data: placeChats, isPending: placesPending } = usePlaceChats(
+    workspaceSlug,
+    true
+  )
+  if (!list || placesPending) return null
+  // Open chats are where it can move to; its own chat is looked up among
+  // archived ones too, so a Loop paused by an archive can still be moved.
+  const chats = loopSpots(openTextChannels(list), placeChats)
+  const chat =
+    loopSpots(textChannels(list), placeChats).find(
+      (item) => item.id === loop.channelId
+    ) ?? null
+  // In a channel that is not a text chat: it runs in a session, by no agent.
+  if (loop.channelId && !chat) return null
+  const owner = agents.find((agent) => agent.id === loop.agentId) ?? null
+  // Who could run it: the agents in its chat, or any agent when it has none.
+  const candidates = chat
+    ? agents.filter((agent) => chat.agentIds.includes(agent.id))
+    : agents
+  if (!owner && candidates.length === 0) return null
+  const gone = owner !== null && chat !== null && !candidates.includes(owner)
+  const editable = loop.status !== "completed"
+  // It can report in any chat its agent is in.
+  const ownerChats = owner
+    ? chats.filter((item) => item.agentIds.includes(owner.id))
+    : chats
+  // A chat its agent has left (or an archived one) stays shown until moved.
+  const extraChat =
+    chat && !ownerChats.some((item) => item.id === chat.id) ? chat : null
+  const who = owner?.name ?? "The agent"
+  return (
+    <div className="space-y-2">
+      <SectionLabel>Run by</SectionLabel>
+      <div className="divide-y divide-border/70 rounded-xl border bg-card">
+        <DetailRow label="Agent">
+          {editable && candidates.some((agent) => agent !== owner) ? (
+            <Select
+              items={candidates.map((agent) => ({
+                value: agent.id,
+                label: agent.name,
+              }))}
+              value={owner?.id ?? null}
+              onValueChange={(agentId) => {
+                if (agentId && agentId !== owner?.id) place.mutate({ agentId })
+              }}
+            >
+              <SelectTrigger aria-label="Agent" className="h-8 w-40">
+                <SelectValue placeholder="Pick an agent" />
+              </SelectTrigger>
+              <SelectContent>
+                {candidates.map((agent) => (
+                  <SelectItem key={agent.id} value={agent.id}>
+                    <span className="flex items-center gap-2">
+                      <AgentCreature
+                        creature={agentCreature(agent)}
+                        size={16}
+                        still
+                      />
+                      {agent.name}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : owner ? (
+            <span className="flex min-w-0 items-center gap-2 text-foreground">
+              <AgentCreature creature={agentCreature(owner)} size={16} still />
+              <span className="truncate">{owner.name}</span>
+            </span>
+          ) : (
+            "Nobody yet"
+          )}
+        </DetailRow>
+        <DetailRow label="Reports in">
+          {editable ? (
+            <Select
+              items={[
+                ...[...ownerChats, ...(extraChat ? [extraChat] : [])].map(
+                  (item) => ({
+                    value: item.id,
+                    label: item.discord
+                      ? `#${item.name ?? "channel"}`
+                      : (item.name ?? "Chat"),
+                  })
+                ),
+                { value: NO_CHAT, label: "No chat" },
+              ]}
+              value={loop.channelId ?? NO_CHAT}
+              onValueChange={(value) => {
+                if (!value) return
+                const channelId = value === NO_CHAT ? null : value
+                if (channelId !== loop.channelId) place.mutate({ channelId })
+              }}
+            >
+              <SelectTrigger aria-label="Reports in" className="h-8 w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ownerChats.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    <SpotLabel spot={item} />
+                  </SelectItem>
+                ))}
+                {extraChat && (
+                  <SelectItem value={extraChat.id}>
+                    <SpotLabel spot={extraChat} />
+                  </SelectItem>
+                )}
+                <SelectItem value={NO_CHAT}>No chat</SelectItem>
+              </SelectContent>
+            </Select>
+          ) : chat ? (
+            <SpotLabel spot={chat} />
+          ) : (
+            "No chat"
+          )}
+        </DetailRow>
+      </div>
+      <p className="px-1 text-muted-foreground text-xs leading-snug">
+        {gone
+          ? `${who} is no longer in ${chat ? spotName(chat) : "this chat"}. Pick another agent, or another chat.`
+          : chat
+            ? `${who} posts each run's result in ${spotName(chat)}.`
+            : `With no chat, ${who} posts a result in the chat it belongs to, or nowhere.`}
+      </p>
+    </div>
+  )
+}
+
+// A chat's name, or a Discord channel's with Discord's mark.
+function SpotLabel({ spot }: { spot: LoopSpot }) {
+  return spot.discord ? (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <HugeiconsIcon
+        icon={DiscordIcon}
+        className="size-3.5 shrink-0 text-muted-foreground"
+        strokeWidth={2}
+      />
+      <span className="truncate">#{spot.name ?? "channel"}</span>
+    </span>
+  ) : (
+    <span className="truncate">{spot.name ?? "Chat"}</span>
+  )
+}
+
+// Who changed the Loop last: a person, or its agent, which changes its own
+// Loops with no approval.
+function ChangedBy({
+  loop,
+  workspaceSlug,
+}: {
+  loop: ChannelLoop
+  workspaceSlug: string
+}) {
+  const agents = useAgents(workspaceSlug)
+  const { data: members } = useQuery({
+    queryKey: ["workspace-members", workspaceSlug],
+    queryFn: async () => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].members.$get({
+        param: { workspaceSlug },
+      })
+      if (!res.ok) throw new Error("Failed to fetch workspace members")
+      return res.json()
+    },
+  })
+  if (!loop.changedById || !loop.changedAt) return null
+  const agent = agents.find((item) => item.id === loop.changedById)
+  const name =
+    agent?.name ??
+    members?.members.find((member) => member.userId === loop.changedById)?.name
+  if (!name) return null
+  return (
+    <p className="flex items-center gap-1.5 px-1 text-muted-foreground text-xs">
+      {agent && (
+        <AgentCreature creature={agentCreature(agent)} size={14} still />
+      )}
+      Last changed by {name}, {timeAgo(loop.changedAt)}
     </p>
   )
 }
@@ -930,8 +1148,14 @@ function IntervalRows({
 
 export function LoopPanel({ view }: { view: LoopSidebarView }) {
   const { setView } = useRightSidebar()
-  const { data } = useChannelLoops(view.channelId)
-  const loop = data?.find((l) => l.id === view.loopId) ?? null
+  // Read by id when it is not one of this chat's: a Loop with no chat, or
+  // one opened from its agent's page beside another chat.
+  const {
+    loop: found,
+    failed: loopFailed,
+    retry: retryLoop,
+  } = useLoop(view.loopId, view.channelId)
+  const loop = found ?? null
   const { data: runHistory, isPending: runsPending } = useLoopRuns(
     loop && loop.status !== "draft" ? loop.id : null
   )
@@ -1169,7 +1393,23 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
           ) : undefined
         }
       />
-      {!loop || !effective ? (
+      {loopFailed ? (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground text-sm">
+          <p>Couldn't load this loop.</p>
+          <button
+            type="button"
+            onClick={retryLoop}
+            className="cursor-pointer rounded-sm underline outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            Try again
+          </button>
+        </div>
+      ) : found === undefined ? (
+        <div className="min-h-0 flex-1 space-y-3 px-4 py-5">
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-16 w-full rounded-xl" />
+        </div>
+      ) : !loop || !effective ? (
         <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
           <p className="text-muted-foreground text-sm">
             This loop is no longer available.
@@ -1177,6 +1417,11 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
         </div>
       ) : (
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5">
+          <div className="space-y-2">
+            <RunBy loop={loop} workspaceSlug={view.workspaceSlug} />
+            <ChangedBy loop={loop} workspaceSlug={view.workspaceSlug} />
+          </div>
+
           <PromptSection
             loop={effective}
             onStage={(instructions) => stage({ instructions })}
@@ -1335,8 +1580,8 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this loop?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the loop and its card from the channel permanently.
-              Past run activity stays in the channel history.
+              This removes the loop and its card for good. What its past runs
+              posted stays in the chat.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1348,7 +1593,7 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
               loading={deleteLoop.isPending}
               onClick={() => {
                 // The loop leaves at once (a failure brings it back with a
-                // toast), so land back on the channel overview now.
+                // toast), so land back on the chat's details now.
                 deleteLoop.mutate()
                 setConfirmDelete(false)
                 setView({

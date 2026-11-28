@@ -4,6 +4,7 @@ import { ensureCustomer, grantSignupPromo, syncSeats } from "@repo/billing"
 import { getBetaAvailability, hostedBetaConfig } from "@repo/billing/beta"
 import { and, db, eq, LOR_USER_ID, ne, schema } from "@repo/db"
 import { assertWorkspaceActive } from "@repo/db/queries/beta-access"
+import { joinVisibleChats } from "@repo/db/queries/chat-members"
 import { env } from "@repo/env/server"
 import { captureServerEvent } from "@repo/logger"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
@@ -607,6 +608,19 @@ export const auth = betterAuth({
             })
           }
         },
+        // A new member starts in every chat they can see
+        // (reference/agents-and-chats.md, decision 35).
+        afterAddMember: async ({ member }) => {
+          await joinVisibleChats({
+            workspaceId: member.organizationId,
+            userIds: [member.userId],
+          }).catch((error) =>
+            logger.error(
+              { err: error, workspaceId: member.organizationId },
+              "Failed to put a new member in the workspace's chats"
+            )
+          )
+        },
         beforeAddMember: async ({ member }) => {
           const avatarColor = await nextWorkspaceAvatarColor(
             member.organizationId,
@@ -706,6 +720,15 @@ export const auth = betterAuth({
               "Failed to set avatar color for invited member"
             )
           }
+          await joinVisibleChats({
+            workspaceId: member.organizationId,
+            userIds: [member.userId],
+          }).catch((error) =>
+            logger.error(
+              { err: error, workspaceId: member.organizationId },
+              "Failed to put an invited member in the workspace's chats"
+            )
+          )
           void syncSeats(member.organizationId)
         },
         afterCreateOrganization: async ({ organization }) => {

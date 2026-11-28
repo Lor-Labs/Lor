@@ -359,9 +359,10 @@ function MobileRightPanel() {
 }
 
 const LEFT_SIDEBAR_WIDTH_KEY = "lor:left-sidebar-width"
-const LEFT_SIDEBAR_MIN = 200
+const LEFT_SIDEBAR_MIN = 240
 const LEFT_SIDEBAR_MAX = 400
-const LEFT_SIDEBAR_DEFAULT = 240
+// Wide enough for a chat's name, time and one line of its last message.
+const LEFT_SIDEBAR_DEFAULT = 296
 
 function getStoredLeftSidebarWidth(): number {
   try {

@@ -688,10 +688,11 @@ export function SessionBrowserLiveView({
           )}
         >
           {live.url && (
+            // biome-ignore lint/a11y/useIframeTitle: named by aria-label; Safari shows a title as a tooltip over the whole view
             <iframe
               ref={live.frame}
               src={live.url}
-              title="Session browser"
+              aria-label="Session browser"
               allow="clipboard-read; clipboard-write"
               className="absolute inset-0 size-full border-0"
             />

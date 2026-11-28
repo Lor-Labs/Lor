@@ -35,8 +35,8 @@ const STEPS: [Step, ...Step[]] = [
     Scene: WelcomeScene,
   },
   {
-    title: "Lor answers in the chat",
-    body: "Mention @Lor in any channel and it answers there. It reads what everyone said, so it knows what's going on.",
+    title: "Agents answer in the chat",
+    body: "Mention the agent in a channel and it answers there. It reads what everyone said, so it knows what's going on.",
     Scene: ChatAnswerScene,
   },
   {
@@ -46,8 +46,8 @@ const STEPS: [Step, ...Step[]] = [
   },
   // Last, once people know what a session is: a loop's runs land in one.
   {
-    title: "Every channel has its own agent",
-    body: "Choose which tools Lor can use in each channel, and give it work on a schedule, like finding leads in #gtm every weekday.",
+    title: "Agents are teammates you add to channels",
+    body: "Each agent has its own name, brief and memory, and takes them to every channel it is in. Choose its tools per channel, and give it work on a schedule, like finding leads in #gtm every weekday.",
     Scene: ChannelAgentScene,
   },
 ]

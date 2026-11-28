@@ -50,18 +50,11 @@ export const dmMemberSchema = z.object({
 })
 
 export const dmChannelSchema = selectChannelSchema
-  // A DM has no Lor: no tool profile and no channel agent.
+  // A DM has no Lor: no channel agent. Nor is it a chat or a channel
+  // (`kind` is for text channels).
   .omit({
-    agentProfileId: true,
     creatorId: true,
-    agentModel: true,
-    agentWakeMode: true,
-    agentBrief: true,
-    agentBriefUpdatedAt: true,
-    agentCheckInAt: true,
-    agentName: true,
-    agentCreature: true,
-    agentIdentityUpdatedAt: true,
+    kind: true,
   })
   .extend({
     members: z.array(dmMemberSchema),

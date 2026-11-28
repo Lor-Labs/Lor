@@ -876,10 +876,8 @@ function hash(text: string, seed: number) {
   return h
 }
 
-// Creatures that were replaced, ids included. A channel that picked the old
-// one shows as its replacement, so nothing changes face before
-// rename-creatures.ts (packages/db/src/scripts) has run on a database, or
-// while a server on older code still writes the old id during a deploy.
+// Creatures that were replaced, ids included. An agent that picked the old
+// one gets its replacement.
 const REPLACED_CREATURES = new Map<string, CreatureId>([
   ["golem", "skeleton"],
   ["griffin", "alien"],
@@ -897,23 +895,21 @@ export function normalizeAgentName(value: string): string | null {
   return name ? name.slice(0, AGENT_NAME_MAX).trim() : null
 }
 
-// A channel's agent: the name and creature the team picked, else ones
-// derived from the channel id so they stay put until someone changes them.
-export function channelAgentIdentity(channel: {
-  id: string
-  agentName?: string | null
-  agentCreature?: string | null
-}): { name: string; creature: CreatureId } {
-  const picked =
-    REPLACED_CREATURES.get(channel.agentCreature ?? "") ?? channel.agentCreature
-  const creature = isCreatureId(picked)
-    ? picked
-    : (CREATURES[hash(channel.id, 2166136261) % CREATURES.length] as Creature)
-        .id
+// A name and creature for an agent, derived from a seed so the same seed
+// always gives the same pair. What a person picked wins. Agents made from a
+// channel's old settings are seeded on the channel id, which keeps the face
+// the team already knows (reference/agents-and-chats.md).
+export function agentIdentityFor(
+  seed: string,
+  picked: { name?: string | null; creature?: string | null } = {}
+): { name: string; creature: CreatureId } {
+  const wanted =
+    REPLACED_CREATURES.get(picked.creature ?? "") ?? picked.creature
+  const creature = isCreatureId(wanted)
+    ? wanted
+    : (CREATURES[hash(seed, 2166136261) % CREATURES.length] as Creature).id
   const names = creatureById(creature).names
   const name =
-    channel.agentName?.trim() ||
-    names[hash(channel.id, 374761393) % names.length] ||
-    "Lor"
+    picked.name?.trim() || names[hash(seed, 374761393) % names.length] || "Lor"
   return { name, creature }
 }

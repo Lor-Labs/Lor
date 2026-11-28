@@ -7,6 +7,10 @@ import type {
   MemberAddedPayload,
   MemberRemovedPayload,
 } from "@repo/db/schema"
+import {
+  postLoopCardToDiscord,
+  postLoopLineToDiscord,
+} from "@repo/lor/discord-loops"
 import { channelEventContent } from "@repo/messaging"
 import {
   type ServerToClientEvents,
@@ -41,6 +45,8 @@ export async function emitChannelCreated(
 type ChannelEventInput =
   | { eventType: "channel_created"; payload?: ChannelCreatedPayload }
   | { eventType: "channel_renamed"; payload: ChannelRenamedPayload }
+  | { eventType: "channel_archived" }
+  | { eventType: "channel_unarchived" }
   | { eventType: "member_added"; payload: MemberAddedPayload }
   | { eventType: "member_removed"; payload: MemberRemovedPayload }
   | { eventType: "member_left" }
@@ -91,11 +97,14 @@ export async function postChannelEvent(
 // only the loop row. Best effort like postChannelEvent: a lookup failure must
 // not fail the loop transition that already committed.
 export async function postLoopChannelEvent(input: {
-  loop: { id: string; name: string; channelId: string }
+  // A Loop with no chat has nowhere for the line.
+  loop: { id: string; name: string; channelId: string | null }
   actorId: string
   eventType: "loop_created" | "loop_paused" | "loop_completed"
-  reason?: "failures" | "out_of_credits"
+  reason?: "failures" | "out_of_credits" | "agent_left"
 }): Promise<void> {
+  const channelId = input.loop.channelId
+  if (!channelId) return
   try {
     const channel = await db
       .select({
@@ -104,7 +113,7 @@ export async function postLoopChannelEvent(input: {
         name: schema.channel.name,
       })
       .from(schema.channel)
-      .where(eq(schema.channel.id, input.loop.channelId))
+      .where(eq(schema.channel.id, channelId))
       .limit(1)
       .then((rows) => rows[0])
     if (!channel) return
@@ -118,6 +127,32 @@ export async function postLoopChannelEvent(input: {
         reason: input.reason,
       },
     })
+    // A Loop that reports in a Discord place says so there too: a new one
+    // with its card, a paused or completed one with a line.
+    if (input.eventType === "loop_created") {
+      await postLoopCardToDiscord({ loopId: input.loop.id, channelId })
+    } else {
+      const [actor] = await db
+        .select({ name: schema.user.name })
+        .from(schema.user)
+        .where(eq(schema.user.id, input.actorId))
+      await postLoopLineToDiscord({
+        loopId: input.loop.id,
+        channelId,
+        text:
+          input.eventType === "loop_paused"
+            ? channelEventContent({
+                eventType: "loop_paused",
+                loopName: input.loop.name,
+                reason: input.reason ?? "failures",
+              })
+            : channelEventContent({
+                eventType: "loop_completed",
+                actorName: actor?.name ?? "Someone",
+                loopName: input.loop.name,
+              }),
+      })
+    }
   } catch (err) {
     logger.error(
       { err, loopId: input.loop.id, eventType: input.eventType },
@@ -157,6 +192,9 @@ async function buildEventContent(
         from: input.payload.from,
         to: input.payload.to,
       })
+    case "channel_archived":
+    case "channel_unarchived":
+      return channelEventContent({ eventType: input.eventType, actorName })
     case "member_added":
       return channelEventContent({
         eventType: input.eventType,

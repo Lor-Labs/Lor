@@ -44,8 +44,7 @@ export const createAgentProfile = createRoute({
   path: "/workspaces/{workspaceSlug}/agent-profiles",
   method: "post",
   summary: "Create an agent profile",
-  description:
-    "Creates a tool-access profile that channels can be assigned to.",
+  description: "Creates a tool-access profile that agents can be given.",
   tags: ["Agent Profiles"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
@@ -102,7 +101,7 @@ export const deleteAgentProfile = createRoute({
   method: "delete",
   summary: "Delete an agent profile",
   description:
-    "Deletes a profile. The default profile can't be deleted; channels using a deleted profile fall back to the default.",
+    "Deletes a profile. The default profile can't be deleted; agents using a deleted profile fall back to the default.",
   tags: ["Agent Profiles"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: agentProfileIdParamsSchema },

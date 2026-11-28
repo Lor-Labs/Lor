@@ -12,6 +12,9 @@ import {
   BETTERSTACK_LOGO_PATHS,
   BETTERSTACK_LOGO_VIEW_BOX,
 } from "@repo/ui/lib/betterstack-logo"
+import { CIRCLEBACK_ICON_DATA_URI } from "@repo/ui/lib/circleback-logo"
+import { GRANOLA_ICON_DATA_URI } from "@repo/ui/lib/granola-logo"
+import { Image } from "react-native"
 import Svg, { G, Path } from "react-native-svg"
 
 export type ConnectorKey =
@@ -22,6 +25,8 @@ export type ConnectorKey =
   | "notion"
   | "cloudwatch"
   | "betterstack"
+  | "granola"
+  | "circleback"
   | "webhook"
 
 const CONNECTORS: Record<
@@ -90,6 +95,23 @@ const CONNECTORS: Record<
     host: /(^|\.)betterstack\.com$/i,
     tools: BETTERSTACK_TOOLS.map((tool) => tool.name),
   },
+  granola: {
+    host: /(^|\.)granola\.ai$/i,
+    tools: [
+      "search_granola_meetings",
+      "get_granola_meeting",
+      "get_granola_transcript",
+    ],
+  },
+  circleback: {
+    host: /(^|\.)circleback\.ai$/i,
+    tools: [
+      "search_circleback_meetings",
+      "get_circleback_meeting",
+      "get_circleback_transcript",
+      "list_circleback_action_items",
+    ],
+  },
   // BYO inbound webhooks have no agent tools or URL host.
   webhook: {
     host: /$^/,
@@ -150,6 +172,26 @@ export function ConnectorIcon({
           <Path d={path} fill={color} key={path} />
         ))}
       </Svg>
+    )
+  }
+  // In color, as Granola's own app icon; ignores `color`.
+  if (connector === "granola") {
+    return (
+      <Image
+        accessibilityLabel="Granola"
+        source={{ uri: GRANOLA_ICON_DATA_URI }}
+        style={{ height: size, width: size }}
+      />
+    )
+  }
+  // In color, as Circleback's own icon; ignores `color`.
+  if (connector === "circleback") {
+    return (
+      <Image
+        accessibilityLabel="Circleback"
+        source={{ uri: CIRCLEBACK_ICON_DATA_URI }}
+        style={{ height: size, width: size }}
+      />
     )
   }
   if (connector === "github") {

@@ -1,23 +1,19 @@
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
+import DiscordIcon from "@hugeicons/core-free-icons/DiscordIcon"
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
+import UserAdd01Icon from "@hugeicons/core-free-icons/UserAdd01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { LOR_USER_ID } from "@repo/db/constants"
+import type { RealtimeMessage } from "@repo/realtime-types"
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Alert, Pressable, Text, View } from "react-native"
-import { AgentCreature } from "@/components/agent-creature"
-import { ChannelOptionsSheet } from "@/components/channel-options-sheet"
+import { Alert, Text, View } from "react-native"
 import { ChannelSearchOverlay } from "@/components/channel-search-overlay"
+import { ChatAvatar } from "@/components/chat-avatar"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
-import { MemberActionsSheet } from "@/components/member-actions-sheet"
-import {
-  type MemberListItem,
-  MemberListSheet,
-  workspaceMemberToListItem,
-} from "@/components/member-list-sheet"
 import {
   MessageComposer,
   type MessageComposerMentionHandle,
@@ -26,6 +22,7 @@ import { MessageList } from "@/components/message-list"
 import { TypingIndicator } from "@/components/typing-indicator"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { IconButton } from "@/components/ui/icon-button"
+import { PressableScale } from "@/components/ui/pressable-scale"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { UserProfileSheet } from "@/components/user-profile-sheet"
@@ -34,14 +31,20 @@ import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import {
-  AGENT_STATE_TEXT,
   useChannelAgent,
   useChannelAgentState,
+  useChannelAgents,
+  useChannelHasNoAgent,
 } from "@/hooks/use-channel-agent"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
+import { useChannelDiscord } from "@/hooks/use-channel-discord"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
-import { useMemberModeration } from "@/hooks/use-member-moderation"
+import {
+  useChatArchive,
+  useChatPeople,
+  useChatPeopleChanges,
+} from "@/hooks/use-chats"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
@@ -51,6 +54,7 @@ import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-can
 import type { ChannelSearchResult, Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 import { fetchMessageLocation, openMessageAt } from "@/lib/message-location"
+import { openExternalUrl } from "@/lib/open-url"
 import { confirmRemoveEmbed } from "@/lib/remove-embed"
 
 export default function ChannelRoute() {
@@ -75,10 +79,14 @@ export default function ChannelRoute() {
 
 function writeAskDraft(
   composer: MessageComposerMentionHandle | null,
+  agent: { id: string; name: string } | null,
   prompt?: string
 ) {
   if (prompt) composer?.replaceDraft(`${prompt} `)
-  composer?.insertMention({ id: LOR_USER_ID, label: "Lor" })
+  composer?.insertMention({
+    id: agent?.id ?? LOR_USER_ID,
+    label: agent?.name ?? "Lor",
+  })
 }
 
 function ChannelScreen() {
@@ -86,36 +94,36 @@ function ChannelScreen() {
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
-  const [isOptionsOpen, setIsOptionsOpen] = useState(false)
-  const [isMembersOpen, setIsMembersOpen] = useState(false)
-  const [moderationMember, setModerationMember] =
-    useState<MemberListItem | null>(null)
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
   const hasFocusedRef = useRef(false)
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
   // Leaving an edit restores the draft from before it, so a question asked
   // mid-edit waits until the composer has done that.
   const pendingAskRef = useRef<{ prompt?: string } | null>(null)
+  const agent = useChannelAgent()
+  const agents = useChannelAgents()
+  const agentState = useChannelAgentState()
+  const noAgent = useChannelHasNoAgent()
   useEffect(() => {
     const pending = pendingAskRef.current
     if (editingMessage || !pending) return
     pendingAskRef.current = null
-    writeAskDraft(composerMentionRef.current, pending.prompt)
-  }, [editingMessage])
+    writeAskDraft(composerMentionRef.current, agent, pending.prompt)
+  }, [editingMessage, agent])
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
   const { workspace } = useWorkspace()
-  const { channelId, focusMessageId } = useLocalSearchParams<{
+  const { channelId, focusMessageId, draft } = useLocalSearchParams<{
     channelId: string
     focusMessageId?: string
+    // A new chat's first message that failed to send (chat/new.tsx).
+    draft?: string
   }>()
   const { data: session } = authClient.useSession()
   const permissions = useChannelPermissions(workspace?.id)
   // The channel agent's proposal cards in the chat stay live.
   useChannelProposals(channelId)
-  const agent = useChannelAgent()
-  const agentState = useChannelAgentState()
   const channelState = useChannelDetail({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
@@ -145,7 +153,6 @@ function ChannelScreen() {
   const mentions = useWorkspaceMentionCandidates({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
-    channelAudience: channelState.channel?.audience,
   })
   const avatarColorByUserId = useMemo(
     () =>
@@ -167,7 +174,6 @@ function ChannelScreen() {
     closeProfile,
     mentionFromProfile,
     openAuthorProfile,
-    openMemberProfile,
     profileUser,
     resetProfileSheet,
   } = useProfileSheet({
@@ -176,11 +182,40 @@ function ChannelScreen() {
     mentionRef: composerMentionRef,
   })
   const { openDM } = useOpenDM()
-  const moderation = useMemberModeration({
-    currentUserId: session?.user.id,
-    workspaceId: workspace?.id,
-    workspaceSlug: workspace?.slug ?? "",
-  })
+  const workspaceSlug = workspace?.slug ?? ""
+  const isText = channelState.channel?.type === "text"
+  // A Discord channel agents are in is read here and written in Discord.
+  const isPlace = channelState.channel?.kind === "place"
+  // No composer (archived chat or place): reply, edit and Ask Lor are hidden.
+  const readOnly = Boolean(channelState.channel?.archivedAt) || isPlace
+  useEffect(() => {
+    if (!readOnly) return
+    setReplyingTo(null)
+    setEditingMessage(null)
+  }, [readOnly])
+  const people = useChatPeople(
+    workspaceSlug,
+    isText && !isPlace ? (channelId ?? "") : ""
+  )
+  const discord = useChannelDiscord(workspaceSlug, channelId ?? "", isPlace)
+  // Archived or unarchived by someone else: the composer and its bar follow.
+  const { reload: reloadChannel } = channelState
+  useEffect(() => {
+    if (!socket || !channelId) return
+    const onMessage = (message: RealtimeMessage) => {
+      if (message.channelId !== channelId) return
+      if (
+        message.eventType === "channel_archived" ||
+        message.eventType === "channel_unarchived"
+      ) {
+        void reloadChannel()
+      }
+    }
+    socket.on("message:created", onMessage)
+    return () => {
+      socket.off("message:created", onMessage)
+    }
+  }, [socket, channelId, reloadChannel])
 
   useEffect(() => {
     hasFocusedRef.current = false
@@ -188,16 +223,12 @@ function ChannelScreen() {
     setEditingMessage(null)
     setIsSavingEdit(false)
     setIsSearchOpen(false)
-    setIsOptionsOpen(false)
-    setIsMembersOpen(false)
-    setModerationMember(null)
     setFocusedMessageId(null)
     resetProfileSheet()
   }, [channelId, resetProfileSheet])
 
   useEffect(() => {
     if (!focusMessageId) return
-    setIsOptionsOpen(false)
     void chat.loadAround(focusMessageId).then((loaded) => {
       if (loaded) setFocusedMessageId(focusMessageId)
     })
@@ -260,19 +291,27 @@ function ChannelScreen() {
     )
   }
   const channel = channelState.channel
-  const channelName = channel.name ?? "channel"
-  // The agent is listed above the people, as itself, so Lor isn't a person.
-  const memberItems = mentions.members
-    .filter((member) => !(agent && member.userId === LOR_USER_ID))
-    .map(workspaceMemberToListItem)
-  const openAgent = () =>
+  const channelName = channel.name ?? "Chat"
+  const me = session?.user.id
+  const others = (people.data ?? []).filter((person) => person.id !== me)
+  const joined = people.data
+    ? people.data.some((person) => person.id === me)
+    : true
+  const openDetails = () => {
+    triggerHaptic("light")
     router.push({
-      pathname: "/channel/[channelId]/agent",
+      pathname: "/channel/[channelId]/details",
       params: { channelId },
-    })
-  const onlineMemberCount = memberItems.filter(
-    (member) => member.status === "online"
-  ).length
+    } as never)
+  }
+  const subtitle = !isSocketConnected
+    ? "Reconnecting"
+    : chatSubtitle({
+        agents,
+        state: agentState,
+        peopleCount: people.data?.length ?? null,
+        place: isPlace,
+      })
   const openThread = (message: Message) => {
     router.push({
       pathname: "/channel/[channelId]/thread/[threadRootId]",
@@ -293,17 +332,7 @@ function ChannelScreen() {
       pendingAskRef.current = { prompt }
       return
     }
-    writeAskDraft(composerMentionRef.current, prompt)
-  }
-  const openProfileFromMemberList = (member: MemberListItem) => {
-    setIsMembersOpen(false)
-    openMemberProfile(member)
-  }
-  const openMemberActions = (member: MemberListItem) => {
-    if (!moderation.canModerate(member)) return
-    triggerHaptic("soft")
-    setIsMembersOpen(false)
-    setModerationMember(member)
+    writeAskDraft(composerMentionRef.current, agent, prompt)
   }
   const startEditing = (message: Message) => {
     setReplyingTo(null)
@@ -365,7 +394,7 @@ function ChannelScreen() {
       <View className={isSearchOpen ? "hidden flex-1" : "flex-1"}>
         <View className="min-h-[60px] flex-row items-center gap-two border-b border-separator px-three">
           <IconButton
-            accessibilityLabel="Back to channels"
+            accessibilityLabel="Back to chats"
             onPress={() => router.back()}
             variant="ghost"
           >
@@ -379,73 +408,60 @@ function ChannelScreen() {
               tintColor={foreground}
             />
           </IconButton>
-          <View className="min-w-0 flex-1 gap-px">
-            <View className="flex-row items-center gap-one">
-              <Text className="text-[22px] font-normal leading-[23px] text-muted">
-                #
-              </Text>
+          <PressableScale
+            accessibilityHint="Opens the chat's details, its people and agents"
+            accessibilityLabel={`${channelName}, ${subtitle}`}
+            accessibilityRole="button"
+            className="min-w-0 flex-1 flex-row items-center gap-two"
+            feedback="dim"
+            onPress={openDetails}
+          >
+            <ChatAvatar
+              agents={agents.map((item) => ({
+                id: item.id,
+                creature: item.creature,
+              }))}
+              people={
+                others.length + agents.length > 0 ? others : (people.data ?? [])
+              }
+              size={36}
+              total={agents.length + others.length}
+            />
+            <View className="min-w-0 flex-1 gap-px">
               <Text
                 className="text-[17px] font-bold tracking-[-0.2px] text-foreground"
                 numberOfLines={1}
               >
                 {channelName}
               </Text>
+              <View className="flex-row items-center gap-one">
+                {isSocketConnected ? null : (
+                  <View className="size-[7px] rounded-full bg-warning" />
+                )}
+                <Text
+                  className={`min-w-0 flex-1 text-xs font-medium leading-4 ${
+                    agentState === "working" || agentState === "needs_you"
+                      ? "text-accent"
+                      : "text-muted"
+                  }`}
+                  numberOfLines={1}
+                >
+                  {subtitle}
+                </Text>
+              </View>
             </View>
-            <Pressable
-              accessibilityHint="Opens the workspace member list"
-              accessibilityLabel={
-                isSocketConnected
-                  ? `${onlineMemberCount} members online`
-                  : "Reconnecting"
-              }
-              accessibilityRole="button"
-              className="flex-row items-center gap-one rounded-lor-sm active:opacity-70"
-              hitSlop={6}
-              onPress={() => setIsMembersOpen(true)}
-            >
-              <View
-                className={`size-[7px] rounded-full ${
-                  isSocketConnected ? "bg-success" : "bg-warning"
-                }`}
-              />
-              <Text
-                className="min-w-0 flex-1 text-xs font-medium leading-4 text-muted"
-                numberOfLines={1}
-              >
-                {isSocketConnected
-                  ? `${onlineMemberCount} Online`
-                  : "Reconnecting"}
-                {channel.topic ? ` · ${channel.topic}` : ""}
-              </Text>
-            </Pressable>
-          </View>
-          {agent ? (
-            <Pressable
-              accessibilityHint="Opens its settings"
-              accessibilityLabel={`${agent.name} ${AGENT_STATE_TEXT[agentState]}`}
-              accessibilityRole="button"
-              className="size-10 items-center justify-center rounded-lor-sm active:bg-surface-secondary"
-              hitSlop={4}
-              onPress={openAgent}
-            >
-              <AgentCreature
-                creature={agent.creature}
-                size={30}
-                state={agentState}
-              />
-            </Pressable>
-          ) : null}
+          </PressableScale>
           <IconButton
-            accessibilityLabel="Search channel"
+            accessibilityLabel="Search this chat"
             onPress={openSearch}
             variant="ghost"
           >
             <HugeiconsIcon color={foreground} icon={Search01Icon} size={19} />
           </IconButton>
           <IconButton
-            accessibilityLabel="Channel options"
+            accessibilityLabel="Chat details"
             className="mr-one"
-            onPress={() => setIsOptionsOpen(true)}
+            onPress={openDetails}
             variant="ghost"
           >
             <SymbolView
@@ -462,44 +478,64 @@ function ChannelScreen() {
         <ChatKeyboardLayout
           renderComposer={({ inputNativeID, onCustomInputViewChange }) =>
             channel.archivedAt ? (
-              <ArchivedChannelNotice archivedAt={channel.archivedAt} />
-            ) : (
-              <MessageComposer
+              <ArchivedChatBar
+                archivedAt={channel.archivedAt}
+                canUnarchive={permissions.canUpdateChannel}
                 channelId={channelId}
-                channelName={channelName}
-                destination="channel"
-                editingMessage={editingMessage}
-                lorIntro
-                inputNativeID={inputNativeID}
-                isConnected={isSocketConnected}
-                isMentionCandidatesLoading={mentions.isLoading}
-                isSending={chat.isSending || isSavingEdit}
-                mentionCandidates={mentions.candidates}
-                mentionCandidatesError={mentions.error}
-                mentionRef={composerMentionRef}
-                onCancelEdit={() => setEditingMessage(null)}
-                onCancelReply={() => setReplyingTo(null)}
-                onCustomInputViewChange={onCustomInputViewChange}
-                onTyping={emitTyping}
-                onEdit={async (messageId, content) => {
-                  setIsSavingEdit(true)
-                  try {
-                    await chat.editMessage(messageId, content)
-                    setEditingMessage(null)
-                  } finally {
-                    setIsSavingEdit(false)
-                  }
-                }}
-                onSend={async (content, attachments) => {
-                  await chat.sendMessage(
-                    content,
-                    replyingTo ?? undefined,
-                    attachments
-                  )
-                  setReplyingTo(null)
-                }}
-                replyingTo={replyingTo}
+                workspaceSlug={workspace.slug}
               />
+            ) : isPlace ? (
+              <DiscordPlaceBar
+                link={discord.data?.link ?? null}
+                loading={discord.isPending}
+              />
+            ) : (
+              <>
+                {isText && !joined ? (
+                  <JoinChatBar
+                    channelId={channelId}
+                    me={me}
+                    workspaceSlug={workspace.slug}
+                  />
+                ) : null}
+                <MessageComposer
+                  channelId={channelId}
+                  channelName={channelName}
+                  destination="channel"
+                  editingMessage={editingMessage}
+                  initialDraft={draft ?? ""}
+                  lorIntro
+                  inputNativeID={inputNativeID}
+                  isConnected={isSocketConnected}
+                  isMentionCandidatesLoading={mentions.isLoading}
+                  isSending={chat.isSending || isSavingEdit}
+                  mentionCandidates={mentions.candidates}
+                  mentionCandidatesError={mentions.error}
+                  mentionRef={composerMentionRef}
+                  onCancelEdit={() => setEditingMessage(null)}
+                  onCancelReply={() => setReplyingTo(null)}
+                  onCustomInputViewChange={onCustomInputViewChange}
+                  onTyping={emitTyping}
+                  onEdit={async (messageId, content) => {
+                    setIsSavingEdit(true)
+                    try {
+                      await chat.editMessage(messageId, content)
+                      setEditingMessage(null)
+                    } finally {
+                      setIsSavingEdit(false)
+                    }
+                  }}
+                  onSend={async (content, attachments) => {
+                    await chat.sendMessage(
+                      content,
+                      replyingTo ?? undefined,
+                      attachments
+                    )
+                    setReplyingTo(null)
+                  }}
+                  replyingTo={replyingTo}
+                />
+              </>
             )
           }
           renderMessageList={(keyboardProps) => (
@@ -516,11 +552,11 @@ function ChannelScreen() {
               messages={chat.messages}
               onLoadAround={chat.loadAround}
               onOpenThread={openThread}
-              onAskLor={askLorAbout}
+              onAskLor={noAgent || readOnly ? undefined : askLorAbout}
               onDelete={confirmDelete}
-              onEdit={startEditing}
+              onEdit={readOnly ? undefined : startEditing}
               onPressAuthor={openAuthorProfile}
-              onReply={startReply}
+              onReply={readOnly ? undefined : startReply}
               onRetry={() => void chat.reload()}
               onToggleReaction={chat.toggleReaction}
               onTogglePin={
@@ -560,85 +596,6 @@ function ChannelScreen() {
           workspaceSlug={workspace.slug}
         />
       ) : null}
-      <ChannelOptionsSheet
-        canDeleteChannel={permissions.canDeleteChannel}
-        canUpdateChannel={permissions.canUpdateChannel}
-        channel={channel}
-        isOpen={isOptionsOpen}
-        onChannelDeleted={() => router.replace("/")}
-        onChannelUpdated={channelState.replaceChannel}
-        onOpenPinnedMessages={() => {
-          router.push({
-            pathname: "/channel/[channelId]/pins",
-            params: { channelId },
-          })
-          setIsOptionsOpen(false)
-        }}
-        onOpenSessions={() => {
-          router.push({
-            pathname: "/channel/[channelId]/sessions",
-            params: { channelId },
-          })
-          setIsOptionsOpen(false)
-        }}
-        onOpenLoops={() => {
-          router.push({
-            pathname: "/channel/[channelId]/loops",
-            params: { channelId },
-          })
-          setIsOptionsOpen(false)
-        }}
-        onOpenAgent={
-          agent
-            ? () => {
-                openAgent()
-                setIsOptionsOpen(false)
-              }
-            : undefined
-        }
-        onOpenChange={setIsOptionsOpen}
-        workspaceName={workspace.name}
-        workspaceSlug={workspace.slug}
-      />
-      <MemberListSheet
-        agent={
-          agent
-            ? {
-                ...agent,
-                state: agentState,
-                onPress: () => {
-                  setIsMembersOpen(false)
-                  openAgent()
-                },
-              }
-            : null
-        }
-        error={mentions.error}
-        isLoading={mentions.isLoading}
-        isOpen={isMembersOpen}
-        memberHasActions={moderation.canModerate}
-        members={memberItems}
-        onLongPressMember={openMemberActions}
-        onOpenChange={setIsMembersOpen}
-        onPressMember={openProfileFromMemberList}
-        onRetry={() => void mentions.reload()}
-        title="Channel members"
-      />
-      <MemberActionsSheet
-        canKick={
-          moderationMember ? moderation.canKick(moderationMember) : false
-        }
-        isBusy={moderation.isBusy}
-        member={moderationMember}
-        onChangeRole={(userId, role) => moderation.changeRole({ userId, role })}
-        onKick={(userId) => moderation.kick(userId)}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) setModerationMember(null)
-        }}
-        roleOptions={
-          moderationMember ? moderation.roleOptionsFor(moderationMember) : []
-        }
-      />
       <UserProfileSheet
         currentUserId={session?.user.id}
         onMention={mentionFromProfile}
@@ -655,32 +612,175 @@ function ChannelScreen() {
   )
 }
 
-// Archived channels are read-only: the composer is replaced by a terminal
-// divider marking when the project closed \xe2\x80\x94 mirrors the web treatment.
-function ArchivedChannelNotice({ archivedAt }: { archivedAt: string }) {
+// What the header says under the name: what its agents are doing when
+// that matters, else who is in it.
+function chatSubtitle({
+  agents,
+  state,
+  peopleCount,
+  place,
+}: {
+  agents: { name: string }[]
+  state: string
+  peopleCount: number | null
+  place: boolean
+}) {
+  const names = agents.map((agent) => agent.name)
+  const lead = names.length === 1 ? names[0] : "An agent"
+  if (state === "needs_you") return `${lead} is waiting on you`
+  if (state === "working") return `${lead} is working`
+  if (place)
+    return names.length > 0 ? `In Discord · ${names.join(", ")}` : "In Discord"
+  return [
+    names.length > 0 ? names.join(", ") : null,
+    peopleCount === null
+      ? null
+      : `${peopleCount} ${peopleCount === 1 ? "person" : "people"}`,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+}
+
+// The bar in place of a composer, with an optional button at its end.
+function ComposerBar({
+  icon,
+  iconColor,
+  children,
+  action,
+}: {
+  icon: typeof Archive02Icon
+  iconColor?: string
+  children: string
+  action?: { label: string; onPress: () => void; busy?: boolean }
+}) {
   const muted = useThemeColor("muted")
-  const formatted = new Date(archivedAt).toLocaleDateString(undefined, {
+  return (
+    <View className="px-three pb-three pt-one">
+      <View className="min-h-12 flex-row items-center gap-three rounded-lor-lg bg-surface-secondary py-two pl-four pr-two">
+        <HugeiconsIcon
+          color={iconColor ?? muted}
+          icon={icon}
+          size={18}
+          strokeWidth={2}
+        />
+        <Text className="min-w-0 flex-1 text-[14px] leading-[19px] text-muted">
+          {children}
+        </Text>
+        {action ? (
+          <PressableScale
+            accessibilityRole="button"
+            className="h-9 items-center justify-center rounded-full bg-surface-tertiary px-four"
+            disabled={action.busy}
+            onPress={action.onPress}
+            scale={0.95}
+          >
+            {action.busy ? (
+              <Spinner size="sm" />
+            ) : (
+              <Text className="text-[14px] font-semibold text-foreground">
+                {action.label}
+              </Text>
+            )}
+          </PressableScale>
+        ) : null}
+      </View>
+    </View>
+  )
+}
+
+// An archived chat has no composer: the bar says when it closed, and
+// someone who manages chats can open it again (decision 52).
+function ArchivedChatBar({
+  archivedAt,
+  canUnarchive,
+  channelId,
+  workspaceSlug,
+}: {
+  archivedAt: string
+  canUnarchive: boolean
+  channelId: string
+  workspaceSlug: string
+}) {
+  const { unarchive } = useChatArchive(workspaceSlug)
+  const date = new Date(archivedAt).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",
   })
   return (
-    <View className="px-four pb-four pt-two">
-      <View className="flex-row items-center">
-        <View className="h-px flex-1 bg-separator" />
-        <View className="mx-two flex-row items-center gap-one rounded-full border border-separator px-two py-1">
-          <HugeiconsIcon
-            color={muted}
-            icon={Archive02Icon}
-            size={14}
-            strokeWidth={2}
-          />
-          <Text className="text-xs font-medium text-muted">
-            Archived {formatted}
-          </Text>
-        </View>
-        <View className="h-px flex-1 bg-separator" />
-      </View>
-    </View>
+    <ComposerBar
+      action={
+        canUnarchive
+          ? {
+              label: "Unarchive",
+              busy: unarchive.isPending,
+              onPress: () => unarchive.mutate({ channelId }),
+            }
+          : undefined
+      }
+      icon={Archive02Icon}
+    >
+      {`Archived ${date}. Nobody can post here.`}
+    </ComposerBar>
+  )
+}
+
+// A Discord channel agents are in is written in Discord (decision 51).
+function DiscordPlaceBar({
+  link,
+  loading,
+}: {
+  link: {
+    url: string
+    channelName: string | null
+    guildName: string | null
+  } | null
+  loading: boolean
+}) {
+  if (loading) return <View className="h-[72px]" />
+  return (
+    <ComposerBar
+      action={
+        link
+          ? { label: "Open", onPress: () => openExternalUrl(link.url) }
+          : undefined
+      }
+      icon={DiscordIcon}
+      iconColor="#5865F2"
+    >
+      {link
+        ? `This chat lives in Discord, in #${link.channelName ?? "channel"}${link.guildName ? ` on ${link.guildName}` : ""}. Write there.`
+        : "This chat lives in Discord. Write there."}
+    </ComposerBar>
+  )
+}
+
+// Above the composer of a chat the person is only looking at: it is not in
+// their list until they join, or write in it.
+function JoinChatBar({
+  channelId,
+  me,
+  workspaceSlug,
+}: {
+  channelId: string
+  me: string | undefined
+  workspaceSlug: string
+}) {
+  const { add } = useChatPeopleChanges(workspaceSlug, channelId)
+  if (!me) return null
+  return (
+    <ComposerBar
+      action={{
+        label: "Join",
+        busy: add.isPending,
+        onPress: () => {
+          triggerHaptic("light")
+          add.mutate([me])
+        },
+      }}
+      icon={UserAdd01Icon}
+    >
+      You're not in this chat, so it isn't in your list.
+    </ComposerBar>
   )
 }

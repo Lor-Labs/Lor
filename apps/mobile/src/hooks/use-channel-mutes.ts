@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect } from "react"
-import { Alert } from "react-native"
 import { useSocket } from "@/context/socket-context"
 import { api, responseMessage } from "@/lib/api"
 
@@ -23,51 +22,6 @@ export function mutedUntilLabel(mutedUntil: string | null) {
     hour: "numeric",
     minute: "2-digit",
   })}`
-}
-
-export function promptChannelMute(options: {
-  channelId: string
-  channelLabel: string
-  mute: ChannelMute | null
-  muteChannel: (channelId: string, minutes: number | null) => Promise<void>
-  unmuteChannel: (channelId: string) => Promise<void>
-}) {
-  const showError = (cause: unknown) => {
-    Alert.alert(
-      "Something went wrong",
-      cause instanceof Error ? cause.message : "Please try again in a moment."
-    )
-  }
-
-  if (options.mute) {
-    Alert.alert(
-      `Unmute ${options.channelLabel}?`,
-      mutedUntilLabel(options.mute.mutedUntil),
-      [
-        { style: "cancel", text: "Cancel" },
-        {
-          text: "Unmute",
-          onPress: () =>
-            void options.unmuteChannel(options.channelId).catch(showError),
-        },
-      ]
-    )
-    return
-  }
-  Alert.alert(
-    `Mute ${options.channelLabel}`,
-    "You won't get notifications from this channel while it's muted, on any device. Unread badges are unaffected.",
-    [
-      ...MUTE_DURATIONS.map((duration) => ({
-        text: duration.label,
-        onPress: () =>
-          void options
-            .muteChannel(options.channelId, duration.minutes)
-            .catch(showError),
-      })),
-      { style: "cancel" as const, text: "Cancel" },
-    ]
-  )
 }
 
 export function useChannelMutes() {
@@ -148,7 +102,7 @@ export function useChannelMutes() {
         })
         if (!response.ok) {
           throw new Error(
-            await responseMessage(response, "Could not mute this channel")
+            await responseMessage(response, "Could not mute this chat")
           )
         }
       } catch (cause) {
@@ -176,7 +130,7 @@ export function useChannelMutes() {
         })
         if (!response.ok) {
           throw new Error(
-            await responseMessage(response, "Could not unmute this channel")
+            await responseMessage(response, "Could not unmute this chat")
           )
         }
       } catch (cause) {

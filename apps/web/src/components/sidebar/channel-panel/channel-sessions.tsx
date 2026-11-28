@@ -305,8 +305,8 @@ function SessionRow({
           side="right"
           onDismiss={sessionsHint.dismiss}
         >
-          Sessions for longer work, like code, are listed under their channel.
-          Anyone in the channel can open one and join in.
+          Sessions for longer work, like code, are listed under their chat.
+          Anyone in the chat can open one and join in.
         </HintPopover>
         {renaming ? (
           <div

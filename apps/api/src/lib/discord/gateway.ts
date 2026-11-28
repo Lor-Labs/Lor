@@ -7,13 +7,21 @@ import {
 } from "@repo/lor/discord"
 import {
   type DiscordMessageEvent,
+  deleteMirroredMessage,
   mirrorDiscordMessage,
+  updateMirroredMessage,
 } from "@/lib/discord/inbound"
 import {
   type DiscordInteraction,
   handleDiscordInteraction,
   LOR_COMMANDS,
 } from "@/lib/discord/interactions"
+import {
+  disconnectDiscordGuild,
+  discordGuildFor,
+  removeDiscordPlace,
+  syncPlaceFromDiscord,
+} from "@/lib/discord/places"
 import {
   type DiscordThreadEvent,
   forgetThread,
@@ -24,7 +32,7 @@ import { logger } from "@/lib/logger"
 import { getRedisClient } from "@/lib/redis"
 
 // Lor's one connection to Discord's gateway (reference/always-on-agents.md
-// §10): it hears messages in linked channels (Message Content intent) and
+// §10): it hears messages in places (Message Content intent) and
 // the slash commands and button clicks, which arrive here because the app
 // sets no interactions endpoint. One API process holds it, by a Redis lease.
 
@@ -59,7 +67,6 @@ class DiscordGateway {
   private acked = true
   private stopped = false
   private botUserId = ""
-  private botName = "Lor"
   private registered = false
   private registering = false
 
@@ -184,7 +191,6 @@ class DiscordGateway {
       this.sessionId = ready.session_id
       this.resumeUrl = ready.resume_gateway_url
       this.botUserId = ready.user.id
-      this.botName = ready.user.username
       logger.info({ bot: ready.user.username }, "Discord gateway ready")
       void this.registerCommands()
       return
@@ -222,8 +228,74 @@ class DiscordGateway {
       void mirrorDiscordMessage(data as DiscordMessageEvent, this.botUserId)
       return
     }
+    // Edits and deletions in a place reach its copy in Lor.
+    if (type === "MESSAGE_UPDATE") {
+      void updateMirroredMessage(
+        data as DiscordMessageEvent,
+        this.botUserId
+      ).catch((err) => logger.warn({ err }, "Discord edit mirror failed"))
+      return
+    }
+    if (type === "MESSAGE_DELETE") {
+      void deleteMirroredMessage(
+        data as { id: string; channel_id: string }
+      ).catch((err) => logger.warn({ err }, "Discord delete mirror failed"))
+      return
+    }
+    // A moderator's purge (GUILD_MESSAGES intent).
+    if (type === "MESSAGE_DELETE_BULK") {
+      const bulk = data as { ids: string[]; channel_id: string }
+      for (const id of bulk.ids) {
+        void deleteMirroredMessage({ id, channel_id: bulk.channel_id }).catch(
+          (err) =>
+            logger.warn(
+              { err, discordMessageId: id },
+              "Discord delete mirror failed"
+            )
+        )
+      }
+      return
+    }
+    // A place's channel deleted in Discord: the place is removed (archived,
+    // its agents stopped, its history kept).
+    if (type === "CHANNEL_DELETE") {
+      const gone = data as { id: string }
+      void discordLinkByDiscordChannel(gone.id)
+        .then((link) => (link ? removeDiscordPlace(link.channelId) : null))
+        .catch((err) =>
+          logger.warn(
+            { err, discordChannelId: gone.id },
+            "Discord place cleanup failed"
+          )
+        )
+      return
+    }
+    // A place's channel renamed, or made private or public.
+    if (type === "CHANNEL_UPDATE") {
+      void syncPlaceFromDiscord(
+        data as Parameters<typeof syncPlaceFromDiscord>[0]
+      ).catch((err) => logger.warn({ err }, "Discord channel sync failed"))
+      return
+    }
     if (type === "INTERACTION_CREATE") {
-      void handleDiscordInteraction(data as DiscordInteraction, this.botName)
+      void handleDiscordInteraction(data as DiscordInteraction)
+      return
+    }
+    // The bot was taken out of a server (not an outage, which sets
+    // `unavailable`): the server is disconnected and its places go.
+    if (type === "GUILD_DELETE") {
+      const gone = data as { id: string; unavailable?: boolean }
+      if (gone.unavailable) return
+      void discordGuildFor(gone.id)
+        .then((guild) =>
+          guild ? disconnectDiscordGuild(guild.workspaceId, gone.id) : null
+        )
+        .catch((err) =>
+          logger.warn(
+            { err, guildId: gone.id },
+            "Discord server cleanup failed"
+          )
+        )
     }
   }
 

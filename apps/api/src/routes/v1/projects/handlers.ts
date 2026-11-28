@@ -4,8 +4,13 @@ import {
   listChannelAudienceUserIds,
   resolveChannelAccess,
 } from "@repo/db/queries/channel-access"
+import {
+  joinChatAudience,
+  joinVisibleChats,
+} from "@repo/db/queries/chat-members"
 import type { ProjectUpdatedEvent } from "@repo/realtime-types/events"
 import { userRoom } from "@repo/realtime-types/rooms"
+import { placeDefaultAgent } from "@/lib/agents"
 import { getEmitter } from "@/lib/bot-messages"
 import { postChannelEvent } from "@/lib/channel-events"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
@@ -271,19 +276,30 @@ export const createProject: AppRouteHandler<CreateProjectRoute> = async (c) => {
       .then((rows) => rows[0])
     if (!category) throw new Error("Category insert returned no row")
 
-    await tx.insert(schema.channel).values(
-      body.channels.map((ch, index) => ({
-        workspaceId: workspace.id,
-        parentId: category.id,
-        type: ch.type,
-        name: ch.name,
-        // Mirrors the container's audience for consistency in raw queries;
-        // resolution inherits from the container regardless.
-        audience: body.audience,
-        position: index,
-        creatorId: currentUser.id,
-      }))
-    )
+    const channels = await tx
+      .insert(schema.channel)
+      .values(
+        body.channels.map((ch, index) => ({
+          workspaceId: workspace.id,
+          parentId: category.id,
+          type: ch.type,
+          name: ch.name,
+          // Mirrors the container's audience for consistency in raw queries;
+          // resolution inherits from the container regardless.
+          audience: body.audience,
+          position: index,
+          creatorId: currentUser.id,
+        }))
+      )
+      .returning({ id: schema.channel.id, type: schema.channel.type })
+    // The workspace's first agent is in a new project's text channels. A
+    // private project starts with none (reference/agents-and-chats.md,
+    // decision 22).
+    await placeDefaultAgent(tx, {
+      workspaceId: workspace.id,
+      channelIds: channels.flatMap((ch) => (ch.type === "text" ? ch.id : [])),
+      addedById: currentUser.id,
+    })
 
     // Membership rows live on the category for both audiences — the roster
     // for public projects, also the access list for private ones.
@@ -292,6 +308,11 @@ export const createProject: AppRouteHandler<CreateProjectRoute> = async (c) => {
         channelId: category.id,
         userId,
       }))
+    )
+    // The project's chats start with everyone who can see them.
+    await joinChatAudience(
+      channels.flatMap((ch) => (ch.type === "text" ? ch.id : [])),
+      tx
     )
 
     const inserted = await tx
@@ -632,12 +653,28 @@ export const addProjectMember: AppRouteHandler<AddProjectMemberRoute> = async (
     )
   }
 
-  const insertedMember = await db
-    .insert(schema.channelMember)
-    .values({ channelId: project.categoryChannelId, userId })
-    .onConflictDoNothing()
-    .returning({ id: schema.channelMember.id })
-    .then((rows) => rows[0])
+  // One transaction: a retry after a failed chat join would find the member
+  // row and skip the join.
+  const insertedMember = await db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(schema.channelMember)
+      .values({ channelId: project.categoryChannelId, userId })
+      .onConflictDoNothing()
+      .returning({ id: schema.channelMember.id })
+      .then((rows) => rows[0])
+    // They can see the project's chats now: put them in.
+    if (inserted) {
+      await joinVisibleChats(
+        {
+          workspaceId: workspace.id,
+          userIds: [userId],
+          containerId: project.categoryChannelId,
+        },
+        tx
+      )
+    }
+    return inserted
+  })
 
   // onConflictDoNothing returns no row when the user was already a member —
   // no event for a no-op add.
@@ -706,12 +743,23 @@ export const removeProjectMember: AppRouteHandler<
     if (remaining.length <= 1 && wasMember) {
       return { ok: false as const }
     }
+    // Off the project and out of its chats: a row left on a chat would
+    // become access again if the project's category were ever deleted.
     await tx
       .delete(schema.channelMember)
       .where(
         and(
-          eq(schema.channelMember.channelId, project.categoryChannelId),
-          eq(schema.channelMember.userId, userId)
+          eq(schema.channelMember.userId, userId),
+          or(
+            eq(schema.channelMember.channelId, project.categoryChannelId),
+            inArray(
+              schema.channelMember.channelId,
+              tx
+                .select({ id: schema.channel.id })
+                .from(schema.channel)
+                .where(eq(schema.channel.parentId, project.categoryChannelId))
+            )
+          )
         )
       )
     return { ok: true as const, wasMember }

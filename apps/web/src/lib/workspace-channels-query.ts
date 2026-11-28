@@ -12,7 +12,7 @@ export function workspaceChannelsQueryOptions(workspaceSlug: string) {
         { param: { workspaceSlug } }
       )
       if (!res.ok) {
-        throw new Error("Failed to fetch channels")
+        throw new Error("Failed to fetch chats")
       }
       return res.json()
     },
@@ -20,11 +20,16 @@ export function workspaceChannelsQueryOptions(workspaceSlug: string) {
   })
 }
 
-export function openTextChannels(channels: ListChannelsResponse) {
+// Every chat, archived ones included.
+export function textChannels(channels: ListChannelsResponse) {
   return [
     ...channels.uncategorized,
     ...channels.categories.flatMap((category) => category.channels),
-  ].filter((channel) => channel.type === "text" && !channel.archivedAt)
+  ].filter((channel) => channel.type === "text")
+}
+
+export function openTextChannels(channels: ListChannelsResponse) {
+  return textChannels(channels).filter((channel) => !channel.archivedAt)
 }
 
 // Where to land someone who has no remembered channel in this workspace.

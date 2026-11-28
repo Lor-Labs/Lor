@@ -18,7 +18,7 @@ export const channelMutesQueryOptions = {
   queryKey: ["channel-mutes"] as const,
   queryFn: async (): Promise<ChannelMute[]> => {
     const res = await apiClient.v1["channel-mutes"].$get()
-    if (!res.ok) throw new Error("Failed to fetch channel mutes")
+    if (!res.ok) throw new Error("Failed to fetch muted chats")
     const payload = await res.json()
     return payload.mutes
   },
@@ -114,7 +114,7 @@ export function useChannelMutes() {
         param: { channelId },
         json: { until },
       })
-      if (!res.ok) throw new Error("Could not mute this channel")
+      if (!res.ok) throw new Error("Could not mute this chat")
     },
     onMutate: ({ channelId, until }) =>
       applyOptimistic((old) => [
@@ -138,7 +138,7 @@ export function useChannelMutes() {
       const res = await apiClient.v1["channel-mutes"][":channelId"].$delete({
         param: { channelId },
       })
-      if (!res.ok) throw new Error("Could not unmute this channel")
+      if (!res.ok) throw new Error("Could not unmute this chat")
     },
     onMutate: (channelId) =>
       applyOptimistic((old) =>

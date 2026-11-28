@@ -16,7 +16,11 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { APP_USER_ID } from "@repo/db/constants"
 import type { TriggerRunPayload } from "@repo/db/schema"
-import { describeLoopSchedule } from "@repo/realtime-types/loops"
+import {
+  describeLoopChanges,
+  describeLoopSchedule,
+  type LoopChange,
+} from "@repo/realtime-types/loops"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { HeightTransition } from "@repo/ui/components/height-transition"
 import {
@@ -33,19 +37,26 @@ import {
   triggerMessageContent,
 } from "@repo/utils/trigger-message"
 import { useQuery } from "@tanstack/react-query"
-import { Link, useParams } from "@tanstack/react-router"
+import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { type ReactNode, useState } from "react"
-import { ChannelAgentProvider } from "@/components/agent/channel-agent"
+import { AgentCreature } from "@/components/agent/agent-creature"
+import {
+  ChannelAgentProvider,
+  useChannelAgentsContext,
+} from "@/components/agent/channel-agent"
 import { MessageItem } from "@/components/chat/message-item"
+import { ChecksCard, isChecksEvent } from "@/components/session/checks"
 import { isReviewedEvent, ReviewCard } from "@/components/session/review-card"
+import { useOptionalRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
 import { agentSessionQueryOptions } from "@/hooks/use-agent-session"
-import { channelLoopsQueryOptions } from "@/hooks/use-channel-loops"
+import { agentCreature, useAgentsById } from "@/hooks/use-agents"
+import { useLoop } from "@/hooks/use-channel-loops"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 
-// Channel events ("Jacob created this channel", "Alice was added") — compact
+// Channel events ("Jacob created this chat", "Alice was added") — compact
 // system rows in the feed, iconless text on the message-content axis. See
 // reference/channel-events.md.
 
@@ -62,7 +73,9 @@ type RemovedPayload = { userId: string }
 type LoopPayload = {
   loopId: string
   loopName: string
-  reason?: "failures" | "out_of_credits"
+  // loop_updated: what the agent changed on its own Loop.
+  changes?: LoopChange[]
+  reason?: "failures" | "out_of_credits" | "agent_left"
   via?: "proposal"
 }
 type AgentSessionStartedPayload = {
@@ -139,12 +152,23 @@ function LoopName({
   loopId: string
   children: ReactNode
 }) {
+  const { workspaceSlug } = useParams({ strict: false })
+  const sidebar = useOptionalRightSidebar()
+  // Opens the Loop's panel: where one paused because its agent left the
+  // chat is handed to another agent.
+  const open = () => {
+    if (!workspaceSlug || !sidebar) return
+    sidebar.setView({ type: "loop", workspaceSlug, channelId, loopId })
+    if (sidebar.isCollapsed) sidebar.toggleCollapsed()
+  }
   return (
     <HoverCard>
       <HoverCardTrigger
         delay={500}
         closeDelay={100}
-        render={<span className={HOVER_NAME_CLASS} />}
+        render={
+          <button type="button" onClick={open} className={HOVER_NAME_CLASS} />
+        }
       >
         {children}
       </HoverCardTrigger>
@@ -248,7 +272,7 @@ function ChannelHoverContent({
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
         ":channelId"
       ].$get({ param: { workspaceSlug, channelId } })
-      if (!res.ok) throw new Error("Failed to fetch channel")
+      if (!res.ok) throw new Error("Failed to fetch the chat")
       return res.json()
     },
   })
@@ -264,14 +288,14 @@ function ChannelHoverContent({
   if (isError || !data) {
     return (
       <div className="text-sm text-muted-foreground">
-        This channel is private or no longer exists.
+        This chat is private or no longer exists.
       </div>
     )
   }
 
   const isPrivate = data.audience === "members"
   const meta = [
-    isPrivate ? "Private channel" : null,
+    isPrivate ? "Private chat" : null,
     data.archivedAt ? "Archived" : null,
     `Created ${formatDateTime(data.createdAt)}`,
   ].filter(Boolean)
@@ -309,10 +333,17 @@ function LoopHoverContent({
   channelId: string
   loopId: string
 }) {
-  const { data, isPending } = useQuery(channelLoopsQueryOptions(channelId))
-  const loop = data?.find((candidate) => candidate.id === loopId)
+  // By id when it is not one of this chat's (a Loop that reports elsewhere).
+  const { loop, failed } = useLoop(loopId, channelId)
 
-  if (isPending) {
+  if (failed) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        Couldn't load this loop.
+      </div>
+    )
+  }
+  if (loop === undefined) {
     return (
       <div className="space-y-2">
         <Skeleton className="h-4 w-36 rounded" />
@@ -413,7 +444,7 @@ function eventText(
       if (p.via === "proposal") {
         return (
           <>
-            {actor} created this channel from an approved change proposal
+            {actor} created this chat from an approved change proposal
             {p.originChannelName ? (
               <>
                 {" in "}
@@ -429,7 +460,7 @@ function eventText(
           </>
         )
       }
-      return <>{actor} created this channel</>
+      return <>{actor} created this chat</>
     }
     case "channel_renamed": {
       if (!payload) break
@@ -438,11 +469,15 @@ function eventText(
       // name is the channel itself.
       return (
         <>
-          {actor} renamed the channel from <Name>#{p.from}</Name> to{" "}
-          <ChannelName channelId={message.channelId}>#{p.to}</ChannelName>
+          {actor} renamed the chat from <Name>{p.from}</Name> to{" "}
+          <ChannelName channelId={message.channelId}>{p.to}</ChannelName>
         </>
       )
     }
+    case "channel_archived":
+      return <>{actor} archived the chat</>
+    case "channel_unarchived":
+      return <>{actor} unarchived the chat</>
     case "member_added": {
       if (!payload) break
       const p = payload as AddedPayload
@@ -462,7 +497,7 @@ function eventText(
       )
     }
     case "member_left":
-      return <>{actor} left the channel</>
+      return <>{actor} left the chat</>
     case "loop_created": {
       if (!payload) break
       const p = payload as LoopPayload
@@ -476,6 +511,20 @@ function eventText(
         </>
       )
     }
+    case "loop_updated": {
+      if (!payload) break
+      const p = payload as LoopPayload
+      const { verb, detail } = describeLoopChanges(p.changes)
+      return (
+        <>
+          {actor} {verb} the loop{" "}
+          <LoopName channelId={message.channelId} loopId={p.loopId}>
+            {p.loopName}
+          </LoopName>
+          {detail ? `: ${detail}` : null}
+        </>
+      )
+    }
     case "loop_paused": {
       if (!payload) break
       const p = payload as LoopPayload
@@ -486,9 +535,11 @@ function eventText(
             {p.loopName}
           </LoopName>{" "}
           was paused
-          {p.reason === "out_of_credits"
-            ? " — out of credits"
-            : " after repeated failures"}
+          {p.reason === "agent_left"
+            ? " — its agent is no longer in this chat"
+            : p.reason === "out_of_credits"
+              ? " — out of credits"
+              : " after repeated failures"}
         </>
       )
     }
@@ -663,7 +714,7 @@ function eventText(
 }
 
 // Collapsed sentence for a run of same-kind member events ("Jacob added Alice
-// and Bob", "Alice and Bob left the channel").
+// and Bob", "Alice and Bob left the chat").
 function groupText(
   events: Message[],
   resolveUserName?: ResolveUserName
@@ -719,7 +770,7 @@ function groupText(
       </UserName>
     ))
   )
-  return <>{names} left the channel</>
+  return <>{names} left the chat</>
 }
 
 // Only membership churn collapses — renames and loop lifecycle stay one row
@@ -852,9 +903,15 @@ export function ChannelEventRow({
   if (first.eventType === "agent_task" && events.length === 1) {
     return <AgentTaskMessage message={first} />
   }
+  if (first.eventType === "agent_messaged") {
+    return <AgentMessagedLine message={first} />
+  }
 
   if (layout === "document" && events.length === 1 && isReviewedEvent(first)) {
     return <ReviewCard message={first} />
+  }
+  if (layout === "document" && events.length === 1 && isChecksEvent(first)) {
+    return <ChecksCard message={first} />
   }
   const sessionIcon = first.eventType
     ? SESSION_EVENT_ICONS[first.eventType]
@@ -921,8 +978,8 @@ export function ChannelEventRow({
 function agentTaskAuthor(message: Message): string {
   const payload = message.eventPayload as { channelName?: string | null } | null
   return payload?.channelName
-    ? `#${payload.channelName}'s agent`
-    : "The channel's agent"
+    ? `${payload.channelName}'s agent`
+    : "The chat's agent"
 }
 
 // The channel agent's brief or follow-up in a session it runs, shown as a
@@ -1025,6 +1082,126 @@ function TriggerMessage({ message }: { message: Message }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// Where one of a chat's agents messaged another
+// (reference/agents-and-chats.md, decision 39): a quiet line of its own, not
+// a message and not hung under one. It opens the agents' chat at that
+// message.
+function AgentMessagedLine({ message }: { message: Message }) {
+  const { workspaceSlug } = useParams({ strict: false })
+  const navigate = useNavigate()
+  const agents = useAgentsById(workspaceSlug)
+  const payload = message.eventPayload as {
+    fromAgentId?: string
+    toAgentId?: string
+    agentMessageId?: string
+    agentIds?: string[]
+    senderIds?: string[]
+    room?: boolean
+    everyone?: boolean
+    roomIds?: string[]
+  } | null
+  // The room is the chat's agents. A line from before it carried them falls
+  // back to the agents in the chat now.
+  const inChat = useChannelAgentsContext()
+  const ids = payload?.agentIds ?? [
+    payload?.fromAgentId ?? "",
+    payload?.toAgentId ?? "",
+  ]
+  const senderIds = payload?.senderIds ?? [payload?.fromAgentId ?? ""]
+  const involved = ids.flatMap((id) => agents.get(id) ?? [])
+  const senders = involved.filter((agent) => senderIds.includes(agent.id))
+  const others = involved.filter((agent) => !senderIds.includes(agent.id))
+  // One writer posting to the whole room, naming nobody or all agents.
+  const toRoom = Boolean(payload?.room) && senders.length === 1
+  const room = toRoom
+    ? (payload?.roomIds ?? inChat.map((agent) => agent.id))
+        .filter((id) => !senderIds.includes(id))
+        .flatMap((id) => agents.get(id) ?? [])
+    : []
+  // An agent since deleted: the line keeps the words it was written with.
+  if (
+    !workspaceSlug ||
+    senders.length === 0 ||
+    (!toRoom && involved.length < 2)
+  ) {
+    return (
+      <div className="flex justify-center py-1 text-[13px] text-muted-foreground">
+        {message.content}
+      </div>
+    )
+  }
+  // Faces sit by their names: "Quill messaged Inky and Rusty", or past one
+  // writer "Quill, Inky and Rusty talked". A post to the room shows the
+  // faces of the agents in it: "Quill messaged the room", or "all agents".
+  const names = (list: typeof involved) =>
+    list.map((agent, index) => (
+      <span key={agent.id} className="flex items-center gap-1">
+        {index > 0 && <span>{index === list.length - 1 ? " and" : ","}</span>}
+        <AgentCreature creature={agentCreature(agent)} size={16} still />
+        {agent.name}
+      </span>
+    ))
+  return (
+    <div className="flex justify-center py-1">
+      <button
+        type="button"
+        title="See what they said"
+        onClick={() =>
+          void navigate({
+            to: "/$workspaceSlug/$channelId",
+            params: { workspaceSlug, channelId: message.channelId },
+            search: { agents: payload?.agentMessageId ?? "all" },
+          })
+        }
+        className="flex h-7 max-w-full cursor-pointer items-center gap-1.5 truncate rounded-full px-2.5 text-[13px] text-muted-foreground outline-none transition-[background-color,color,transform] duration-150 ease-out hover:bg-foreground/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100"
+      >
+        {senders.length > 1 ? (
+          <>
+            {names(involved)}
+            <span>talked</span>
+          </>
+        ) : toRoom ? (
+          <>
+            {names(senders)}
+            <span>
+              messaged {payload?.everyone ? "all agents" : "the room"}
+            </span>
+            <span
+              className="flex items-center -space-x-1"
+              title={room.map((agent) => agent.name).join(", ")}
+            >
+              {room.map((agent) => (
+                <span
+                  key={agent.id}
+                  className="flex rounded-full ring-[1.5px] ring-background"
+                >
+                  <AgentCreature
+                    creature={agentCreature(agent)}
+                    size={16}
+                    still
+                  />
+                </span>
+              ))}
+            </span>
+          </>
+        ) : (
+          <>
+            {names(senders)}
+            <span>messaged</span>
+            {names(others)}
+          </>
+        )}
+        <span className="pl-1 text-[11px] text-muted-foreground/70 tabular-nums">
+          {new Date(message.createdAt).toLocaleTimeString(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+          })}
+        </span>
+      </button>
     </div>
   )
 }

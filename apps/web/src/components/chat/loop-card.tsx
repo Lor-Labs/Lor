@@ -5,12 +5,15 @@ import { Button } from "@repo/ui/components/button"
 import { cn } from "@repo/ui/lib/utils"
 import { useParams } from "@tanstack/react-router"
 import { useMemo } from "react"
+import { AgentCreature } from "@/components/agent/agent-creature"
+import { useChannelAgentsContext } from "@/components/agent/channel-agent"
 import {
   LoopFrequencyDialog,
   useActivateLoop,
   useDiscardDraftLoop,
 } from "@/components/loops/loop-actions"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
+import { agentCreature } from "@/hooks/use-agents"
 import { type ChannelLoop, useLoopForCard } from "@/hooks/use-channel-loops"
 import type { Message } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/search-preview"
@@ -20,8 +23,9 @@ import { toSearchPreviewText } from "@/lib/search-preview"
 // radius instead of their full pill, and the purple ∞ + schedule leading —
 // "∞ Every hour · Name". State reads from the leading segment ("Paused ·
 // Name", dimmed "Completed · Name"); every detail lives one click away in
-// the panel. Drafts get a Create Loop button beside the chip (activates in
-// the viewer's device timezone).
+// the panel. Drafts (a session's proposal) get a Create Loop button beside
+// the chip (activates in the viewer's device timezone); a Loop an agent set
+// up is already running, and its card is the record that it did.
 //
 // Fire markers (type "loop_fire", posted each time the loop runs) render the
 // same chip — they resolve the loop through referencedMessageId, which
@@ -45,10 +49,26 @@ export function LoopCard({ message }: { message: Message }) {
       </div>
     )
   }
-  return <LoopCardBody loop={loop} />
+  return (
+    <LoopCardBody
+      loop={loop}
+      authorId={message.author.id}
+      channelId={message.channelId}
+    />
+  )
 }
 
-function LoopCardBody({ loop }: { loop: ChannelLoop }) {
+function LoopCardBody({
+  loop,
+  authorId,
+  channelId,
+}: {
+  loop: ChannelLoop
+  // Who posted the card: the agent that set the Loop up.
+  authorId: string
+  // The chat the card is in, which need not be the one the Loop reports in.
+  channelId: string
+}) {
   const { workspaceSlug } = useParams({ strict: false })
   const { view, setView, isCollapsed, toggleCollapsed } = useRightSidebar()
   const isOpenPanel =
@@ -63,6 +83,13 @@ function LoopCardBody({ loop }: { loop: ChannelLoop }) {
     timezone
   )
   const discardDraft = useDiscardDraftLoop(loop)
+  // Whose Loop it is, when that is not the agent the card is posted by: it
+  // was handed to another agent, or a session proposed it.
+  const agents = useChannelAgentsContext()
+  const owner =
+    agents.length > 1 && loop.agentId !== authorId
+      ? (agents.find((agent) => agent.id === loop.agentId) ?? null)
+      : null
 
   const isDraft = loop.status === "draft"
   const scheduleText = describeLoopSchedule(loop.schedule, null)
@@ -78,12 +105,7 @@ function LoopCardBody({ loop }: { loop: ChannelLoop }) {
 
   const openPanel = () => {
     if (!workspaceSlug) return
-    setView({
-      type: "loop",
-      workspaceSlug,
-      channelId: loop.channelId,
-      loopId: loop.id,
-    })
+    setView({ type: "loop", workspaceSlug, channelId, loopId: loop.id })
     if (isCollapsed) toggleCollapsed()
   }
 
@@ -116,6 +138,14 @@ function LoopCardBody({ loop }: { loop: ChannelLoop }) {
         </span>
         <span className="shrink-0 text-muted-foreground/60">·</span>
         <span className="min-w-0 truncate font-medium">{loop.name}</span>
+        {owner && (
+          <span
+            className="flex shrink-0 items-center"
+            title={`Run by ${owner.name}`}
+          >
+            <AgentCreature creature={agentCreature(owner)} size={16} still />
+          </span>
+        )}
       </button>
 
       {isDraft && (

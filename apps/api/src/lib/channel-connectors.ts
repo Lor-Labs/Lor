@@ -2,7 +2,7 @@ import { CONNECTOR_LIST } from "@repo/connectors"
 import { db } from "@repo/db"
 import type { IntegrationProvider } from "@repo/db/schema"
 import { integrationConnection } from "@repo/db/schema"
-import { resolveChannelCapabilities } from "@repo/lor/capabilities"
+import { resolveWorkspaceCapabilities } from "@repo/lor/capabilities"
 import {
   connectorSupportsFiles,
   isSearchableConnector,
@@ -54,15 +54,16 @@ export function attachableConnectors(
   }))
 }
 
-// Attaching is the composer's mirror of what Lor may read in a channel, so
-// the same tool selection gates both.
+// Attaching is the composer's mirror of what a session a person starts may
+// read (the workspace default tools), so the same selection gates both.
 export async function allowedChannelConnectors(
   workspaceId: string,
   channelId: string,
   purpose: "records" | "files" | "any" = "any"
 ): Promise<ChannelConnector[]> {
   const [grants, connections] = await Promise.all([
-    resolveChannelCapabilities(channelId, workspaceId),
+    // What a person attaches from: the workspace default tools.
+    resolveWorkspaceCapabilities(workspaceId),
     db
       .select({ provider: integrationConnection.provider })
       .from(integrationConnection)

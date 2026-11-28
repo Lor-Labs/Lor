@@ -1,118 +1,64 @@
 import {
   assertBetaSandbox,
-  assertHostedHarness,
   assertWorkspaceActive,
 } from "@repo/db/queries/beta-access"
 import { assertInferenceKeyCurrent } from "@repo/db/queries/inference"
-import {
-  getWorkspaceHarnessSettings,
-  resolveHarnessAccount,
-} from "@repo/db/queries/personal-accounts"
-import { assertHarnessEnabled } from "@repo/utils/features"
+import { getHarnessSettings } from "@repo/db/queries/personal-accounts"
+import type { HarnessAccountRoute } from "@repo/db/schema"
 import type { InferenceFunding } from "@repo/utils/inference"
-import { agentHarnessModel } from "./agent-harness-model"
 import {
-  CLAUDE_API_DEFAULT_MODEL,
-  harnessApiConnection,
-  harnessApiFunding,
   InferenceConfigError,
   keyFunding,
   nativeInference,
   nativeLanguageModel,
 } from "./byok"
 import { LOR_MODEL, lorGatewayModel } from "./models"
-import { CLAUDE_CODE_DEFAULT_MODEL } from "./session-core/claude-runtime"
-import { CODEX_DEFAULT_MODEL } from "./session-core/codex-runtime"
 import { inGatewayCatalog } from "./session-core/pi-runtime"
 
-// Post-answer work has its own workspace payer, independent of the person's turn.
-export async function autonomousInference(workspaceId: string, runId?: string) {
-  const settings = await getWorkspaceHarnessSettings(workspaceId)
-  assertHarnessEnabled(settings.defaultHarness)
-  assertHostedHarness(settings.defaultHarness)
-  const provider =
-    settings.defaultHarness === "claude_code"
-      ? "claude"
-      : settings.defaultHarness === "codex"
-        ? "chatgpt"
-        : null
-  const route = provider
-    ? await resolveHarnessAccount({ workspaceId, userId: null }, provider)
-    : null
-  const subscription = route?.source === "subscription"
-  let funding: InferenceFunding | undefined
-  if (route?.source === "api") {
-    funding = await harnessApiFunding(
-      workspaceId,
-      provider === "claude" ? "anthropic" : "openai",
-      route.apiBilling ?? "lor",
-      undefined,
-      provider === "claude" ? CLAUDE_API_DEFAULT_MODEL : CODEX_DEFAULT_MODEL
-    )
-  } else if (!subscription) {
-    funding = (await keyFunding(
-      workspaceId,
-      settings.apiModel ?? undefined
-    )) ?? {
-      source: "lor",
-      model:
-        settings.apiModel && inGatewayCatalog(settings.apiModel)
-          ? settings.apiModel
-          : LOR_MODEL,
-    }
-    if (settings.apiModel?.startsWith("key:") && funding.source !== "byok")
-      throw new InferenceConfigError(
-        "The autonomous API key or model is unavailable."
-      )
+// Post-answer work (an agent's memory pass, write-back) runs on the agent's
+// model, paid by Lor credits or a workspace provider key, never on a
+// subscription: subscriptions pay only for coding sessions (Jacob, 11-27).
+// With no agent, Lor's own model on Lor credits.
+export async function autonomousInference(
+  workspaceId: string,
+  agentId: string | null,
+  _runId?: string
+) {
+  const settings = await getHarnessSettings({ agentId })
+  const funding: InferenceFunding = (await keyFunding(
+    workspaceId,
+    settings.apiModel ?? undefined
+  )) ?? {
+    source: "lor",
+    model:
+      settings.apiModel && inGatewayCatalog(settings.apiModel)
+        ? settings.apiModel
+        : LOR_MODEL,
   }
+  if (settings.apiModel?.startsWith("key:") && funding.source !== "byok")
+    throw new InferenceConfigError(
+      "The agent's AI provider or model is unavailable. Change its model in its settings, or check Workspace settings → AI providers."
+    )
   const assertCanInfer = async () => {
     await assertWorkspaceActive(workspaceId)
-    if (!subscription) {
-      await assertInferenceKeyCurrent(workspaceId, funding ?? null)
-      await assertBetaSandbox(workspaceId)
-    }
+    await assertInferenceKeyCurrent(workspaceId, funding)
+    await assertBetaSandbox(workspaceId)
   }
   await assertCanInfer()
   const native =
-    funding?.source === "byok"
+    funding.source === "byok"
       ? await nativeInference(workspaceId, funding)
       : null
-  if (route && !runId)
-    throw new Error("Autonomous harness inference needs a durable run")
-  const harness =
-    route && runId
-      ? agentHarnessModel({
-          route,
-          model:
-            native?.model ??
-            funding?.model ??
-            (provider === "claude"
-              ? CLAUDE_CODE_DEFAULT_MODEL
-              : CODEX_DEFAULT_MODEL),
-          run: { runId, assertCanInfer },
-          api:
-            route.source === "api"
-              ? harnessApiConnection(
-                  provider === "claude" ? "anthropic" : "openai",
-                  funding,
-                  native
-                )
-              : null,
-        })
-      : null
   return {
-    route,
+    // No subscription route any more; kept in the shape its callers read.
+    route: null as HarnessAccountRoute | null,
     funding,
-    subscription,
-    byok: funding?.source === "byok",
-    model:
-      harness?.model ??
-      (native
-        ? nativeLanguageModel(native)
-        : lorGatewayModel(funding?.model ?? LOR_MODEL)),
+    subscription: false,
+    byok: funding.source === "byok",
+    model: native
+      ? nativeLanguageModel(native)
+      : lorGatewayModel(funding.model ?? LOR_MODEL),
     assertCanInfer,
-    close: async () => {
-      await harness?.close()
-    },
+    close: async () => {},
   }
 }

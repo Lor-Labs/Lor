@@ -2,7 +2,7 @@ import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { LoopRow, sortLoops } from "@/components/loops/loop-row"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
-import { useChannelLoops } from "@/hooks/use-channel-loops"
+import { inChat, useChannelLoops } from "@/hooks/use-channel-loops"
 
 // Completed loops remain available through the full list.
 const OVERVIEW_LOOP_COUNT = 3
@@ -17,7 +17,9 @@ export function LoopsOverviewSection({
   const { setView } = useRightSidebar()
   const { data } = useChannelLoops(channelId)
   const loops = sortLoops(
-    (data ?? []).filter((loop) => loop.status !== "completed")
+    (inChat(data, channelId) ?? []).filter(
+      (loop) => loop.status !== "completed"
+    )
   )
 
   const visible = loops.slice(0, OVERVIEW_LOOP_COUNT)

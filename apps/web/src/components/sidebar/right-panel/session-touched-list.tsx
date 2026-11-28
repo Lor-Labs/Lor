@@ -39,6 +39,8 @@ const KIND_RANK: Record<Kind, number> = {
   attio_record: 1,
   attio_list_entry: 1,
   attio_task: 1,
+  granola_note: 1,
+  circleback_meeting: 1,
   source: 1,
   github_repo: 1,
   message: 2,
@@ -59,6 +61,8 @@ const KIND_CONNECTOR: Partial<Record<Kind, ConnectorKey>> = {
   attio_record: "attio",
   attio_list_entry: "attio",
   attio_task: "attio",
+  granola_note: "granola",
+  circleback_meeting: "circleback",
   betterstack_incident: "betterstack",
   betterstack_error: "betterstack",
 }
@@ -110,6 +114,10 @@ function describe(item: SessionTouch): { title: string; detail: string[] } {
       return { title: item.title ?? "Attio list entry", detail: state }
     case "attio_task":
       return { title: item.title ?? "Attio task", detail: state }
+    case "granola_note":
+      return { title: item.title ?? "Granola meeting", detail: state }
+    case "circleback_meeting":
+      return { title: item.title ?? "Circleback meeting", detail: state }
     case "source":
       return { title: item.title ?? "Source", detail: state }
     case "message":

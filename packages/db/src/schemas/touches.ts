@@ -32,6 +32,8 @@ export const TOUCH_KINDS = [
   "attio_task",
   "betterstack_incident",
   "betterstack_error",
+  "granola_note",
+  "circleback_meeting",
   "url",
 ] as const
 export const touchKindEnum = pgEnum("touch_kind", TOUCH_KINDS)

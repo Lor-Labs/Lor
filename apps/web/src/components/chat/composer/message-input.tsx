@@ -302,7 +302,9 @@ function resolveRouting({
   const pinged = new Map<string, PingedPerson>()
   for (const id of mentionedIds) {
     const candidate = candidates.find((c) => c.id === id)
-    if (!candidate || id === LOR_USER_ID) continue
+    // A chat's agents are mentioned like Lor (one by its own id each, past
+    // the first): they are addressed, not pinged.
+    if (!candidate || id === LOR_USER_ID || candidate.creature) continue
     pinged.set(id, {
       id,
       name: candidate.name ?? candidate.label,
@@ -323,7 +325,11 @@ function resolveRouting({
     })
   }
   const addressesLor =
-    mentionedIds.includes(LOR_USER_ID) ||
+    mentionedIds.some(
+      (id) =>
+        id === LOR_USER_ID ||
+        Boolean(candidates.find((c) => c.id === id)?.creature)
+    ) ||
     (isSession && replyAuthor?.id === LOR_USER_ID)
   const toLor = isSession
     ? !peopleOnly && (addressesLor || (!manualToPeople && pinged.size === 0))
@@ -434,7 +440,7 @@ export const MessageInput = memo(function MessageInput({
           channelId: channelId as string,
         },
       })
-      if (!res.ok) throw new Error("Failed to load channel connectors")
+      if (!res.ok) throw new Error("Failed to load the chat's connectors")
       return res.json()
     },
     enabled: Boolean(workspaceSlug && channelId),
@@ -447,16 +453,22 @@ export const MessageInput = memo(function MessageInput({
   const lorHint = useHint("lor_intro", lorIntro && !disabled)
   const dismissLorHint = lorHint.dismiss
 
-  // The channel agent's name, when the candidates carry it (decision 32).
-  const lorLabel =
-    mentionCandidates.find((candidate) => candidate.id === LOR_USER_ID)
-      ?.label ?? "Lor"
+  // The name of the agent in the channel, when the candidates carry it
+  // (decision 32). A channel with no agent has no such candidate, and
+  // nothing to ask.
+  // In a chat that is its first agent, mentioned by its own id; in a session
+  // it is Lor.
+  const lorCandidate = mentionCandidates.find(
+    (candidate) => candidate.id === LOR_USER_ID || candidate.creature
+  )
+  const lorLabel = lorCandidate?.label ?? "Lor"
+  const lorMentionId = lorCandidate?.id ?? LOR_USER_ID
   const placeholder =
     placeholderOverride ??
     (context.type === "channel"
-      ? lorIntro && !lorHint.dismissed
-        ? `Message #${context.name}, or ask @${lorLabel}`
-        : `Message #${context.name}`
+      ? lorIntro && !lorHint.dismissed && lorCandidate
+        ? `Message ${context.name}, or ask @${lorLabel}`
+        : `Message ${context.name}`
       : `Message ${context.name}`)
 
   const normalizedMentionCandidates = useMemo(() => {
@@ -689,7 +701,7 @@ export const MessageInput = memo(function MessageInput({
         chain.insertContent({
           type: "paragraph",
           content: [
-            { type: "mention", attrs: { id: LOR_USER_ID, label: lorLabel } },
+            { type: "mention", attrs: { id: lorMentionId, label: lorLabel } },
             { type: "text", text: lines ? " " : ` ${text}` },
           ],
         })
@@ -721,7 +733,14 @@ export const MessageInput = memo(function MessageInput({
       editor.off("create", applyDraft)
       editor.off("mount", applyDraft)
     }
-  }, [editor, composerDraft, onComposerDraftConsumed, destination, lorLabel])
+  }, [
+    editor,
+    composerDraft,
+    onComposerDraftConsumed,
+    destination,
+    lorLabel,
+    lorMentionId,
+  ])
 
   const appliedFileReferenceRef = useRef<string | null>(null)
   useEffect(() => {
@@ -771,7 +790,12 @@ export const MessageInput = memo(function MessageInput({
 
       const mentionIds = extractMentionIds(trimmed)
       // Asking Lor is what the lor_intro hint teaches, from any composer.
-      if (mentionIds.includes(LOR_USER_ID)) dismissLorHint()
+      if (
+        mentionIds.some(
+          (id) => id === LOR_USER_ID || mentionCandidatesById.get(id)?.creature
+        )
+      )
+        dismissLorHint()
 
       const mentions: Message["mentions"] = mentionIds.flatMap((mentionId) => {
         const mentionCandidate = mentionCandidatesById.get(mentionId)
@@ -1007,7 +1031,7 @@ export const MessageInput = memo(function MessageInput({
         <div className="flex items-center justify-center rounded-lg border border-input bg-muted/40 px-3 py-3">
           <span className="text-sm text-muted-foreground">
             {disabledReason ??
-              "You do not have permission to send messages in this channel"}
+              "You do not have permission to send messages in this chat"}
           </span>
         </div>
       </div>
@@ -1056,7 +1080,7 @@ export const MessageInput = memo(function MessageInput({
         )}
       </ComposerCollapse>
       <HintPopover
-        open={lorHint.show}
+        open={lorHint.show && Boolean(lorCandidate)}
         anchor={composerRef}
         align="start"
         onDismiss={dismissLorHint}

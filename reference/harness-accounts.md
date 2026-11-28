@@ -2,6 +2,22 @@
 
 Implemented 2026-11-22. Requires the schema update before deployment.
 
+Changed 2026-11-24 (`agents-and-chats.md`, decisions 7 and 16): the
+autonomous settings are each agent's own (`agent_harness_settings`), edited in
+the agent's dialog under Runs. The workspace's Autonomous runs section and
+`workspace_harness_settings` are gone, and a person with no plan of their own
+now falls to the agent's settings.
+
+Changed 2026-11-27 (`agents-and-chats.md`, decision 54): subscriptions pay
+only for coding sessions. An agent's own turns, memory pass and write-back
+run on its model (Lor credits or a provider key); a person's plan no longer
+pays for the agent's turns they ask for, only for coding sessions they ask
+for. The agent's Runs tab sets what the coding sessions it starts with
+nobody asking run on, and their default; the agent can pick another coding
+agent, model and the other session settings per session. Where this doc
+says a direct channel request or channel inference uses a subscription, read
+"a coding session". Runs that pinned a subscription before keep it to finish.
+
 ## Settings
 
 - **Settings → Linked accounts** connects multiple named Claude Code and Codex
@@ -16,28 +32,34 @@ Implemented 2026-11-22. Requires the schema update before deployment.
   selection uses a linked Claude Code account first, then Codex if Claude is
   not linked, and API billing if neither is linked. It does not switch
   providers after a usage limit. Coding sessions retain their own harness.
-- **Workspace settings → Autonomous runs** requires `billing:manage` to edit.
-  It selects the default agent for background channel work and new autonomous
-  sessions, the Lor API model and payer,
-  and separate Claude Code/Codex billing choices. API billing defaults to Lor
-  credits; workspace API keys are configured in Billing.
-- Dedicated Lor accounts belong to one workspace. Linking one does not enable
-  it: an admin explicitly selects subscription billing. Provider terms still
-  apply; a dedicated subscription does not establish permission to automate it.
+- **An agent's dialog → Runs** requires `billing:manage` to edit, except the
+  model, which takes `channel:update`. It selects what the agent runs on for
+  its own turns and the sessions it starts (Lor, Claude Code or Codex), its
+  model, and separate Claude Code/Codex billing choices. API billing defaults
+  to Lor credits; workspace API keys are configured in AI providers, and a model
+  one of them pays for can be the agent's model.
+- Accounts connected for agents belong to one workspace, and each agent picks
+  its own. Linking one does not enable it: an admin explicitly selects
+  subscription billing on an agent. Provider terms still apply; a connected
+  subscription does not establish permission to automate it.
 
 ## Routing
 
 A person's direct channel requests and Claude Code or Codex session turns use
-that person's ordered account pool. Code-session tasks started during a direct
+that person's ordered account pool. A person with no account linked, who has
+not picked how their requests run, has no route of their own: the request is
+paid by the agent's settings (`hasOwnRequestRoute`). Code-session tasks started during a direct
 channel request pin the requester’s account before enqueueing. Automated Loop
 fires, connector events, background channel wake-ups, compaction and post-answer
-memory work use workspace policy. An agent-created session's creator is
+memory work use the settings of the agent in the channel (`channelAgentId`;
+a channel with no agent, like a voice channel, gets the defaults: Lor's own
+agent on Lor credits). An agent-created session's creator is
 attribution, never a funding fallback; only the explicit direct-request scope
 can supply a personal payer. A human message in such a session uses its
 sender's own account.
 
 Existing sessions retain their harness and native conversation. New autonomous
-sessions use the workspace's current default harness. Account and API billing
+sessions use what the agent in their channel runs on. Account and API billing
 preferences apply to each new turn of the corresponding harness.
 
 Account selection is stored in `agent_run.harness_account` before prompt
@@ -66,8 +88,8 @@ native harness sandbox is named `run-<run id>` and deleted after inference.
 
 Subscriptions do not incur API inference charges. API keys retain Lor's existing
 platform-fee billing; sandbox and other service usage retain their existing
-workspace billing rules. Post-answer work resolves its own workspace funding
-instead of borrowing the sender's subscription.
+workspace billing rules. Post-answer work resolves its own funding from the
+agent's settings instead of borrowing the sender's subscription.
 
 ## Rollout and verification
 

@@ -12,9 +12,13 @@ import {
   sql,
 } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
-import { isChannelAgentRun } from "@repo/db/queries/channel-agent"
+import { agentRunConversation } from "@repo/db/queries/channel-agent"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { Approval, ClaudeCodeAnswers, Plan } from "@repo/db/schema"
+import {
+  sessionOfRunWithCard,
+  updateSessionCard,
+} from "@repo/lor/discord-sessions"
 import { channelRoom } from "@repo/realtime-types/rooms"
 import { findRunVoiceRequest } from "@repo/voice/server"
 import { flushAgentInbox } from "@/lib/agent-inbox-queue"
@@ -232,13 +236,14 @@ type ApprovalScope = {
 
 function approvalScope(
   run: {
-    channelId: string
+    channelId: string | null
     threadRootId: string | null
     scopeKey: string
   } | null,
   plan: Plan | null
 ): ApprovalScope | null {
-  if (run) {
+  // A run that asks for approval is always in a chat.
+  if (run?.channelId) {
     return {
       channelId: run.channelId,
       threadRootId: run.threadRootId,
@@ -350,9 +355,46 @@ export async function resolveApproval(
   // A channel agent's turn needs no posted resolution: its paused turn goes
   // on from the agent's inbox worker. Read before the decision commits, so a
   // failed read leaves the approval pending and retryable.
-  const agentTurn = row.approval.runId
-    ? await isChannelAgentRun(row.approval.runId)
-    : false
+  const runConversation =
+    row.approval.runId && !voice
+      ? await agentRunConversation(row.approval.runId)
+      : null
+  // The request's root message was deleted, and its conversation with it:
+  // the approval expires instead of being taken for a session's.
+  if (runConversation?.kind === "gone") {
+    const expired = await db
+      .update(schema.approval)
+      .set({ status: "expired", resolvedAt: new Date() })
+      .where(
+        and(
+          eq(schema.approval.id, approvalId),
+          eq(schema.approval.status, "pending")
+        )
+      )
+      .returning()
+      .then((rows) => rows[0] ?? null)
+    if (expired) {
+      notifyWorkspaceActivity(expired.workspaceId)
+      await getEmitter()
+        .then((io) =>
+          io.to(channelRoom(scope.channelId)).emit("approval:updated", {
+            approvalId: expired.id,
+            channelId: scope.channelId,
+            planId: expired.planId,
+            status: expired.status,
+            resolvedBy: null,
+            resolvedAt: expired.resolvedAt?.toISOString() ?? null,
+          })
+        )
+        .catch((err: unknown) =>
+          logger.warn({ err, approvalId }, "Approval expiry broadcast failed")
+        )
+    }
+    return { kind: "conflict" }
+  }
+  const agentConversationId =
+    runConversation?.kind === "conversation" ? runConversation.id : null
+  const agentTurn = agentConversationId !== null
 
   // CAS: only one resolver wins; a second click reads as already resolved.
   // A paused turn waits on its whole set: resolutions of one run serialize on
@@ -409,6 +451,12 @@ export async function resolveApproval(
   })
   if (!decided) return { kind: "conflict" }
   const { resolved } = decided
+  // A session started from Discord goes back to work: its card says so.
+  if (decided.complete && resolved.runId) {
+    void sessionOfRunWithCard(resolved.runId)
+      .then((id) => (id ? updateSessionCard(id, { state: "working" }) : null))
+      .catch(() => {})
+  }
 
   const undoResolution = () =>
     db
@@ -491,8 +539,8 @@ export async function resolveApproval(
       "Approval resolution broadcast failed; continuing"
     )
   }
-  if (agentTurn && decided.complete) {
-    await flushAgentInbox(scope.channelId).catch((err) =>
+  if (agentConversationId && decided.complete) {
+    await flushAgentInbox(agentConversationId).catch((err) =>
       logger.error(
         { err, approvalId, runId: resolved.runId },
         "Agent inbox flush after approval failed"

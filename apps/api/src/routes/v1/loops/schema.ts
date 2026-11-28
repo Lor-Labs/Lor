@@ -17,6 +17,16 @@ export const channelLoopsParamsSchema = z.object({
     }),
 })
 
+export const agentLoopsParamsSchema = z.object({
+  workspaceSlug: z.string().openapi({
+    param: { name: "workspaceSlug", in: "path", required: true },
+  }),
+  agentId: z
+    .string()
+    .uuid()
+    .openapi({ param: { name: "agentId", in: "path", required: true } }),
+})
+
 export const loopParamsSchema = z.object({
   loopId: z
     .string()
@@ -52,10 +62,16 @@ export const updateLoopBodySchema = z
     // finish line, both explicitly null = runs forever.
     endAt: z.string().datetime().nullable().optional(),
     endCondition: z.string().min(1).max(500).nullable().optional(),
+    // The agent that runs it: one of the agents in the chat it reports in.
+    agentId: z.string().uuid().optional(),
+    // The chat it reports in, one its agent is in; null for no chat.
+    channelId: z.string().uuid().nullable().optional(),
     confirmHighFrequency: z.boolean().optional(),
   })
   .refine(
     (body) =>
+      body.agentId !== undefined ||
+      body.channelId !== undefined ||
       body.schedule !== undefined ||
       body.timezone !== undefined ||
       body.instructions !== undefined ||
@@ -77,7 +93,10 @@ export const updateLoopBodySchema = z
 export const loopSchema = z.object({
   id: z.string().uuid(),
   workspaceId: z.string().uuid(),
-  channelId: z.string().uuid(),
+  channelId: z.string().uuid().nullable(),
+  agentId: z.string().uuid().nullable(),
+  changedById: z.string().uuid().nullable(),
+  changedAt: z.string().nullable(),
   cardMessageId: z.string().uuid().nullable(),
   creatorId: z.string().uuid().nullable(),
   kind: z.enum(["custom", "check_in"]),
@@ -96,6 +115,8 @@ export const loopSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 })
+
+export const getLoopResponseSchema = z.object({ loop: loopSchema })
 
 export const listChannelLoopsResponseSchema = z.object({
   loops: z.array(loopSchema),

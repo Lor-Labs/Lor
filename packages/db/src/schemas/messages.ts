@@ -65,12 +65,18 @@ export const messageTypeEnum = pgEnum("message_type", [
 export const channelEventTypeEnum = pgEnum("channel_event_type", [
   "channel_created",
   "channel_renamed",
+  // Archived for everyone from the chat's settings: read-only, its agents
+  // stopped, out of every sidebar.
+  "channel_archived",
+  "channel_unarchived",
   "member_added",
   "member_removed",
   "member_left",
   "loop_created",
   "loop_paused",
   "loop_completed",
+  // An agent changed one of its own Loops.
+  "loop_updated",
   // One fire of a loop, the first line of its turn in the loop's session.
   "loop_run",
   // The connector event that started an Act session. Content is the event
@@ -90,6 +96,9 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   // In a code session: someone reviewed the pull request of its branch on
   // GitHub (reference/planned/pr-reviews.md). The card reads the comments live.
   "session_reviewed",
+  // In a code session: its pull request's checks finished on the head commit
+  // and failed, or passed again after failing. A snapshot of the result.
+  "session_checks",
   // In a code session: a pull request from its branch was opened, or merged.
   "session_pr_opened",
   "session_pr_merged",
@@ -100,6 +109,10 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   "agent_task",
   // In the channel chat: the channel's agent started a code session.
   "agent_session_started",
+  // In a chat: one of its agents messaged another
+  // (reference/agents-and-chats.md, decision 39). The line opens the agents'
+  // chat; what was said is in `agent_message`, not here.
+  "agent_messaged",
 ])
 
 // Claude Code's own permission modes, picked per message in a Claude Code
@@ -315,9 +328,20 @@ export type LoopEventPayload = {
   loopId: string
   loopName: string
   // loop_paused only
-  reason?: "failures" | "out_of_credits"
+  reason?: "failures" | "out_of_credits" | "agent_left"
   via?: "proposal"
+  // loop_updated only: what the agent changed.
+  changes?: LoopChange[]
 }
+
+export type LoopChange =
+  | "name"
+  | "instructions"
+  | "schedule"
+  | "end"
+  | "chat"
+  | "paused"
+  | "resumed"
 
 // A forwarded message's snapshot (message.forwarded). Self-contained so the
 // target channel can read it even when its members can't open the source
@@ -416,6 +440,19 @@ export type SessionReviewedPayload = {
   state: "approved" | "changes_requested" | "commented"
 }
 
+// session_checks. `failed` holds the failed checks at posting time (empty
+// when they passed); the Details panel's Checks list reads them live.
+export type SessionChecksPayload = {
+  sessionId: string
+  repoFullName: string
+  pullRequestNumber: number
+  pullRequestUrl: string
+  headSha: string
+  outcome: "failed" | "passed"
+  total: number
+  failed: { name: string; url: string | null }[]
+}
+
 // session_pr_opened / session_pr_merged. The author is the workspace member
 // whose linked GitHub account did it, else the app user (githubLogin names
 // them).
@@ -442,8 +479,27 @@ export type AgentSessionStartedPayload = {
   repoFullName: string | null
 }
 
+export type AgentMessagedPayload = {
+  // The agent that started the run, and the first agent it named (none
+  // when it posted to the room).
+  fromAgentId: string
+  toAgentId?: string
+  // The agent_message the line was posted for, to open the agents' chat at.
+  agentMessageId: string
+  // Everyone in the run of messages the line stands for, and who wrote:
+  // one line covers a back-and-forth until something else is said.
+  agentIds?: string[]
+  senderIds?: string[]
+  // The run has a post to the whole room (naming nobody, or everyone).
+  room?: boolean
+  // That post was for everyone, and who was in the room besides its writer.
+  everyone?: boolean
+  roomIds?: string[]
+}
+
 export type ChannelEventPayload =
   | AgentTaskPayload
+  | AgentMessagedPayload
   | AgentSessionStartedPayload
   | ChannelCreatedPayload
   | ChannelRenamedPayload
@@ -457,6 +513,7 @@ export type ChannelEventPayload =
   | SessionForkedPayload
   | SessionRewoundPayload
   | SessionReviewedPayload
+  | SessionChecksPayload
   | SessionPullRequestPayload
   | SessionSetupChangedPayload
   | null

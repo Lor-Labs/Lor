@@ -136,7 +136,14 @@ export function useSessionStart(
     }
     queryClient.setQueryData<SessionDetail>(
       agentSessionKey(start.id),
-      { session, channel, context: [], source: null, pending: true },
+      {
+        session,
+        channel,
+        context: [],
+        source: null,
+        startedByAgentId: null,
+        pending: true,
+      },
       { updatedAt: Date.now() + PENDING_MS }
     )
     // No refetch when it's confirmed: Lor's run row commits after the ack,
