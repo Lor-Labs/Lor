@@ -22,7 +22,6 @@ import { useQuery } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { useState } from "react"
 import { ChannelMuteMenu } from "@/components/chat/channel-mute-menu"
-import { HeaderSearch } from "@/components/chat/header-search"
 import { PinnedMessagesPopover } from "@/components/chat/pinned-messages-popover"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { ChatAvatar } from "@/components/sidebar/chat-panel/chat-avatar"
@@ -89,10 +88,6 @@ export function ChatHeader({
         </span>
       )}
       <div className="ml-auto flex items-center gap-1">
-        <HeaderSearch
-          mode={context.type === "channel" ? "workspace" : "dm"}
-          channelId={channelId}
-        />
         <ChannelMuteMenu channelId={channelId} tooltipHandle={tooltipHandle} />
         {context.type === "channel" && workspaceSlug && (
           <PinnedMessagesPopover
