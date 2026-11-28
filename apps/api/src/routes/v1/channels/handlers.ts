@@ -14,7 +14,6 @@ import {
 } from "@repo/db/queries/session-chat-access"
 import type { IntegrationProvider } from "@repo/db/schema"
 import {
-  agentProfile,
   agentSession,
   channel,
   channelMember,
@@ -25,7 +24,7 @@ import {
   threadReadState,
   user,
 } from "@repo/db/schema"
-import { channelCodeRepo, listRepoBranches } from "@repo/lor/code-repo"
+import { allowedCodeRepo, listRepoBranches } from "@repo/lor/code-repo"
 import {
   listLinearPickerIssues,
   listConnectorScopes as listScopes,
@@ -110,21 +109,6 @@ import type {
 
 const DEFAULT_CONNECTOR_SEARCH_LIMIT = 8
 
-async function workspaceProfileExists(profileId: string, workspaceId: string) {
-  const profile = await db
-    .select({ id: agentProfile.id })
-    .from(agentProfile)
-    .where(
-      and(
-        eq(agentProfile.id, profileId),
-        eq(agentProfile.workspaceId, workspaceId)
-      )
-    )
-    .limit(1)
-    .then((rows) => rows[0])
-  return Boolean(profile)
-}
-
 export const listChannels: AppRouteHandler<ListChannelsRoute> = async (c) => {
   const workspace = c.var.workspace
   const currentUser = c.var.user
@@ -193,16 +177,6 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
   assertWorkspaceAuthority(c.var.authority, {
     channel: ["create"],
   })
-
-  if (body.agentProfileId) {
-    assertWorkspaceAuthority(c.var.authority, { channel: ["update"] })
-    if (!(await workspaceProfileExists(body.agentProfileId, workspace.id))) {
-      return c.json(
-        { success: false, message: "Profile not found" },
-        HttpStatusCodes.FORBIDDEN
-      )
-    }
-  }
 
   // Creating inside a category requires a real category in this workspace the
   // caller can access — no planting channels inside a private project or
@@ -599,15 +573,13 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
   const body = c.req.valid("json")
 
   // channel:update edits any channel. Without it, the channel's creator may
-  // still rename it and change its topic; slowmode, the tool profile and
-  // which agents are in the channel always need the permission.
+  // still rename it and change its topic; slowmode and which agents are in
+  // the channel always need the permission.
   const canUpdateAny = hasWorkspaceAuthority(c.var.authority, {
     channel: ["update"],
   })
   const isNameOrTopicOnly =
-    body.rateLimitPerUser === undefined &&
-    body.agentProfileId === undefined &&
-    body.agentIds === undefined
+    body.rateLimitPerUser === undefined && body.agentIds === undefined
   if (!canUpdateAny && !isNameOrTopicOnly) {
     return c.json(
       { success: false, message: "Forbidden" },
@@ -637,17 +609,6 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
       return c.json(
         { success: false, message: "Forbidden" },
         HttpStatusCodes.FORBIDDEN
-      )
-    }
-  }
-
-  // Assigning an agent profile: it must belong to this workspace (the FK alone
-  // doesn't scope it). null clears the assignment (inherit category/default).
-  if (body.agentProfileId) {
-    if (!(await workspaceProfileExists(body.agentProfileId, workspace.id))) {
-      return c.json(
-        { success: false, message: "Profile not found" },
-        HttpStatusCodes.NOT_FOUND
       )
     }
   }
@@ -934,7 +895,6 @@ export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
         type: channel.type,
         kind: channel.kind,
         audience: channel.audience,
-        agentProfileId: channel.agentProfileId,
       })
       .from(channel)
       .where(
@@ -971,7 +931,6 @@ export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
         .select({
           id: channel.id,
           position: channel.position,
-          agentProfileId: channel.agentProfileId,
         })
         .from(channel)
         .where(eq(channel.parentId, channelId))
@@ -1002,11 +961,6 @@ export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
               parentId: null,
               audience: existing.audience,
               position: lastUncategorized + 1 + index,
-              // A child with no profile of its own inherited the category's;
-              // the category is going away, so carry the profile onto the
-              // child instead of letting it silently fall back to the
-              // workspace default. Explicit child profiles stay untouched.
-              agentProfileId: child.agentProfileId ?? existing.agentProfileId,
             })
             .where(eq(channel.id, child.id))
         }
@@ -2047,7 +2001,7 @@ export const listCodeBranches: AppRouteHandler<ListCodeBranchesRoute> = async (
       HttpStatusCodes.NOT_FOUND
     )
   }
-  const allowed = await channelCodeRepo(workspace.id, channelId, repo)
+  const allowed = await allowedCodeRepo(workspace.id, null, repo)
   if (!allowed) {
     return c.json(
       {

@@ -10,6 +10,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core"
 import { createSelectSchema } from "drizzle-zod"
+import { agentProfile } from "./agent-profiles"
 import { channel } from "./channels"
 import { personalAccount } from "./personal-accounts"
 import { user } from "./users"
@@ -53,6 +54,12 @@ export const agent = pgTable(
     // syntax: a Lor model, or `key:provider/model` to pay with the
     // workspace's own API key. Null = the default.
     model: text("model"),
+    // What it may use: its tool profile, wherever it works (its chats, a
+    // Loop with no chat, Discord) and in the sessions it starts. Null = the
+    // workspace default (reference/agents-and-chats.md, decision 53).
+    agentProfileId: uuid("agent_profile_id").references(() => agentProfile.id, {
+      onDelete: "set null",
+    }),
     createdById: uuid("created_by_id").references(() => user.id, {
       onDelete: "set null",
     }),

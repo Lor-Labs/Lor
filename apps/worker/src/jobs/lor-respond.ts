@@ -22,7 +22,8 @@ import {
   resolveLorRunScope,
 } from "@repo/db/queries/channel-access"
 import {
-  autonomousUsesSubscription,
+  HarnessAccountLimitError,
+  PLAN_LIMIT_AGENT_HINT,
   resolveHarnessAccount,
 } from "@repo/db/queries/personal-accounts"
 import type {
@@ -737,8 +738,17 @@ export function createLorRespondProcessor(
                     origin: schema.agentSession.origin,
                     creatorId: schema.agentSession.creatorId,
                     title: schema.agentSession.title,
+                    // The agent that started it, whose tools it uses.
+                    starterAgentId: schema.agentConversation.agentId,
                   })
                   .from(schema.agentSession)
+                  .leftJoin(
+                    schema.agentConversation,
+                    eq(
+                      schema.agentConversation.id,
+                      schema.agentSession.conversationId
+                    )
+                  )
                   .where(eq(schema.agentSession.threadRootId, threadRootId))
                   .then((rows) => rows[0])
               : undefined
@@ -952,6 +962,31 @@ export function createLorRespondProcessor(
               channelId,
               userId: triggerUserId,
             }
+            // Who wrote the message this turn answers: a person, not a
+            // person (an agent's brief, a Loop, an event), or unknown when
+            // the lookup fails or finds no author. Unknown never widens tools.
+            let senderKind: Promise<"person" | "other" | "unknown"> | null =
+              null
+            const sender = () => {
+              senderKind ??=
+                triggerUserId === LOR_USER_ID || automated
+                  ? Promise.resolve("other" as const)
+                  : !triggerUserId
+                    ? Promise.resolve("unknown" as const)
+                    : db
+                        .select({ isBot: schema.user.isBot })
+                        .from(schema.user)
+                        .where(eq(schema.user.id, triggerUserId))
+                        .then((rows) =>
+                          rows[0] === undefined
+                            ? ("unknown" as const)
+                            : rows[0].isBot
+                              ? ("other" as const)
+                              : ("person" as const)
+                        )
+                        .catch(() => "unknown" as const)
+              return senderKind
+            }
             const previousRun =
               continueOnly && harnessState?.lastRunId
                 ? await db
@@ -990,6 +1025,9 @@ export function createLorRespondProcessor(
               : true
             let harnessAccount: HarnessAccountRoute | undefined
             let refusal: string | null = null
+            // The asker's plan is at its usage limit: an agent steering the
+            // session is told to pass it on.
+            let planLimited = false
             if (
               savedAnswer === null &&
               (session.harness === "claude_code" || session.harness === "codex")
@@ -1026,6 +1064,9 @@ export function createLorRespondProcessor(
                     error instanceof Error
                       ? error.message
                       : "Couldn't select an account for this turn."
+                  planLimited =
+                    error instanceof HarnessAccountLimitError &&
+                    Boolean(error.userId)
                 }
               }
             }
@@ -1106,7 +1147,10 @@ export function createLorRespondProcessor(
               emit(refusal, true, "failed")
               await runWriter.transition("failed", { stopReason: "error" })
               execution.stop()
-              await reportToAgent("failed", refusal)
+              await reportToAgent(
+                "failed",
+                planLimited ? `${refusal} ${PLAN_LIMIT_AGENT_HINT}` : refusal
+              )
               await settlePlan("failed")
               await emitThreadSummary()
               drainQueue()
@@ -1291,7 +1335,23 @@ export function createLorRespondProcessor(
                 backgroundConversation,
                 channelId,
                 ...(memory?.note ? { memoryNote: memory.note } : {}),
-                ...(session.origin === "agent" ? { helper: true } : {}),
+                // Read-only only for the agent's own turns: a person writing
+                // in an agent's session gets full tools, like a session they
+                // start (the tool change busts the prompt cache; rare).
+                ...(session.origin === "agent" && (await sender()) !== "person"
+                  ? {
+                      helper: true,
+                      // From before conversations: the chat's first agent.
+                      toolAgentId:
+                        session.starterAgentId ??
+                        (await channelAgentId(channelId)),
+                    }
+                  : // An Act session works as the chat's first agent, with
+                    // its tools (as its repo check, allowedCodeRepo); a
+                    // person's or an unknown sender's turn, the default.
+                    session.origin === "trigger" && (await sender()) === "other"
+                    ? { toolAgentId: await channelAgentId(channelId) }
+                    : {}),
                 ...(threadRootId ? { threadRootId } : {}),
                 triggerMessageId,
                 ...(triggerUserId ? { userId: triggerUserId } : {}),
@@ -2011,12 +2071,8 @@ export function createLorRespondProcessor(
           // brain writes are create-only and edits compare-and-swap per page
           // (reference/planned/session-memory.md Step 3).
           try {
-            if (
-              !(await autonomousUsesSubscription(
-                await channelAgentId(channelId)
-              )) &&
-              !(await checkCredits(workspaceId)).allowed
-            ) {
+            // Write-back runs on the agent's model, never a subscription.
+            if (!(await checkCredits(workspaceId)).allowed) {
               await runWriter.close()
               return
             }

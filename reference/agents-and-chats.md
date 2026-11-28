@@ -115,6 +115,8 @@ objected to and should confirm.
 | 50 | `create_loop` and `update_loop` are approval gate targets, off by default, so a workspace that wants a person to approve an agent's Loops can require it | Jacob, 11-26 |
 | 51 | Slack and Discord channels agents are in are places, and a place is a hidden Lor chat (`channel.kind = "place"`, revised 11-26 from "not a Lor channel"), so the inbox, turns, Loops, code sessions, approvals and archive work there as in a chat. It is read-only in Lor, sends no Lor notifications, has no people, and the sidebar shows it only when "Discord channels" is on in its filter. Discord is a connector: a server is connected once with a code run as `/lor link`, and its channels get agents from the connector's page or with `/lor add`. Several agents can be in one channel, each mentioned by its own role (@Inky) and posting through its own webhook; a message naming nobody goes to Jev. Threads stay threads. The bot answers a mention in a channel with no agent with how to add one. Chats linked to Discord before become places, not archived. DMs are left out; code sessions started from Discord must work before this ships. Slack later in the same shape | Jacob, 11-26 |
 | 52 | Hiding a chat stays each person's own, from the sidebar, and a new message brings it back. Archiving is for everyone, only from the chat's settings, behind a dialog that says what happens: its agents stop there (their pending items are dropped, running turns stopped, Loops that report there pause, wake-ups there are cancelled, its listeners are skipped), it leaves everyone's sidebar, and it takes no new messages. Its messages are kept, and a line says who archived it. Archiving can be undone: Undo in the toast, or Unarchive on the chat, in its settings or from its row's menu. A small archive icon at the top of the sidebar's list flips between the list and the list with the archived chats you can see, greyed, among the rest. Unarchiving resumes those Loops and the wake-ups not yet due | Jacob, 11-26 |
+| 53 | What an agent may use is the agent's, not the chat's: one tool profile per agent (`agent.agent_profile_id`, null = the workspace default), used on its own turns wherever it works (its chats, a Loop with no chat, Discord) and in the code sessions it starts (read-only connectors there, as before). A session a person starts, and work no agent does, use the workspace default; so does a turn a person writes in a session an agent started, with writes (Jacob, 11-27: accept the prompt-cache bust, rather than list write tools that fail). Chats and categories no longer carry a profile; nothing is copied over (the one workspace using profiles is reset when this ships). Later, Claude Code, Codex and an agent's own computer join the same profile as tools it may drive, not a second concept. A turn on a person's plan that is at its usage limit is refused, never moved to the agent's plan, and the person is told whose plan and when it resets | Jacob, 11-27 |
+| 54 | Subscriptions pay only for coding sessions. An agent's own turns, its memory pass and write-back run on its model, paid by Lor credits or a workspace provider key, never on a Claude or ChatGPT plan (they used to, through `agent-harness-model.ts`). A coding session it starts runs on the asker's own plan when a person asked, else on the agent's coding-agent settings (its Runs tab: Claude Code or Codex on a workspace account, or API billing), which also give its default. The agent picks per session what a person can on New session: the coding agent, model, effort, fast mode, Claude Code's mode (not bypassPermissions), the new branch, environment and sandbox size; the agent sees every repository its profile allows, a session is locked to one | Jacob, 11-27 |
 
 Considered and dropped:
 
@@ -184,7 +186,7 @@ Considered and dropped:
 | Identity | Name, face | The channel |
 | Brief and memory | The brief (only people edit it), facts | The channel |
 | Runs | Its model, what it runs on (Lor, Claude Code or Codex), and which of the workspace's accounts pay when no person's plan does | The channel (model), workspace settings (the rest) |
-| Tools | Connectors, read and write access. Writes follow the approval rules | A tool profile on the channel or its category |
+| Tools | Connectors, read and write access. Writes follow the approval rules | A tool profile on the agent (decision 53) |
 | Channels | The channels it is in, in Lor, Slack and Discord | The channel |
 | Loops and events | What it was told to do on a schedule or on an event, each with an optional place to post. The check-in is not here (decision 26) | The channel |
 | Who can see it | Everyone in the workspace, and everything it knows (decision 22) | New |
@@ -361,38 +363,62 @@ time; unarchiving resumes the one and puts back the other when not yet due.
 Listeners stay on and are skipped while the chat is archived. Checked live
 on a throwaway database.
 
-**Owed: merging with the AI providers branch** (flagged 2026-11-26).
-Commit `8597867` on `lor/foghollow-320c80` (Azure OpenAI, Vertex AI and
-Bedrock as workspace AI providers, a new "AI providers" settings section,
-`workspace_inference_key.config`) is in neither dev nor this branch. Nothing
-needs doing until one of the two merges into dev; the second one resolves
-five small conflicts (confirmed by a dry-run merge, which changed nothing):
+**Merged with the AI providers branch** (2026-11-27): dev (Azure OpenAI,
+Vertex AI and Bedrock as workspace AI providers, the "AI providers" settings
+section) is merged into this branch, and the branch into dev (#289). The
+Autonomous runs section stays gone (each agent's Runs tab); an agent turn
+whose provider or model can't be used tells the person why
+(`InferenceConfigError` in `apps/worker/src/lib/agent-inbox.ts`).
 
-1. `apps/api/src/app.ts`: keep both `agentsRouter` and `aiProvidersRouter`.
-2. `workspace-settings-dialog.tsx`: keep the "ai-providers" section; drop
-   the "ai-accounts" (Autonomous runs) entries this branch removed.
-3. `apps/web/src/components/agent/agent-runs.tsx`: take this branch's.
-4. `packages/lor/src/index.ts` (the `InferenceConfigError` text): keep this
-   branch's wording, pointing at "Workspace settings → AI providers".
-5. `reference/harness-accounts.md`: take this branch's text, and say
-   workspace API keys are set up in "AI providers", not Billing.
+**Still to do** (written down 2026-11-27 so a new session can pick it up):
 
-After that merge: apply the other session's patch (model pickers grouped by
-who pays, in `agent-model-select.tsx` and the mobile agent screen); have
-`apps/worker/src/lib/agent-inbox.ts` send the person an
-`InferenceConfigError`'s own message instead of the generic failure; and do
-not bring back `channel.agentModel` or a workspace "Autonomous runs"
-setting. `db:push` then also adds the `config` column. The patch:
-https://cdn.lor.chat/artifacts/aa5b7d27-2b2f-4f9d-a0de-ba847a06b546/926da81d-a381-455e-9225-25faa84fae5b/1eb898b5-6091-427b-b7b1-6bbe643d68fb/lor-screenshots_ironwood-provider-models.patch
+1. **Slack as places**, in Discord's shape (decision 51). Talk through its
+   priority and design with Jacob first. What Slack allows, and the ways to
+   address one agent, are under "Step 5: Slack" in §9.
+2. **Agents proposing their own listeners** (an agent sets up the connector
+   events it should hear, like it sets up its own Loops).
+3. **Session screenshots to Discord**: check whether Claude Code and Codex
+   sessions share browser screenshots in a way the agent can forward with
+   send_message's `files`.
+4. **Coding agents and computer in the tool profile** (decision 53), once
+   agents get their own computer: whether it may drive Claude Code, Codex,
+   its machine. Maybe rename "tool profile" to Access.
+5. **The agents' room**: a link to a post older than the newest 200 can't
+   open it; the agent-messages route needs an `around` anchor.
+6. **Discord leftovers**: files changed by an edit are saved but don't show
+   live (`message:updated` carries no attachments); a change to the server's
+   @everyone role doesn't re-check places' privacy until a channel changes;
+   the Message Content intent needs Discord's approval only past 100 servers.
+7. **Mobile leftovers**: an agent's tool profile is set on the web only;
+   workspace member roles and removal are no longer on mobile; the mobile
+   app's web build doesn't run (not shipped).
+8. **Model pickers grouped by who pays**: another session's patch for
+   `agent-model-select.tsx` and the mobile agent screen, not applied:
+   https://cdn.lor.chat/artifacts/aa5b7d27-2b2f-4f9d-a0de-ba847a06b546/926da81d-a381-455e-9225-25faa84fae5b/1eb898b5-6091-427b-b7b1-6bbe643d68fb/lor-screenshots_ironwood-provider-models.patch
+9. **No private chat from the web app** (Jacob, 11-26: no switch for now).
+10. **Rollout**: rehearse `pnpm db:push` on a copy of production (it runs
+    every data move above in order, and asks about the dropped columns);
+    then stop the workers, push, deploy API, realtime, worker and web
+    together, start the workers, and reset the one workspace using tool
+    profiles. Set `DISCORD_BOT_TOKEN` and `DISCORD_APPLICATION_ID` on the API
+    and turn on the Message Content intent. Not yet run live: Discord on a
+    real server, the mobile app on a phone, the plan-limit refusal.
 
-Beside these: no private chat can be made from
-the web app (Jacob, 11-26: no switch for now); the API's error messages
-and what agents are told still say "channel" (the web app's own wording
-says "chat" since 11-26); a turn about no chat shows nowhere while it runs
-and can't be stopped from the app (its run is in no chat's list); listeners
-an agent
-proposes for itself; `db:push` on the shared databases, then API, realtime,
-worker and web deployed together.
+11. **Remove Act sessions** (Jacob, 11-27): since 11-19 a listener on a chat
+    wakes its agent, which starts code sessions itself; an event still opens
+    an Act session only for a listener on a channel that is not a text chat
+    (`apps/api/src/lib/connector-triggers.ts`), which means voice channels,
+    hidden behind their flag. Once voice listeners are known not to need
+    them, delete the session modes (`connector_trigger.act_session_mode`),
+    the code-repo option on listeners (`act_repo_full_name`,
+    `act_base_branch`), Act runs and their batching window
+    (`apps/api/src/lib/act-runs.ts`, `act-target.ts`,
+    `apps/worker/src/lib/trigger-session.ts`) and the listener UI for them;
+    `reference/act-sessions-runbook.md` then goes to the archive.
+
+Accepted as they are (Jacob, 11-27): a turn about no chat shows nowhere
+while it runs and can't be stopped from the app; the API's errors and what
+agents are told still say "channel" in places.
 
 ### Step 1: agents apart from channels (built 2026-11-24)
 
@@ -481,9 +507,14 @@ Deviations and gaps:
   for everything.
 - **No subscription run was made live.** No account is linked in the test
   databases, so the plan routes are type-checked only.
-- **Tools stay on the channel.** A turn uses the tool profile of the channel
-  it runs in, so one agent can have different tools in two channels. §5
-  moves them to the agent; not done.
+- **Tools are the agent's** since 11-27 (decision 53):
+  `resolveAgentCapabilities` in `packages/lor/src/capabilities.ts`, the
+  agent's Tools tab (`apps/web/src/components/agent/agent-tools.tsx`), and
+  the `assign_agent_profile` proposal (the old `assign_channel_profile` is
+  refused). Code repos follow the same profile (`allowedCodeRepo`). A
+  session an agent starts gets the profile's read side
+  (`readOnlyGrants`): connector tools and MCP tools marked read-only, no
+  custom tools; a turn a person writes there gets all of it.
 - **Events and Loops stay on the channel** they report in, and the channel's
   agent handles them. They do not move with an agent that leaves.
 - **The log and the open block are per channel.** An agent in three channels
@@ -1337,7 +1368,71 @@ mention rows.
 
 ### Step 5: Slack
 
-In the same shape.
+In the same shape as Discord (decision 51): a Slack channel agents are in is
+a place. Not started, and the design is not decided. What Slack allows was
+researched on 2026-11-28; the open question is how a person addresses one
+agent. `planned/slack-connector-next.md` is an older plan (read Slack, never
+post in it) that decision 51 replaces for places.
+
+**What Slack allows** (checked against Slack's docs unless marked)
+
+- **Where the app is.** A Slack app is only in the channels it was invited to
+  (`/invite @Lor`), and only reads and posts there (`chat:write`;
+  `chat:write.public` posts to public channels without joining). Discord's
+  "the bot shows in every channel" problem does not exist.
+- **Mentions reach the app only where it is.** `app_mention` (scope
+  `app_mentions.read`) fires only in conversations the app is part of. When
+  someone mentions it elsewhere, Slack itself offers to invite it, and the
+  app hears the mention only if they do. Slack gives the wrong-channel answer
+  Lor had to build for Discord (`hintAgentsElsewhere`). Channel membership is
+  tracked apart from this event (`member_joined_channel`).
+- **One app is one mentionable bot.** Slack has no per-agent roles. An agent
+  can post under its own name and face (`chat.postMessage` with `username`
+  and `icon_url`, scope `chat:write.customize`), but that name cannot be
+  mentioned.
+- **User groups** (@inky) are Slack's nearest thing to Discord's roles. They
+  exist on paid plans only (`usergroups.create` fails on free ones), admins
+  can stop apps from making them, and they are the whole workspace's, so
+  every group could be mentioned in every channel, as with Discord's roles.
+  Not confirmed: a group mention in a channel the app is not in would not
+  reach Lor at all, so there could be no wrong-channel answer either.
+- **Slash commands** (`/lor`) work in every channel, as on Discord.
+- **An app can be made by API.** `apps.manifest.create` makes an app from a
+  manifest and returns its client id, secret and signing secret once. It
+  takes an app configuration token a person generates once at
+  api.slack.com/apps (12 hours, renewed with `tooling.tokens.rotate`; a bot
+  token cannot call it). Someone still clicks through each app's install
+  (the returned `oauth_authorize_url`). Not checked: when a workspace needs
+  an admin's approval for that install.
+- **Free plan: 10 apps** a workspace, custom apps included. Paid plans have
+  no limit.
+
+**Ways to address one agent**
+
+| Way | What a person does | Cost |
+| --- | --- | --- |
+| One Lor app, agents post under their own name | @Lor, a reply in the agent's thread, or the agent's name in plain text with Jev picking | No @Inky. Works on every plan with one install |
+| User group per agent | @inky | Paid plans only, mentionable in every channel, and unheard where Lor is not |
+| One Slack app per agent | @Inky, a real bot invited channel by channel | An install click per agent; 10 apps on the free plan (about nine agents beside Lor); an event endpoint and token per app |
+
+Recommended (11-28, Jacob to decide): one Slack app per agent, made with the
+manifest API. It is the only way that gives both a real @Inky and an agent
+that shows only in the channels it is in, and Slack handles a mention in the
+wrong channel itself. Fall back to one Lor app with agents posting under
+their own name where a workspace can't take an app per agent (the free
+plan's limit, or admins who approve each app).
+
+For comparison, Discord cannot be fixed with roles: a role is the whole
+server's, and the only per-channel switch (Mention @everyone, @here and All
+Roles) covers every role at once. An app per agent would work there too, but
+Discord has no API to make an application or its bot token, so each is made
+by hand in the Developer Portal, and each bot's managed role would need View
+Channel denied in every channel it is not in (the last part is inferred, not
+tested).
+
+Sources: Slack's `app_mention`, `chat.postMessage`, `usergroups.create` and
+`apps.manifest.create` pages at docs.slack.dev, and Slack's help page on
+free-plan app limits.
 
 ## 10. The mock
 

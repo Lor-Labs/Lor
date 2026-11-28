@@ -15,7 +15,6 @@ import {
   createSelectSchema,
   createUpdateSchema,
 } from "drizzle-zod"
-import { agentProfile } from "./agent-profiles"
 import { message } from "./messages"
 import { user } from "./users"
 import { workspace } from "./workspaces"
@@ -78,13 +77,7 @@ export const channel = pgTable(
       onDelete: "set null",
     }),
 
-    // Lor capability profile for this channel (or category). Null = inherit:
-    // a channel falls back to its parent category's profile, then the workspace
-    // default. See reference/archive/lor-agent-architecture.md §8.1.
-    agentProfileId: uuid("agent_profile_id").references(
-      (): AnyPgColumn => agentProfile.id,
-      { onDelete: "set null" }
-    ),
+    // Tools are the agent's, not the channel's (agent.agent_profile_id).
 
     // Which agents are in a channel is `channel_agent` (schemas/agents.ts).
 
@@ -127,10 +120,6 @@ export const channelRelations = relations(channel, ({ one, many }) => ({
   owner: one(user, {
     fields: [channel.ownerId],
     references: [user.id],
-  }),
-  agentProfile: one(agentProfile, {
-    fields: [channel.agentProfileId],
-    references: [agentProfile.id],
   }),
   messages: many(message),
   members: many(channelMember),

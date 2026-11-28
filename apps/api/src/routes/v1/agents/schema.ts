@@ -42,6 +42,8 @@ export const agentSchema = z.object({
   role: z.string().nullable(),
   brief: z.string().nullable(),
   model: z.string().nullable(),
+  // Its tool profile; null: the workspace default (decision 53).
+  agentProfileId: z.string().uuid().nullable(),
   createdById: z.string().uuid().nullable(),
   createdAt: z.string(),
   channelIds: z.array(z.string().uuid()),
@@ -66,6 +68,10 @@ const agentFieldsSchema = z.object({
 export const createAgentRequestSchema = agentFieldsSchema.partial().strict()
 
 export const updateAgentRequestSchema = agentFieldsSchema
+  .extend({
+    // What it may use, wherever it works. Null: the workspace default.
+    agentProfileId: z.string().uuid().nullable(),
+  })
   .partial()
   .strict()
   .refine(

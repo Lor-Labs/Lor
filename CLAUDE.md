@@ -323,7 +323,13 @@ text (decision 47). Hiding a chat is each person's own; archiving is for
 everyone, from the chat's settings, and stops its agents there
 (`apps/api/src/lib/chat-archive.ts`, decision 52); unarchiving (Undo, or
 from the chat once the sidebar's archive icon shows archived chats)
-restarts its paused Loops. A Discord channel agents are in is a place: a
+restarts its paused Loops. What an agent may use is its own tool profile
+(`agent.agent_profile_id`, else the workspace default), wherever it works
+and in the sessions it starts; chats have none (decision 53).
+Subscriptions pay only for coding sessions: an agent's own turns run on its
+model (Lor credits or a provider key), and the agent picks each session's
+coding agent, model and settings (decision 54).
+A Discord channel agents are in is a place: a
 hidden chat (`channel.kind = "place"`, decision 51) set up from the Discord
 connector, shown by the sidebar filter (`apps/api/src/lib/discord/places.ts`).
 Step 3 is built; what is left is

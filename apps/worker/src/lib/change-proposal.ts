@@ -45,6 +45,8 @@ function proposedLabel(spec: ChangeOperation): string {
       return `Create agent profile "${spec.name}"`
     case "assign_channel_profile":
       return "Assign a channel's agent profile"
+    case "assign_agent_profile":
+      return "Set an agent's tool profile"
     case "create_custom_tool":
       return `Create tool ${spec.name}`
     case "create_mcp_server":

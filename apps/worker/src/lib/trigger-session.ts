@@ -27,7 +27,7 @@ import {
   releaseActRunDeliveries,
 } from "@repo/lor/act-runs"
 import { createSession, toRealtimeAgentSession } from "@repo/lor/agent-sessions"
-import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
+import { allowedCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   ACT_FLUSH_JOB,
@@ -152,9 +152,10 @@ async function actCodeStart(
   note: string | null
 }> {
   if (!input.code) return { note: null }
-  const allowed = await channelCodeRepo(
+  // An Act session works as the chat's first agent, with its tools.
+  const allowed = await allowedCodeRepo(
     input.workspaceId,
-    input.channelId,
+    await channelAgentId(input.channelId),
     input.code.repoFullName
   ).catch(() => null)
   if (!allowed || !isSafeBranch(input.code.baseBranch)) {

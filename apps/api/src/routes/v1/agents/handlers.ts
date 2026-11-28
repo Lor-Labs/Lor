@@ -47,6 +47,7 @@ function serializeAgent(agent: Agent, channelIds: string[]) {
     role: agent.role,
     brief: agent.brief,
     model: agent.model,
+    agentProfileId: agent.agentProfileId,
     createdById: agent.createdById,
     createdAt: agent.createdAt.toISOString(),
     channelIds,
@@ -187,12 +188,16 @@ export const updateAgent: AppRouteHandler<UpdateAgentRoute> = async (c) => {
   const agent = await workspaceAgent(workspace.id, agentId)
   if (!agent) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
 
-  // The brief and the model always need channel:update. Without it, the
-  // person who made the agent may still change how it appears.
+  // The brief, the model and the tool profile always need channel:update.
+  // Without it, the person who made the agent may still change how it
+  // appears.
   const canManage = hasWorkspaceAuthority(c.var.authority, {
     channel: ["update"],
   })
-  const appearanceOnly = body.brief === undefined && body.model === undefined
+  const appearanceOnly =
+    body.brief === undefined &&
+    body.model === undefined &&
+    body.agentProfileId === undefined
   if (!canManage && !(appearanceOnly && agent.createdById === currentUser.id)) {
     return c.json(
       { success: false, message: "Forbidden" },
@@ -208,6 +213,26 @@ export const updateAgent: AppRouteHandler<UpdateAgentRoute> = async (c) => {
       { success: false, message: "Model not available" },
       HttpStatusCodes.BAD_REQUEST
     )
+  }
+  // A profile must be this workspace's (the foreign key alone doesn't scope
+  // it).
+  if (body.agentProfileId) {
+    const [profile] = await db
+      .select({ id: schema.agentProfile.id })
+      .from(schema.agentProfile)
+      .where(
+        and(
+          eq(schema.agentProfile.id, body.agentProfileId),
+          eq(schema.agentProfile.workspaceId, workspace.id)
+        )
+      )
+      .limit(1)
+    if (!profile) {
+      return c.json(
+        { success: false, message: "Profile not found" },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    }
   }
   const name =
     body.name === undefined ? undefined : normalizeAgentName(body.name)
@@ -238,6 +263,9 @@ export const updateAgent: AppRouteHandler<UpdateAgentRoute> = async (c) => {
         // An empty model means the default, like null.
         ...(body.model !== undefined
           ? { model: body.model?.trim() || null }
+          : {}),
+        ...(body.agentProfileId !== undefined
+          ? { agentProfileId: body.agentProfileId }
           : {}),
       })
       .where(eq(schema.agent.id, agent.id))

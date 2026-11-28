@@ -213,6 +213,15 @@ export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
         .then((rows) => rows[0] ?? null)
     : null
 
+  const startedByAgentId =
+    row.session.origin === "agent" && row.session.conversationId
+      ? await db
+          .select({ agentId: schema.agentConversation.agentId })
+          .from(schema.agentConversation)
+          .where(eq(schema.agentConversation.id, row.session.conversationId))
+          .then((rows) => rows[0]?.agentId ?? null)
+      : null
+
   return c.json(
     {
       session: toRealtimeAgentSession(row.session),
@@ -222,6 +231,7 @@ export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
         createdAt: message.createdAt.toISOString(),
       })),
       source,
+      startedByAgentId,
     },
     HttpStatusCodes.OK
   )

@@ -25,14 +25,13 @@ import {
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import {
-  autonomousUsesSubscription,
   channelRequestUserId,
-  personalRequestHarness,
+  HarnessAccountLimitError,
 } from "@repo/db/queries/personal-accounts"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { AgentConversation } from "@repo/db/schema"
 import { env } from "@repo/env/server"
-import { type ModelMessage, respond } from "@repo/lor"
+import { InferenceConfigError, type ModelMessage, respond } from "@repo/lor"
 import { saveHandoffNote } from "@repo/lor/act-runs"
 import { resolveAgentFiles } from "@repo/lor/agent-files"
 import {
@@ -496,25 +495,17 @@ async function createTurnRun(args: {
   }
 }
 
-// A turn's credit gate: subscription turns run on their own plan.
+// A turn's credit gate. Agent turns run on credits or a provider key, whose
+// fee draws on the pool too; only a run that pinned a subscription before
+// agents stopped using them goes on without (Jacob, 11-27).
 async function turnFunded(
   workspaceId: string,
-  // The agent whose own settings pay when no person's plan does.
-  agentId: string,
-  run: {
-    harnessAccount: { source: string } | null
-    funding: unknown
-    requestUserId: string | null
-  }
+  run: { harnessAccount: { source: string } | null }
 ): Promise<boolean> {
-  const subscription = run.harnessAccount
-    ? run.harnessAccount.source === "subscription"
-    : !run.funding &&
-      (run.requestUserId
-        ? (await personalRequestHarness(workspaceId, run.requestUserId)) !==
-          "pi"
-        : await autonomousUsesSubscription(agentId))
-  return subscription || (await checkCredits(workspaceId)).allowed
+  return (
+    run.harnessAccount?.source === "subscription" ||
+    (await checkCredits(workspaceId)).allowed
+  )
 }
 
 // A channel a turn of this agent can be about: a text channel, not
@@ -737,17 +728,8 @@ export async function flushAgentInbox(
     const channelId = channel.id
     // The continuation copies the pause's account and funding; it would meet
     // the same gate in runAgentTurn. Unfunded: say so once and keep the pause.
-    const funded = await turnFunded(workspaceId, agentId, {
+    const funded = await turnFunded(workspaceId, {
       harnessAccount: pausedRun.harnessAccount ?? null,
-      funding: pausedRun.funding ?? null,
-      requestUserId: pausedRun.harnessAccount
-        ? pausedRun.harnessAccount.userId
-        : pausedRun.loopId || pausedRun.hasDeliveries || !channelId
-          ? null
-          : await channelRequestUserId(
-              channelId,
-              pausedRun.triggerMessageId ?? null
-            ),
     })
     if (!funded) {
       const first =
@@ -817,7 +799,7 @@ export async function flushAgentInbox(
         )
       )
     )
-  let batch = await loadInboxBatch(conversationId)
+  const batch = await loadInboxBatch(conversationId)
   if (!batch) return "empty"
   const batchChannelId = batch.channelId
   const channel = await turnChannel(agentId, batchChannelId, workspaceId)
@@ -840,31 +822,9 @@ export async function flushAgentInbox(
     await flushIfWaiting(deps, conversationId)
     return "skipped"
   }
-  const channelId = channel.id
-  const directUserId =
-    batch.loop || batch.deliveryIds.length || !channelId
-      ? null
-      : await channelRequestUserId(channelId, batch.triggerMessageId)
-  const subscription = directUserId
-    ? (await personalRequestHarness(workspaceId, directUserId)) !== "pi"
-    : await autonomousUsesSubscription(agentId)
-  // Unfunded API work stays pending; personal subscriptions can still run.
-  if (!subscription && !(await checkCredits(workspaceId)).allowed) {
-    const harnessByUser = new Map<string, Promise<string>>()
-    batch = await loadInboxBatch(conversationId, async (messageId) => {
-      const userId = channelId
-        ? await channelRequestUserId(channelId, messageId)
-        : null
-      if (!userId) return false
-      let harness = harnessByUser.get(userId)
-      if (!harness) {
-        harness = personalRequestHarness(workspaceId, userId)
-        harnessByUser.set(userId, harness)
-      }
-      return (await harness) !== "pi"
-    })
-    if (!batch || batch.channelId !== channelId) return "skipped"
-  }
+  // With no credits left the work stays pending (the stranded-inbox sweep
+  // looks again): agent turns never run on a subscription.
+  if (!(await checkCredits(workspaceId)).allowed) return "skipped"
   const turnRun = await createTurnRun({
     workspaceId,
     conversation,
@@ -1561,10 +1521,8 @@ export async function runAgentTurnJob(
       throw new Error(
         "The person who started this turn no longer has access to the channel."
       )
-    const funded = await turnFunded(workspaceId, channel.agentId, {
+    const funded = await turnFunded(workspaceId, {
       harnessAccount: execution.handle.harnessAccount ?? null,
-      funding: execution.handle.funding ?? null,
-      requestUserId,
     })
     if (!funded) {
       // Said only to a person who asked: events and Loops would repeat it,
@@ -1792,11 +1750,9 @@ export async function runAgentTurnJob(
       result.messages.length > 0 &&
       !stoppedByUser &&
       !parkedApprovalId &&
-      (await (async () =>
-        (await autonomousUsesSubscription(channel.agentId)) ||
-        (
-          await checkCredits(workspaceId)
-        ).allowed)().catch(() => false))
+      (await checkCredits(workspaceId)
+        .then((credits) => credits.allowed)
+        .catch(() => false))
     if (canRemember) {
       await respond(
         {
@@ -1848,15 +1804,21 @@ export async function runAgentTurnJob(
       return
     }
     logger.error({ err, runId, channelId }, "Agent turn failed")
+    // A plan at its usage limit, or a provider or model that can't be used,
+    // won't change on a retry: say why now (a plan never moves to another).
+    const lasting =
+      err instanceof HarnessAccountLimitError ||
+      err instanceof InferenceConfigError
     // A retry continues from the saved steps; only the last attempt says so.
-    if (job.attemptsMade + 1 < (job.opts.attempts ?? 1)) {
+    if (!lasting && job.attemptsMade + 1 < (job.opts.attempts ?? 1)) {
       execution.stop()
       throw err
     }
     // Said only to a person who asked: a Loop's or an event's turn fails
     // quietly, and its run history shows it (decision 30). So does one the
     // classifier woke for a message that named nobody.
-    if (!sent && userId && !run.triggerInferred) await notice(FAILED_MESSAGE)
+    if (!sent && userId && !run.triggerInferred)
+      await notice(lasting ? err.message : FAILED_MESSAGE)
     await writer.transition("failed", { stopReason: "error" })
     execution.stop()
     await settleLoop("failed", "error")
@@ -1893,6 +1855,9 @@ export async function runAgentCompactJob(
   const channelId = channel.id
   const context = await loadAgentContext(workspaceId, conversationId)
   if (context.promptTokens < COMPACT_AT_TOKENS) return
+  // The summary is paid like a turn (credits, or a key's fee from the pool):
+  // with none left it waits for the next turn to schedule it again.
+  if (!(await checkCredits(workspaceId)).allowed) return
 
   const runId = (
     await createTurnRun({

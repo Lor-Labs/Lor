@@ -32,6 +32,7 @@ import {
 } from "react-native"
 import { Button } from "@/components/ui/button"
 import { useWorkspace } from "@/context/workspace-context"
+import { useAgents } from "@/hooks/use-agents"
 import {
   type ProposalSecretsPayload,
   useApproveProposal,
@@ -69,6 +70,7 @@ const OP_ICONS: Record<ProposalOperation["kind"], IconSvg> = {
   update_instructions: Scroll01Icon,
   create_agent_profile: SparklesIcon,
   assign_channel_profile: SparklesIcon,
+  assign_agent_profile: SparklesIcon,
   create_custom_tool: Wrench01Icon,
   create_mcp_server: PlugSocketIcon,
   set_approval_policy: Shield01Icon,
@@ -262,6 +264,16 @@ function opView(
               {channelRefLabel(spec.channel, operations, channelNames)}
             </Name>{" "}
             to use {profileRefLabel(spec.profile, operations)}
+          </>
+        ),
+        details: [],
+      }
+    case "assign_agent_profile":
+      return {
+        title: (
+          <>
+            Set <Name>{channelNames.get(spec.agentId) ?? "an agent"}</Name> to
+            use {profileRefLabel(spec.profile, operations)}
           </>
         ),
         details: [],
@@ -559,6 +571,7 @@ function ProposalCardBody({ proposal }: { proposal: ChannelProposal }) {
   const reject = useRejectProposal(proposal.channelId)
   const canResolve = useCanResolveProposal(proposal.requiredPermissions)
   const members = useWorkspaceMembers(workspace?.slug ?? "")
+  const agents = useAgents(workspace?.slug)
   const fieldPlaceholder = useThemeColor("field-placeholder")
   const [secretValues, setSecretValues] = useState<Record<string, string>>({})
   const [rejecting, setRejecting] = useState(false)
@@ -580,6 +593,8 @@ function ProposalCardBody({ proposal }: { proposal: ChannelProposal }) {
       if (ch.name) channelNames.set(ch.id, ch.name)
     }
   }
+  // Agents by id too: an operation may name one (assign_agent_profile).
+  for (const agent of agents) channelNames.set(agent.id, agent.name)
 
   const resolverName =
     proposal.resolvedByUserId === auth?.user.id

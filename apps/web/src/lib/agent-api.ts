@@ -20,6 +20,7 @@ export type AgentChanges = {
   role?: string | null
   brief?: string | null
   model?: string | null
+  agentProfileId?: string | null
 }
 
 export async function saveAgent(

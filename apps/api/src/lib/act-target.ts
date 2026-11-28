@@ -1,7 +1,8 @@
 import { z } from "@hono/zod-openapi"
+import { channelAgentId } from "@repo/db/queries/agents"
 import type { ActSessionMode } from "@repo/db/schema"
 import { actSessionModeEnum } from "@repo/db/schema"
-import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
+import { allowedCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
 
 // Where an Act run goes and whether it starts code sessions
 // (reference/act-sessions-runbook.md). Shared by webhooks and connector
@@ -72,9 +73,10 @@ export async function checkActTarget(input: {
   if (!isSafeBranch(code.branch)) {
     return { ok: false, message: `"${code.branch}" can't be used as a branch` }
   }
-  const allowed = await channelCodeRepo(
+  // An Act session works as the chat's first agent, with its tools.
+  const allowed = await allowedCodeRepo(
     input.workspaceId,
-    input.channelId,
+    await channelAgentId(input.channelId),
     code.repo
   )
   if (!allowed) {

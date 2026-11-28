@@ -274,19 +274,70 @@ export async function resolveHarnessAccount(
       !options.exclude?.includes(a.id) &&
       (!a.unavailableUntil || a.unavailableUntil.getTime() <= Date.now())
   )
-  if (!account)
+  if (!account) {
+    // Every account is resting after its usage limit: say whose and when
+    // the soonest one resets. A turn on a person's plan never falls back to
+    // the agent's (Jacob, 11-27).
+    const resting = candidates.filter(
+      (a) => !options.exclude?.includes(a.id) && a.unavailableUntil
+    )
+    if (resting.length > 0) {
+      const until = new Date(
+        Math.min(...resting.map((a) => a.unavailableUntil?.getTime() ?? 0))
+      )
+      const owner = scope.userId
+        ? await db
+            .select({ name: user.name })
+            .from(user)
+            .where(eq(user.id, scope.userId))
+            .then((rows) => rows[0]?.name ?? null)
+        : null
+      throw new HarnessAccountLimitError(provider, until, owner, scope.userId)
+    }
     throw new Error(
       scope.userId
         ? "No available linked account for this provider. Connect an account in Settings → Linked accounts, or wait for its usage limit to reset."
         : "None of this agent's accounts for this provider is available. An admin can change them in the agent's settings, or switch it to API billing."
     )
+  }
   return { ...base, source: "subscription", accountId: account.id }
 }
 
-// Used by queue admission before a run has pinned its own payer.
-export async function autonomousUsesSubscription(agentId: string | null) {
-  const settings = await getHarnessSettings({ agentId })
-  return settings.defaultHarness === "claude_code"
-    ? settings.claudeUseSubscriptions
-    : settings.defaultHarness === "codex" && settings.codexUseSubscriptions
+const PLAN_NAME = { claude: "Claude plan", chatgpt: "ChatGPT plan" } as const
+
+// "in about 2 hours": the reader's time zone isn't known here.
+function resetsIn(until: Date) {
+  const minutes = Math.max(
+    1,
+    Math.round((until.getTime() - Date.now()) / 60_000)
+  )
+  if (minutes < 60) return `in about ${minutes} min`
+  const hours = Math.round(minutes / 60)
+  return hours < 48
+    ? `in about ${hours} h`
+    : `in about ${Math.round(hours / 24)} days`
 }
+
+// A person's (or an agent's) plan is at its usage limit on every account
+// that could pay. The message names whose and when it resets, for the
+// person in the session and for an agent steering it.
+export class HarnessAccountLimitError extends Error {
+  constructor(
+    readonly provider: "claude" | "chatgpt",
+    readonly until: Date,
+    readonly ownerName: string | null,
+    readonly userId: string | null
+  ) {
+    super(
+      userId
+        ? `${ownerName ?? "Your"}${ownerName ? "'s" : ""} ${PLAN_NAME[provider]} is at its usage limit and resets ${resetsIn(until)}. Wait for it, or link another account in Settings → Linked accounts.`
+        : `This agent's ${PLAN_NAME[provider]} accounts are at their usage limit; the first resets ${resetsIn(until)}. An admin can switch it to API billing in the agent's settings.`
+    )
+    this.name = "HarnessAccountLimitError"
+  }
+}
+
+// What an agent is told when a person's plan can't run the session it
+// steers: tell them, and don't move the work to another plan.
+export const PLAN_LIMIT_AGENT_HINT =
+  "Tell the person who asked, in the chat, with when it resets. Don't start it again on another plan or harness."

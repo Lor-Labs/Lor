@@ -4,7 +4,7 @@ import {
   profileSelectedTools,
   STANDALONE_TOOLS,
 } from "@repo/connectors"
-import { and, db, eq, schema } from "@repo/db"
+import { and, db, eq, inArray, schema } from "@repo/db"
 import {
   BUILTIN_TOOL_GROUPS,
   DEFAULT_PROFILE_TOOL_ACCESS,
@@ -144,53 +144,86 @@ export async function resolveWorkspaceCapabilities(
   return profileGrants(workspaceId, profile)
 }
 
-// Channel → parent category → workspace default. Missing overrides follow the
-// workspace tool selection; explicit/custom selections only narrow it.
-export async function resolveChannelCapabilities(
-  channelId: string,
-  workspaceId?: string
+// What an agent may use: its own profile, else the workspace default
+// (reference/agents-and-chats.md, decision 53). No agent (a session a person
+// starts, a voice request, system work): the workspace default. Missing
+// overrides follow the workspace tool selection; explicit/custom selections
+// only narrow it.
+export async function resolveAgentCapabilities(
+  agentId: string | null | undefined,
+  workspaceId: string
 ): Promise<ChannelToolGrants> {
-  const channel = await db
-    .select({
-      agentProfileId: schema.channel.agentProfileId,
-      parentId: schema.channel.parentId,
-      workspaceId: schema.channel.workspaceId,
-    })
-    .from(schema.channel)
+  if (!agentId) return resolveWorkspaceCapabilities(workspaceId)
+  const [row] = await db
+    .select({ profileId: schema.agent.agentProfileId })
+    .from(schema.agent)
     .where(
       and(
-        eq(schema.channel.id, channelId),
-        workspaceId ? eq(schema.channel.workspaceId, workspaceId) : undefined
+        eq(schema.agent.id, agentId),
+        eq(schema.agent.workspaceId, workspaceId)
       )
     )
     .limit(1)
-    .then((rows) => rows[0])
-  if (!channel?.workspaceId) return EMPTY_TOOL_GRANTS
-  if (channel.agentProfileId) {
-    const profile = await getProfile(
-      channel.agentProfileId,
-      channel.workspaceId
-    )
-    if (!profile) throw new Error("Channel agent profile is unavailable")
-    return profileGrants(channel.workspaceId, profile)
+  if (!row) return EMPTY_TOOL_GRANTS
+  if (!row.profileId) return resolveWorkspaceCapabilities(workspaceId)
+  const profile = await getProfile(row.profileId, workspaceId)
+  if (!profile) throw new Error("The agent's tool profile is unavailable")
+  return profileGrants(workspaceId, profile)
+}
+
+const READ_ONLY_CONNECTOR_TOOLS: ReadonlySet<string> = new Set(
+  Object.values(CONNECTOR_TOOLS)
+    .flat()
+    .filter((tool) => tool.readOnlyHint)
+    .map((tool) => tool.name)
+)
+
+// The read side of a profile, for a session an agent starts (its writes stay
+// with the agent): connector tools marked read-only, and MCP tools their
+// server marks read-only (an explicit readOnlyHint, the "Read only" label in
+// the tool picker; it is the server's own word). Custom tools carry no such
+// label, so none.
+export async function readOnlyGrants(
+  workspaceId: string,
+  grants: ChannelToolGrants
+): Promise<ChannelToolGrants> {
+  const servers =
+    grants.mcpServers.length > 0
+      ? await db
+          .select({
+            id: schema.mcpServer.id,
+            toolMetadata: schema.mcpServer.toolMetadata,
+          })
+          .from(schema.mcpServer)
+          .where(
+            and(
+              eq(schema.mcpServer.workspaceId, workspaceId),
+              inArray(schema.mcpServer.id, grants.mcpServers)
+            )
+          )
+      : []
+  const readOnly = new Map(
+    servers.map((server) => [
+      server.id,
+      new Set(
+        server.toolMetadata
+          .filter((tool) => tool.readOnlyHint === true)
+          .map((tool) => tool.name)
+      ),
+    ])
+  )
+  const mcpTools: Record<string, string[]> = {}
+  for (const [serverId, names] of Object.entries(grants.mcpTools)) {
+    const kept = names.filter((name) => readOnly.get(serverId)?.has(name))
+    if (kept.length > 0) mcpTools[serverId] = kept
   }
-  if (channel.parentId) {
-    const parent = await db
-      .select({ profileId: schema.channel.agentProfileId })
-      .from(schema.channel)
-      .where(
-        and(
-          eq(schema.channel.id, channel.parentId),
-          eq(schema.channel.workspaceId, channel.workspaceId)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0])
-    if (parent?.profileId) {
-      const profile = await getProfile(parent.profileId, channel.workspaceId)
-      if (!profile) throw new Error("Category agent profile is unavailable")
-      return profileGrants(channel.workspaceId, profile)
-    }
+  return {
+    ...grants,
+    connectorTools: grants.connectorTools.filter((name) =>
+      READ_ONLY_CONNECTOR_TOOLS.has(name)
+    ),
+    customTools: [],
+    mcpServers: Object.keys(mcpTools),
+    mcpTools,
   }
-  return resolveWorkspaceCapabilities(channel.workspaceId)
 }

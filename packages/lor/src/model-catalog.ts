@@ -3,6 +3,7 @@ import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
 import { assertHostedHarness } from "@repo/db/queries/beta-access"
 import { workspaceInferenceKeys } from "@repo/db/queries/inference"
 import { resolveHarnessAccount } from "@repo/db/queries/personal-accounts"
+import type { HarnessAccountRoute } from "@repo/db/schema"
 import { assertHarnessEnabled } from "@repo/utils/features"
 import {
   type InferenceKeyConfig,
@@ -165,12 +166,14 @@ const claudeLineRank = (name: string) => {
 // turn, with its effort levels and fast mode per model; before a first turn,
 // the starting list from Anthropic. Opus is the default in both.
 async function claudeCodeCatalog(
-  userId: string,
-  accountId?: string
+  // Null: a workspace account an agent uses.
+  userId: string | null,
+  accountId?: string,
+  workspaceId?: string
 ): Promise<AgentModelCatalog> {
   const reported =
-    (await claudeModels(userId, accountId)) ??
-    (await startingClaudeModels(userId, accountId))
+    (await claudeModels(userId, accountId, workspaceId)) ??
+    (userId ? await startingClaudeModels(userId, accountId) : null)
   const models = (
     reported
       ? reported.map((model) => ({
@@ -199,11 +202,12 @@ async function claudeCodeCatalog(
 // ChatGPT plan decides it), or anyone's before that, with the efforts the
 // adapter can pass. "Default" effort leaves it to Codex's own per model.
 async function codexCatalog(
-  userId: string,
-  accountId?: string
+  userId: string | null,
+  accountId?: string,
+  workspaceId?: string
 ): Promise<AgentModelCatalog> {
   const served =
-    (await chatgptModels(userId, accountId)) ??
+    (await chatgptModels(userId, accountId, workspaceId)) ??
     (await harnessModels("codex")) ??
     []
   const models =
@@ -248,4 +252,26 @@ export async function agentModelCatalog(
   }
   const keys = await workspaceInferenceKeys(workspaceId)
   return lorCatalog(keys.map((key) => key.config))
+}
+
+// What a session an agent starts can run, for whoever pays: the asker's own
+// plan, the agent's workspace accounts, or API billing (Claude Code's aliases
+// and Codex's list). Lor's own agent: Lor's models and the workspace's keys.
+export async function sessionModelCatalog(
+  harness: CatalogHarness,
+  route: HarnessAccountRoute | undefined,
+  workspaceId: string
+): Promise<AgentModelCatalog> {
+  if (harness === "pi") {
+    const keys = await workspaceInferenceKeys(workspaceId)
+    return lorCatalog(keys.map((key) => key.config))
+  }
+  const accountId =
+    route?.source === "subscription"
+      ? (route.accountId ?? undefined)
+      : undefined
+  const userId = route?.userId ?? null
+  return harness === "claude_code"
+    ? claudeCodeCatalog(userId, accountId, workspaceId)
+    : codexCatalog(userId, accountId, workspaceId)
 }

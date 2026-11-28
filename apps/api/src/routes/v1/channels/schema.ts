@@ -82,7 +82,6 @@ const updateChannelRequestBaseSchema = updateChannelSchema
     name: true,
     topic: true,
     rateLimitPerUser: true,
-    agentProfileId: true,
   })
   .extend({
     // The agents in the channel; empty removes them. An agent's own settings

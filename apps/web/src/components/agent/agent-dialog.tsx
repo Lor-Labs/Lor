@@ -5,6 +5,7 @@ import {
   Infinity01Icon,
   UserCircleIcon,
   WebhookIcon,
+  Wrench01Icon,
   ZapIcon,
 } from "@hugeicons/core-free-icons"
 import { authClient } from "@repo/auth/client"
@@ -34,6 +35,7 @@ import { AgentJournal } from "@/components/agent/agent-journal"
 import { AgentListeners } from "@/components/agent/agent-listeners"
 import { AgentLoops } from "@/components/agent/agent-loops"
 import { AgentRuns } from "@/components/agent/agent-runs"
+import { AgentTools } from "@/components/agent/agent-tools"
 import { AgentFactsList } from "@/components/sidebar/channel-panel/agent-facts-list"
 import { AgentWebhooks } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
 import { InlineConfirmButton } from "@/components/ui/inline-confirm-button"
@@ -75,6 +77,7 @@ function tabsFor(name: string): PaneTab<AgentDialogTab>[] {
     { id: "profile", label: "Profile", icon: UserCircleIcon },
     { id: "memory", label: "Memory", icon: Brain02Icon },
     { id: "model", label: "Model", icon: AiChipIcon },
+    { id: "tools", label: "Tools", icon: Wrench01Icon },
     { id: "chats", label: "Chats", icon: BubbleChatIcon, group },
     { id: "loops", label: "Loops", icon: Infinity01Icon, group },
     { id: "events", label: "Events", icon: ZapIcon, group },
@@ -295,6 +298,17 @@ function AgentDialog({
             description={`What ${agent.name} runs on, and who pays for it.`}
           >
             <AgentRuns
+              workspaceSlug={workspaceSlug}
+              agent={agent}
+              canManage={canManage}
+            />
+          </PaneBody>
+        ) : shownTab === "tools" ? (
+          <PaneBody
+            title="Tools"
+            description={`What ${agent.name} may use wherever it works: its chats, Loops with no chat, Discord, and the code sessions it starts.`}
+          >
+            <AgentTools
               workspaceSlug={workspaceSlug}
               agent={agent}
               canManage={canManage}

@@ -220,7 +220,7 @@ export async function chatgptCredential(
 // The models the person's Codex reported on their last turn (their plan
 // decides the list), for the composer's picker.
 export async function chatgptModels(
-  userId: string,
+  userId: string | null,
   accountId?: string,
   workspaceId?: string
 ): Promise<ReportedHarnessModel[] | null> {

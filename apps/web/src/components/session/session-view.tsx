@@ -67,6 +67,7 @@ import {
   useRewindSession,
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
+import { useAgentsById } from "@/hooks/use-agents"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useLorBrowserShow } from "@/hooks/use-lor-browser-show"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
@@ -145,7 +146,7 @@ export function SessionView({
 
 function SessionConversation({
   workspaceSlug,
-  detail: { session, channel, source },
+  detail: { session, channel, source, startedByAgentId },
   targetMessageId,
   targetFolder,
   targetPanel,
@@ -344,13 +345,15 @@ function SessionConversation({
       : (people.find((person) => person.userId === userId)?.name ?? "someone")
   const archivedBy = nameOf(session.archivedById)
   const channelAgent = useChannelAgent(workspaceSlug, session.channelId)
+  // The agent that started it, which may not be the chat's first.
+  const startingAgent = useAgentsById(workspaceSlug).get(startedByAgentId ?? "")
   const startedBy =
     session.origin === "loop"
       ? "Loop"
       : session.origin === "trigger"
         ? "Started by an automation"
         : session.origin === "agent"
-          ? `Started by ${channelAgent?.name ?? "the chat's agent"}`
+          ? `Started by ${startingAgent?.name ?? channelAgent?.name ?? "an agent"}`
           : `Started by ${nameOf(session.creatorId)}`
   const starter =
     people.find((person) => person.userId === session.creatorId) ?? null

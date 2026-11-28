@@ -219,7 +219,7 @@ export default function AgentProfilesScreen() {
   const confirmDelete = (profile: AgentProfile) => {
     Alert.alert(
       "Delete profile?",
-      `Channels using “${profile.name}” will fall back to the default profile.`,
+      `Agents using “${profile.name}” will fall back to the default profile.`,
       [
         { style: "cancel", text: "Cancel" },
         {
@@ -266,9 +266,9 @@ export default function AgentProfilesScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text className="text-sm leading-5 text-muted">
-          Profiles control which tools Lor can use in a channel. Channels use
-          the default profile unless you pick another in channel or category
-          settings.
+          Profiles control which tools an agent can use, wherever it works.
+          Agents use the default profile unless you pick another on the agent's
+          Tools tab on the web.
         </Text>
 
         {workspaceSlug === null ? (

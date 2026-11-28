@@ -31,7 +31,6 @@ import {
 } from "@repo/db/queries/channel-access"
 import {
   getHarnessSettings,
-  personalRequestHarness,
   resolveHarnessAccount,
 } from "@repo/db/queries/personal-accounts"
 import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
@@ -124,8 +123,8 @@ import {
 } from "./calls"
 import {
   EMPTY_TOOL_GRANTS,
-  resolveChannelCapabilities,
-  resolveWorkspaceCapabilities,
+  readOnlyGrants,
+  resolveAgentCapabilities,
 } from "./capabilities"
 import {
   agentLoopTools,
@@ -362,8 +361,8 @@ for (const name of Object.keys(webTools)) {
     throw new Error(`Tool ${name} needs a STANDALONE_TOOLS entry`)
 }
 
-// Writes a helper session leaves to the channel's agent (connector writes
-// are filtered from its grants by READ_ONLY_CONNECTOR_TOOLS).
+// Writes a helper session leaves to the channel's agent (connector and MCP
+// writes are filtered from its grants by readOnlyGrants).
 const HELPER_WRITE_TOOLS = [
   "remember",
   "memory_write",
@@ -374,12 +373,6 @@ const HELPER_WRITE_TOOLS = [
   "propose_loop",
   "propose_workspace_change",
 ] as const
-const READ_ONLY_CONNECTOR_TOOLS: ReadonlySet<string> = new Set(
-  Object.values(CONNECTOR_TOOLS)
-    .flat()
-    .filter((tool) => tool.readOnlyHint)
-    .map((tool) => tool.name)
-)
 
 // How often a running Codex turn checks its ChatGPT token, which is refreshed
 // with 20 minutes left (chatgpt-account.ts).
@@ -774,6 +767,10 @@ export type RespondContext = {
   // connectors, no writes to connectors or memory. It reports to the agent,
   // which acts (reference/always-on-agents.md §6).
   helper?: boolean
+  // The agent whose tool profile a session turn uses: the one that started
+  // a helper session, or an Act session's chat agent. None: the workspace
+  // default.
+  toolAgentId?: string | null
   // Set on a request spoken in a voice call: binds show_in_call and the call
   // framing. Results go to Lor's window, never the chat.
   voice?: RunVoiceContext
@@ -2977,30 +2974,20 @@ async function respondImpl(
     ctx.autonomous || (ctx.agent && ctx.autonomous !== false)
       ? await getHarnessSettings({ agentId: policyAgentId })
       : null
+  // An agent's own turns run on its model, paid by Lor credits or a
+  // workspace provider key, never on a Claude or ChatGPT subscription:
+  // subscriptions pay only for coding sessions (Jacob, 11-27). A run that
+  // pinned a subscription before keeps it to finish.
   if (ctx.agent) {
     const pinned = run?.harnessAccount ?? run?.resume?.context.harnessAccount
-    const selected =
-      pinned?.provider === "claude"
-        ? "claude_code"
-        : pinned?.provider === "chatgpt"
-          ? "codex"
-          : run?.funding
-            ? "pi"
-            : !ctx.autonomous && ctx.userId
-              ? await personalRequestHarness(ctx.workspaceId, ctx.userId)
-              : policy?.defaultHarness
-    if (selected === "claude_code" || selected === "codex") {
+    if (pinned) {
       const route = await resolveHarnessAccount(
         {
           workspaceId: ctx.workspaceId,
-          userId: pinned
-            ? pinned.userId
-            : !ctx.autonomous
-              ? (ctx.userId ?? null)
-              : null,
-          agentId: pinned ? pinned.agentId : policyAgentId,
+          userId: pinned.userId,
+          agentId: pinned.agentId,
         },
-        selected === "claude_code" ? "claude" : "chatgpt",
+        pinned.provider,
         { pinned }
       )
       ctx = { ...ctx, harnessAccount: route }
@@ -3085,23 +3072,19 @@ async function respondImpl(
     ? await resolveLorRunScope(ctx.channelId).catch(() => EMPTY_LOR_RUN_SCOPE)
     : EMPTY_LOR_RUN_SCOPE
 
-  // Profile reads fail closed to core tools, including resumed runs.
-  const profileGrants = await (ctx.channelId
-    ? resolveChannelCapabilities(ctx.channelId, ctx.workspaceId)
-    : resolveWorkspaceCapabilities(ctx.workspaceId)
+  // The agent's own tools on its turns, in the sessions it starts and in a
+  // chat's Act sessions; else the workspace default (decision 53). Profile
+  // reads fail closed to core tools, including resumed runs.
+  const profileGrants = await resolveAgentCapabilities(
+    ctx.agent?.agentId ?? ctx.toolAgentId ?? null,
+    ctx.workspaceId
   ).catch(() => EMPTY_TOOL_GRANTS)
-  // A helper session keeps the read side: custom and MCP tools can't be told
-  // apart, so they stay out.
+  // A session an agent started keeps the read side (connector and MCP tools
+  // marked read-only); a person's turn there gets the full profile.
   const grants = ctx.helper
-    ? {
-        ...profileGrants,
-        connectorTools: profileGrants.connectorTools.filter((name) =>
-          READ_ONLY_CONNECTOR_TOOLS.has(name)
-        ),
-        customTools: [],
-        mcpServers: [],
-        mcpTools: {},
-      }
+    ? await readOnlyGrants(ctx.workspaceId, profileGrants).catch(
+        () => EMPTY_TOOL_GRANTS
+      )
     : profileGrants
   const selectedBuiltinTools = new Set(grants.builtinTools)
   const selectedConnectorTools = new Set(grants.connectorTools)
