@@ -3,7 +3,7 @@
     "name": "Lor",
     "slug": "lor",
     "owner": "lor-chat",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "lor",
