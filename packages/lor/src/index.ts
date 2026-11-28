@@ -3758,6 +3758,9 @@ async function respondImpl(
             assertCanInfer: run.assertCanInfer,
             byok: funding?.source === "byok",
             tools: agentTools,
+            // Compaction renders the same tool definitions as the turn, so it
+            // needs the same per-tool context (the GitHub repo list among it).
+            toolsContext,
             record: async (usage) => {
               const counters = await agent.recordUsage(usage, "compaction")
               ledger.add(usage, counters.costUsd)

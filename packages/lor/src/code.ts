@@ -36,6 +36,15 @@ export function resolveRepo(
   }
 }
 
+// A tool's context is bound per run; the agent compactor renders the same
+// tool definitions with inert tools and no context bound, so read it
+// defensively: no context means no connected repositories, not a throw.
+function reposOf(
+  context: { repos?: InstallationRepo[] } | null | undefined
+): InstallationRepo[] {
+  return Array.isArray(context?.repos) ? context.repos : []
+}
+
 function repoHint(repos: InstallationRepo[]): string {
   return repos.length
     ? ` Connected repositories: ${repos
@@ -64,7 +73,7 @@ const cloneRepoContext = z.object({
 export const cloneRepoTool = {
   clone_repo: tool({
     description: ({ context }) =>
-      `Clone one of the team's connected GitHub repositories into your sandbox to read its code: a shallow copy of one branch at its latest commit. Returns the folder; then search and read it with your sandbox tools. Calling it again for the same repository updates the copy to the branch's latest commit, unless you changed files in it. Pass the repo as 'owner/repo' and a branch, or null for the repository's default branch.${repoHint(context.repos)}`,
+      `Clone one of the team's connected GitHub repositories into your sandbox to read its code: a shallow copy of one branch at its latest commit. Returns the folder; then search and read it with your sandbox tools. Calling it again for the same repository updates the copy to the branch's latest commit, unless you changed files in it. Pass the repo as 'owner/repo' and a branch, or null for the repository's default branch.${repoHint(reposOf(context))}`,
     inputSchema: z.object({
       repo: z.string().describe("the repository as owner/repo"),
       branch: z
@@ -78,7 +87,11 @@ export const cloneRepoTool = {
       { context, experimental_sandbox: sandbox, abortSignal }
     ) => {
       if (!sandbox) return { error: "this run has no sandbox" }
-      const resolved = resolveRepo(repo, context.repos)
+      const repos = reposOf(context)
+      if (typeof context?.installationId !== "string") {
+        return { error: "GitHub isn't available in this run" }
+      }
+      const resolved = resolveRepo(repo, repos)
       if ("error" in resolved) return { error: resolved.error }
       const fullName = resolved.repo
       const [owner, name] = fullName.split("/")
@@ -88,7 +101,7 @@ export const cloneRepoTool = {
       // Null with no repo list: the clone takes GitHub's default branch.
       const target =
         branch ??
-        context.repos.find((r) => r.fullName === fullName)?.defaultBranch ??
+        repos.find((r) => r.fullName === fullName)?.defaultBranch ??
         null
       if (target !== null && !isSafeBranch(target)) {
         return { error: `not a valid branch name: ${target}` }
