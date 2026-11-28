@@ -31,6 +31,7 @@ import {
 import {
   repoFileFromUrl,
   repoFileLabel,
+  type SessionLink,
   sessionFromUrl,
 } from "@/lib/repo-file-reference"
 
@@ -97,12 +98,9 @@ function IconPlate({ children }: { children: ReactNode }) {
 function SessionChip({
   workspaceSlug,
   sessionId,
+  search,
   children,
-}: {
-  workspaceSlug: string
-  sessionId: string
-  children: ReactNode
-}) {
+}: SessionLink & { children: ReactNode }) {
   const { data } = useQuery({
     ...agentSessionQueryOptions(sessionId),
     retry: false,
@@ -113,6 +111,7 @@ function SessionChip({
     <Link
       to="/$workspaceSlug/session/$sessionId"
       params={{ workspaceSlug, sessionId }}
+      search={search}
       title={
         session?.repoFullName
           ? `${session.repoFullName}${branch ? ` · ${branch}` : ""}`

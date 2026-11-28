@@ -1462,9 +1462,7 @@ export async function runAgentTurnJob(
           execution.stop()
           throw err
         })
-  const requestUserId = execution.handle.harnessAccount
-    ? execution.handle.harnessAccount.userId
-    : directUserId
+  const requestUserId = execution.handle.harnessAccount?.userId ?? directUserId
   // A turn woken in a human thread answers there (loadInboxBatch keeps a
   // turn to one place, and its trigger is the first message that woke it).
   // send_message's startThread moves it into a new thread.

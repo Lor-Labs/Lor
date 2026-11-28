@@ -44,6 +44,7 @@ import {
   respond,
   SandboxCapacityError,
   SandboxStartingError,
+  SandboxUnavailableError,
   writeBack,
 } from "@repo/lor"
 import { saveHandoffNote } from "@repo/lor/act-runs"
@@ -144,6 +145,9 @@ const SANDBOX_CAPACITY_MESSAGE =
 
 const SANDBOX_STARTING_MESSAGE =
   "This session's sandbox is taking longer than usual to start. Send your message again in a minute."
+
+const SANDBOX_UNAVAILABLE_MESSAGE =
+  "This session's sandbox is no longer available. Send your message again and Lor will start a new one."
 
 export function createLorRespondProcessor(
   emitter: Emitter<ServerToClientEvents>,
@@ -1692,12 +1696,14 @@ export function createLorRespondProcessor(
                 ? SANDBOX_CAPACITY_MESSAGE
                 : err instanceof SandboxStartingError
                   ? SANDBOX_STARTING_MESSAGE
-                  : err instanceof HarnessDisabledError ||
-                      err instanceof BetaAccessError ||
-                      err instanceof ClaudeCodeTurnError ||
-                      err instanceof InferenceConfigError
-                    ? err.message
-                    : LOR_ERROR_FALLBACK
+                  : err instanceof SandboxUnavailableError
+                    ? SANDBOX_UNAVAILABLE_MESSAGE
+                    : err instanceof HarnessDisabledError ||
+                        err instanceof BetaAccessError ||
+                        err instanceof ClaudeCodeTurnError ||
+                        err instanceof InferenceConfigError
+                      ? err.message
+                      : LOR_ERROR_FALLBACK
             await persistFailure(failureText)
             await runWriter.transition("failed", {
               stopReason:

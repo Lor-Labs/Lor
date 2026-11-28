@@ -80,6 +80,7 @@ import {
 } from "@/hooks/use-chats"
 import { apiClient } from "@/lib/api-client"
 import type { Channel } from "@/lib/api-types"
+import { chatDisplayName } from "@/lib/chat-name"
 import { canDeleteChannels, canManageChannels } from "@/lib/permissions"
 import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels-query"
 
@@ -499,7 +500,7 @@ function ChatRow({
   const running = archived ? 0 : (activity?.runningSessions ?? 0)
   const runningLabel = `${running} ${running === 1 ? "session" : "sessions"} running`
 
-  const name = channel?.name ?? chat.name ?? "Chat"
+  const name = chatDisplayName(channel?.name ?? chat.name, Boolean(place))
   const agentIds = channel?.agentIds ?? chat.agentIds
   const agents = agentIds.flatMap((id) => agentsById.get(id) ?? [])
   const others = chat.people.filter((person) => person.id !== me)

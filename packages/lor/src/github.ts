@@ -237,6 +237,25 @@ const githubContext = z.object({
   repos: z.custom<InstallationRepo[]>(),
 })
 
+// A tool's context is bound per run; a caller that renders the tool's
+// definitions without binding it (the agent compactor, whose tools are inert)
+// hands over no context at all. Read it defensively so that path degrades to
+// "no connected repositories" instead of throwing.
+function boundGithubContext(
+  context:
+    | { installationId?: string; repos?: InstallationRepo[] }
+    | null
+    | undefined
+): { installationId: string | null; repos: InstallationRepo[] } {
+  return {
+    installationId:
+      typeof context?.installationId === "string"
+        ? context.installationId
+        : null,
+    repos: Array.isArray(context?.repos) ? context.repos : [],
+  }
+}
+
 function repoHint(repos: InstallationRepo[]): string {
   const repoNames = repos.map((r) => r.fullName)
   return repoNames.length
@@ -247,7 +266,7 @@ function repoHint(repos: InstallationRepo[]): string {
 export const githubTools = {
   search_github: tool({
     description: ({ context }) =>
-      `Search the team's connected GitHub for pull requests and issues by keyword — use for "what PR changed X", "any issues about Y", recent work, or who worked on something. Returns matching PRs/issues with a ref (owner/repo#number), title, state, author, date, url, and a snippet. Reference a result with a Markdown link to its url. For the full body + discussion, call fetch_github with its ref.${repoHint(context.repos)}`,
+      `Search the team's connected GitHub for pull requests and issues by keyword — use for "what PR changed X", "any issues about Y", recent work, or who worked on something. Returns matching PRs/issues with a ref (owner/repo#number), title, state, author, date, url, and a snippet. Reference a result with a Markdown link to its url. For the full body + discussion, call fetch_github with its ref.${repoHint(boundGithubContext(context).repos)}`,
     inputSchema: z.object({
       query: z.string().describe("keywords to search for"),
       repo: z
@@ -265,7 +284,11 @@ export const githubTools = {
       onUsage: z.custom<OnUsage>().optional(),
     }),
     execute: async ({ query, repo, type, limit }, { context }) => {
-      const repoNames = context.repos.map((r) => r.fullName)
+      const bound = boundGithubContext(context)
+      if (!bound.installationId) {
+        return { error: "GitHub isn't available in this run" }
+      }
+      const repoNames = bound.repos.map((r) => r.fullName)
       const n = Math.floor(
         Math.min(Math.max(limit ?? SEARCH_DEFAULT, 1), SEARCH_MAX)
       )
@@ -338,23 +361,27 @@ export const githubTools = {
     }),
     contextSchema: githubContext,
     execute: async ({ ref, logs, check }, { context }) => {
+      const bound = boundGithubContext(context)
+      if (!bound.installationId) {
+        return { error: "GitHub isn't available in this run" }
+      }
       // Enforce the connected-repo list before fetching; an empty list is
       // usually a transient enumeration failure, so stay permissive like
       // resolveRepo does.
       const refRepo = (ref.split("#")[0] ?? "").trim().toLowerCase()
       if (
-        context.repos.length > 0 &&
-        !context.repos.some((r) => r.fullName.toLowerCase() === refRepo)
+        bound.repos.length > 0 &&
+        !bound.repos.some((r) => r.fullName.toLowerCase() === refRepo)
       ) {
         return {
           error: `"${ref}" isn't in a connected repository. Connected repos: ${repoListText(
-            context.repos.map((r) => r.fullName)
+            bound.repos.map((r) => r.fullName)
           )}`,
         }
       }
       if (logs || check) {
         const fetched = await fetchPullRequestCheckLogs(
-          context.installationId,
+          bound.installationId,
           ref,
           check
         )
@@ -362,7 +389,7 @@ export const githubTools = {
           return { error: "couldn't read that pull request's checks" }
         return fetched
       }
-      const fetched = await fetchIssueOrPr(context.installationId, ref)
+      const fetched = await fetchIssueOrPr(bound.installationId, ref)
       if (!fetched) return { error: "couldn't fetch that pull request/issue" }
       return fetched
     },

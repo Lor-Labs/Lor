@@ -78,15 +78,20 @@ export async function checkSessionLinks(
   workspaceId: string,
   content: string
 ): Promise<{ error: string } | null> {
-  const base = env.APP_BASE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const pattern = new RegExp(
-    `${base}/([\\w-]+)/session/([^/?#)\\s>\\]]+)`,
-    "gi"
+  // Parsed like the web chip (sessionFromUrl), so origins compare the same.
+  const origin = new URL(env.APP_BASE_URL).origin
+  const links = [...content.matchAll(/https?:\/\/[^\s<>()[\]"'`]+/gi)].flatMap(
+    (match) => {
+      try {
+        const url = new URL(match[0].replace(/[.,;:!?]+$/, ""))
+        const path = /^\/([\w-]+)\/session\/([^/]+)\/?$/.exec(url.pathname)
+        if (url.origin !== origin || !path) return []
+        return [{ slug: path[1] ?? "", id: (path[2] ?? "").toLowerCase() }]
+      } catch {
+        return []
+      }
+    }
   )
-  const links = [...content.matchAll(pattern)].map((match) => ({
-    slug: decodeURIComponent(match[1] ?? ""),
-    id: (match[2] ?? "").toLowerCase(),
-  }))
   if (links.length === 0) return null
   const [workspace] = await db
     .select({ slug: schema.workspace.slug })
