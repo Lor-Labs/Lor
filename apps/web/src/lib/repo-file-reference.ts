@@ -115,3 +115,22 @@ export function readRepoFileDrag(
     return null
   }
 }
+
+// A plain session link (no file or folder open), shown as an inline session
+// chip in chat (message-markdown.tsx).
+export function sessionFromUrl(
+  href: string
+): { workspaceSlug: string; sessionId: string } | null {
+  try {
+    const url = new URL(href)
+    if (url.origin !== new URL(webOrigin()).origin) return null
+    const match = /^\/([\w-]+)\/session\/([^/]+)\/?$/.exec(url.pathname)
+    const sessionId = match?.[2]
+    if (!match?.[1] || !sessionId || !z.uuid().safeParse(sessionId).success) {
+      return null
+    }
+    return { workspaceSlug: match[1], sessionId }
+  } catch {
+    return null
+  }
+}

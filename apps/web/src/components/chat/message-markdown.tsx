@@ -1,4 +1,8 @@
-import { File01Icon, Folder01Icon } from "@hugeicons/core-free-icons"
+import {
+  File01Icon,
+  Folder01Icon,
+  SourceCodeIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { LOR_USER_ID } from "@repo/db/constants"
 import { env } from "@repo/env/client"
@@ -6,12 +10,14 @@ import { MessageMarkdown as NexusMessageMarkdown } from "@repo/ui/components/nex
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { formatDateTime } from "@repo/utils/date"
+import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { memo, type ReactNode, useMemo, useState } from "react"
 import type { Components } from "streamdown"
 import { useChannelAgentsContext } from "@/components/agent/channel-agent"
 import { LinearIssueCard } from "@/components/chat/linear-issue-card"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
+import { agentSessionQueryOptions } from "@/hooks/use-agent-session"
 import { useCallCitation } from "@/hooks/use-call-citation"
 import { useMessageLocation } from "@/hooks/use-message-search-navigation"
 import { fileTabId } from "@/hooks/use-session-tabs"
@@ -22,7 +28,11 @@ import {
   type LinearIssueBlock,
   splitLinearIssues,
 } from "@/lib/linear-issue-block"
-import { repoFileFromUrl, repoFileLabel } from "@/lib/repo-file-reference"
+import {
+  repoFileFromUrl,
+  repoFileLabel,
+  sessionFromUrl,
+} from "@/lib/repo-file-reference"
 
 const USER_MENTION_TOKEN_REGEX =
   /<@([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})>/gi
@@ -79,6 +89,40 @@ function IconPlate({ children }: { children: ReactNode }) {
     <span className="mr-[5px] inline-flex size-4 items-center justify-center rounded-[4px] bg-muted align-[-0.22em] ring-1 ring-border ring-inset">
       {children}
     </span>
+  )
+}
+
+// A session link in a message (an agent's post, or one pasted), inline like a
+// mention: the session's current title, falling back to the link's text.
+function SessionChip({
+  workspaceSlug,
+  sessionId,
+  children,
+}: {
+  workspaceSlug: string
+  sessionId: string
+  children: ReactNode
+}) {
+  const { data } = useQuery({
+    ...agentSessionQueryOptions(sessionId),
+    retry: false,
+  })
+  const session = data?.session
+  const branch = session?.newBranch ?? session?.baseBranch
+  return (
+    <Link
+      to="/$workspaceSlug/session/$sessionId"
+      params={{ workspaceSlug, sessionId }}
+      title={
+        session?.repoFullName
+          ? `${session.repoFullName}${branch ? ` · ${branch}` : ""}`
+          : undefined
+      }
+      className="inline-flex max-w-full items-center gap-1 rounded bg-primary/10 px-1 py-0.5 align-baseline font-medium text-primary hover:bg-primary/20"
+    >
+      <HugeiconsIcon icon={SourceCodeIcon} className="size-3 shrink-0" />
+      <span className="truncate">{session?.title || children}</span>
+    </Link>
   )
 }
 
@@ -328,6 +372,10 @@ export const MessageMarkdown = memo(function MessageMarkdown({
               <span className="truncate">{repoFileLabel(reference)}</span>
             </Link>
           )
+        }
+        const session = href ? sessionFromUrl(href) : null
+        if (session) {
+          return <SessionChip {...session}>{children}</SessionChip>
         }
         return (
           <a
