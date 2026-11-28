@@ -962,20 +962,29 @@ export function createLorRespondProcessor(
               channelId,
               userId: triggerUserId,
             }
-            // Whether a person wrote the message this turn answers (not an
-            // agent's brief, a Loop or an event).
-            const personSent = async () =>
-              Boolean(
-                triggerUserId &&
-                  triggerUserId !== LOR_USER_ID &&
-                  !automated &&
-                  (await db
-                    .select({ isBot: schema.user.isBot })
-                    .from(schema.user)
-                    .where(eq(schema.user.id, triggerUserId))
-                    .then((rows) => rows[0]?.isBot === false)
-                    .catch(() => false))
-              )
+            // Who wrote the message this turn answers: a person, not a
+            // person (an agent's brief, a Loop, an event), or unknown when
+            // the lookup fails. Unknown never widens tools.
+            let senderKind: Promise<"person" | "other" | "unknown"> | null =
+              null
+            const sender = () => {
+              senderKind ??=
+                !triggerUserId || triggerUserId === LOR_USER_ID || automated
+                  ? Promise.resolve("other" as const)
+                  : db
+                      .select({ isBot: schema.user.isBot })
+                      .from(schema.user)
+                      .where(eq(schema.user.id, triggerUserId))
+                      .then((rows) =>
+                        rows[0] === undefined
+                          ? ("unknown" as const)
+                          : rows[0].isBot
+                            ? ("other" as const)
+                            : ("person" as const)
+                      )
+                      .catch(() => "unknown" as const)
+              return senderKind
+            }
             const previousRun =
               continueOnly && harnessState?.lastRunId
                 ? await db
@@ -1327,7 +1336,7 @@ export function createLorRespondProcessor(
                 // Read-only only for the agent's own turns: a person writing
                 // in an agent's session gets full tools, like a session they
                 // start (the tool change busts the prompt cache; rare).
-                ...(session.origin === "agent" && !(await personSent())
+                ...(session.origin === "agent" && (await sender()) !== "person"
                   ? {
                       helper: true,
                       // From before conversations: the chat's first agent.
@@ -1336,8 +1345,9 @@ export function createLorRespondProcessor(
                         (await channelAgentId(channelId)),
                     }
                   : // An Act session works as the chat's first agent, with
-                    // its tools (as its repo check, allowedCodeRepo).
-                    session.origin === "trigger" && !(await personSent())
+                    // its tools (as its repo check, allowedCodeRepo); a
+                    // person's or an unknown sender's turn, the default.
+                    session.origin === "trigger" && (await sender()) === "other"
                     ? { toolAgentId: await channelAgentId(channelId) }
                     : {}),
                 ...(threadRootId ? { threadRootId } : {}),

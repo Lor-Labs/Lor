@@ -403,6 +403,18 @@ whose provider or model can't be used tells the person why
     and turn on the Message Content intent. Not yet run live: Discord on a
     real server, the mobile app on a phone, the plan-limit refusal.
 
+11. **Remove Act sessions** (Jacob, 11-27): since 11-19 a listener on a chat
+    wakes its agent, which starts code sessions itself; an event still opens
+    an Act session only for a listener on a channel that is not a text chat
+    (`apps/api/src/lib/connector-triggers.ts`), which means voice channels,
+    hidden behind their flag. Once voice listeners are known not to need
+    them, delete the session modes (`connector_trigger.act_session_mode`),
+    the code-repo option on listeners (`act_repo_full_name`,
+    `act_base_branch`), Act runs and their batching window
+    (`apps/api/src/lib/act-runs.ts`, `act-target.ts`,
+    `apps/worker/src/lib/trigger-session.ts`) and the listener UI for them;
+    `reference/act-sessions-runbook.md` then goes to the archive.
+
 Accepted as they are (Jacob, 11-27): a turn about no chat shows nowhere
 while it runs and can't be stopped from the app; the API's errors and what
 agents are told still say "channel" in places.
