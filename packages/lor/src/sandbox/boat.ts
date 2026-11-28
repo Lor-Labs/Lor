@@ -39,6 +39,11 @@ const RUN_TIMEOUT_SEC = 1800
 const WAIT_START_MS = 50
 const WAIT_MAX_MS = 1000
 const LOG_POLL_MS = 500
+// Boat's inline file API takes a file up to 5 MiB after decoding; a bigger
+// body answers `413 file_too_large` (docs.boat.dev/limits, checked
+// 2026-11-28). A larger file is written in parts that one command assembles,
+// so a saved conversation log past the limit still lands.
+const INLINE_WRITE_BYTES = 4 * 1024 * 1024
 // States Boat keeps but that never run again.
 const DEAD_STATES = new Set(["error", "cancelled"])
 // Stopped: the disk is kept and resume brings it back.
@@ -100,6 +105,45 @@ async function boatRequestError(err: unknown): Promise<unknown> {
 export function boatStatus(err: unknown): number | undefined {
   if (err instanceof BoatRequestError) return err.status
   return err instanceof ResponseError ? err.response.status : undefined
+}
+
+// Boat answers a stopped sandbox (no machine) and a sandbox in a state that
+// cannot run commands with a 409 whose code is one of these. A 404 is a
+// sandbox Boat no longer has at all. None is retryable in place: the next
+// open re-resolves the sandbox by name and re-provisions when it is gone.
+const UNAVAILABLE_BOAT_CODES = new Set([
+  "machine_not_running",
+  "sandbox_not_ready",
+])
+
+// A Boat sandbox that can no longer serve the turn, rather than the request
+// itself being wrong. The turn fails once with this and its Boat status and
+// code, so the log and the person see the cause instead of the SDK's
+// "Response returned an error code"; the cached sandbox is forgotten so the
+// next open does not reuse it.
+export class SandboxUnavailableError extends Error {
+  constructor(
+    readonly sandbox: string,
+    readonly status: number,
+    readonly code: string | null,
+    cause: unknown
+  ) {
+    super(
+      `Sandbox ${sandbox} is unavailable (Boat ${status}${code ? ` ${code}` : ""})`,
+      { cause }
+    )
+    this.name = "SandboxUnavailableError"
+  }
+}
+
+function boatSandboxUnavailable(err: unknown): err is BoatRequestError {
+  if (!(err instanceof BoatRequestError)) return false
+  return (
+    err.status === 404 ||
+    (err.status === 409 &&
+      err.code !== null &&
+      UNAVAILABLE_BOAT_CODES.has(err.code))
+  )
 }
 
 export type BoatSandbox = { id: string; name: string; memoryGb: number }
@@ -358,6 +402,118 @@ export async function hostBoatPort(
     : { url: base }
 }
 
+// Boat's "this sandbox, not your request, is the problem" answers: a 404
+// (Boat no longer has it) or a 409 that means it has no machine or a state
+// that cannot run. That becomes SandboxUnavailableError with the cached id
+// dropped, so the next open re-resolves by name; every other failure keeps
+// Boat's status and code (BoatRequestError).
+async function boatSandboxError(
+  sandbox: BoatSandbox,
+  err: unknown
+): Promise<unknown> {
+  const wrapped = await boatRequestError(err)
+  if (boatSandboxUnavailable(wrapped)) {
+    ids.delete(sandbox.name)
+    return new SandboxUnavailableError(
+      sandbox.name,
+      wrapped.status,
+      wrapped.code,
+      wrapped
+    )
+  }
+  return wrapped
+}
+
+// One inline file write. The SDK's own error says only "Response returned an
+// error code", so a failure is wrapped with Boat's status and code and a VM
+// that is still starting is retried like a command.
+async function writeBoatFile(
+  sandbox: BoatSandbox,
+  path: string,
+  bytes: Uint8Array,
+  abortSignal?: AbortSignal
+): Promise<void> {
+  await whileSandboxStarts(
+    () =>
+      boat()
+        .writeFile({
+          sandboxId: sandbox.id,
+          fileWriteRequest: {
+            path,
+            content: Buffer.from(bytes).toString("base64"),
+            encoding: "base64",
+          },
+        })
+        .catch(async (err: unknown) => {
+          throw await boatSandboxError(sandbox, err)
+        }),
+    {
+      retry: (err: unknown) =>
+        err instanceof BoatRequestError && err.code === "boat_starting",
+      ...(abortSignal ? { abortSignal } : {}),
+    }
+  )
+}
+
+// Boat's file API overwrites, it does not append: a file larger than one
+// inline write goes up in parts, which a single command concatenates onto
+// `target` (and removes). `staging` is the path under /tmp the parts share.
+async function writeBoatParts(
+  sandbox: BoatSandbox,
+  staging: string,
+  target: string,
+  bytes: Uint8Array,
+  abortSignal?: AbortSignal
+): Promise<void> {
+  const parts: { path: string; content: Uint8Array }[] = []
+  for (
+    let offset = 0;
+    offset < bytes.byteLength;
+    offset += INLINE_WRITE_BYTES
+  ) {
+    parts.push({
+      path:
+        bytes.byteLength <= INLINE_WRITE_BYTES
+          ? staging
+          : `${staging}.part${parts.length}`,
+      content: bytes.subarray(offset, offset + INLINE_WRITE_BYTES),
+    })
+  }
+  const written: string[] = []
+  try {
+    for (const part of parts) {
+      await writeBoatFile(sandbox, part.path, part.content, abortSignal)
+      written.push(part.path)
+    }
+    const quoted = parts.map((part) => shellQuote(part.path)).join(" ")
+    // The assembly is a command, so a sandbox Boat no longer serves fails it
+    // the same way a write does; on success it removes the parts.
+    const moved = await boatExec(sandbox, {
+      label: "io-write",
+      command: `mkdir -p ${shellQuote(posix.dirname(target))} && cat ${quoted} > ${shellQuote(target)}; code=$?; rm -f ${quoted}; exit $code`,
+      timeoutSec: 60,
+      ...(abortSignal ? { abortSignal } : {}),
+    }).catch(async (err: unknown) => {
+      throw await boatSandboxError(sandbox, err)
+    })
+    if (moved.exitCode !== 0) {
+      throw new Error(`Writing ${target} failed: ${moved.stderr.trim()}`)
+    }
+  } catch (err) {
+    // A later part, or the assembly, can fail after earlier parts landed:
+    // drop them so a failed write does not leave them in the sandbox's /tmp.
+    // Best-effort - the write's own error is what surfaces.
+    if (written.length > 0) {
+      await boatExec(sandbox, {
+        label: "io-write-cleanup",
+        command: `rm -f ${written.map((path) => shellQuote(path)).join(" ")}`,
+        timeoutSec: 30,
+      }).catch(() => {})
+    }
+    throw err
+  }
+}
+
 // Commands. Boat runs a command line with no env or name: the script sets
 // the env and carries a marker naming it. Env values the caller passes
 // (a harness turn's credential among them) go through a file the script
@@ -372,14 +528,7 @@ async function writeEnvFile(
   const content = entries
     .map(([key, value]) => `export ${key}=${shellQuote(value)}`)
     .join("\n")
-  await boat().writeFile({
-    sandboxId: sandbox.id,
-    fileWriteRequest: {
-      path,
-      content: Buffer.from(content).toString("base64"),
-      encoding: "base64",
-    },
-  })
+  await writeBoatFile(sandbox, path, new TextEncoder().encode(content))
   return path
 }
 
@@ -560,24 +709,7 @@ export function boatSandboxSession(
   // `cat >` keeps an existing file's mode (a script stays executable).
   const writeBytes = async (path: string, bytes: Uint8Array): Promise<void> => {
     await access()
-    const copy = staging()
-    await boat().writeFile({
-      sandboxId: sandbox.id,
-      fileWriteRequest: {
-        path: copy,
-        content: Buffer.from(bytes).toString("base64"),
-        encoding: "base64",
-      },
-    })
-    const target = shellQuote(path)
-    const moved = await boatExec(sandbox, {
-      label: "io-write",
-      command: `mkdir -p ${shellQuote(posix.dirname(path))} && cat ${copy} > ${target}; code=$?; rm -f ${copy}; exit $code`,
-      timeoutSec: 60,
-    })
-    if (moved.exitCode !== 0) {
-      throw new Error(`Writing ${path} failed: ${moved.stderr.trim()}`)
-    }
+    await writeBoatParts(sandbox, staging(), path, bytes)
   }
 
   const run: SandboxSession["run"] = async ({
