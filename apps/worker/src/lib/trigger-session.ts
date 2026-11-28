@@ -28,6 +28,10 @@ import {
 } from "@repo/lor/act-runs"
 import { createSession, toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import { allowedCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
+import {
+  type CodeSessionRoute,
+  resolveCodeSessionPayer,
+} from "@repo/lor/code-session-payer"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   ACT_FLUSH_JOB,
@@ -107,10 +111,27 @@ export async function startActSession(
       ? [input.connectedById]
       : []
   const sessionId = randomUUID()
-  const code = input.code ? await actCodeStart(input, sessionId) : null
-  const settings = await getHarnessSettings({
-    agentId: await channelAgentId(input.channelId),
-  })
+  const agentId = await channelAgentId(input.channelId)
+  let code = input.code ? await actCodeStart(input, sessionId) : null
+  // A code session is automation: the agent's Runs policy or Lor credits pay,
+  // never a person's plan, and never Pi. Nothing can pay: a chat session
+  // whose event says why, so the event is not lost.
+  let payer: CodeSessionRoute | null = null
+  if (code?.code) {
+    payer = await resolveCodeSessionPayer({
+      workspaceId: input.workspaceId,
+      agentId,
+      requestUserId: null,
+    }).catch((err: unknown) => {
+      logger.warn({ err, runId: input.runId }, "Act code session payer failed")
+      code = {
+        note: `Note: this automation is set to start code sessions on ${input.code?.repoFullName}, but none can start: ${err instanceof Error ? err.message : "no payer is set up"} This session cannot change code.`,
+      }
+      return null
+    })
+  }
+  const harness =
+    payer?.harness ?? (await getHarnessSettings({ agentId })).defaultHarness
   const session = await db.transaction((tx) =>
     createSession(tx, {
       id: sessionId,
@@ -119,7 +140,7 @@ export async function startActSession(
       authorId: LOR_USER_ID,
       creatorId: null,
       origin: "trigger",
-      harness: settings.defaultHarness,
+      harness,
       title: input.label,
       triggerId: input.triggerId,
       triggerSubject: subject,
@@ -131,12 +152,12 @@ export async function startActSession(
     .to(channelRoom(input.channelId))
     .emit("session:updated", { session: toRealtimeAgentSession(session) })
   notifyWorkspaceActivity(input.workspaceId)
+  const note = code?.note
   return runEventInSession(
     deps,
-    code?.note
-      ? { ...input, payload: `${code.note}\n\n${input.payload}` }
-      : input,
-    session
+    note ? { ...input, payload: `${note}\n\n${input.payload}` } : input,
+    session,
+    payer?.route
   )
 }
 
@@ -176,7 +197,8 @@ async function actCodeStart(
 async function runEventInSession(
   deps: ActSessionDeps,
   input: ActSessionInput,
-  session: AgentSession
+  session: AgentSession,
+  harnessAccount?: CodeSessionRoute["route"]
 ): Promise<"started" | "waiting" | "failed"> {
   const [deliveries, total] = await Promise.all([
     db
@@ -230,6 +252,7 @@ async function runEventInSession(
       scopeKey: session.threadRootId,
       triggerMessageId: eventId,
       queuedRunId: input.runId,
+      ...(harnessAccount ? { harnessAccount } : {}),
     },
     {
       // The unwind deletes the run; its deliveries go back to the queue.

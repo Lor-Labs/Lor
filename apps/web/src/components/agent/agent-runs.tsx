@@ -33,6 +33,10 @@ import {
 import { saveAgent } from "@/lib/agent-api"
 
 type Settings = NonNullable<Data["settings"]>
+// A saved "pi" still reads back; only Claude Code or Codex can be saved.
+type SettingsPatch = Partial<Omit<Settings, "defaultHarness">> & {
+  defaultHarness?: "claude_code" | "codex"
+}
 type Provider = "claude" | "chatgpt"
 const providers = ["claude", "chatgpt"] as const
 const names = { claude: "Claude Code", chatgpt: "Codex" }
@@ -75,7 +79,7 @@ export function AgentRuns({
     void client.invalidateQueries({ queryKey: ["agent-models"] })
   }
   const saveSettings = useMutation({
-    mutationFn: async (json: Partial<Settings>) => {
+    mutationFn: async (json: SettingsPatch) => {
       const res = await endpoint.autonomous.$put({
         param: { workspaceSlug },
         query: { agentId: agent.id },
@@ -116,7 +120,7 @@ export function AgentRuns({
     )
   const data = query.data
   const settings = data.settings
-  const update = (patch: Partial<Settings>) => {
+  const update = (patch: SettingsPatch) => {
     if (settings) saveSettings.mutate(patch)
   }
   const remove = async (provider: Provider, accountId: string) => {
@@ -154,17 +158,20 @@ export function AgentRuns({
       {data.canManage && settings && (
         <SettingsSection
           title="Code sessions"
-          description={`When someone asks ${agent.name} for code work, the session runs on their own Claude or ChatGPT plan. This covers the sessions ${agent.name} starts with nobody asking, and people with no plan linked.`}
+          description={`When someone asks ${agent.name} for code work, the session runs on their own Claude or ChatGPT plan. These settings cover the sessions ${agent.name} starts with nobody asking, and people with no plan linked; with no subscription or workspace key set below, they run on Lor credits.`}
         >
           <SettingsGroup>
             <div className="space-y-2 py-4">
               <p className="text-sm font-medium">Coding agent</p>
               <Choice
                 label="Coding agent"
-                value={settings.defaultHarness}
+                value={
+                  settings.defaultHarness === "pi"
+                    ? "claude_code"
+                    : settings.defaultHarness
+                }
                 disabled={saveSettings.isPending}
                 options={[
-                  { value: "pi", label: "Lor · the model above, on credits" },
                   ...(features.claudeCodeHarness
                     ? [{ value: "claude_code", label: "Claude Code" }]
                     : []),
@@ -174,7 +181,7 @@ export function AgentRuns({
                 ]}
                 onChange={(value) =>
                   update({
-                    defaultHarness: value as Settings["defaultHarness"],
+                    defaultHarness: value as "claude_code" | "codex",
                   })
                 }
               />
