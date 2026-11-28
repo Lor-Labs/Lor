@@ -42,6 +42,9 @@ const CREDITS_EMPTY =
 const PERSONAL_ONLY =
   "This code session must run on the asker's own plan, and they have no Claude Code or Codex account linked. Tell them to link one in Lor's Settings → Linked accounts, then ask again."
 
+const PERSONAL_OPTED_OUT =
+  "This code session must run on the asker's own plan, and their Settings → Linked accounts say requests in this workspace use Lor's API billing instead. Tell them to pick Claude Code, Codex or Automatic there, then ask again."
+
 export class CodeSessionUnavailableError extends Error {
   constructor(message: string) {
     super(message)
@@ -80,11 +83,11 @@ async function requesterRoute(
   workspaceId: string,
   userId: string,
   wanted: CodeSessionHarness | undefined
-): Promise<CodeSessionRoute | null> {
+): Promise<CodeSessionRoute | "opted_out" | null> {
   const personal = await getPersonalHarnessSettings(workspaceId, userId)
   // "pi" in personal settings: the person chose not to spend their plan,
   // even when a coding agent is picked explicitly.
-  if (personal.defaultHarness === "pi") return null
+  if (personal.defaultHarness === "pi") return "opted_out"
   for (const harness of harnessOrder(wanted, personal.defaultHarness)) {
     const provider = providerOf(harness)
     if (!(await hasPersonalAccount(userId, provider))) continue
@@ -118,11 +121,14 @@ export async function resolveCodeSessionPayer(args: {
         : CODE_SESSIONS_UNCONFIGURED
     )
 
-  if (requestUserId) {
-    const own = await requesterRoute(workspaceId, requestUserId, wanted)
-    if (own) return own
-  }
-  if (args.personalOnly) throw new CodeSessionUnavailableError(PERSONAL_ONLY)
+  const own = requestUserId
+    ? await requesterRoute(workspaceId, requestUserId, wanted)
+    : null
+  if (own && own !== "opted_out") return own
+  if (args.personalOnly)
+    throw new CodeSessionUnavailableError(
+      own === "opted_out" ? PERSONAL_OPTED_OUT : PERSONAL_ONLY
+    )
 
   const settings = await getHarnessSettings({ agentId })
   const order = harnessOrder(wanted, settings.defaultHarness)

@@ -48,6 +48,7 @@ import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
 import { postLorMessage } from "@/lib/lor-messages"
 import { startScopeRun } from "@/lib/run-queue"
+import { cancelPendingRun } from "@/lib/unattended-run"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 type ActSessionDeps = {
@@ -113,20 +114,34 @@ export async function startActSession(
         session
       )
     }
+    if (!isCodeSessionHarness(session.harness))
+      return runEventInSession(deps, input, session)
     // Each event's payer is resolved again, so it can fall to Lor credits
-    // when the agent's accounts can't pay.
-    const payer = isCodeSessionHarness(session.harness)
-      ? await resolveCodeSessionPayer({
-          workspaceId: input.workspaceId,
-          agentId: await channelAgentId(input.channelId),
-          requestUserId: null,
-          wanted: session.harness,
-        }).catch((err: unknown) => {
-          logger.warn({ err, runId: input.runId }, "Act session payer failed")
-          return null
-        })
-      : null
-    return runEventInSession(deps, input, session, payer?.route)
+    // when the agent's accounts can't pay. Nothing can pay: the event stops
+    // here with the setup guidance in the session, and is not retried.
+    try {
+      const payer = await resolveCodeSessionPayer({
+        workspaceId: input.workspaceId,
+        agentId: await channelAgentId(input.channelId),
+        requestUserId: null,
+        wanted: session.harness,
+      })
+      return runEventInSession(deps, input, session, payer.route)
+    } catch (err) {
+      logger.warn({ err, runId: input.runId }, "Act session payer failed")
+      await cancelPendingRun(input.runId)
+      await postLorMessage(deps, {
+        channelId: input.channelId,
+        threadRootId: session.threadRootId,
+        content: `An event from "${input.label}" did not run: ${err instanceof Error ? err.message : "nothing can pay for this code session."}`,
+      }).catch((postErr: unknown) =>
+        logger.warn(
+          { err: postErr, runId: input.runId },
+          "Act payer notice failed"
+        )
+      )
+      return "failed"
+    }
   }
 
   const audience = input.connectedById
