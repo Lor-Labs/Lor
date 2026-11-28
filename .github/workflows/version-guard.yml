@@ -38,11 +38,12 @@ jobs:
           set -euo pipefail
           conf="apps/desktop/src-tauri/tauri.conf.json"
 
-          # Paths that do NOT ship in the desktop bundle (backend apps, server-only
+          # Paths that do NOT ship in the desktop bundle (backend apps, the mobile
+          # app, which releases on its own through release-mobile.yml, server-only
           # packages, docs, CI). A PR touching only these needs no desktop release.
           # Everything else — apps/web, apps/desktop, packages/ui, shared frontend
           # packages, root config — requires a version bump. Edit as the repo grows.
-          safe_re='^(apps/(api|realtime|worker|www)|packages/(lor|db|auth)|reference|\.github)/|\.md$'
+          safe_re='^(apps/(api|mobile|realtime|worker|www)|packages/(lor|db|auth)|reference|\.github)/|\.md$'
 
           changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
           remaining="$(printf '%s\n' "$changed" | grep -Ev "$safe_re" || true)"
