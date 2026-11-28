@@ -210,6 +210,65 @@ async function hintNoAgentHere(event: DiscordMessageEvent, botUserId: string) {
   })
 }
 
+// Discord roles are the whole server's, so every agent's @role can be
+// mentioned in every channel. In a place, a mention of an agent that isn't
+// in it says so, at most once per agent and channel every 10 minutes, with
+// a button to add it (the hint's own id lets the button say who joined).
+async function hintAgentsElsewhere(
+  event: DiscordMessageEvent,
+  agentIds: string[]
+) {
+  if (event.author.bot || event.webhook_id) return
+  const redis = await getRedisClient()
+  const fresh: string[] = []
+  for (const agentId of agentIds.slice(0, 5)) {
+    const first = await redis.set(
+      `discord:agent-elsewhere:${event.channel_id}:${agentId}`,
+      "1",
+      { NX: true, EX: NO_AGENT_HINT_S }
+    )
+    if (first === "OK") fresh.push(agentId)
+  }
+  if (fresh.length === 0) return
+  const agents = await db
+    .select({ id: schema.agent.id, name: schema.agent.name })
+    .from(schema.agent)
+    .where(inArray(schema.agent.id, fresh))
+  if (agents.length === 0) return
+  const names = agents.map((agent) => agent.name)
+  const who =
+    names.length === 1
+      ? `${names[0]} isn't`
+      : `${names.slice(0, -1).join(", ")} and ${names.at(-1)} aren't`
+  const hint = await discordRequest<{ id: string }>(
+    `/channels/${event.channel_id}/messages`,
+    {
+      method: "POST",
+      body: {
+        content: `${who} in this channel, so ${names.length === 1 ? "it" : "they"} won't see this. Discord lets everyone mention every agent's role in every channel, but an agent only reads the channels it was added to.`,
+        message_reference: { message_id: event.id, fail_if_not_exists: false },
+        allowed_mentions: { parse: [] },
+      },
+    }
+  )
+  await discordRequest(`/channels/${event.channel_id}/messages/${hint.id}`, {
+    method: "PATCH",
+    body: {
+      components: [
+        {
+          type: 1,
+          components: agents.map((agent) => ({
+            type: 2,
+            style: 2,
+            label: `Add ${agent.name} here`.slice(0, 80),
+            custom_id: `lor-add:agent:${agent.id}:${hint.id}`,
+          })),
+        },
+      ],
+    },
+  })
+}
+
 // A message someone wrote in a place's Discord channel, kept in the place
 // and delivered to the inboxes of the agents in it like a chat message
 // (reference/always-on-agents.md §10; reference/agents-and-chats.md,
@@ -327,12 +386,8 @@ async function mirrorInto(
     (await userCanAccessChannel(link.channelId, linkedAuthor))
       ? linkedAuthor
       : null
-  const text = fromDiscordContent(
-    event,
-    botUserId,
-    await agentRolesIn(link.guildId),
-    lorIds
-  )
+  const agentRoles = await agentRolesIn(link.guildId)
+  const text = fromDiscordContent(event, botUserId, agentRoles, lorIds)
   // Its files are copied into Lor; one that can't be is linked instead.
   const files = event.attachments?.length
     ? await copyDiscordFiles(link.channelId, event.attachments)
@@ -547,6 +602,21 @@ async function mirrorInto(
     .then((rows) => rows.map((row) => row.agentId))
   const first = placed[0]
   if (!first) return
+  // An agent named by its role but not in this channel is told about,
+  // with a button to add it; the message still reaches the agents here.
+  const absent = [
+    ...new Set(
+      (event.mention_roles ?? []).flatMap((roleId) => {
+        const agentId = agentRoles.get(roleId)
+        return agentId && !placed.includes(agentId) ? [agentId] : []
+      })
+    ),
+  ]
+  if (absent.length > 0) {
+    void hintAgentsElsewhere(event, absent).catch((err) =>
+      logger.warn({ err, discordMessageId: event.id }, "Discord hint failed")
+    )
+  }
   const named = new Set(placed.filter((id) => content.includes(`<@${id}>`)))
   if (content.includes(`<@${LOR_USER_ID}>`)) named.add(first)
   const repliedTo = event.referenced_message?.webhook_id
