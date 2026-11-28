@@ -491,3 +491,41 @@ export async function syncPlaceFromDiscord(channel: {
   }
   emitAgentsUpdated(link.workspaceId)
 }
+
+// Catches up place names on each gateway connect (GUILD_CREATE lists the
+// server's channels), for renames made while the bot was not listening.
+export async function syncPlaceNamesFromGuild(
+  guildId: string,
+  channels: Array<{ id: string; name?: string }>
+) {
+  const links = await db
+    .select({
+      channelId: schema.channelDiscordLink.channelId,
+      workspaceId: schema.channelDiscordLink.workspaceId,
+      discordChannelId: schema.channelDiscordLink.discordChannelId,
+      linkName: schema.channelDiscordLink.discordChannelName,
+      name: schema.channel.name,
+    })
+    .from(schema.channelDiscordLink)
+    .innerJoin(
+      schema.channel,
+      eq(schema.channel.id, schema.channelDiscordLink.channelId)
+    )
+    .where(eq(schema.channelDiscordLink.guildId, guildId))
+  const names = new Map(channels.map((ch) => [ch.id, ch.name]))
+  const changed = new Set<string>()
+  for (const link of links) {
+    const name = names.get(link.discordChannelId)
+    if (!name || (name === link.name && name === link.linkName)) continue
+    await db
+      .update(schema.channel)
+      .set({ name })
+      .where(eq(schema.channel.id, link.channelId))
+    await db
+      .update(schema.channelDiscordLink)
+      .set({ discordChannelName: name })
+      .where(eq(schema.channelDiscordLink.channelId, link.channelId))
+    changed.add(link.workspaceId)
+  }
+  for (const workspaceId of changed) emitAgentsUpdated(workspaceId)
+}

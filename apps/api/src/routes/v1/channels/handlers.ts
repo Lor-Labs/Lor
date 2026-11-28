@@ -168,6 +168,7 @@ export const listChannels: AppRouteHandler<ListChannelsRoute> = async (c) => {
 
 // Rolls a channel create back when its picked agents can't be placed.
 class AgentsNotPlaced extends Error {}
+class PlaceRename extends Error {}
 
 export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
   const workspace = c.var.workspace
@@ -628,6 +629,14 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
         .for("update")
         .then((rows) => rows[0])
       if (!prior) return null
+      // A place's name is its Discord channel's, kept in sync from Discord.
+      if (
+        prior.kind === "place" &&
+        fields.name !== undefined &&
+        fields.name !== prior.name
+      ) {
+        throw new PlaceRename()
+      }
       const updated = Object.values(fields).some((field) => field !== undefined)
         ? await tx
             .update(channel)
@@ -662,10 +671,18 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
       return { prior, updated, placed }
     })
     .catch((err: unknown) => {
-      if (err instanceof AgentsNotPlaced) return err
+      if (err instanceof AgentsNotPlaced || err instanceof PlaceRename) {
+        return err
+      }
       throw err
     })
 
+  if (result instanceof PlaceRename) {
+    return c.json(
+      { success: false, message: "Rename this channel in Discord" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
   if (result instanceof AgentsNotPlaced) {
     return c.json(
       {
