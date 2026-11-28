@@ -82,8 +82,9 @@ async function requesterRoute(
   wanted: CodeSessionHarness | undefined
 ): Promise<CodeSessionRoute | null> {
   const personal = await getPersonalHarnessSettings(workspaceId, userId)
-  // "pi" in personal settings: the person chose not to spend their plan.
-  if (!wanted && personal.defaultHarness === "pi") return null
+  // "pi" in personal settings: the person chose not to spend their plan,
+  // even when a coding agent is picked explicitly.
+  if (personal.defaultHarness === "pi") return null
   for (const harness of harnessOrder(wanted, personal.defaultHarness)) {
     const provider = providerOf(harness)
     if (!(await hasPersonalAccount(userId, provider))) continue
@@ -138,7 +139,7 @@ export async function resolveCodeSessionPayer(args: {
     if (useSubscriptions && agentId) {
       try {
         const route = await resolveHarnessAccount(scope, provider)
-        return { harness, route, payer: "agent_subscription" }
+        return { harness, route, payer: payerOfRoute(route) }
       } catch (err) {
         if (err instanceof HarnessAccountLimitError) throw err
         // No account selected or connected: try the next payer.

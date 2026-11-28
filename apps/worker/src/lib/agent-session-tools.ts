@@ -186,7 +186,9 @@ async function sessionOptions(
   const codingAgents = await Promise.all(
     CODE_SESSION_HARNESSES.filter(isHarnessEnabled).map(async (harness) => {
       try {
-        const resolved = await resolve(harness)
+        // The default entry is what leaving `harness` out starts on.
+        const resolved =
+          harness === fallback.harness ? fallback : await resolve(harness)
         const catalog = await sessionModelCatalog(
           harness,
           resolved.route,

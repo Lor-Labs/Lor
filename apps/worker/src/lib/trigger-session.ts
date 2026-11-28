@@ -40,6 +40,7 @@ import {
   type TriggeredRunJobData,
 } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
+import { isCodeSessionHarness } from "@repo/utils/features"
 import { lorBranchName } from "@repo/utils/github"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
@@ -100,7 +101,32 @@ export async function startActSession(
       .to(channelRoom(input.channelId))
       .emit("session:updated", { session: toRealtimeAgentSession(session) })
     notifyWorkspaceActivity(input.workspaceId)
-    return runEventInSession(deps, input, session)
+    if (input.code && !session.repoFullName) {
+      // A chat session made when no code session could start: each event
+      // says so again, since a retried first event loses its note.
+      return runEventInSession(
+        deps,
+        {
+          ...input,
+          payload: `Note: this automation is set to start code sessions on ${input.code.repoFullName}, but this session has no repository, so it cannot change code.\n\n${input.payload}`,
+        },
+        session
+      )
+    }
+    // Each event's payer is resolved again, so it can fall to Lor credits
+    // when the agent's accounts can't pay.
+    const payer = isCodeSessionHarness(session.harness)
+      ? await resolveCodeSessionPayer({
+          workspaceId: input.workspaceId,
+          agentId: await channelAgentId(input.channelId),
+          requestUserId: null,
+          wanted: session.harness,
+        }).catch((err: unknown) => {
+          logger.warn({ err, runId: input.runId }, "Act session payer failed")
+          return null
+        })
+      : null
+    return runEventInSession(deps, input, session, payer?.route)
   }
 
   const audience = input.connectedById
