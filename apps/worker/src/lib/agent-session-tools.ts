@@ -17,13 +17,10 @@ import {
 import { sessionStartedByAgent } from "@repo/db/queries/agent-conversations"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import {
-  getHarnessSettings,
   HarnessAccountLimitError,
-  hasOwnRequestRoute,
   PLAN_LIMIT_AGENT_HINT,
-  personalRequestHarness,
-  resolveHarnessAccount,
 } from "@repo/db/queries/personal-accounts"
+import type { HarnessAccountRoute } from "@repo/db/schema"
 import { createSession, toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import {
   type AgentSessionTools,
@@ -31,6 +28,12 @@ import {
   type SessionPicks,
 } from "@repo/lor/channel-agent"
 import { allowedCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
+import {
+  type CodeSessionRoute,
+  HARNESS_LABELS,
+  PAYER_LABELS,
+  resolveCodeSessionPayer,
+} from "@repo/lor/code-session-payer"
 import {
   CODE_SANDBOX_MEMORY_OPTIONS_MB,
   environmentForRepo,
@@ -55,7 +58,11 @@ import {
   type LorRespondJobData,
 } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
-import { isHarnessEnabled } from "@repo/utils/features"
+import {
+  CODE_SESSION_HARNESSES,
+  isCodeSessionHarness,
+  isHarnessEnabled,
+} from "@repo/utils/features"
 import { isValidNewBranchName, lorBranchName } from "@repo/utils/github"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
@@ -150,72 +157,53 @@ async function activeRun(threadRootId: string) {
   return run ?? null
 }
 
-type TaskRoute = Awaited<ReturnType<typeof resolveHarnessAccount>> | undefined
+type TaskRoute = HarnessAccountRoute | undefined
 
-// The requester's own account, else the accounts of the agent in the
-// channel. Throws when neither has one that can be used.
-async function taskRoute(
-  workspaceId: string,
-  // The agent whose own settings pay when nobody's plan does: the one that
-  // starts the session, not the chat's first.
-  agentId: string,
-  harness: "pi" | "claude_code" | "codex",
-  requestUserId: string | null
-): Promise<TaskRoute> {
-  return harness === "pi"
-    ? undefined
-    : await resolveHarnessAccount(
-        {
-          workspaceId,
-          userId: requestUserId,
-          agentId: requestUserId ? null : agentId,
-        },
-        harness === "claude_code" ? "claude" : "chatgpt"
-      )
-}
-
-const CODING_AGENTS = ["claude_code", "codex"] as const
-const PAYER_TEXT = {
-  asker: "the plan of the person who asked",
-  agent: "your workspace account",
-  api: "API billing on Lor credits or the workspace's key",
-} as const
-const payerOf = (route: TaskRoute) =>
-  !route || route.source === "api"
-    ? PAYER_TEXT.api
-    : route.userId
-      ? PAYER_TEXT.asker
-      : PAYER_TEXT.agent
+const runsOnText = (resolved: CodeSessionRoute) =>
+  `${HARNESS_LABELS[resolved.harness]}, paid by ${PAYER_LABELS[resolved.payer]}`
 
 // What an agent can pick when it starts a session: each coding agent with
-// its models for whoever pays (or why it can't run), the environments and
-// the sandbox sizes. The same choices a person has on New session.
+// its models for whoever would pay (or why it can't run), which one is the
+// default, the environments and the sandbox sizes. The same resolver picks
+// the payer when the session starts, so the listing never promises a route
+// that silently falls back.
 async function sessionOptions(
   workspaceId: string,
   agentId: string,
   requestUserId: string | null,
-  defaultHarness: string
+  personalOnly: boolean
 ) {
+  const resolve = (wanted?: (typeof CODE_SESSION_HARNESSES)[number]) =>
+    resolveCodeSessionPayer({
+      workspaceId,
+      agentId,
+      requestUserId,
+      wanted,
+      personalOnly,
+    })
+  const fallback = await resolve().catch((err: unknown) => routeError(err))
+  if (typeof fallback === "string") return { unavailable: fallback }
   const codingAgents = await Promise.all(
-    CODING_AGENTS.filter(isHarnessEnabled).map(async (harness) => {
+    CODE_SESSION_HARNESSES.filter(isHarnessEnabled).map(async (harness) => {
       try {
-        const route = await taskRoute(
-          workspaceId,
-          agentId,
+        // The default entry is what leaving `harness` out starts on.
+        const resolved =
+          harness === fallback.harness ? fallback : await resolve(harness)
+        const catalog = await sessionModelCatalog(
           harness,
-          requestUserId
+          resolved.route,
+          workspaceId
         )
-        const catalog = await sessionModelCatalog(harness, route, workspaceId)
         return {
           harness,
-          default: harness === defaultHarness,
-          paidBy: payerOf(route),
+          default: harness === fallback.harness,
+          paidBy: PAYER_LABELS[resolved.payer],
           defaultModel: catalog.defaultModel,
           models: catalog.models.map((model) => ({
             id: model.id,
             name: model.name,
             efforts: model.efforts,
-            fast: model.fast && route?.source === "subscription",
+            fast: model.fast && resolved.route.source === "subscription",
           })),
         }
       } catch (err) {
@@ -236,6 +224,7 @@ async function sessionOptions(
     )
     .where(eq(schema.environment.workspaceId, workspaceId))
   return {
+    defaultRunsOn: runsOnText(fallback),
     codingAgents,
     environments,
     sandboxGb: CODE_SANDBOX_MEMORY_OPTIONS_MB.map((mb) => mb / 1024),
@@ -404,23 +393,11 @@ export function agentSessionExecutors(
               "Code sessions from Discord need the person asking to link their Lor account. Tell them to run /lor connect-account in Discord, then ask again.",
           }
         }
-        if (!(await hasOwnRequestRoute(workspaceId, owner))) {
-          return {
-            error:
-              "A code session from Discord runs on the asker's own plan, and they have none in Lor. Tell them to link their Claude or ChatGPT account in Lor's settings, then ask again.",
-          }
-        }
         requestUserId = owner
       }
       const available = await reposForAgent(workspaceId, args.agentId)
       if ("error" in available) return available
       const { repos } = available
-      // The agent's own coding-agent settings, for a session nobody asked
-      // for; the asker's preference otherwise.
-      const settings = await getHarnessSettings({ agentId: args.agentId })
-      const defaultHarness = requestUserId
-        ? await personalRequestHarness(workspaceId, requestUserId)
-        : settings.defaultHarness
       if (!repo) {
         return {
           repos,
@@ -428,7 +405,7 @@ export function agentSessionExecutors(
             workspaceId,
             args.agentId,
             requestUserId,
-            defaultHarness
+            place
           )),
         }
       }
@@ -464,23 +441,23 @@ export function agentSessionExecutors(
         }
       }
 
-      const harness = wanted ?? defaultHarness
-      if (!isHarnessEnabled(harness))
+      if (wanted && !isCodeSessionHarness(wanted))
         return {
-          error:
-            "The selected coding agent is unavailable. Update your linked accounts or this agent's settings.",
+          error: `A code session runs on ${CODE_SESSION_HARNESSES.map((h) => HARNESS_LABELS[h]).join(" or ")}.`,
         }
-      let route: TaskRoute
+      let resolved: CodeSessionRoute
       try {
-        route = await taskRoute(
+        resolved = await resolveCodeSessionPayer({
           workspaceId,
-          args.agentId,
-          harness,
-          requestUserId
-        )
+          agentId: args.agentId,
+          requestUserId,
+          wanted: wanted ?? undefined,
+          personalOnly: place,
+        })
       } catch (err) {
         return { error: routeError(err) }
       }
+      const { harness, route } = resolved
       const picksIssue = checkPicks(
         await sessionModelCatalog(harness, route, workspaceId),
         route,
@@ -619,7 +596,7 @@ export function agentSessionExecutors(
       return {
         sessionId,
         title,
-        runsOn: `${harness === "pi" ? "Lor" : harness === "codex" ? "Codex" : "Claude Code"} with ${requestUserId && harness !== "pi" ? "the requester's personal subscription" : "workspace API or autonomous billing"}`,
+        runsOn: runsOnText(resolved),
         ...(place
           ? {
               discord:
@@ -709,19 +686,23 @@ export function agentSessionExecutors(
       }
       // A session from Discord goes on on its owner's plan, wherever the
       // follow-up comes from.
-      const payer = (await isPlace(session.channelId))
-        ? session.creatorId
-        : args.requestUserId
+      const place = await isPlace(session.channelId)
+      // An earlier Pi session keeps running on Pi; nothing to resolve.
       let route: TaskRoute
-      try {
-        route = await taskRoute(
-          workspaceId,
-          args.agentId,
-          session.harness,
-          payer
-        )
-      } catch (err) {
-        return { error: routeError(err) }
+      if (isCodeSessionHarness(session.harness)) {
+        try {
+          route = (
+            await resolveCodeSessionPayer({
+              workspaceId,
+              agentId: args.agentId,
+              requestUserId: place ? session.creatorId : args.requestUserId,
+              wanted: session.harness,
+              personalOnly: place,
+            })
+          ).route
+        } catch (err) {
+          return { error: routeError(err) }
+        }
       }
       if (picks.model || picks.effort || picks.fast) {
         const picksIssue = checkPicks(

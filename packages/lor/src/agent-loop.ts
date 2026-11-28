@@ -875,6 +875,7 @@ async function turnLoop(
         languageModel: args.languageModel,
         assertCanInfer: run.assertCanInfer,
         tools: args.tools,
+        toolsContext: args.toolsContext,
         record: async (usage) => {
           const counters = await agent.recordUsage(usage, "compaction")
           ledgerSpend.credits = counters.creditsSpent
@@ -1177,6 +1178,10 @@ export async function compactAgentConversation(args: {
   assertCanInfer?: () => Promise<void>
   byok?: boolean
   tools: ToolSet
+  // The tool context map built for this tool set in respond(). The tools are
+  // inert here, but their descriptions still render, and a description that
+  // reads its context (the GitHub repo list) needs it as much as a call does.
+  toolsContext: unknown
   record: (usage: RunStepRecord & { reasoningTokens: number }) => Promise<void>
   abortSignal?: AbortSignal
   inTurn?: boolean
@@ -1205,6 +1210,9 @@ export async function compactAgentConversation(args: {
     instructions: cachedInstructions(args.model, context.system),
     messages,
     tools: inert,
+    // Same per-tool context as the turn, so the rendered tool prefix (and its
+    // cached instructions) matches byte for byte.
+    toolsContext: args.toolsContext as never,
     stopWhen: isStepCount(1),
     providerOptions: gatewayOptions(
       args.model,

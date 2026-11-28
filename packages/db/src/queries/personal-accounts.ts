@@ -1,4 +1,3 @@
-import { isHarnessEnabled } from "@repo/utils/features"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { LOR_USER_ID } from "../constants"
 import { db } from "../index"
@@ -32,39 +31,12 @@ export async function getPersonalHarnessSettings(
   return { defaultHarness: settings?.defaultHarness ?? "auto" }
 }
 
-export async function personalRequestHarness(
-  workspaceId: string,
-  userId: string
-) {
-  const settings = await getPersonalHarnessSettings(workspaceId, userId)
-  if (settings.defaultHarness !== "auto") return settings.defaultHarness
-  for (const [harness, provider] of [
-    ["claude_code", "claude"],
-    ["codex", "chatgpt"],
-  ] as const) {
-    if (
-      isHarnessEnabled(harness) &&
-      (await hasPersonalAccount(userId, provider))
-    )
-      return harness
-  }
-  return "pi" as const
-}
-
-// Whether a person's own plan pays for what they ask: they linked an account
-// that is in use, or picked how their requests run (Lor's API included).
-// With neither, the agent's own accounts are the backup
-// (reference/agents-and-chats.md, decision 7).
-export async function hasOwnRequestRoute(workspaceId: string, userId: string) {
-  const settings = await getPersonalHarnessSettings(workspaceId, userId)
-  if (settings.defaultHarness !== "auto") return true
-  return (await personalRequestHarness(workspaceId, userId)) !== "pi"
-}
-
-// Whose plan pays for a turn woken by this message: the person who addressed
-// the agent, when they have a route of their own. Null: the agent's settings
-// decide. Background observation of human chat does not authorize using its
-// author's plan.
+// The person who asked for a turn woken by this message: they addressed the
+// agent, or the inbox classifier read the message as meant for it (LOR-171).
+// Code sessions the turn starts try their plan first and fall back to the
+// agent's settings when they have none (resolveCodeSessionPayer). Null:
+// automation or background observation of human chat, which never spends a
+// person's plan.
 export async function channelRequestUserId(
   channelId: string,
   triggerMessageId: string | null
@@ -78,8 +50,7 @@ export async function channelRequestUserId(
       // A mention of Lor or of one of the chat's agents by its own id.
       explicit: sql<boolean>`(${message.content} like ${`%<@${LOR_USER_ID}>%`} or exists (select 1 from channel_agent ca where ca.channel_id = ${message.channelId} and ${message.content} like '%<@' || ca.agent_id || '>%'))`,
       threadRootId: message.threadRootId,
-      // It named no agent and the inbox classifier woke one for it
-      // (LOR-171): the author did not ask, so their plan is not used.
+      // It named no agent and the inbox classifier woke one for it.
       inferred: sql<boolean>`exists (select 1 from agent_inbox i where i.message_id = ${message.id} and i.inferred)`,
       repliedToLor: sql<boolean>`exists (select 1 from message r where r.id = ${message.referencedMessageId} and (r.author_id = ${LOR_USER_ID}::uuid or exists (select 1 from agent a where a.id = r.author_id)))`,
     })
@@ -89,16 +60,16 @@ export async function channelRequestUserId(
     .where(
       and(eq(message.id, triggerMessageId), eq(message.channelId, channelId))
     )
-  if (!trigger || trigger.isBot || !trigger.workspaceId || trigger.inferred)
-    return null
-  // In the chat only a mention or a reply wakes the agent, so a top-level
-  // trigger was addressed to it. In a thread it also hears the rest.
+  if (!trigger || trigger.isBot || !trigger.workspaceId) return null
+  // In the chat only a mention, a reply or the classifier wakes the agent,
+  // so a top-level trigger was addressed to it. In a thread it also hears
+  // the rest.
   const addressed =
-    trigger.explicit || trigger.repliedToLor || !trigger.threadRootId
-  if (!addressed) return null
-  return (await hasOwnRequestRoute(trigger.workspaceId, trigger.userId))
-    ? trigger.userId
-    : null
+    trigger.explicit ||
+    trigger.repliedToLor ||
+    trigger.inferred ||
+    !trigger.threadRootId
+  return addressed ? trigger.userId : null
 }
 
 // Whether a person linked their own account at a provider: a Claude Code or
@@ -294,7 +265,7 @@ export async function resolveHarnessAccount(
         : null
       throw new HarnessAccountLimitError(provider, until, owner, scope.userId)
     }
-    throw new Error(
+    throw new HarnessAccountUnavailableError(
       scope.userId
         ? "No available linked account for this provider. Connect an account in Settings → Linked accounts, or wait for its usage limit to reset."
         : "None of this agent's accounts for this provider is available. An admin can change them in the agent's settings, or switch it to API billing."
@@ -317,6 +288,10 @@ function resetsIn(until: Date) {
     ? `in about ${hours} h`
     : `in about ${Math.round(hours / 24)} days`
 }
+
+// No connected or selected account can pay (as opposed to a query failure),
+// so a code-session payer may move on to the next payer.
+export class HarnessAccountUnavailableError extends Error {}
 
 // A person's (or an agent's) plan is at its usage limit on every account
 // that could pay. The message names whose and when it resets, for the
