@@ -18,6 +18,49 @@ agent, model and the other session settings per session. Where this doc
 says a direct channel request or channel inference uses a subscription, read
 "a coding session". Runs that pinned a subscription before keep it to finish.
 
+Changed 2026-11-28: one resolver picks every new code session's harness and
+payer, and a new code session never runs on Pi (see "Code session payer").
+
+## Code session payer
+
+`resolveCodeSessionPayer` (`packages/lor/src/code-session-payer.ts`) decides
+the harness and payer of each new code session and of an agent's follow-ups
+in one, in this order:
+
+1. **The requester's own plan.** For a direct request only: the person's
+   preferred agent (Settings → Linked accounts), then the other coding agent,
+   using the first one they linked an account for, in their account order and
+   fallback. A personal preference of "Lor · API billing" (`pi`) or no linked
+   account moves on. A plan at its usage limit refuses; the work never moves
+   to another plan or payer.
+2. **The agent's Runs policy.** Its subscription accounts when an admin chose
+   subscription billing, else the workspace's provider API key when the agent
+   bills that coding agent to it and the key exists.
+3. **Lor credits.** The real Claude Code or Codex harness with inference
+   through the AI Gateway (`apiBilling: "lor"`), when `checkCredits` allows.
+4. **Refusal.** An error that says what to set up (Linked accounts, the
+   agent's Runs, AI providers or credits). `start_session` returns it for the
+   agent to pass on verbatim.
+
+Loops, connector events, check-ins and Act sessions have no requester and start
+at step 2. A Discord place is personal only: step 1 or a refusal.
+`start_session` without a repo lists each coding agent with who would pay, marks
+the one the resolver would pick as the default, and returns `unavailable` when
+nothing can pay. Its `runsOn` names the harness and payer it started on.
+
+Pi is not a code-session harness (decision 34): `CODE_SESSION_HARNESSES` in
+`packages/utils/src/features.ts`. `createSession` refuses a new code session on
+any other harness (forks keep their source's). Realtime's `codeStartFor`
+refuses it from clients, and the agent Runs API no longer accepts `pi` as
+a default. A saved `pi` default reads as "no preference". Existing Pi sessions,
+chat-mode Act sessions and voice-channel Loop sessions keep running on Pi.
+
+Requester attribution (`channelRequestUserId`): a channel turn's trigger
+from a person who mentioned the agent, replied to it, posted top-level, or
+whom the inbox classifier read as meant for it (`agent_inbox.inferred`) is the
+requester, whether or not they linked a plan. Thread chatter the agent only
+overhears, bots and automation are not.
+
 ## Settings
 
 - **Settings → Linked accounts** connects multiple named Claude Code and Codex
@@ -46,10 +89,10 @@ says a direct channel request or channel inference uses a subscription, read
 ## Routing
 
 A person's direct channel requests and Claude Code or Codex session turns use
-that person's ordered account pool. A person with no account linked, who has
-not picked how their requests run, has no route of their own: the request is
-paid by the agent's settings (`hasOwnRequestRoute`). Code-session tasks started during a direct
-channel request pin the requester’s account before enqueueing. Automated Loop
+that person's ordered account pool. A person with no account linked has no
+route of their own: the code sessions they ask for go down the resolver above.
+Code-session tasks started during a direct channel request pin the resolved
+route before enqueueing. Automated Loop
 fires, connector events, background channel wake-ups, compaction and post-answer
 memory work use the settings of the agent in the channel (`channelAgentId`;
 a channel with no agent, like a voice channel, gets the defaults: Lor's own

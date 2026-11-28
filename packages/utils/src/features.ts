@@ -24,6 +24,17 @@ export const HOSTED_BETA_HARNESSES: readonly string[] = [
   "codex",
 ]
 
+// Harnesses a new code session can run on (decision 34): never Lor's own
+// agent (pi), whichever path starts it. Existing Pi sessions keep running.
+export const CODE_SESSION_HARNESSES = ["claude_code", "codex"] as const
+export type CodeSessionHarness = (typeof CODE_SESSION_HARNESSES)[number]
+
+export function isCodeSessionHarness(
+  harness: string | null | undefined
+): harness is CodeSessionHarness {
+  return (CODE_SESSION_HARNESSES as readonly string[]).includes(harness ?? "")
+}
+
 export function isHarnessAllowedInBeta(harness: string): boolean {
   return HOSTED_BETA_HARNESSES.includes(harness)
 }

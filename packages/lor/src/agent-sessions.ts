@@ -17,7 +17,10 @@ import { getHarnessSettings } from "@repo/db/queries/personal-accounts"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { AgentSession, Loop } from "@repo/db/schema"
 import type { RealtimeAgentSession } from "@repo/realtime-types/events"
-import { assertHarnessEnabled } from "@repo/utils/features"
+import {
+  assertHarnessEnabled,
+  isCodeSessionHarness,
+} from "@repo/utils/features"
 import type { Exact, SerializedDates } from "./wire-guard"
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -106,6 +109,9 @@ export type CreateSessionArgs = {
 
 // Anchor, session row, context and subscriptions in the caller's
 // transaction, so a retried send (same nonce) can't leave an orphan session.
+const CODE_SESSION_HARNESS_REQUIRED =
+  "A code session runs on Claude Code or Codex. Pick one of them to start it."
+
 export async function createSession(
   tx: Tx,
   args: CreateSessionArgs
@@ -113,6 +119,10 @@ export async function createSession(
   await assertWorkspaceActive(args.workspaceId)
   assertHostedHarness(args.harness ?? "pi")
   assertHarnessEnabled(args.harness ?? "pi")
+  // Decision 34: a new code session never runs on Pi. A fork keeps its
+  // source's harness so earlier Pi sessions still fork.
+  if (args.code && !args.sourceSessionId && !isCodeSessionHarness(args.harness))
+    throw new Error(CODE_SESSION_HARNESS_REQUIRED)
   const [anchor] = await tx
     .insert(schema.message)
     .values({

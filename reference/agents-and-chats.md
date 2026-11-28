@@ -444,8 +444,9 @@ agents are told still say "channel" in places.
   its settings section are gone. The agent's `model` is the one model
   setting, and can be one the workspace's own API key pays for.
 - [x] **Payer order** (decision 7): a person with no plan of their own falls
-  to the agent's settings (`hasOwnRequestRoute` in
-  `packages/db/src/queries/personal-accounts.ts`).
+  to the agent's settings, then Lor credits, for code sessions
+  (`resolveCodeSessionPayer` in `packages/lor/src/code-session-payer.ts`,
+  2026-11-28; `reference/harness-accounts.md`).
 - [x] **The data move** (`packages/db/src/scripts/agents-from-channels.ts`):
   `scripts/push.mjs` runs it before every `db:push`, because that push drops
   what it copies. It works from the original per-channel columns or from the

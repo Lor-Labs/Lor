@@ -117,7 +117,11 @@ const saveSettings = createRoute({
     query: z.object({ agentId: z.string().uuid() }),
     body: {
       ...jsonContent({
-        schema: settings.partial(),
+        // Lor's own agent (pi) is no longer a coding-session harness; a
+        // saved "pi" still reads back, but can't be picked again.
+        schema: settings
+          .extend({ defaultHarness: z.enum(["claude_code", "codex"]) })
+          .partial(),
         description: "Changed run settings of one agent",
       }),
       required: true,
